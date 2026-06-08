@@ -1,0 +1,17 @@
+[ssh_discovery]
+enabled = true
+config_path = "~/.ssh/config"
+include = ["*"]
+exclude = []
+
+[server_aliases]
+"gpu-box" = "训练机"
+"192.0.2.10" = "双卡机"
+
+[[servers]]
+id = "lab-node"
+name = "实验服务器"
+mode = "ssh"
+host_name = "192.0.2.11"
+user = "alice"
+port = "22"

@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Local agent/tooling state
+.agents/
+.codex/
+
+# Secrets & user config
+config/secrets.toml
+config/user_servers.toml
+
+# Runtime data
+data/jobs.json
+data/workspaces.json
+data/provider_profiles.json
+data/logs/
+
+# Local/private planning docs and scratch space
+docs/
+temp/
+
+# Test artifacts
+test-results/
+
+# Environment
+.env
+.env.*

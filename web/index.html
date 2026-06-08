@@ -1,0 +1,1378 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RelayGraph</title>
+    <link rel="stylesheet" href="/styles.css?v=20260606a" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">RG</div>
+          <div>
+            <h1>RelayGraph</h1>
+            <p>节点化工作链与多 agent 编排</p>
+          </div>
+        </div>
+        <div class="sidebar-section sidebar-section-grow">
+          <div class="section-title">
+            服务器
+            <button id="manageServersBtn" class="link-button" type="button" title="打开服务器管理：新增、编辑、隐藏、恢复和检查 SSH 服务器">管理</button>
+          </div>
+          <div class="sidebar-tools">
+            <label class="sidebar-sort">
+              <span>排序</span>
+              <select id="serverSortSelect">
+                <option value="default">默认顺序</option>
+                <option value="manual">手动排序</option>
+                <option value="idle">空闲优先</option>
+                <option value="alerts">异常优先</option>
+                <option value="gpus">GPU 多优先</option>
+                <option value="processes">进程多优先</option>
+                <option value="name">按名称</option>
+              </select>
+            </label>
+          </div>
+          <div id="serverList" class="server-list"></div>
+        </div>
+        <nav id="mainNav" class="sidebar-nav">
+          <button class="nav-item active" data-view="console" type="button" title="查看服务器、GPU、显存、进程和集群健康状态">
+            <span class="nav-icon">◉</span>
+            <span class="nav-label">监控台</span>
+          </button>
+          <button class="nav-item" data-view="workspace" type="button" title="进入自动化复现/部署驾驶舱和配置中心">
+            <span class="nav-icon">◈</span>
+            <span class="nav-label">工作台</span>
+          </button>
+          <button class="nav-item" data-view="exec" type="button" title="提交单命令、批量任务或文件传输任务">
+            <span class="nav-icon">▶</span>
+            <span class="nav-label">执行</span>
+          </button>
+          <button class="nav-item" data-view="activity" type="button" title="查看任务、tmux、输出日志和页面终端">
+            <span class="nav-icon">☰</span>
+            <span class="nav-label">活动</span>
+          </button>
+        </nav>
+      </aside>
+
+      <div id="serverModal" class="modal" hidden>
+        <div class="modal-card server-modal-card">
+          <div class="modal-head">
+            <h3>服务器管理</h3>
+            <button id="closeModalBtn" class="icon-button" type="button" title="关闭">×</button>
+          </div>
+          <div class="modal-body server-modal-body">
+            <h4>已有服务器</h4>
+            <p id="discoveryInfo" class="muted"></p>
+            <div id="adminServerList" class="admin-list"></div>
+            <p id="adminServerMessage" class="form-message"></p>
+
+            <h4>新增 SSH 服务器</h4>
+            <p class="muted">配置保存至 config/user_servers.toml，密码保存至 config/secrets.toml</p>
+            <form id="addServerForm" class="add-form">
+              <label>
+                显示别名
+                <input name="name" placeholder="例如 7卡3090" required />
+              </label>
+              <div class="form-row">
+                <label>
+                  HostName / IP
+                  <input name="host_name" placeholder="example.com 或 192.0.2.10" />
+                </label>
+                <label>
+                  SSH alias（~/.ssh/config 的 Host）
+                  <input name="ssh_alias" placeholder="可选" />
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  用户
+                  <input name="user" placeholder="可选" />
+                </label>
+                <label>
+                  端口
+                  <input name="port" placeholder="22" />
+                </label>
+              </div>
+              <label>
+                密码（可选，写在 user_servers.toml）
+                <input name="password" type="password" placeholder="留空则用 ssh key 或 secrets.toml" />
+              </label>
+              <button class="primary" type="submit" title="保存当前 SSH 服务器配置并刷新服务器列表">添加</button>
+              <button class="secondary cancel-edit-btn" type="button" title="退出编辑状态，不保存当前修改" hidden>取消编辑</button>
+              <p id="addServerMessage" class="form-message"></p>
+            </form>
+
+            <div id="hiddenList"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="filePickerModal" class="modal" hidden>
+        <div class="modal-card file-picker-card">
+          <div class="modal-head">
+            <div>
+              <h3 id="filePickerTitle">选择文件或文件夹</h3>
+              <p id="filePickerSubtitle" class="modal-subtitle">浏览 WSL 可访问路径，例如 /mnt/e、/mnt/f、Home 和项目目录。</p>
+            </div>
+            <button id="closeFilePickerBtn" class="icon-button" type="button" title="关闭">×</button>
+          </div>
+          <div class="file-picker-body">
+            <aside id="filePickerRoots" class="file-picker-roots"></aside>
+            <section class="file-picker-main">
+              <div class="file-picker-path">
+                <button id="filePickerUpBtn" class="secondary mini" type="button" title="跳到当前路径的上一级目录">上级</button>
+                <input id="filePickerPathInput" placeholder="~/projects 或 /mnt" />
+                <button id="filePickerOpenBtn" class="secondary mini" type="button" title="按输入框路径重新加载文件列表">打开</button>
+                <button id="filePickerChooseDirBtn" class="primary mini" type="button" title="把当前目录填回正在配置的路径字段">选择当前文件夹</button>
+              </div>
+              <div class="file-picker-content">
+                <div id="filePickerList" class="file-picker-list"></div>
+                <section class="file-preview-panel">
+                  <div class="subsection-head">
+                    <strong id="filePreviewTitle">文本预览</strong>
+                    <span id="filePreviewMeta" class="muted">选择文件后预览</span>
+                  </div>
+                  <pre id="filePreview" class="file-preview">选择文件查看预览。</pre>
+                </section>
+              </div>
+              <p id="filePickerMessage" class="form-message"></p>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <h2>GPU 集群</h2>
+            <p id="refreshMeta">等待数据</p>
+          </div>
+          <div class="top-actions">
+            <span id="healthPill" class="pill">offline</span>
+            <button id="refreshBtn" class="icon-button" type="button" title="刷新全部服务器、GPU、任务和监控状态；不会重置工作台正在编辑的选项卡">
+              <span class="icon-glyph" aria-hidden="true">↻</span>
+            </button>
+          </div>
+        </header>
+
+        <section id="consoleOverviewPanel" class="overview-grid" hidden>
+          <div class="metric-card">
+            <span class="metric-label">在线服务器</span>
+            <strong id="summaryOnlineServers" class="metric-value">0 / 0</strong>
+            <span class="metric-meta">当前可连接主机</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">空闲 GPU</span>
+            <strong id="summaryIdleGpus" class="metric-value">0</strong>
+            <span class="metric-meta">满足当前空闲阈值</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">运行中任务</span>
+            <strong id="summaryRunningJobs" class="metric-value">0</strong>
+            <span class="metric-meta">包含启动中与等待释放</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">传输任务</span>
+            <strong id="summaryTransferJobs" class="metric-value">0</strong>
+            <span class="metric-meta">文件同步与日志汇总</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">异常服务器</span>
+            <strong id="summaryAlertServers" class="metric-value">0</strong>
+            <span class="metric-meta">近几轮出现离线或错误</span>
+          </div>
+        </section>
+
+        <section id="consoleMonitorPanel" class="grid two monitor-grid" hidden>
+          <div class="panel gpu-panel">
+            <div class="panel-head">
+              <h3>显卡</h3>
+              <div class="panel-head-actions">
+                <button id="refreshSelectedServerBtn" class="secondary mini" type="button" title="只刷新当前选中服务器的 GPU、显存、进程和连接状态">刷新选中服务器</button>
+                <span id="gpuCount" class="muted">0 张卡</span>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>服务器</th>
+                    <th>GPU</th>
+                    <th>显存</th>
+                    <th>算力利用率</th>
+                    <th>温度</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="gpuRows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="panel process-panel">
+            <div class="panel-head">
+              <h3>进程 <span class="heading-note">点击行查看完整命令</span></h3>
+              <span id="processCount" class="muted">0 个运行中</span>
+            </div>
+            <div class="process-tools solo">
+              <div class="process-filters">
+                <input id="processSearch" placeholder="搜索命令 / 用户 / PID / 服务器" />
+                <select id="processServerFilter">
+                  <option value="">全部服务器</option>
+                </select>
+                <select id="processUserFilter">
+                  <option value="">全部用户</option>
+                </select>
+                <select id="processGpuFilter">
+                  <option value="">全部 GPU</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-wrap small">
+              <table id="processTable" class="process-table">
+                <colgroup>
+                  <col data-col="actions" style="width: 84px" />
+                  <col data-col="server" style="width: 96px" />
+                  <col data-col="gpu" style="width: 60px" />
+                  <col data-col="pid" style="width: 88px" />
+                  <col data-col="user" style="width: 102px" />
+                  <col data-col="vram" style="width: 88px" />
+                  <col data-col="command" style="width: 420px" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th data-col="actions">操作</th>
+                    <th data-col="server" data-sort="server">服务器<span class="sort-indicator"></span><span class="col-resizer"></span></th>
+                    <th data-col="gpu" data-sort="gpu">GPU<span class="sort-indicator"></span><span class="col-resizer"></span></th>
+                    <th data-col="pid" data-sort="pid">PID<span class="sort-indicator"></span><span class="col-resizer"></span></th>
+                    <th data-col="user" data-sort="user">用户<span class="sort-indicator"></span><span class="col-resizer"></span></th>
+                    <th data-col="vram" data-sort="vram">VRAM<span class="sort-indicator"></span><span class="col-resizer"></span></th>
+                    <th data-col="command" data-sort="command">命令<span class="sort-indicator"></span><span class="col-resizer"></span></th>
+                  </tr>
+                </thead>
+                <tbody id="processRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="workspaceHubPanel" class="panel full-panel workspace-hub-panel" hidden>
+          <div class="panel-head">
+            <div>
+              <h3>工作台 <span class="heading-note">自动化复现与部署驾驶舱</span></h3>
+              <p class="panel-subtitle">从 repo、论文或想法出发，把资料检索、仓库检查、数据集、路径、环境、GPU 调度、运行和报告串成可见工作链。</p>
+            </div>
+            <span id="workspaceCount" class="muted">0 个实例</span>
+          </div>
+          <div class="workspace-mode-shell">
+            <div id="workspaceModeSwitch" class="segmented-tabs workspace-mode-switch">
+              <button class="tab-chip active" data-mode="use" type="button" title="进入自动化复现/部署驾驶舱：从目标输入、实例创建到执行链跟踪">驾驶舱</button>
+              <button class="tab-chip" data-mode="manage" type="button" title="维护自动化能力底座：Starter Chain、Agent、工具和 AI 路由">配置中心</button>
+            </div>
+
+            <section id="workspaceUseModePanel" class="workspace-mode-panel">
+              <section class="workspace-use-intake">
+                <div class="subsection-head">
+                  <strong>自动化启动器</strong>
+                  <span class="muted">写目标即可启动；仓库、论文、路径和上下文会被整理成项目输入与 starter chain。</span>
+                </div>
+                <div class="workspace-use-input-grid">
+                  <label class="workspace-use-goal">
+                    复现 / 部署目标
+                    <textarea id="workspaceTaskGoalInput" rows="5" placeholder="例如：复现这篇论文，自动找实现和数据集，准备环境，选择空闲 GPU 跑 baseline，并汇总指标"></textarea>
+                  </label>
+                  <div class="workspace-use-support-grid">
+                    <label>
+                      候选仓库
+                      <textarea id="workspaceTaskRepoInput" rows="4" placeholder="每行一个 GitHub / Gitee URL"></textarea>
+                    </label>
+                    <label>
+                      论文 / 资料
+                      <textarea id="workspaceTaskPaperInput" rows="4" placeholder="每行一个论文或资料 URL"></textarea>
+                    </label>
+                    <label>
+                      数据集 / 路径线索
+                      <textarea id="workspaceTaskReferenceInput" rows="4" placeholder="每行一个数据集名、数据盘路径、链接或补充参考"></textarea>
+                    </label>
+                    <label>
+                      约束与成功标准
+                      <textarea id="workspaceTaskContextInput" rows="4" placeholder="每行一个限制条件、成功标准、已有发现或审批要求"></textarea>
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section class="workspace-cockpit-band">
+                <div class="subsection-head">
+                  <strong>驾驶舱概览</strong>
+                  <span class="muted">先看这次复现缺什么、下一步做什么、资源是否足够。</span>
+                </div>
+                <div id="workspaceCockpitCards" class="workspace-cockpit-grid"></div>
+                <div id="workspaceCockpitReadiness" class="workspace-cockpit-readiness"></div>
+                <div id="workspaceCockpitOperations" class="workspace-cockpit-operations"></div>
+              </section>
+
+              <section class="workspace-use-template-band">
+                <div class="subsection-head">
+                  <strong>Starter Chain</strong>
+                  <span class="muted">选择初始链路；创建实例后会复制成独立快照，后续模板改动不会污染旧实例。</span>
+                </div>
+                <div class="workspace-use-template-grid">
+                  <label>
+                    链路模板
+                    <select id="workspaceTemplateSelect" title="选择这次自动化实例要复制的 Starter Chain；创建后实例会拥有自己的节点快照"></select>
+                  </label>
+                  <div id="workspaceTemplateSummary" class="workspace-template-summary"></div>
+                  <div class="workspace-template-actions">
+                    <button id="workspaceCreateTaskBtn" class="secondary" type="button" title="只创建任务实例，不立即提交发现链或运行任务">创建任务</button>
+                    <button id="workspaceCreateDiscoverTaskBtn" class="primary" type="button" title="创建实例后提交安全发现链，只探测源码、路径、数据、环境、GPU 和产物入口">创建并自动发现</button>
+                    <button id="workspaceCreateRunTaskBtn" class="secondary" type="button" title="创建实例后交给自动推进决策；首次通常先跑安全发现，门禁通过后再完整运行">创建并自动推进</button>
+                  </div>
+                </div>
+                <p id="workspaceUseMessage" class="form-message"></p>
+              </section>
+
+              <div class="workspace-use-grid">
+                <section class="workspace-use-main">
+                  <section class="workspace-use-board">
+                    <div class="subsection-head">
+                      <strong>执行看板</strong>
+                      <span id="workspaceExecutionMeta" class="muted">按顺序显示节点、责任 Agent 和当前状态。</span>
+                    </div>
+                    <div id="workspaceExecutionBoard" class="workspace-execution-board"></div>
+                  </section>
+                </section>
+
+                <aside class="workspace-use-side">
+                  <section class="workspace-use-detail">
+                    <div class="subsection-head">
+                      <strong>实例详情</strong>
+                      <span id="workspaceSelectedInstanceMeta" class="muted">选择右侧实例或新建任务后在这里查看当前节点。</span>
+                    </div>
+                    <div id="workspaceExecutionDetail" class="workspace-execution-detail"></div>
+                  </section>
+
+                  <section class="workspace-use-chat">
+                    <div class="workspace-chat-toolbar">
+                      <div>
+                        <strong>实例对话</strong>
+                        <p class="muted">围绕当前实例继续补上下文、追问或让默认聊天 Agent 回复。</p>
+                      </div>
+                      <label>
+                        对话 Agent
+                        <select id="workspaceUseChatAgentSelect"></select>
+                      </label>
+                    </div>
+                    <div id="workspaceUseChatList" class="workspace-chat-list"></div>
+                    <div class="workspace-chat-composer">
+                      <textarea id="workspaceUseChatInput" rows="4" placeholder="对当前实例继续补充信息或发起追问"></textarea>
+                      <div class="button-row">
+                        <button id="workspaceUseChatSendBtn" class="primary" type="button" title="把这段补充信息发送给当前工作台对话 Agent">发送</button>
+                        <span id="workspaceUseChatHint" class="muted"></span>
+                      </div>
+                    </div>
+                  </section>
+                  <section class="workspace-use-history">
+                    <div class="subsection-head">
+                      <strong>任务实例 / 历史</strong>
+                      <span id="workspaceMeta" class="muted">按最近更新时间排序</span>
+                    </div>
+                    <div id="workspaceHistoryList" class="workspace-list workspace-history-list"></div>
+                  </section>
+                </aside>
+              </div>
+            </section>
+
+            <section id="workspaceManageModePanel" class="workspace-mode-panel" hidden>
+              <div id="workspaceManageTabs" class="segmented-tabs workspace-manage-tabs">
+                <button class="tab-chip active" data-tab="templates" type="button" title="编辑 Starter Chain 模板，实例创建时会复制成独立快照">工作流模板</button>
+                <button class="tab-chip" data-tab="agents" type="button" title="维护全局 Agent 角色、提示词、工具 allowlist 和模型覆盖">Agent</button>
+                <button class="tab-chip" data-tab="tools" type="button" title="维护工具注册表，控制 Agent 可以使用哪些真实动作">工具</button>
+                <button class="tab-chip" data-tab="ai" type="button" title="维护 Provider Profile、模型路由和模板默认聊天 Agent">AI</button>
+              </div>
+              <section class="workspace-manage-overview">
+                <div class="subsection-head">
+                  <strong>配置中心概览</strong>
+                  <span class="muted">这里维护自动复现/部署的能力底座：Starter Chain、Agent 角色、工具边界和模型路由。</span>
+                </div>
+                <div id="workspaceManageOverviewCards" class="workspace-manage-overview-grid"></div>
+                <div id="workspaceManageFocusSummary" class="workspace-manage-focus"></div>
+              </section>
+              <p id="workspaceManageMessage" class="form-message"></p>
+
+              <section id="workspaceManageTemplatesPanel" class="workspace-manage-panel">
+                <div class="workspace-manage-grid">
+                  <aside class="workspace-template-list-panel">
+                    <div class="workspace-manage-toolbar">
+                      <strong>模板列表</strong>
+                      <div class="button-row">
+                        <button id="workspaceNewTemplateBtn" class="secondary" type="button" title="创建一条新的 Starter Chain 模板">新建模板</button>
+                        <button id="workspaceDeleteTemplateBtn" class="secondary danger" type="button" title="删除当前模板；不会删除已经创建的任务实例快照">删除模板</button>
+                      </div>
+                    </div>
+                    <div class="workspace-template-seeds">
+                      <button class="secondary mini" data-seed="repo" type="button" title="重置为仓库复现默认链路">Repo 默认流</button>
+                      <button class="secondary mini" data-seed="paper" type="button" title="重置为论文复现默认链路">Paper 默认流</button>
+                      <button class="secondary mini" data-seed="idea" type="button" title="重置为想法/目标探索默认链路">Idea 默认流</button>
+                    </div>
+                    <div id="workflowTemplateList" class="workspace-template-list"></div>
+                  </aside>
+
+                  <section class="workspace-template-studio">
+                    <div class="workspace-manage-toolbar">
+                      <div>
+                        <strong id="workflowTemplateTitle">工作流模板</strong>
+                        <span id="workflowTemplateMeta" class="muted">顺序链路工作室，节点顺序与执行语义保持一致。</span>
+                      </div>
+                      <div class="button-row">
+                        <button id="workspaceSaveTemplateBtn" class="primary" type="button" title="保存当前模板、节点链、默认输入、Agent 和工具配置">保存模板</button>
+                      </div>
+                    </div>
+                    <div id="workflowTemplateStudioOverview" class="workspace-template-studio-overview"></div>
+
+                    <section class="workspace-manage-section">
+                      <div class="workspace-manage-section-head">
+                        <div>
+                          <strong>基本信息</strong>
+                          <span class="muted">定义模板的来源类型、摘要和可见状态。</span>
+                        </div>
+                      </div>
+                      <div class="workspace-template-form-grid">
+                        <label>
+                          模板名称
+                          <input id="templateNameInput" placeholder="例如 Repo 复现默认流" />
+                        </label>
+                        <label>
+                          来源模式
+                          <select id="templateSourceTypeSelect">
+                            <option value="repo">repo</option>
+                            <option value="paper">paper</option>
+                            <option value="idea">idea</option>
+                            <option value="mixed">mixed</option>
+                          </select>
+                        </label>
+                        <label>
+                          状态
+                          <select id="templateStatusSelect">
+                            <option value="ready">ready</option>
+                            <option value="draft">draft</option>
+                            <option value="blocked">blocked</option>
+                          </select>
+                        </label>
+                        <label>
+                          标签
+                          <input id="templateTagsInput" placeholder="repo,reproduction,default" />
+                        </label>
+                      </div>
+
+                      <div class="workspace-template-two-col">
+                        <label>
+                          模板说明
+                          <textarea id="templateDescriptionInput" rows="2" placeholder="模板适合什么场景、默认会怎么跑"></textarea>
+                        </label>
+                        <label>
+                          默认简报
+                          <textarea id="templateBriefInput" rows="2" placeholder="模板复制到实例时会作为初始摘要"></textarea>
+                        </label>
+                      </div>
+                    </section>
+
+                    <section class="workspace-manage-section">
+                      <div class="workspace-manage-section-head">
+                        <div>
+                          <strong>默认输入与环境</strong>
+                          <span class="muted">这些值会进入模板快照，实例创建时可以被输入覆盖。</span>
+                        </div>
+                      </div>
+                      <div class="workspace-template-two-col">
+                        <label>
+                          默认仓库
+                          <input id="templateRepoUrlInput" placeholder="https://github.com/org/project.git" />
+                        </label>
+                        <label>
+                          默认仓库分支 / 提交
+                          <input id="templateRepoRefInput" placeholder="main / commit sha" />
+                        </label>
+                      </div>
+
+                      <div class="workspace-template-two-col">
+                        <label>
+                          默认论文 / 资料
+                          <input id="templatePaperUrlInput" placeholder="https://arxiv.org/abs/xxxx.xxxxx" />
+                        </label>
+                        <label>
+                          默认工作目录
+                          <input id="templateWorkspaceDirInput" placeholder="/path/to/workspace" />
+                        </label>
+                      </div>
+
+                      <label>
+                        默认想法 / 目标
+                        <textarea id="templateIdeaInput" rows="2" placeholder="用于 idea / mixed 模板的默认目标说明"></textarea>
+                      </label>
+
+                      <div class="workspace-template-form-grid">
+                        <label>
+                          环境名
+                          <input id="templateEnvNameInput" placeholder="agent-workspace" />
+                        </label>
+                        <label>
+                          环境管理
+                          <select id="templateEnvManagerSelect">
+                            <option value="conda">conda</option>
+                            <option value="venv">venv</option>
+                            <option value="custom">custom</option>
+                          </select>
+                        </label>
+                        <label>
+                          Python 版本
+                          <input id="templatePythonVersionInput" placeholder="3.11" />
+                        </label>
+                        <label>
+                          默认对话 Agent
+                          <select id="templateChatAgentSelect"></select>
+                        </label>
+                      </div>
+                    </section>
+
+                    <section class="workspace-manage-section">
+                      <div class="workspace-manage-section-head">
+                        <div>
+                          <strong>AI 与路由</strong>
+                          <span class="muted">控制模板默认 Provider Profile、路由模式和聊天 Agent。</span>
+                        </div>
+                      </div>
+                      <div class="workspace-template-form-grid">
+                        <label>
+                          默认 Provider Profile
+                          <select id="templateProviderProfileSelect"></select>
+                        </label>
+                        <label>
+                          路由模式
+                          <select id="templateRoutingModeSelect">
+                            <option value="workspace_default">workspace_default</option>
+                            <option value="agent_override">agent_override</option>
+                          </select>
+                        </label>
+                      </div>
+                    </section>
+
+                    <section class="workspace-template-chain workspace-manage-section">
+                      <div class="subsection-head">
+                        <strong>顺序链路工作室</strong>
+                        <span class="muted">继续沿用顺序链，不假装成自由 DAG 画布。</span>
+                      </div>
+                      <div class="workspace-node-toolbar">
+                        <select id="workflowTemplateNodeKindSelect"></select>
+                        <button id="workflowTemplateAddNodeBtn" class="secondary" type="button" title="在当前选中节点后插入一个新节点">插入节点</button>
+                        <button id="workflowTemplateMoveUpBtn" class="secondary" type="button" title="把当前节点向前移动，改变顺序执行链">上移</button>
+                        <button id="workflowTemplateMoveDownBtn" class="secondary" type="button" title="把当前节点向后移动，改变顺序执行链">下移</button>
+                        <button id="workflowTemplateDeleteNodeBtn" class="secondary danger" type="button" title="删除当前节点，并重建相邻节点连接">删除节点</button>
+                        <button id="workflowTemplateRebuildBtn" class="secondary" type="button" title="按来源类型重新生成默认 Starter Chain，会覆盖当前节点链">重建 starter chain</button>
+                      </div>
+                      <div class="workspace-node-layout">
+                        <div id="workflowTemplateNodeList" class="workspace-node-list"></div>
+                        <div id="workflowTemplateNodeEditor" class="workspace-node-editor"></div>
+                      </div>
+                    </section>
+                  </section>
+                </div>
+              </section>
+
+              <section id="workspaceManageAgentsPanel" class="workspace-manage-panel" hidden>
+                <div class="workspace-manage-grid">
+                  <aside class="workspace-template-list-panel">
+                    <div class="workspace-manage-toolbar">
+                      <strong>全局 Agent</strong>
+                      <button id="workspaceNewAgentBtn" class="secondary" type="button" title="创建一条全局 Agent 定义，可被模板和项目实例复用">新增 Agent</button>
+                    </div>
+                    <div id="manageAgentList" class="workspace-template-list"></div>
+                  </aside>
+                  <section id="manageAgentEditor" class="workspace-template-studio"></section>
+                </div>
+              </section>
+
+              <section id="workspaceManageToolsPanel" class="workspace-manage-panel" hidden>
+                <div class="workspace-manage-grid">
+                  <aside class="workspace-template-list-panel">
+                    <div class="workspace-manage-toolbar">
+                      <strong>全局工具</strong>
+                      <button id="workspaceNewToolBtn" class="secondary" type="button" title="创建一条全局工具定义，供 Agent allowlist 引用">新增工具</button>
+                    </div>
+                    <div id="manageToolList" class="workspace-template-list"></div>
+                  </aside>
+                  <section id="manageToolEditor" class="workspace-template-studio"></section>
+                </div>
+              </section>
+
+              <section id="workspaceManageAiPanel" class="workspace-manage-panel" hidden>
+                <div class="workspace-manage-grid">
+                  <aside class="workspace-template-list-panel">
+                    <div class="workspace-manage-toolbar">
+                      <strong>Provider Profiles</strong>
+                      <button id="workspaceManageAddProviderBtn" class="secondary" type="button" title="新增一个模型 Provider Profile，用于工作流和 Agent 路由">新增 Profile</button>
+                    </div>
+                    <div id="manageProviderProfileList" class="workspace-template-list"></div>
+                  </aside>
+                  <section id="manageAiEditor" class="workspace-template-studio"></section>
+                </div>
+              </section>
+            </section>
+          </div>
+          <div class="workspace-grid workspace-legacy-grid" hidden>
+            <section class="workspace-editor">
+              <form id="workspaceForm" class="workspace-form" autocomplete="off">
+                <input id="workspaceIdInput" name="workspace_id" type="hidden" />
+                <section class="workspace-hero">
+                  <div>
+                    <div class="workspace-eyebrow">Project Workspace</div>
+                    <h4 id="workspaceTitleDisplay">新工作区</h4>
+                    <p id="workspaceSummaryMeta" class="muted">保存后会把对话、工作流、Agent 配置和 AI 路由一起挂到当前项目。</p>
+                  </div>
+                  <div class="button-row workspace-actions">
+                    <button class="primary" type="submit" title="保存当前项目实例、节点链、Agent、工具和 AI 路由草稿">保存项目</button>
+                    <button id="workspaceRunFlowBtn" class="secondary" type="button" title="按当前节点链提交完整工作流；门禁失败时不会创建半截队列">运行工作流</button>
+                    <button id="workspaceResetBtn" class="secondary" type="button" title="清空当前表单并回到新的草稿项目">新建空白</button>
+                    <button id="workspaceFillJobBtn" class="secondary" type="button" title="把当前运行节点的命令、目录、环境和 GPU 策略填入执行面板">填入执行面板</button>
+                  </div>
+                </section>
+                <section class="workspace-module-band">
+                  <div class="subsection-head">
+                    <strong>工作台模块</strong>
+                    <span class="muted">每个模块只负责一类操作，避免所有配置堆在一起。</span>
+                  </div>
+                  <div id="workspaceModuleCards" class="workspace-module-grid"></div>
+                </section>
+                <div id="workspaceTabs" class="segmented-tabs workspace-tabs">
+                  <button class="tab-chip active" data-tab="home" type="button" title="查看项目状态、执行准备、资源调度和最近运行">概览</button>
+                  <button class="tab-chip" data-tab="config" type="button" title="编辑项目基础信息、运行偏好和 starter chain">配置</button>
+                  <button class="tab-chip" data-tab="agents" type="button" title="编辑当前项目实例内的 Agent、工具和模型路由">Agent</button>
+                  <button class="tab-chip" data-tab="runs" type="button" title="查看当前项目绑定的任务记录和输出入口">记录</button>
+                </div>
+                <p id="workspaceMessage" class="form-message"></p>
+
+                <section id="workspaceHomePanel" class="workspace-tab-panel">
+                  <div class="workspace-home-grid">
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>项目概览</strong>
+                        <span class="muted">先看当前项目状态，再进入具体模块。</span>
+                      </div>
+                      <div id="workspaceHomeSummary" class="workspace-home-summary-grid"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>下一步建议</strong>
+                        <span class="muted">按当前资料和运行状态收口到最该做的动作。</span>
+                      </div>
+                      <div id="workspaceHomeActions" class="workspace-home-actions"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>项目摘要</strong>
+                        <span class="muted">目标、输入来源、目录、环境和模型路由。</span>
+                      </div>
+                      <div id="workspaceHomeBrief" class="workspace-home-brief"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>工作流快照</strong>
+                        <span class="muted">节点链和交接方向都先在这里过一眼。</span>
+                      </div>
+                      <div id="workspaceHomeFlow" class="workspace-home-flow"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>执行准备清单</strong>
+                        <span class="muted">把发现、回填、门禁、完整运行和产物回收串成一条可解释链。</span>
+                      </div>
+                      <div id="workspaceHomeReadiness" class="workspace-home-readiness"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>资源/数据/环境/GPU 调度</strong>
+                        <span class="muted">看工作目录、数据集、环境、GPU、运行入口和产物是否能串起来。</span>
+                      </div>
+                      <div id="workspaceHomeResources" class="workspace-home-resources"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>Agent / Tool / AI 分层</strong>
+                        <span class="muted">看每个阶段由谁接手、能用什么工具、走哪个模型路由。</span>
+                      </div>
+                      <div id="workspaceHomeTopology" class="workspace-home-topology"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>最近运行</strong>
+                        <span class="muted">先看当前项目最近绑定的任务和状态。</span>
+                      </div>
+                      <div id="workspaceHomeRuns" class="workspace-home-run-list"></div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>快捷入口</strong>
+                        <span class="muted">按你的工作节奏切到编辑、执行或排查。</span>
+                      </div>
+                      <div id="workspaceHomeQuickLinks" class="workspace-home-quick-grid"></div>
+                    </section>
+                  </div>
+                </section>
+
+                <section id="workspaceProjectPanel" class="workspace-tab-panel" hidden>
+                  <div class="workspace-overview-grid">
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>项目基本信息</strong>
+                        <span class="muted">从通用目标开始，再补 repo / 论文 / 运行偏好。</span>
+                      </div>
+                      <div class="form-row">
+                        <label>
+                          项目名称
+                          <input id="workspaceNameInput" name="name" placeholder="例如 多 agent 复现实验工作台" />
+                        </label>
+                        <label>
+                          起点线索
+                          <select id="workspaceSourceType" name="source_type">
+                            <option value="repo">仓库</option>
+                            <option value="paper">论文</option>
+                            <option value="idea">通用目标</option>
+                          </select>
+                        </label>
+                      </div>
+                      <label>
+                        项目简报
+                        <textarea id="workspaceBrief" name="brief" rows="4" placeholder="用户现在要完成什么、成功标准是什么、有哪些约束"></textarea>
+                      </label>
+                      <label>
+                        参考输入
+                        <textarea id="workspaceReferences" name="references" rows="3" placeholder="每行一条，可以放 URL、本地路径、提示词片段、待核对备注"></textarea>
+                      </label>
+                      <div class="form-row">
+                        <label>
+                          标签
+                          <input id="workspaceTags" name="tags" placeholder="chat,workflow,remote,baseline" />
+                        </label>
+                        <label>
+                          状态
+                          <select id="workspaceStatus" name="status">
+                            <option value="draft">草稿</option>
+                            <option value="ready">已就绪</option>
+                            <option value="running">执行中</option>
+                            <option value="blocked">阻塞</option>
+                          </select>
+                        </label>
+                      </div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>结构化线索</strong>
+                        <span class="muted">这些字段会同步进 starter chain 的源节点。</span>
+                      </div>
+                      <div class="form-row">
+                        <label>
+                          仓库地址
+                          <input id="workspaceRepoUrl" name="repo_url" placeholder="https://github.com/org/project.git" />
+                        </label>
+                        <label>
+                          分支 / 提交
+                          <input id="workspaceRepoRef" name="repo_ref" placeholder="main / v1.0 / commit sha" />
+                        </label>
+                      </div>
+                      <div class="form-row">
+                        <label>
+                          论文链接
+                          <input id="workspacePaperUrl" name="paper_url" placeholder="https://arxiv.org/abs/xxxx.xxxxx" />
+                        </label>
+                        <label>
+                          工作目录
+                          <input id="workspaceDir" name="workspace_dir" placeholder="/path/to/workspace" />
+                        </label>
+                      </div>
+                      <label>
+                        补充背景
+                        <textarea id="workspaceIdeaText" name="idea_text" rows="4" placeholder="例如：想把 repo 分析、环境准备、运行和报告拆成可见节点"></textarea>
+                      </label>
+                      <label>
+                        备注
+                        <textarea id="workspaceNotes" name="notes" rows="3" placeholder="这里写依赖、目标指标、评估要求、审批点"></textarea>
+                      </label>
+                    </section>
+                  </div>
+
+                  <section class="workspace-section">
+                    <div class="subsection-head">
+                      <strong>运行偏好</strong>
+                      <span class="muted">默认命令、环境和输出整理方式会同步到工作流节点。</span>
+                    </div>
+                    <div class="form-row compact">
+                      <label>
+                        环境名
+                        <input id="workspaceEnvName" name="env_name" placeholder="agent-workspace" />
+                      </label>
+                      <label>
+                        环境管理
+                        <select id="workspaceEnvManager" name="env_manager">
+                          <option value="conda">conda</option>
+                          <option value="venv">venv</option>
+                          <option value="custom">custom</option>
+                        </select>
+                      </label>
+                      <label>
+                        Python 版本
+                        <input id="workspacePythonVersion" name="python_version" placeholder="3.11" />
+                      </label>
+                    </div>
+                    <label>
+                      Setup 命令
+                      <textarea id="workspaceSetupCommand" name="setup_command" rows="2" placeholder="pip install -r requirements.txt"></textarea>
+                    </label>
+                    <label>
+                      Run 命令
+                      <textarea id="workspaceRunCommand" name="run_command" rows="3" placeholder="python train.py --config configs/base.yaml"></textarea>
+                    </label>
+                    <div class="form-row">
+                      <label>
+                        Report 命令
+                        <input id="workspaceReportCommand" name="report_command" placeholder="python eval.py --latest" />
+                      </label>
+                      <label>
+                        定时 / 批量计划
+                        <input id="workspaceSchedule" name="schedule" placeholder="例如每天 02:00 或 sweep:v1" />
+                      </label>
+                    </div>
+                  </section>
+                </section>
+
+                <section id="workspaceWorkflowPanel" class="workspace-tab-panel" hidden>
+                  <section class="workspace-node-panel">
+                    <div class="subsection-head">
+                      <strong>节点工作流</strong>
+                      <span id="workspaceNodeMeta" class="muted">节点可以手动增删、重排、指派 agent，再交给执行面板。</span>
+                    </div>
+                    <div class="workspace-node-toolbar">
+                      <select id="workspaceNodeKindSelect"></select>
+                      <button id="workspaceAddNodeBtn" class="secondary" type="button" title="在当前节点链中插入所选类型的新节点">插入节点</button>
+                      <button id="workspaceRebuildGraphBtn" class="secondary" type="button" title="按项目来源重新生成默认 starter chain，会覆盖当前节点链草稿">重建 starter chain</button>
+                      <button id="workspaceAssignRolesBtn" class="secondary" type="button" title="根据节点类型自动给 Planner、Researcher、Runner 等 Agent 分配职责">应用推荐分工</button>
+                      <span id="workspaceNodeCount" class="muted">0 个节点</span>
+                    </div>
+                    <div class="workspace-node-layout">
+                      <div id="workspaceNodeList" class="workspace-node-list"></div>
+                      <div id="workspaceNodeEditor" class="workspace-node-editor"></div>
+                    </div>
+                  </section>
+                </section>
+
+                <section id="workspaceChatPanel" class="workspace-tab-panel" hidden>
+                  <div class="workspace-chat-panel">
+                    <div class="workspace-chat-toolbar">
+                      <div>
+                        <strong>项目对话</strong>
+                        <p class="muted">先把需求和上下文记到项目里，后面再接真实模型服务。</p>
+                      </div>
+                      <label>
+                        对话 Agent
+                        <select id="workspaceChatAgentSelect"></select>
+                      </label>
+                    </div>
+                    <div id="workspaceChatList" class="workspace-chat-list"></div>
+                    <div class="workspace-chat-composer">
+                      <textarea id="workspaceChatInput" rows="4" placeholder="直接用自然语言补充需求、追问、确认下一步，或者让某个 agent 接手"></textarea>
+                      <div class="button-row">
+                        <button id="workspaceChatSendBtn" class="primary" type="button" title="把当前消息追加到项目对话，供后续自动化决策参考">发送到项目对话</button>
+                        <span id="workspaceChatHint" class="muted"></span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section id="workspaceAgentsPanel" class="workspace-tab-panel" hidden>
+                  <div class="workspace-agent-panel">
+                    <div class="workspace-agent-toolbar">
+                      <div>
+                        <strong>Agent 管理</strong>
+                        <p class="muted">每个 agent 有自己的角色、提示词、工具和模型覆盖。</p>
+                      </div>
+                      <div class="button-row">
+                        <button id="workspaceFillRolesBtn" class="secondary" type="button" title="按复现/部署链路补齐默认 Agent 角色，不覆盖已有自定义 Agent">补齐推荐角色</button>
+                        <button id="workspaceAddAgentBtn" class="secondary" type="button" title="在当前项目实例内新增一个 Agent 草稿">新增 Agent</button>
+                        <span id="workspaceAgentCount" class="muted">0 个 agent</span>
+                      </div>
+                    </div>
+                    <div id="workspaceAgentPresetList" class="workspace-role-library"></div>
+                    <div class="workspace-agent-layout">
+                      <div id="workspaceAgentList" class="workspace-agent-list"></div>
+                      <div id="workspaceAgentEditor" class="workspace-agent-editor"></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section id="workspaceToolsPanel" class="workspace-tab-panel" hidden>
+                  <div class="workspace-agent-panel">
+                    <div class="workspace-agent-toolbar">
+                      <div>
+                        <strong>工具注册</strong>
+                        <p class="muted">每个工具定义能力边界，agent 只会看到它被允许的工具。</p>
+                      </div>
+                      <div class="button-row">
+                        <button id="workspaceRestoreToolsBtn" class="secondary" type="button" title="补齐复现/部署常用工具定义，不移除已有工具">补齐推荐工具</button>
+                        <button id="workspaceAddToolBtn" class="secondary" type="button" title="在当前项目实例内新增一个工具草稿">新增工具</button>
+                        <span id="workspaceToolCount" class="muted">0 个工具</span>
+                      </div>
+                    </div>
+                    <div id="workspaceToolCatalogSummary" class="workspace-tool-catalog-summary"></div>
+                    <div class="workspace-agent-layout">
+                      <div id="workspaceToolList" class="workspace-tool-list"></div>
+                      <div id="workspaceToolEditor" class="workspace-tool-editor"></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section id="workspaceModelPanel" class="workspace-tab-panel" hidden>
+                  <div class="workspace-model-grid">
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>项目级 AI 路由</strong>
+                        <span class="muted">项目只保存选中的 profile id；API key 只放在当前浏览器本地。</span>
+                      </div>
+                      <div class="workspace-model-form">
+                        <label>
+                          默认 Provider Profile
+                          <select id="workspaceModelProfileSelect"></select>
+                        </label>
+                        <label>
+                          路由模式
+                          <select id="workspaceModelRoutingSelect">
+                            <option value="workspace_default">项目统一默认</option>
+                            <option value="agent_override">允许 agent 覆盖</option>
+                          </select>
+                        </label>
+                        <label>
+                          默认对话 Agent
+                          <select id="workspaceModelChatAgentSelect"></select>
+                        </label>
+                        <label>
+                          路由备注
+                          <textarea id="workspaceModelNotes" rows="4" placeholder="例如：Planner 和 Researcher 共用同一模型，Runner 走独立 profile"></textarea>
+                        </label>
+                      </div>
+                    </section>
+
+                    <section class="workspace-section">
+                      <div class="subsection-head">
+                        <strong>本地 Provider Profiles</strong>
+                        <span class="muted">只写入 localStorage，不会跟着项目一起提交。</span>
+                      </div>
+                      <div class="workspace-provider-toolbar">
+                        <button id="workspaceAddProviderBtn" class="secondary" type="button" title="新增一个当前浏览器可用的 Provider Profile">新增 Profile</button>
+                        <span id="workspaceProviderCount" class="muted">0 个 profile</span>
+                      </div>
+                      <div class="workspace-provider-layout">
+                        <div id="providerProfileList" class="workspace-provider-list"></div>
+                        <div id="providerProfileEditor" class="workspace-provider-editor"></div>
+                      </div>
+                    </section>
+                  </div>
+                </section>
+
+                <section id="workspaceRunsPanel" class="workspace-tab-panel" hidden>
+                  <div class="workspace-runs-panel">
+                    <div class="workspace-agent-toolbar">
+                      <div>
+                        <strong>运行记录</strong>
+                        <p class="muted">当前项目绑定的节点任务、最近状态和输出入口。</p>
+                      </div>
+                      <span id="workspaceRunMeta" class="muted">0 个任务</span>
+                    </div>
+                    <div id="workspaceRunSummary" class="workspace-run-summary-grid"></div>
+                    <div id="workspaceRunList" class="workspace-run-list"></div>
+                  </div>
+                </section>
+              </form>
+            </section>
+            <section class="workspace-side">
+              <div class="subsection-head">
+                <strong>已保存项目</strong>
+                <span id="workspaceMeta" class="muted">按最近更新时间排序</span>
+              </div>
+              <div id="workspaceList" class="workspace-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="consoleExecPanel" class="panel full-panel workspace-panel" hidden>
+          <div class="panel-head panel-head-tabs">
+            <div>
+              <h3>执行面板 <span class="heading-note">单命令、批量调度、文件传输</span></h3>
+              <p class="panel-subtitle">常用动作都收在这里，配置会记住最近一次输入。</p>
+            </div>
+            <div id="execTabs" class="segmented-tabs">
+              <button class="tab-chip active" data-tab="job" type="button" title="提交一条命令到所选服务器/GPU，可绑定工作台节点">单命令</button>
+              <button class="tab-chip" data-tab="plan" type="button" title="按模板和参数矩阵生成多条任务并调度 GPU">批量任务</button>
+              <button class="tab-chip" data-tab="transfer" type="button" title="用 rsync 把文件或目录加入传输任务队列">文件传输</button>
+            </div>
+          </div>
+
+          <section id="execJobPanel" class="tab-panel">
+            <form id="jobForm">
+              <input id="jobWorkspaceIdInput" name="workspace_id" type="hidden" />
+              <input id="jobWorkspaceNodeIdInput" name="workspace_node_id" type="hidden" />
+              <input id="jobWorkspaceNodeTitleInput" name="workspace_node_title" type="hidden" />
+              <div class="form-row">
+                <label>
+                  服务器
+                  <select id="serverSelect" name="server_id"></select>
+                </label>
+                <label>
+                  GPU
+                  <select id="gpuSelect" name="gpu_index"></select>
+                </label>
+              </div>
+              <div class="form-row">
+                <label>
+                  工作目录
+                  <input name="cwd" placeholder="/path/to/project" />
+                </label>
+                <label>
+                  运行环境
+                  <input name="env_name" placeholder="myenv 或 /home/user/envs/myenv" />
+                </label>
+              </div>
+              <label>
+                命令
+                <textarea name="command" rows="5" placeholder="python train.py --config config.yaml"></textarea>
+              </label>
+              <div class="form-row compact">
+                <label>
+                  空闲显存 MiB
+                  <input name="min_free_mib" type="number" min="0" value="1024" />
+                </label>
+                <label>
+                  最大利用率 %
+                  <input name="max_gpu_util" type="number" min="0" max="100" value="10" />
+                </label>
+              </div>
+              <label class="check">
+                <input name="wait_for_idle" type="checkbox" checked />
+                等待所选 GPU 空闲后再运行
+              </label>
+              <div class="button-row single-action-row">
+                <button class="primary" type="submit" title="把当前命令提交到任务中心，按 GPU 空闲策略调度运行">运行任务</button>
+                <span id="jobSourceHint" class="muted"></span>
+                <p id="formMessage" class="form-message"></p>
+              </div>
+            </form>
+          </section>
+
+          <section id="execPlanPanel" class="tab-panel" hidden>
+            <form id="taskPlanForm" class="task-plan-form">
+              <div class="task-plan-columns">
+                <div class="task-plan-main">
+                  <div class="form-row">
+                    <label>
+                      模板
+                      <select id="taskTemplateSelect" name="template">
+                        <option value="preset">内置预设</option>
+                        <option value="custom">自定义命令矩阵</option>
+                      </select>
+                    </label>
+                    <label>
+                      任务上限
+                      <input name="limit" type="number" min="0" value="4" />
+                    </label>
+                  </div>
+                  <div id="presetTemplateFields" class="template-fields compact-template">
+                    <label>
+                      数据集
+                      <input name="datasets" value="dataset_a" placeholder="dataset_a,dataset_b" />
+                    </label>
+                  </div>
+                  <div id="customTemplateFields" class="template-fields compact-template" hidden>
+                    <label>
+                      命令模板
+                      <textarea name="command_template" rows="3" placeholder="python train.py --data_name {dataset} --gpu_id 0"></textarea>
+                    </label>
+                    <label>
+                      参数矩阵（每行一组 key=value，或 JSON 对象）
+                      <textarea name="params_text" rows="3" placeholder="dataset=dataset_a,batch=8&#10;dataset=dataset_b,batch=4"></textarea>
+                    </label>
+                  </div>
+                  <div class="form-row">
+                    <label>
+                      候选服务器
+                      <select id="planServerSelect" name="server_id"></select>
+                    </label>
+                    <label>
+                      GPU 策略
+                      <select id="planGpuSelect" name="gpu_index"></select>
+                    </label>
+                  </div>
+                  <label>
+                    运行环境
+                    <input name="env_name" placeholder="myenv 或 /home/user/envs/myenv" />
+                  </label>
+                </div>
+                <div class="task-plan-side">
+                  <details class="advanced-fields">
+                    <summary>高级设置</summary>
+                    <div class="form-row">
+                      <label>
+                        本地项目目录
+                        <input name="local_project_dir" value="/path/to/project" />
+                      </label>
+                      <label>
+                        远程项目目录
+                        <input name="remote_project_dir" value="/home/{user}/project" />
+                      </label>
+                    </div>
+                    <label>
+                      数据根目录
+                      <input name="data_root" placeholder="/path/to/datasets" />
+                    </label>
+                    <label>
+                      任务名称模板
+                      <input name="name_template" value="批量任务 {index}" />
+                    </label>
+                    <label>
+                      Profile 命令模板（可选）
+                      <textarea name="profile_command_template" rows="2" placeholder="python smoke_test_single.py --data_name {dataset} --bs {batch}"></textarea>
+                    </label>
+                    <div class="form-row compact">
+                      <label>
+                        显存阈值 MiB
+                        <input name="max_memory_mib" type="number" min="0" value="0" />
+                      </label>
+                      <label>
+                        最大利用率 %
+                        <input name="max_gpu_util" type="number" min="0" max="100" value="10" />
+                      </label>
+                      <label>
+                        Profile 安全系数
+                        <input name="profile_safety" type="number" step="0.1" min="1" value="1.2" />
+                      </label>
+                    </div>
+                    <label class="check">
+                      <input name="profile_first" type="checkbox" checked />
+                      先运行 profile/smoke，再按峰值显存调度训练
+                    </label>
+                  </details>
+                  <div id="taskPlanPreview" class="plan-preview">选择模板后点击预览。</div>
+                  <div class="button-row">
+                    <button id="taskPlanPreviewBtn" class="secondary" type="button" title="先生成任务清单和显存阈值预览，不真正入队">预览任务</button>
+                    <button class="primary" type="submit" title="把预览对应的批量任务加入任务中心">加入任务中心</button>
+                  </div>
+                  <p id="taskPlanMessage" class="form-message"></p>
+                </div>
+              </div>
+            </form>
+          </section>
+
+          <section id="execTransferPanel" class="tab-panel" hidden>
+            <form id="transferForm" class="transfer-form" autocomplete="off">
+              <div class="transfer-path-row">
+                <label class="path-field">
+                  源路径
+                  <div class="path-server-grid">
+                    <select id="transferSourceServerSelect" aria-label="源服务器"></select>
+                    <div class="input-action path-input-action">
+                      <input id="transferSourceInput" name="source" autocomplete="off" placeholder="/path/to/project/weights/" required />
+                      <button id="sourceBrowseBtn" class="secondary mini" type="button" title="打开文件选择器，从源服务器或本机选择源路径">浏览</button>
+                      <button id="sourceInspectBtn" class="secondary mini" type="button" title="加载源路径文件树，便于多选和忽略文件">查看</button>
+                    </div>
+                  </div>
+                </label>
+                <label class="path-field">
+                  目标路径
+                  <div class="path-server-grid">
+                    <select id="transferTargetServerSelect" aria-label="目标服务器"></select>
+                    <div class="input-action path-input-action">
+                      <input id="transferTargetInput" name="target" autocomplete="off" placeholder="/path/to/weights/" required />
+                      <button id="targetBrowseBtn" class="secondary mini" type="button" title="打开文件选择器，从目标服务器或本机选择目标目录">浏览</button>
+                      <button id="targetInspectBtn" class="secondary mini" type="button" title="加载目标服务器目录树，确认目标路径是否存在">查看</button>
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <div class="transfer-workbench">
+                <section class="transfer-browser-card source-browser-card">
+                  <div class="subsection-head">
+                    <strong>源目录 / 文件</strong>
+                    <span id="transferTreeMeta" class="muted">选择源路径后显示文件树</span>
+                  </div>
+                  <div id="transferTree" class="inline-file-tree">
+                    <div class="empty compact-empty">还没有选择源路径。</div>
+                  </div>
+                  <div class="selected-sources-box">
+                    <div class="selected-sources-head">
+                      <strong>待传源项</strong>
+                      <span id="selectedSourceCount" class="muted">0 项</span>
+                    </div>
+                    <div id="selectedSourceList" class="selected-source-list">
+                      <div class="empty compact-empty">可以从文件树或弹窗里把多个文件、文件夹加入这里。</div>
+                    </div>
+                  </div>
+                </section>
+                <section class="transfer-browser-card">
+                  <div class="subsection-head">
+                    <strong>目标目录</strong>
+                    <span id="targetTreeMeta" class="muted">选择服务器后浏览目标目录</span>
+                  </div>
+                  <div id="targetTree" class="inline-file-tree target-file-tree">
+                    <div class="empty compact-empty">还没有选择目标目录。</div>
+                  </div>
+                </section>
+                <section class="transfer-ignore-card">
+                  <div class="subsection-head">
+                    <strong>忽略文件</strong>
+                    <span id="ignoreCount" class="muted">0 项</span>
+                  </div>
+                  <input id="transferExcludeInput" name="exclude" placeholder="可手动输入，逗号或换行分隔" />
+                  <div id="ignoreChips" class="ignore-chips"></div>
+                </section>
+              </div>
+
+              <div class="transfer-submit-row">
+                <label class="check transfer-check">
+                  <input name="size_only" type="checkbox" checked />
+                  快速跳过同尺寸
+                </label>
+                <label class="check transfer-check">
+                  <input name="resume_partial" type="checkbox" checked />
+                  断点续传校验
+                </label>
+                <label class="check transfer-check">
+                  <input name="checksum" type="checkbox" />
+                  严格校验内容
+                </label>
+                <button class="primary" type="submit" title="用当前源项、目标目录和忽略规则创建 rsync 传输任务">加入传输任务</button>
+                <p id="transferMessage" class="form-message"></p>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <section id="consoleActivityPanel" class="panel full-panel activity-panel" hidden>
+          <div class="panel-head panel-head-tabs">
+            <div>
+              <h3>活动中心 <span class="heading-note">任务、tmux、输出、页面终端</span></h3>
+              <p class="panel-subtitle">查看运行情况、复用日志标签，并在需要时直接开交互终端。</p>
+            </div>
+            <div id="activityTabs" class="segmented-tabs">
+              <button class="tab-chip active" data-tab="tasks" type="button" title="查看、筛选、停止、重试和复用任务">任务</button>
+              <button class="tab-chip" data-tab="tmux" type="button" title="查看所选服务器上的 tmux 会话输出">tmux</button>
+              <button class="tab-chip" data-tab="output" type="button" title="查看当前打开的任务、tmux 或进程输出标签">输出</button>
+              <button class="tab-chip" data-tab="terminal" type="button" title="在所选服务器上打开一个页面终端标签">终端</button>
+            </div>
+          </div>
+
+          <section id="activityTasksPanel" class="activity-body">
+            <div class="job-tools">
+              <div class="job-filters">
+                <input id="jobSearch" placeholder="搜索任务名 / 命令 / 错误 / ID" />
+                <select id="jobStatusFilter">
+                  <option value="">全部状态</option>
+                  <option value="running">运行中</option>
+                  <option value="waiting">等待中</option>
+                  <option value="done">已完成</option>
+                  <option value="failed">失败 / 已停止</option>
+                  <option value="transfer">文件传输</option>
+                </select>
+                <select id="jobTypeFilter">
+                  <option value="">全部类型</option>
+                  <option value="command">单命令</option>
+                  <option value="batch">批量任务</option>
+                  <option value="profile">Profile</option>
+                  <option value="transfer">文件传输</option>
+                </select>
+                <select id="jobServerFilter">
+                  <option value="">全部服务器</option>
+                </select>
+                <select id="jobSortSelect">
+                  <option value="created_desc">最新优先</option>
+                  <option value="queue">队列顺序</option>
+                  <option value="duration_desc">耗时最长</option>
+                  <option value="created_asc">最早优先</option>
+                </select>
+              </div>
+              <div class="job-tools-meta">
+                <span id="jobCount" class="muted">0 个任务</span>
+                <button id="clearCompletedBtn" class="link-button" type="button" onclick="clearCompletedJobs(event)" title="删除已完成、失败或停止的任务记录">清理已完成</button>
+              </div>
+            </div>
+            <div id="jobList" class="job-list"></div>
+          </section>
+
+          <section id="activityTmuxPanel" class="activity-body" hidden>
+            <div class="subhead">
+              <h4>所选服务器 tmux</h4>
+              <span id="tmuxCount" class="muted">0 个会话</span>
+            </div>
+            <div id="tmuxList" class="tmux-list"></div>
+          </section>
+
+          <section id="activityConsolePanel" class="activity-body" hidden>
+            <div id="terminalLauncher" class="terminal-launcher" hidden>
+              <label class="inline-label">
+                终端服务器
+                <select id="terminalServerSelect"></select>
+              </label>
+              <button id="terminalBtn" class="secondary" type="button" title="在当前选择的服务器上打开新的交互终端标签">新终端标签</button>
+              <p id="terminalMessage" class="form-message"></p>
+            </div>
+          </section>
+        </section>
+
+        <!-- Fixed bottom output/terminal pane -->
+        <div id="logPane" class="bottom-pane" hidden>
+          <div class="output-tabs-row">
+            <div id="outputTabs" class="output-tabs"></div>
+          </div>
+          <div class="log-toolbar">
+            <span id="logTitle">输出</span>
+            <div class="log-actions">
+              <label class="log-search-field">
+                <input id="logSearchInput" placeholder="搜索输出" />
+              </label>
+              <span id="logSearchCount" class="muted">0 / 0</span>
+              <button id="logSearchPrevBtn" class="secondary mini" type="button" title="跳到当前输出里的上一个搜索命中">上一个</button>
+              <button id="logSearchNextBtn" class="secondary mini" type="button" title="跳到当前输出里的下一个搜索命中">下一个</button>
+              <button id="logDownloadBtn" class="secondary mini" type="button" title="下载当前打开的输出文本">下载</button>
+              <button id="logRefreshBtn" class="secondary mini" type="button" title="手动刷新当前任务日志或 tmux 输出">刷新</button>
+              <button id="logClearBtn" class="secondary mini" type="button" title="收起底部输出面板，不关闭任务">收起</button>
+              <button id="terminalCtrlCBtn" class="secondary mini terminal-only" type="button" title="向当前终端发送 Ctrl+C 中断信号" hidden>Ctrl+C</button>
+              <button id="terminalCloseBtn" class="secondary mini danger terminal-only" type="button" title="关闭当前页面终端标签，并尝试结束对应会话" hidden>关闭终端</button>
+              <label class="check small">
+                <input id="logAutoRefresh" type="checkbox" checked />
+                自动
+              </label>
+              <label class="check small">
+                <input id="logFollow" type="checkbox" checked />
+                到底
+              </label>
+            </div>
+          </div>
+          <pre id="logView" class="log-view">选择一个任务、tmux 会话或进程查看输出。</pre>
+          <form id="terminalInputForm" class="terminal-input-row" hidden>
+            <input id="terminalInput" autocomplete="off" placeholder="输入命令，回车发送" />
+            <button class="primary mini" type="submit" title="把输入框里的命令发送到当前终端">发送</button>
+          </form>
+        </div>
+      </main>
+    </div>
+    <script src="/app.js?v=20260606b"></script>
+  </body>
+</html>

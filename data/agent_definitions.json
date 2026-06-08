@@ -1,0 +1,160 @@
+[
+  {
+    "id": "planner",
+    "name": "Planner",
+    "role": "planner",
+    "prompt": "把用户目标整理成可执行节点和审批点。",
+    "tools": [
+      "workflow.edit",
+      "workflow.plan",
+      "artifact.write",
+      "chat.write"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "researcher",
+    "name": "Researcher",
+    "role": "researcher",
+    "prompt": "检索论文、repo、issue、文档和候选方案。",
+    "tools": [
+      "web.search",
+      "repo.search",
+      "artifact.read",
+      "artifact.write",
+      "dataset.find"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "repo-scout",
+    "name": "Repo Scout",
+    "role": "repo_scout",
+    "prompt": "理解仓库结构、依赖、入口和运行方式。",
+    "tools": [
+      "repo.clone",
+      "repo.read",
+      "repo.inspect",
+      "file.read",
+      "path.resolve"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "gpu-scout",
+    "name": "GPU Scout",
+    "role": "gpu_scout",
+    "prompt": "找可用显卡、判断忙碌程度并给出可运行的主机。",
+    "tools": [
+      "gpu.inspect",
+      "gpu.allocate",
+      "host.exec",
+      "dir.scan"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "env-builder",
+    "name": "Env Builder",
+    "role": "env_builder",
+    "prompt": "准备环境、检查依赖并整理安装步骤。",
+    "tools": [
+      "env.inspect",
+      "env.prepare",
+      "env.create",
+      "host.exec",
+      "env.infer"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "runner",
+    "name": "Runner",
+    "role": "runner",
+    "prompt": "把运行配方转换为实际任务并跟踪输出。",
+    "tools": [
+      "job.run",
+      "job.stop",
+      "job.reorder",
+      "gpu.allocate",
+      "log.read"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "evaluator",
+    "name": "Evaluator",
+    "role": "evaluator",
+    "prompt": "解析结果、指标、产出文件和回归结论。",
+    "tools": [
+      "artifact.read",
+      "log.read",
+      "report.write",
+      "notify.user",
+      "artifact.collect"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "watcher",
+    "name": "Watcher",
+    "role": "watcher",
+    "prompt": "监控运行异常、卡住的任务和日志里的错误信号。",
+    "tools": [
+      "log.read",
+      "job.stop",
+      "notify.user",
+      "artifact.write"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  },
+  {
+    "id": "reporter",
+    "name": "Reporter",
+    "role": "reporter",
+    "prompt": "把过程、结果和下一步建议整理成可分享的总结。",
+    "tools": [
+      "artifact.read",
+      "artifact.write",
+      "report.write",
+      "chat.write"
+    ],
+    "provider_profile_id": "",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-08T12:05:21"
+  }
+]

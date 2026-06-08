@@ -1,0 +1,21 @@
+[app]
+poll_interval_seconds = 5
+remote_timeout_seconds = 6
+idle_min_free_mib = 1024
+idle_max_gpu_util = 10
+
+[server_aliases]
+"local" = "本机"
+
+[[servers]]
+id = "local"
+name = "Local"
+mode = "local"
+enabled = true
+labels = ["local"]
+
+[ssh_discovery]
+enabled = true
+config_path = "~/.ssh/config"
+include = ["*"]
+exclude = []

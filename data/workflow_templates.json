@@ -1,0 +1,885 @@
+[
+  {
+    "id": "repo-default-flow",
+    "name": "Repo 复现默认流",
+    "description": "从 repo 输入、环境准备到运行与结果整理的顺序链路。",
+    "status": "ready",
+    "brief": "给定仓库地址后，自动完成克隆、检查、环境准备、运行与结果整理。",
+    "source": {
+      "type": "repo",
+      "repo_url": "",
+      "repo_ref": "",
+      "paper_url": "",
+      "idea_text": ""
+    },
+    "workspace_dir": "",
+    "env": {
+      "name": "",
+      "manager": "conda",
+      "python": ""
+    },
+    "recipes": [
+      {
+        "id": "default",
+        "name": "默认运行",
+        "setup_command": "",
+        "run_command": "",
+        "report_command": "",
+        "schedule": "",
+        "notes": "",
+        "enabled": true
+      }
+    ],
+    "model": {
+      "provider_profile_id": "",
+      "routing_mode": "workspace_default",
+      "chat_agent_id": "",
+      "notes": ""
+    },
+    "agent_ids": [
+      "repo-scout",
+      "env-builder",
+      "runner",
+      "evaluator"
+    ],
+    "tool_ids": [
+      "repo.clone",
+      "repo.read",
+      "repo.inspect",
+      "file.read",
+      "env.inspect",
+      "env.prepare",
+      "env.create",
+      "host.exec",
+      "job.run",
+      "job.stop",
+      "job.reorder",
+      "gpu.allocate",
+      "log.read",
+      "artifact.read",
+      "report.write",
+      "notify.user"
+    ],
+    "nodes": [
+      {
+        "id": "source.repo-31948ae8",
+        "kind": "source.repo",
+        "title": "仓库输入",
+        "status": "draft",
+        "config": {
+          "repo_url": "",
+          "repo_ref": ""
+        },
+        "handler": {
+          "mode": "human",
+          "agent_id": "",
+          "name": "你",
+          "handoff": "确认仓库地址、目标分支、成功标准和运行约束。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": "repo.clone-76c3789d",
+        "kind": "repo.clone",
+        "title": "克隆仓库",
+        "status": "draft",
+        "config": {
+          "repo_url": "",
+          "repo_ref": "",
+          "workspace_dir": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "记录克隆目录、分支或提交，并确认代码已经落地。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 240,
+          "y": 0
+        }
+      },
+      {
+        "id": "repo.inspect-02f4700b",
+        "kind": "repo.inspect",
+        "title": "检查仓库",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "focus_paths": "",
+          "questions": "入口、依赖、默认配置、结果目录"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 480,
+          "y": 0
+        }
+      },
+      {
+        "id": "env.prepare-1b9fdecb",
+        "kind": "env.prepare",
+        "title": "准备环境",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "env_name": "",
+          "env_manager": "conda",
+          "python_version": "",
+          "setup_command": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "env-builder",
+          "name": "Env Builder",
+          "handoff": "记录环境名、安装结果、失败依赖和替代方案。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 720,
+          "y": 0
+        }
+      },
+      {
+        "id": "run.command-35a9e2f5",
+        "kind": "run.command",
+        "title": "运行任务",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "env_name": "",
+          "server_id": "",
+          "gpu_policy": "auto",
+          "run_command": "",
+          "schedule": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "runner",
+          "name": "Runner",
+          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 960,
+          "y": 0
+        }
+      },
+      {
+        "id": "eval.report-e9fbfa76",
+        "kind": "eval.report",
+        "title": "结果整理",
+        "status": "draft",
+        "config": {
+          "report_command": "",
+          "metric_paths": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "evaluator",
+          "name": "Evaluator",
+          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 1200,
+          "y": 0
+        }
+      }
+    ],
+    "links": [
+      {
+        "id": "link-1-source.repo-31948ae8-repo.clone-76c3789d",
+        "from": "source.repo-31948ae8",
+        "to": "repo.clone-76c3789d"
+      },
+      {
+        "id": "link-2-repo.clone-76c3789d-repo.inspect-02f4700b",
+        "from": "repo.clone-76c3789d",
+        "to": "repo.inspect-02f4700b"
+      },
+      {
+        "id": "link-3-repo.inspect-02f4700b-env.prepare-1b9fdecb",
+        "from": "repo.inspect-02f4700b",
+        "to": "env.prepare-1b9fdecb"
+      },
+      {
+        "id": "link-4-env.prepare-1b9fdecb-run.command-35a9e2f5",
+        "from": "env.prepare-1b9fdecb",
+        "to": "run.command-35a9e2f5"
+      },
+      {
+        "id": "link-5-run.command-35a9e2f5-eval.report-e9fbfa76",
+        "from": "run.command-35a9e2f5",
+        "to": "eval.report-e9fbfa76"
+      }
+    ],
+    "notes": "",
+    "tags": [],
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-07T00:17:04"
+  },
+  {
+    "id": "paper-default-flow",
+    "name": "Paper 复现默认流",
+    "description": "从论文输入、资料检索到运行与评估的顺序链路。",
+    "status": "ready",
+    "brief": "给定论文链接后，先检索资料与候选实现，再继续环境准备、运行与评估。",
+    "source": {
+      "type": "paper",
+      "repo_url": "",
+      "repo_ref": "",
+      "paper_url": "",
+      "idea_text": ""
+    },
+    "workspace_dir": "",
+    "env": {
+      "name": "",
+      "manager": "conda",
+      "python": ""
+    },
+    "recipes": [
+      {
+        "id": "default",
+        "name": "默认运行",
+        "setup_command": "",
+        "run_command": "",
+        "report_command": "",
+        "schedule": "",
+        "notes": "",
+        "enabled": true
+      }
+    ],
+    "model": {
+      "provider_profile_id": "",
+      "routing_mode": "workspace_default",
+      "chat_agent_id": "",
+      "notes": ""
+    },
+    "agent_ids": [
+      "researcher",
+      "repo-scout",
+      "env-builder",
+      "runner",
+      "evaluator"
+    ],
+    "tool_ids": [
+      "web.search",
+      "repo.search",
+      "artifact.read",
+      "artifact.write",
+      "repo.clone",
+      "repo.read",
+      "repo.inspect",
+      "file.read",
+      "env.inspect",
+      "env.prepare",
+      "env.create",
+      "host.exec",
+      "job.run",
+      "job.stop",
+      "job.reorder",
+      "gpu.allocate",
+      "log.read",
+      "report.write",
+      "notify.user"
+    ],
+    "nodes": [
+      {
+        "id": "source.paper-7d233f27",
+        "kind": "source.paper",
+        "title": "论文输入",
+        "status": "draft",
+        "config": {
+          "paper_url": ""
+        },
+        "handler": {
+          "mode": "human",
+          "agent_id": "",
+          "name": "你",
+          "handoff": "补齐论文链接、任务目标和希望复现的指标。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": "research.search-f004265b",
+        "kind": "research.search",
+        "title": "检索资料",
+        "status": "draft",
+        "config": {
+          "query": "给定论文链接后，先检索资料与候选实现，再继续环境准备、运行与评估。",
+          "goal": "检索相关代码仓库、依赖和运行方式",
+          "repo_url": "",
+          "paper_url": "",
+          "source_type": "paper"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "researcher",
+          "name": "Researcher",
+          "handoff": "输出候选仓库、关键依赖、相关文章和可信度说明。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 240,
+          "y": 0
+        }
+      },
+      {
+        "id": "repo.inspect-443e3619",
+        "kind": "repo.inspect",
+        "title": "检查仓库",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "focus_paths": "",
+          "questions": "入口、依赖、默认配置、结果目录"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 480,
+          "y": 0
+        }
+      },
+      {
+        "id": "env.prepare-ac5fa6bf",
+        "kind": "env.prepare",
+        "title": "准备环境",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "env_name": "",
+          "env_manager": "conda",
+          "python_version": "",
+          "setup_command": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "env-builder",
+          "name": "Env Builder",
+          "handoff": "记录环境名、安装结果、失败依赖和替代方案。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 720,
+          "y": 0
+        }
+      },
+      {
+        "id": "run.command-9c8444c3",
+        "kind": "run.command",
+        "title": "运行任务",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "env_name": "",
+          "server_id": "",
+          "gpu_policy": "auto",
+          "run_command": "",
+          "schedule": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "runner",
+          "name": "Runner",
+          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 960,
+          "y": 0
+        }
+      },
+      {
+        "id": "eval.report-b882774d",
+        "kind": "eval.report",
+        "title": "结果整理",
+        "status": "draft",
+        "config": {
+          "report_command": "",
+          "metric_paths": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "evaluator",
+          "name": "Evaluator",
+          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 1200,
+          "y": 0
+        }
+      }
+    ],
+    "links": [
+      {
+        "id": "link-1-source.paper-7d233f27-research.search-f004265b",
+        "from": "source.paper-7d233f27",
+        "to": "research.search-f004265b"
+      },
+      {
+        "id": "link-2-research.search-f004265b-repo.inspect-443e3619",
+        "from": "research.search-f004265b",
+        "to": "repo.inspect-443e3619"
+      },
+      {
+        "id": "link-3-repo.inspect-443e3619-env.prepare-ac5fa6bf",
+        "from": "repo.inspect-443e3619",
+        "to": "env.prepare-ac5fa6bf"
+      },
+      {
+        "id": "link-4-env.prepare-ac5fa6bf-run.command-9c8444c3",
+        "from": "env.prepare-ac5fa6bf",
+        "to": "run.command-9c8444c3"
+      },
+      {
+        "id": "link-5-run.command-9c8444c3-eval.report-b882774d",
+        "from": "run.command-9c8444c3",
+        "to": "eval.report-b882774d"
+      }
+    ],
+    "notes": "",
+    "tags": [],
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-07T00:17:04"
+  },
+  {
+    "id": "idea-default-flow",
+    "name": "Idea 探索默认流",
+    "description": "从自然语言目标出发，先检索再逐步形成执行链。",
+    "status": "ready",
+    "brief": "给定目标文本后，先拆解问题、检索相关资料，再准备环境、运行与整理结果。",
+    "source": {
+      "type": "idea",
+      "repo_url": "",
+      "repo_ref": "",
+      "paper_url": "",
+      "idea_text": ""
+    },
+    "workspace_dir": "",
+    "env": {
+      "name": "",
+      "manager": "conda",
+      "python": ""
+    },
+    "recipes": [
+      {
+        "id": "default",
+        "name": "默认运行",
+        "setup_command": "",
+        "run_command": "",
+        "report_command": "",
+        "schedule": "",
+        "notes": "",
+        "enabled": true
+      }
+    ],
+    "model": {
+      "provider_profile_id": "",
+      "routing_mode": "workspace_default",
+      "chat_agent_id": "",
+      "notes": ""
+    },
+    "agent_ids": [
+      "researcher",
+      "repo-scout",
+      "env-builder",
+      "runner",
+      "evaluator"
+    ],
+    "tool_ids": [
+      "web.search",
+      "repo.search",
+      "artifact.read",
+      "artifact.write",
+      "repo.clone",
+      "repo.read",
+      "repo.inspect",
+      "file.read",
+      "env.inspect",
+      "env.prepare",
+      "env.create",
+      "host.exec",
+      "job.run",
+      "job.stop",
+      "job.reorder",
+      "gpu.allocate",
+      "log.read",
+      "report.write",
+      "notify.user"
+    ],
+    "nodes": [
+      {
+        "id": "source.idea-5f2f8df1",
+        "kind": "source.idea",
+        "title": "想法输入",
+        "status": "draft",
+        "config": {
+          "idea_text": "给定目标文本后，先拆解问题、检索相关资料，再准备环境、运行与整理结果。"
+        },
+        "handler": {
+          "mode": "human",
+          "agent_id": "",
+          "name": "你",
+          "handoff": "把目标、限制条件和成功标准写清楚，再交给 Planner 和 Researcher。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": "research.search-e80a519b",
+        "kind": "research.search",
+        "title": "检索资料",
+        "status": "draft",
+        "config": {
+          "query": "给定目标文本后，先拆解问题、检索相关资料，再准备环境、运行与整理结果。",
+          "goal": "检索相关代码仓库、依赖和运行方式",
+          "repo_url": "",
+          "paper_url": "",
+          "source_type": "idea"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "researcher",
+          "name": "Researcher",
+          "handoff": "输出候选仓库、关键依赖、相关文章和可信度说明。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 240,
+          "y": 0
+        }
+      },
+      {
+        "id": "repo.inspect-679f9395",
+        "kind": "repo.inspect",
+        "title": "检查仓库",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "focus_paths": "",
+          "questions": "入口、依赖、默认配置、结果目录"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 480,
+          "y": 0
+        }
+      },
+      {
+        "id": "env.prepare-92a63d4b",
+        "kind": "env.prepare",
+        "title": "准备环境",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "env_name": "",
+          "env_manager": "conda",
+          "python_version": "",
+          "setup_command": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "env-builder",
+          "name": "Env Builder",
+          "handoff": "记录环境名、安装结果、失败依赖和替代方案。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 720,
+          "y": 0
+        }
+      },
+      {
+        "id": "run.command-b1b4ea9b",
+        "kind": "run.command",
+        "title": "运行任务",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "env_name": "",
+          "server_id": "",
+          "gpu_policy": "auto",
+          "run_command": "",
+          "schedule": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "runner",
+          "name": "Runner",
+          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 960,
+          "y": 0
+        }
+      },
+      {
+        "id": "eval.report-0c6d65d1",
+        "kind": "eval.report",
+        "title": "结果整理",
+        "status": "draft",
+        "config": {
+          "report_command": "",
+          "metric_paths": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "evaluator",
+          "name": "Evaluator",
+          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": ""
+        },
+        "position": {
+          "x": 1200,
+          "y": 0
+        }
+      }
+    ],
+    "links": [
+      {
+        "id": "link-1-source.idea-5f2f8df1-research.search-e80a519b",
+        "from": "source.idea-5f2f8df1",
+        "to": "research.search-e80a519b"
+      },
+      {
+        "id": "link-2-research.search-e80a519b-repo.inspect-679f9395",
+        "from": "research.search-e80a519b",
+        "to": "repo.inspect-679f9395"
+      },
+      {
+        "id": "link-3-repo.inspect-679f9395-env.prepare-92a63d4b",
+        "from": "repo.inspect-679f9395",
+        "to": "env.prepare-92a63d4b"
+      },
+      {
+        "id": "link-4-env.prepare-92a63d4b-run.command-b1b4ea9b",
+        "from": "env.prepare-92a63d4b",
+        "to": "run.command-b1b4ea9b"
+      },
+      {
+        "id": "link-5-run.command-b1b4ea9b-eval.report-0c6d65d1",
+        "from": "run.command-b1b4ea9b",
+        "to": "eval.report-0c6d65d1"
+      }
+    ],
+    "notes": "",
+    "tags": [],
+    "created_at": "2026-06-07T00:17:04",
+    "updated_at": "2026-06-07T00:17:04"
+  }
+]
