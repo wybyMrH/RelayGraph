@@ -4,8 +4,10 @@ import argparse
 import base64
 import copy
 import csv
+import fcntl
 import fnmatch
 import json
+import mimetypes
 import os
 import pty
 import re
@@ -13,6 +15,8 @@ import select
 import shlex
 import signal
 import subprocess
+import struct
+import termios
 import threading
 import time
 import tomllib
@@ -24,7 +28,7 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .preset_matrix import DEFAULT_DATA_ROOT as PRESET_DEFAULT_DATA_ROOT
 from .preset_matrix import DEFAULT_PROJECT_DIR as PRESET_DEFAULT_PROJECT_DIR
@@ -46,6 +50,7 @@ WORKFLOW_TEMPLATES_PATH = DATA_DIR / "workflow_templates.json"
 AGENT_DEFINITIONS_PATH = DATA_DIR / "agent_definitions.json"
 TOOL_DEFINITIONS_PATH = DATA_DIR / "tool_definitions.json"
 LOG_DIR = DATA_DIR / "logs"
+FILE_PREVIEW_CACHE_DIR = Path("/tmp/total-control-file-preview")
 DEFAULT_CONFIG = ROOT / "config" / "servers.toml"
 
 GPU_QUERY = (
@@ -53,6 +58,10 @@ GPU_QUERY = (
     "temperature.gpu,power.draw,power.limit"
 )
 PROC_QUERY = "gpu_uuid,pid,process_name,used_memory"
+
+TMUX_DEFAULT_COLUMNS = 240
+TMUX_DEFAULT_ROWS = 80
+TMUX_RESIZE_TIMEOUT_SECONDS = 2
 
 WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
     "source.repo": {
@@ -151,6 +160,7 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
         "config_defaults": {
             "server_id": "",
             "gpu_policy": "auto",
+            "gpu_index": "",
             "min_free_memory_gib": "",
             "notes": "",
         },
@@ -163,6 +173,8 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
             "env_name": "",
             "server_id": "",
             "gpu_policy": "auto",
+            "gpu_index": "",
+            "min_free_memory_gib": "",
             "run_command": "",
             "schedule": "",
         },
@@ -486,6 +498,14 @@ DEFAULT_WORKSPACE_TOOLS: list[dict[str, Any]] = [
         "enabled": True,
     },
     {
+        "id": "execution.package",
+        "label": "执行包读取",
+        "category": "run",
+        "capability": "read",
+        "description": "读取当前执行包、调度目标、缺口、回填建议和复跑脚本摘要。",
+        "enabled": True,
+    },
+    {
         "id": "log.read",
         "label": "日志读取",
         "category": "log",
@@ -574,7 +594,7 @@ DEFAULT_WORKSPACE_AGENTS: list[dict[str, Any]] = [
         "name": "Planner",
         "role": "planner",
         "prompt": "把用户目标整理成可执行节点和审批点。",
-        "tools": ["workflow.edit", "workflow.plan", "artifact.write", "chat.write"],
+        "tools": ["workflow.edit", "workflow.plan", "execution.package", "artifact.write", "chat.write"],
         "provider_profile_id": "",
     },
     {
@@ -614,7 +634,7 @@ DEFAULT_WORKSPACE_AGENTS: list[dict[str, Any]] = [
         "name": "Runner",
         "role": "runner",
         "prompt": "把运行配方转换为实际任务并跟踪输出。",
-        "tools": ["job.run", "job.stop", "job.reorder", "gpu.allocate", "log.read"],
+        "tools": ["execution.package", "job.run", "job.stop", "job.reorder", "gpu.allocate", "log.read"],
         "provider_profile_id": "",
     },
     {
@@ -622,7 +642,7 @@ DEFAULT_WORKSPACE_AGENTS: list[dict[str, Any]] = [
         "name": "Evaluator",
         "role": "evaluator",
         "prompt": "解析结果、指标、产出文件和回归结论。",
-        "tools": ["artifact.collect", "artifact.read", "log.read", "report.write", "notify.user"],
+        "tools": ["execution.package", "artifact.collect", "artifact.read", "log.read", "report.write", "notify.user"],
         "provider_profile_id": "",
     },
     {
@@ -638,7 +658,7 @@ DEFAULT_WORKSPACE_AGENTS: list[dict[str, Any]] = [
         "name": "Reporter",
         "role": "reporter",
         "prompt": "把过程、结果和下一步建议整理成可分享的总结。",
-        "tools": ["artifact.read", "artifact.write", "report.write", "chat.write"],
+        "tools": ["execution.package", "artifact.read", "artifact.write", "report.write", "chat.write"],
         "provider_profile_id": "",
     },
 ]
@@ -804,6 +824,59 @@ def build_text_preview_payload(path: str, data: bytes, *, truncated: bool, serve
         "truncated": truncated,
         "encoding": encoding,
     }
+
+
+TEXT_PREVIEW_SUFFIXES = {
+    ".cfg",
+    ".conf",
+    ".csv",
+    ".env",
+    ".err",
+    ".htm",
+    ".html",
+    ".ini",
+    ".ipynb",
+    ".json",
+    ".log",
+    ".md",
+    ".out",
+    ".py",
+    ".rst",
+    ".sh",
+    ".sql",
+    ".svg",
+    ".toml",
+    ".tsv",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+
+
+def guess_file_mime_type(path_text: str) -> str:
+    mime_type, _ = mimetypes.guess_type(path_text)
+    return mime_type or "application/octet-stream"
+
+
+def preview_kind_for_path(path_text: str, mime_type: str = "") -> str:
+    suffix = Path(str(path_text or "")).suffix.lower()
+    kind = str(mime_type or guess_file_mime_type(path_text)).lower()
+    if suffix in TEXT_PREVIEW_SUFFIXES:
+        return "text"
+    if kind in {"text/html", "application/xhtml+xml", "image/svg+xml"}:
+        return "text"
+    if kind.startswith("text/"):
+        return "text"
+    if kind.startswith("image/"):
+        return "image"
+    if kind == "application/pdf":
+        return "pdf"
+    if kind.startswith("audio/"):
+        return "audio"
+    if kind.startswith("video/"):
+        return "video"
+    return "binary"
 
 
 def read_local_text_file(path_text: str = "", limit_bytes: int = 131072) -> dict[str, Any]:
@@ -2010,6 +2083,11 @@ def normalize_workflow_template(
         env_manager=env_manager,
         python_version=python_version,
         recipe=recipe,
+        recipe_command_overrides={
+            key
+            for key in ("setup_command", "run_command", "report_command", "schedule")
+            if key in payload
+        },
     )
 
     agent_defs = agent_definitions if isinstance(agent_definitions, list) else workspace_default_agents()
@@ -2537,6 +2615,7 @@ def workspace_node_default_config(
         "gpu.allocate": {
             "server_id": "",
             "gpu_policy": "auto",
+            "gpu_index": "",
             "min_free_memory_gib": "",
             "notes": "",
         },
@@ -2545,6 +2624,8 @@ def workspace_node_default_config(
             "env_name": env_name,
             "server_id": "",
             "gpu_policy": "auto",
+            "gpu_index": "",
+            "min_free_memory_gib": "",
             "run_command": str(recipe.get("run_command") or "").strip(),
             "schedule": str(recipe.get("schedule") or "").strip(),
         },
@@ -2679,6 +2760,22 @@ def normalize_workspace_nodes(
             notes=str(raw.get("notes") or existing.get("notes") or "").strip(),
             runtime=raw.get("runtime") if raw.get("runtime") is not None else existing.get("runtime"),
         )
+        input_mapping = (
+            raw.get("input_mapping")
+            if isinstance(raw.get("input_mapping"), dict)
+            else existing.get("input_mapping")
+            if isinstance(existing.get("input_mapping"), dict)
+            else {}
+        )
+        if input_mapping:
+            node["input_mapping"] = {
+                str(key or "").strip(): str(value or "").strip()
+                for key, value in input_mapping.items()
+                if str(key or "").strip()
+            }
+        output_key = str(raw.get("output_key") or existing.get("output_key") or "").strip()
+        if output_key:
+            node["output_key"] = output_key
         nodes.append(node)
 
     if nodes:
@@ -2756,8 +2853,19 @@ def sync_workspace_nodes_with_overview(
     env_manager: str,
     python_version: str,
     recipe: dict[str, Any],
+    recipe_command_overrides: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     synced = copy.deepcopy(nodes)
+    force_recipe_commands = recipe_command_overrides is None
+    recipe_command_overrides = recipe_command_overrides or set()
+
+    def sync_recipe_command(config: dict[str, Any], key: str) -> None:
+        value = str(recipe.get(key) or "").strip()
+        if force_recipe_commands or key in recipe_command_overrides:
+            config[key] = value
+        elif value and not str(config.get(key) or "").strip():
+            config[key] = value
+
     idea_seed = idea_text or brief
     idea_line = idea_seed.splitlines()[0].strip() if idea_seed else ""
     source_index = next((idx for idx, node in enumerate(synced) if str(node.get("kind") or "").startswith("source.")), -1)
@@ -2817,9 +2925,9 @@ def sync_workspace_nodes_with_overview(
                 "env_name": env_name,
                 "env_manager": env_manager,
                 "python_version": python_version,
-                "setup_command": str(recipe.get("setup_command") or "").strip(),
             }
         )
+        sync_recipe_command(config, "setup_command")
         synced[env_index]["config"] = config
     if gpu_index >= 0:
         config = synced[gpu_index].get("config") if isinstance(synced[gpu_index].get("config"), dict) else {}
@@ -2832,10 +2940,10 @@ def sync_workspace_nodes_with_overview(
             {
                 "workspace_dir": workspace_dir,
                 "env_name": env_name,
-                "run_command": str(recipe.get("run_command") or "").strip(),
-                "schedule": str(recipe.get("schedule") or "").strip(),
             }
         )
+        sync_recipe_command(config, "run_command")
+        sync_recipe_command(config, "schedule")
         synced[run_index]["config"] = config
     if artifact_index >= 0:
         config = synced[artifact_index].get("config") if isinstance(synced[artifact_index].get("config"), dict) else {}
@@ -2843,7 +2951,7 @@ def sync_workspace_nodes_with_overview(
         synced[artifact_index]["config"] = config
     if eval_index >= 0:
         config = synced[eval_index].get("config") if isinstance(synced[eval_index].get("config"), dict) else {}
-        config.update({"report_command": str(recipe.get("report_command") or "").strip()})
+        sync_recipe_command(config, "report_command")
         synced[eval_index]["config"] = config
     return synced
 
@@ -2996,6 +3104,11 @@ def normalize_workspace_instance_from_template(
         env_manager=env_manager,
         python_version=python_version,
         recipe=recipe,
+        recipe_command_overrides={
+            key
+            for key in ("setup_command", "run_command", "report_command", "schedule")
+            if key in payload
+        },
     )
     links = normalize_workspace_links(
         template_snapshot.get("links") if isinstance(template_snapshot.get("links"), list) else None,
@@ -3098,6 +3211,7 @@ def derive_workspace_execution_state(
         trace = workspace_node_trace(node, bound_jobs, state)
         latest_metadata = latest.get("metadata") if latest and isinstance(latest.get("metadata"), dict) else {}
         runtime_contract = latest_metadata.get("workflow_contract_node") if isinstance(latest_metadata.get("workflow_contract_node"), dict) else {}
+        runtime_bundle = latest_metadata.get("execution_bundle") if isinstance(latest_metadata.get("execution_bundle"), dict) else {}
         if not runtime_contract:
             runtime_contract = workspace_node_workflow_contract_metadata(workspace, node)
         node_states.append(
@@ -3116,6 +3230,7 @@ def derive_workspace_execution_state(
                 "artifacts": artifacts,
                 "resources": resources,
                 "workflow_contract_node": runtime_contract,
+                "execution_bundle": runtime_bundle,
             }
         )
 
@@ -3254,6 +3369,7 @@ WORKSPACE_ENV_MANIFEST_NAMES = {
 WORKSPACE_DATA_DIR_NAMES = {"data", "dataset", "datasets", "dataset-cache", "data-cache"}
 WORKSPACE_OUTPUT_DIR_NAMES = {"output", "outputs", "result", "results"}
 WORKSPACE_ARTIFACT_DIR_NAMES = {"run", "runs", "log", "logs", "checkpoint", "checkpoints", "ckpt", "artifacts"}
+WORKSPACE_RUN_ENTRY_NAMES = ("pytest.ini", "tests", "train.py", "main.py", "app.py")
 
 
 def workspace_manifest_setup_suggestion(manifests: list[str]) -> str:
@@ -3264,6 +3380,19 @@ def workspace_manifest_setup_suggestion(manifests: list[str]) -> str:
         return "pip install -r requirements.txt"
     if "pyproject.toml" in names or "setup.py" in names:
         return "pip install -e ."
+    return ""
+
+
+def workspace_run_command_suggestion_from_entries(entries: list[str] | set[str] | tuple[str, ...]) -> str:
+    names = {Path(str(item or "").strip().rstrip("/")).name.lower() for item in entries if str(item or "").strip()}
+    if "pytest.ini" in names or "tests" in names:
+        return "python -m pytest -q"
+    if "train.py" in names:
+        return "python train.py --help"
+    if "main.py" in names:
+        return "python main.py --help"
+    if "app.py" in names:
+        return "python app.py"
     return ""
 
 
@@ -3337,7 +3466,40 @@ def parse_workspace_artifacts_from_log(kind: str, log_text: str) -> list[dict[st
                 current_candidate_root = path_text.strip()
             break
         else:
-            if line.startswith("match:") and current_candidate_root:
+            if line.startswith(("dataset_query:", "dataset_plan_query:")):
+                value = line.split(":", 1)[1].strip()
+                if value:
+                    artifacts.append(
+                        {
+                            "label": "检索词",
+                            "path": value,
+                            "source": "log",
+                            "status": "planned",
+                        }
+                    )
+            elif line.startswith("dataset_source:"):
+                value = line.split(":", 1)[1].strip()
+                if value:
+                    artifacts.append(
+                        {
+                            "label": "数据来源线索",
+                            "path": value,
+                            "source": "log",
+                            "status": "planned",
+                        }
+                    )
+            elif line.startswith("expected_layout:"):
+                value = line.split(":", 1)[1].strip()
+                if value:
+                    artifacts.append(
+                        {
+                            "label": "数据结构要求",
+                            "path": value,
+                            "source": "log",
+                            "status": "planned",
+                        }
+                    )
+            elif line.startswith("match:") and current_candidate_root:
                 name = line.split(":", 1)[1].strip().split(" (", 1)[0].strip()
                 if name:
                     artifacts.append(
@@ -3372,12 +3534,18 @@ def parse_workspace_resources_from_log(kind: str, log_text: str) -> dict[str, An
     resources: dict[str, Any] = {}
     manifests: list[str] = []
     gpu_snapshot: list[dict[str, Any]] = []
+    repo_entries: list[str] = []
+    dataset_queries: list[str] = []
+    dataset_sources: list[str] = []
+    expected_layout = ""
     for raw_line in str(log_text or "").splitlines():
         line = raw_line.strip()
         if not line:
             continue
         if line.startswith("suggest_setup:"):
             resources["setup_suggestion"] = line.split(":", 1)[1].strip()
+        elif line.startswith("suggest_run:"):
+            resources["run_suggestion"] = line.split(":", 1)[1].strip()
         elif line.startswith("found_manifest:"):
             value = line.split(":", 1)[1].strip()
             if value and value not in manifests:
@@ -3386,6 +3554,12 @@ def parse_workspace_resources_from_log(kind: str, log_text: str) -> dict[str, An
             value = line.split(":", 1)[1].strip()
             if Path(value).name.lower() in WORKSPACE_ENV_MANIFEST_NAMES and value not in manifests:
                 manifests.append(value)
+            if value:
+                repo_entries.append(value)
+        elif line.startswith("top_level:"):
+            repo_entries.extend(
+                [item.strip().rstrip("/") for item in line.split(":", 1)[1].split(",") if item.strip()]
+            )
         elif line.startswith("[gpu.allocate]"):
             resources["gpu_policy_summary"] = line
         elif line.startswith("CUDA_VISIBLE_DEVICES=") or line.startswith("CUDA_VISIBLE_DEVICES:"):
@@ -3401,12 +3575,32 @@ def parse_workspace_resources_from_log(kind: str, log_text: str) -> dict[str, An
                         "utilization": parts[3],
                     }
                 )
+        elif kind == "dataset.find" and line.startswith(("dataset_query:", "dataset_plan_query:")):
+            value = line.split(":", 1)[1].strip()
+            if value and value not in dataset_queries:
+                dataset_queries.append(value)
+        elif kind == "dataset.find" and line.startswith("dataset_source:"):
+            value = line.split(":", 1)[1].strip()
+            if value and value not in dataset_sources:
+                dataset_sources.append(value)
+        elif kind == "dataset.find" and line.startswith("expected_layout:"):
+            expected_layout = line.split(":", 1)[1].strip()
     if manifests:
         resources["found_manifests"] = manifests
     if manifests and not resources.get("setup_suggestion"):
         setup_suggestion = workspace_manifest_setup_suggestion(manifests)
         if setup_suggestion:
             resources["setup_suggestion"] = setup_suggestion
+    if kind == "repo.inspect" and not resources.get("run_suggestion"):
+        run_suggestion = workspace_run_command_suggestion_from_entries(repo_entries)
+        if run_suggestion:
+            resources["run_suggestion"] = run_suggestion
+    if dataset_queries:
+        resources["dataset_queries"] = dataset_queries[:12]
+    if dataset_sources:
+        resources["dataset_sources"] = dataset_sources[:12]
+    if expected_layout:
+        resources["expected_layout"] = expected_layout
     if gpu_snapshot:
         resources["gpu_snapshot"] = gpu_snapshot[:16]
     return resources
@@ -3532,7 +3726,12 @@ def workspace_node_resources(
     metadata = latest_job.get("metadata") if latest_job and isinstance(latest_job.get("metadata"), dict) else {}
     kind = str(node.get("kind") or "").strip()
     gpu_policy = str(config.get("gpu_policy") or ("none" if kind in {"repo.clone", "path.resolve", "repo.inspect", "dataset.find", "env.infer", "env.prepare", "artifact.collect", "eval.report"} else "auto")).strip().lower() or "auto"
-    gpu_value = (latest_job or {}).get("gpu_index") if latest_job else ("none" if gpu_policy in {"cpu", "none", "no_gpu"} else "auto")
+    if latest_job:
+        gpu_value = latest_job.get("gpu_index")
+    elif gpu_policy in {"cpu", "none", "no_gpu"}:
+        gpu_value = "none"
+    else:
+        gpu_value = str(config.get("gpu_index") or "auto").strip() or "auto"
     if gpu_value is None or not str(gpu_value).strip():
         gpu_value = "auto"
     resources = {
@@ -3546,6 +3745,20 @@ def workspace_node_resources(
         "depends_on": [str(item) for item in ((latest_job or {}).get("target_job_ids") or []) if str(item).strip()],
         "wait_for_idle": bool((latest_job or {}).get("wait_for_idle", kind in WORKSPACE_EXECUTABLE_NODE_KINDS)),
     }
+    runtime_binding = metadata.get("runtime_binding") if isinstance(metadata.get("runtime_binding"), dict) else {}
+    if runtime_binding:
+        resources["runtime_binding"] = copy.deepcopy(runtime_binding)
+        for key in ("server_id", "gpu_index", "gpu_policy", "execution_mode", "cwd", "env_name", "wait_for_idle"):
+            if key in runtime_binding and runtime_binding.get(key) not in (None, ""):
+                resources[key] = runtime_binding[key]
+    scheduler_binding = metadata.get("scheduler_binding") if isinstance(metadata.get("scheduler_binding"), dict) else {}
+    if scheduler_binding:
+        resources["scheduler_binding"] = copy.deepcopy(scheduler_binding)
+        resources["scheduler_status"] = str(scheduler_binding.get("status") or "").strip()
+        resources["scheduler_summary"] = str(scheduler_binding.get("summary") or "").strip()
+        resources["scheduler_reasons"] = copy.deepcopy(
+            scheduler_binding.get("reasons") if isinstance(scheduler_binding.get("reasons"), list) else []
+        )
     log_text = workspace_job_cached_log_tail(latest_job)
     if log_text:
         resources.update(parse_workspace_resources_from_log(kind, log_text))
@@ -3804,6 +4017,7 @@ def derive_workspace_automation_evidence(execution: dict[str, Any]) -> list[dict
         "dataset": {"id": "dataset", "label": "数据集", "title": "数据证据", "count": 0, "items": []},
         "env": {"id": "env", "label": "环境", "title": "环境证据", "count": 0, "items": []},
         "gpu": {"id": "gpu", "label": "GPU", "title": "资源证据", "count": 0, "items": []},
+        "run": {"id": "run", "label": "运行入口", "title": "运行入口证据", "count": 0, "items": []},
         "artifact": {"id": "artifact", "label": "产物", "title": "产物证据", "count": 0, "items": []},
         "metric": {"id": "metric", "label": "指标", "title": "指标证据", "count": 0, "items": []},
     }
@@ -3818,6 +4032,8 @@ def derive_workspace_automation_evidence(execution: dict[str, Any]) -> list[dict
         "候选数据集": "dataset",
         "数据集线索": "dataset",
         "检索词": "dataset",
+        "数据来源线索": "dataset",
+        "数据结构要求": "dataset",
         "环境清单": "env",
         "产物路径": "artifact",
         "指标路径": "artifact",
@@ -3861,6 +4077,14 @@ def derive_workspace_automation_evidence(execution: dict[str, Any]) -> list[dict
                 workspace_add_evidence_item(
                     groups["env"],
                     workspace_evidence_item("清单文件", str(manifest), status="found", source="resource", node_kind=node_kind),
+                    seen,
+                )
+        if node_kind in {"repo.inspect", "run.command"}:
+            run_suggestion = str(resources.get("run_suggestion") or "").strip()
+            if run_suggestion:
+                workspace_add_evidence_item(
+                    groups["run"],
+                    workspace_evidence_item("运行命令候选", run_suggestion, status="found", source="resource", node_kind=node_kind),
                     seen,
                 )
         if node_kind == "gpu.allocate":
@@ -4379,8 +4603,10 @@ def workspace_node_command_summary_for_plan(workspace: dict[str, Any], node: dic
     if kind == "gpu.allocate":
         server_id = str(config.get("server_id") or "auto").strip() or "auto"
         gpu_policy = str(config.get("gpu_policy") or "auto").strip() or "auto"
+        gpu_index = str(config.get("gpu_index") or "").strip()
         min_free = str(config.get("min_free_memory_gib") or "").strip()
-        return (f"server={server_id} · policy={gpu_policy}" + (f" · min={min_free}GiB" if min_free else ""), "ready")
+        gpu_text = f" · gpu={gpu_index}" if gpu_index else ""
+        return (f"server={server_id} · policy={gpu_policy}{gpu_text}" + (f" · min={min_free}GiB" if min_free else ""), "ready")
     if kind == "run.command":
         command = str(config.get("run_command") or "").strip()
         return (compact_workspace_command(command) if command else "缺 run_command", "ready" if command else "blocked")
@@ -4522,6 +4748,7 @@ def workspace_node_config_signal(node: dict[str, Any]) -> str:
         "setup_command",
         "run_command",
         "server_id",
+        "gpu_index",
         "artifact_paths",
         "metric_paths",
         "report_command",
@@ -4555,6 +4782,133 @@ def workspace_io_input_mapping(node: dict[str, Any], contract: dict[str, Any], i
         else:
             mapping[label] = f"$input.{safe_id(label) or label}"
     return mapping
+
+
+def workspace_has_explicit_input_mapping(node: dict[str, Any]) -> bool:
+    raw_mapping = node.get("input_mapping")
+    return isinstance(raw_mapping, dict) and any(str(key or "").strip() for key in raw_mapping.keys())
+
+
+def workspace_contract_output_key_for_node(node: dict[str, Any], index: int) -> str:
+    kind = str(node.get("kind") or "").strip()
+    contract = workspace_io_contract_for_kind(kind, index)
+    return str(node.get("output_key") or contract.get("output_key") or f"step_{index + 1}").strip()
+
+
+def workspace_contract_input_ref_state(
+    source: str,
+    index: int,
+    output_catalog: dict[str, dict[str, Any]],
+    previous_outputs: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    ref = str(source or "").strip()
+    if not ref:
+        return {"status": "draft", "source_type": "empty", "detail": "等待输入来源"}
+    if ref == "$input" or ref.startswith("$input."):
+        return {"status": "ready", "source_type": "input", "detail": "来自启动输入 input_data"}
+    if ref == "$prev.output" or ref.startswith("$prev.output."):
+        if index > 0 and previous_outputs:
+            upstream = next(reversed(previous_outputs.values()))
+            return {
+                "status": "ready",
+                "source_type": "previous",
+                "detail": f"来自上一节点 {upstream.get('output_key') or 'output'}",
+                "upstream_node_id": str(upstream.get("node_id") or "").strip(),
+                "upstream_output_key": str(upstream.get("output_key") or "").strip(),
+            }
+        return {"status": "blocked", "source_type": "previous", "detail": "首节点不能引用 $prev.output"}
+    if ref == "$context":
+        return {"status": "ready" if previous_outputs else "warning", "source_type": "context", "detail": "引用整个工作流上下文"}
+    if ref.startswith("$context.outputs."):
+        output_key = ref[len("$context.outputs."):].split(".", 1)[0]
+        previous = previous_outputs.get(output_key)
+        if previous:
+            return {
+                "status": "ready",
+                "source_type": "context_output",
+                "detail": f"{output_key} 来自上游节点",
+                "upstream_node_id": str(previous.get("node_id") or "").strip(),
+                "upstream_output_key": output_key,
+            }
+        owner = output_catalog.get(output_key)
+        if owner:
+            owner_index = safe_int(owner.get("index"), -1)
+            if owner_index == index:
+                detail = f"{output_key} 引用了本节点自己的输出"
+            elif owner_index > index:
+                detail = f"{output_key} 来自下游节点，执行顺序倒挂"
+            else:
+                detail = f"{output_key} 上游未进入当前上下文"
+            return {
+                "status": "blocked",
+                "source_type": "context_output",
+                "detail": detail,
+                "upstream_node_id": str(owner.get("node_id") or "").strip(),
+                "upstream_output_key": output_key,
+            }
+        return {
+            "status": "blocked",
+            "source_type": "context_output",
+            "detail": f"{output_key} 没有对应 output_key",
+            "upstream_output_key": output_key,
+        }
+    if ref.startswith("$context."):
+        return {"status": "warning", "source_type": "context", "detail": "上下文字段会在运行时解析"}
+    return {"status": "ready", "source_type": "literal", "detail": "固定值或节点配置"}
+
+
+def workspace_contract_input_refs(
+    input_mapping: dict[str, str],
+    index: int,
+    output_catalog: dict[str, dict[str, Any]],
+    previous_outputs: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for key, value in input_mapping.items():
+        name = str(key or "").strip()
+        if not name:
+            continue
+        source = str(value or "").strip()
+        state = workspace_contract_input_ref_state(source, index, output_catalog, previous_outputs)
+        refs.append(
+            {
+                "name": name,
+                "source": source,
+                "status": str(state.get("status") or "draft").strip(),
+                "source_type": str(state.get("source_type") or "").strip(),
+                "detail": str(state.get("detail") or "").strip(),
+                "upstream_node_id": str(state.get("upstream_node_id") or "").strip(),
+                "upstream_output_key": str(state.get("upstream_output_key") or "").strip(),
+            }
+        )
+    return refs
+
+
+def workspace_apply_auto_input_mapping_fallbacks(
+    input_mapping: dict[str, str],
+    input_refs: list[dict[str, Any]],
+) -> None:
+    for ref in input_refs:
+        if not isinstance(ref, dict):
+            continue
+        if str(ref.get("status") or "").strip() != "blocked":
+            continue
+        if str(ref.get("source_type") or "").strip() != "context_output":
+            continue
+        if str(ref.get("upstream_node_id") or "").strip():
+            continue
+        detail = str(ref.get("detail") or "").strip()
+        if "没有对应 output_key" not in detail:
+            continue
+        name = str(ref.get("name") or "").strip()
+        if not name:
+            continue
+        input_mapping[name] = "$input"
+        ref["source"] = "$input"
+        ref["status"] = "ready"
+        ref["source_type"] = "input_fallback"
+        ref["detail"] = "默认映射未找到上游 output_key，已回退到启动输入或节点配置"
+        ref["upstream_output_key"] = ""
 
 
 def workspace_group_evidence_by_kind(evidence: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
@@ -4610,8 +4964,23 @@ def derive_workspace_workflow_contract(
     agents = normalize_workspace_agents(workspace.get("agents"), tool_ids=list(tool_index.keys()))
     agent_index = {str(agent.get("id") or "").strip(): agent for agent in agents if isinstance(agent, dict)}
     model = normalize_workspace_model(workspace.get("model"), existing=workspace.get("model"))
+    output_catalog: dict[str, dict[str, Any]] = {}
+    for index, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or node.get("kind") or f"node-{index}").strip()
+        output_key = workspace_contract_output_key_for_node(node, index)
+        if output_key and output_key not in output_catalog:
+            output_catalog[output_key] = {
+                "output_key": output_key,
+                "node_id": node_id,
+                "index": index,
+                "kind": str(node.get("kind") or "").strip(),
+                "title": str(node.get("title") or node.get("kind") or f"节点 {index + 1}").strip(),
+            }
 
     contract_nodes: list[dict[str, Any]] = []
+    previous_outputs: dict[str, dict[str, Any]] = {}
     for index, node in enumerate(nodes):
         if not isinstance(node, dict):
             continue
@@ -4630,8 +4999,31 @@ def derive_workspace_workflow_contract(
         route = workspace_model_route_for_agent(model, agent if agent else None)
         next_node = nodes[index + 1] if index + 1 < len(nodes) and isinstance(nodes[index + 1], dict) else {}
         input_mapping = workspace_io_input_mapping(node, contract, index)
+        input_refs = workspace_contract_input_refs(input_mapping, index, output_catalog, previous_outputs)
+        if not workspace_has_explicit_input_mapping(node):
+            workspace_apply_auto_input_mapping_fallbacks(input_mapping, input_refs)
+        missing_inputs = [
+            ref for ref in input_refs
+            if str(ref.get("status") or "") in {"blocked", "failed"}
+        ]
+        waiting_inputs = [
+            ref for ref in input_refs
+            if str(ref.get("status") or "") in {"draft", "warning", "pending"}
+        ]
         evidence_items = evidence_by_kind.get(kind, [])
-        status = str(resource_item.get("status") or plan_node.get("status") or execution_node.get("status") or "draft").strip()
+        raw_status = str(resource_item.get("status") or plan_node.get("status") or execution_node.get("status") or "draft").strip()
+        if missing_inputs:
+            status = "blocked"
+            input_status = "blocked"
+        elif waiting_inputs:
+            status = raw_status if raw_status in {"blocked", "failed"} else "warning"
+            input_status = "warning"
+        elif input_refs:
+            status = raw_status
+            input_status = "ready"
+        else:
+            status = raw_status
+            input_status = "draft"
         evidence_label = ""
         if evidence_items:
             first = evidence_items[0]
@@ -4653,7 +5045,11 @@ def derive_workspace_workflow_contract(
                 "status": status if status in {"ready", "warning", "blocked", "running", "done", "failed", "draft", "pending"} else "warning",
                 "inputs": list(input_mapping.keys()),
                 "input_mapping": input_mapping,
-                "output_key": str(node.get("output_key") or contract.get("output_key") or f"step_{index + 1}").strip(),
+                "input_refs": input_refs,
+                "input_status": input_status,
+                "missing_inputs": copy.deepcopy(missing_inputs),
+                "input_gap_count": len(missing_inputs),
+                "output_key": workspace_contract_output_key_for_node(node, index),
                 "context": {
                     "input_key": "$input",
                     "outputs_key": "$context.outputs",
@@ -4683,10 +5079,20 @@ def derive_workspace_workflow_contract(
                 "model": route,
             }
         )
+        output_key = str(contract_nodes[-1].get("output_key") or "").strip()
+        if output_key:
+            previous_outputs[output_key] = {
+                "output_key": output_key,
+                "node_id": node_id,
+                "index": index,
+                "kind": kind,
+                "title": str(node.get("title") or kind or f"节点 {index + 1}").strip(),
+            }
 
     mapped_count = sum(1 for item in contract_nodes if item.get("input_mapping") and item.get("output_key"))
     blocked_count = sum(1 for item in contract_nodes if str(item.get("status") or "") in {"blocked", "failed"})
     ready_count = sum(1 for item in contract_nodes if str(item.get("status") or "") in {"ready", "done"})
+    input_gap_count = sum(safe_int(item.get("input_gap_count"), 0) for item in contract_nodes)
     if blocked_count:
         status = "blocked"
     elif mapped_count < len(contract_nodes):
@@ -4695,17 +5101,236 @@ def derive_workspace_workflow_contract(
         status = "ready"
     return {
         "status": status,
-        "summary": f"{mapped_count}/{len(contract_nodes)} 节点有输入/输出契约 · {ready_count} 就绪 · {blocked_count} 阻塞",
+        "summary": f"{mapped_count}/{len(contract_nodes)} 节点有输入/输出契约 · {ready_count} 就绪 · {blocked_count} 阻塞 · {input_gap_count} 输入断点",
         "node_count": len(contract_nodes),
         "mapped_count": mapped_count,
         "ready_count": ready_count,
         "blocked_count": blocked_count,
+        "input_gap_count": input_gap_count,
         "context": {
             "input_key": "$input",
             "outputs_key": "$context.outputs",
             "previous_key": "$prev.output",
         },
         "nodes": contract_nodes,
+    }
+
+
+def workspace_orchestration_gap_matches_node(gap: dict[str, Any], node: dict[str, Any]) -> bool:
+    gap_node_id = str(gap.get("node_id") or "").strip()
+    gap_node_kind = str(gap.get("node_kind") or "").strip()
+    gap_agent_id = str(gap.get("agent_id") or "").strip()
+    gap_tool_id = str(gap.get("tool_id") or "").strip()
+    node_agent = node.get("agent") if isinstance(node.get("agent"), dict) else {}
+    node_tools = node.get("tools") if isinstance(node.get("tools"), list) else []
+    if gap_node_id and gap_node_id == str(node.get("id") or "").strip():
+        return True
+    if gap_node_kind and gap_node_kind == str(node.get("kind") or "").strip():
+        return True
+    if gap_agent_id and gap_agent_id == str(node_agent.get("id") or "").strip():
+        return True
+    if gap_tool_id and any(gap_tool_id == str(tool.get("id") or "").strip() for tool in node_tools if isinstance(tool, dict)):
+        return True
+    return False
+
+
+def workspace_orchestration_status(statuses: list[str], *, default: str = "draft") -> str:
+    values = [str(status or "").strip() for status in statuses if str(status or "").strip()]
+    if not values:
+        return default
+    return min(values, key=workspace_status_priority)
+
+
+def derive_workspace_orchestration_contract(
+    agent_topology: dict[str, Any],
+    workflow_contract: dict[str, Any],
+) -> dict[str, Any]:
+    layers = agent_topology.get("layers") if isinstance(agent_topology.get("layers"), dict) else {}
+    topology_stages = agent_topology.get("stages") if isinstance(agent_topology.get("stages"), list) else []
+    contract_nodes = workflow_contract.get("nodes") if isinstance(workflow_contract.get("nodes"), list) else []
+    gaps = agent_topology.get("gaps") if isinstance(agent_topology.get("gaps"), list) else []
+    stage_index = {
+        str(stage.get("id") or "").strip(): stage
+        for stage in topology_stages
+        if isinstance(stage, dict) and str(stage.get("id") or "").strip()
+    }
+    lanes: dict[str, dict[str, Any]] = {}
+    phase_order = ["source", "discover", "setup", "run", "collect", "report", "other"]
+
+    def lane_for_phase(phase: str) -> dict[str, Any]:
+        phase_id = phase if phase in phase_order else "other"
+        if phase_id not in lanes:
+            stage = stage_index.get(phase_id, {})
+            lanes[phase_id] = {
+                "id": phase_id,
+                "label": str(stage.get("label") or workspace_run_phase_label(phase_id)).strip(),
+                "status": str(stage.get("status") or "draft").strip(),
+                "node_count": 0,
+                "ready_count": 0,
+                "blocked_count": 0,
+                "agent_count": len(stage.get("agents") if isinstance(stage.get("agents"), list) else []),
+                "tool_count": len(stage.get("tools") if isinstance(stage.get("tools"), list) else []),
+                "model_profile_count": len(stage.get("model_profiles") if isinstance(stage.get("model_profiles"), list) else []),
+                "nodes": [],
+                "gaps": [
+                    copy.deepcopy(gap)
+                    for gap in (stage.get("gaps") if isinstance(stage.get("gaps"), list) else [])
+                    if isinstance(gap, dict)
+                ][:5],
+            }
+        return lanes[phase_id]
+
+    for node in contract_nodes:
+        if not isinstance(node, dict):
+            continue
+        phase = str(node.get("phase") or "other").strip() or "other"
+        lane = lane_for_phase(phase)
+        node_gaps = [
+            copy.deepcopy(gap)
+            for gap in gaps
+            if isinstance(gap, dict) and workspace_orchestration_gap_matches_node(gap, node)
+        ][:3]
+        input_gaps = []
+        for ref in (node.get("missing_inputs") if isinstance(node.get("missing_inputs"), list) else []):
+            if not isinstance(ref, dict):
+                continue
+            input_gaps.append(
+                {
+                    "type": "input_mapping",
+                    "status": str(ref.get("status") or "blocked").strip(),
+                    "title": f"输入断点：{str(ref.get('name') or 'input').strip()}",
+                    "detail": str(ref.get("detail") or "").strip(),
+                    "action": "检查 input_mapping 或上游 output_key。",
+                    "node_id": str(node.get("id") or "").strip(),
+                    "node_kind": str(node.get("kind") or "").strip(),
+                    "phase": phase,
+                    "field": str(ref.get("name") or "").strip(),
+                    "source": str(ref.get("source") or "").strip(),
+                    "upstream_output_key": str(ref.get("upstream_output_key") or "").strip(),
+                }
+            )
+        node_gaps = [*input_gaps, *node_gaps][:3]
+        agent = node.get("agent") if isinstance(node.get("agent"), dict) else {}
+        model = node.get("model") if isinstance(node.get("model"), dict) else {}
+        tools = node.get("tools") if isinstance(node.get("tools"), list) else []
+        node_status = workspace_orchestration_status(
+            [
+                str(node.get("status") or "draft"),
+                *[str(gap.get("status") or "warning") for gap in node_gaps if isinstance(gap, dict)],
+                "warning" if not str(agent.get("id") or "").strip() else "ready",
+                "warning" if not str(model.get("effective_profile_id") or "").strip() else "ready",
+            ],
+            default="draft",
+        )
+        if node_status in {"ready", "done"}:
+            lane["ready_count"] = safe_int(lane.get("ready_count"), 0) + 1
+        if node_status in {"blocked", "failed"}:
+            lane["blocked_count"] = safe_int(lane.get("blocked_count"), 0) + 1
+        lane["node_count"] = safe_int(lane.get("node_count"), 0) + 1
+        lane["nodes"].append(
+            {
+                "id": str(node.get("id") or "").strip(),
+                "index": safe_int(node.get("index"), len(lane["nodes"]) + 1),
+                "kind": str(node.get("kind") or "").strip(),
+                "title": str(node.get("title") or node.get("kind") or "节点").strip(),
+                "status": node_status,
+                "input_count": len(node.get("inputs") if isinstance(node.get("inputs"), list) else []),
+                "input_status": str(node.get("input_status") or "draft").strip(),
+                "input_gap_count": safe_int(node.get("input_gap_count"), 0),
+                "missing_inputs": copy.deepcopy(node.get("missing_inputs") if isinstance(node.get("missing_inputs"), list) else []),
+                "output_key": str(node.get("output_key") or "").strip(),
+                "handoff": str(node.get("handoff") or "").strip(),
+                "next_node_title": str(node.get("next_node_title") or "最终报告").strip(),
+                "agent": {
+                    "id": str(agent.get("id") or "").strip(),
+                    "name": str(agent.get("name") or "未指派 Agent").strip(),
+                    "role": str(agent.get("role") or "").strip(),
+                    "enabled": bool(agent.get("enabled", False)),
+                },
+                "tools": [
+                    {
+                        "id": str(tool.get("id") or "").strip(),
+                        "label": str(tool.get("label") or tool.get("id") or "").strip(),
+                        "enabled": bool(tool.get("enabled", False)),
+                    }
+                    for tool in tools
+                    if isinstance(tool, dict)
+                ][:5],
+                "model": {
+                    "label": str(model.get("label") or model.get("source") or "未配置 Profile").strip(),
+                    "source": str(model.get("source") or "").strip(),
+                    "effective_profile_id": str(model.get("effective_profile_id") or "").strip(),
+                    "status": str(model.get("status") or "warning").strip(),
+                },
+                "gaps": node_gaps,
+                "next_action": str((node_gaps[0] if node_gaps else {}).get("action") or node.get("handoff") or "").strip(),
+            }
+        )
+
+    for gap in gaps:
+        if not isinstance(gap, dict):
+            continue
+        phase = str(gap.get("phase") or "").strip()
+        if not phase:
+            continue
+        lane = lane_for_phase(phase)
+        if not any(str(existing.get("title") or existing.get("type") or "") == str(gap.get("title") or gap.get("type") or "") for existing in lane.get("gaps", [])):
+            lane["gaps"].append(copy.deepcopy(gap))
+
+    lane_items = [lanes[phase] for phase in phase_order if phase in lanes]
+    for lane in lane_items:
+        lane_statuses = [
+            str(lane.get("status") or "draft"),
+            *[str(node.get("status") or "draft") for node in (lane.get("nodes") if isinstance(lane.get("nodes"), list) else [])],
+            *[str(gap.get("status") or "warning") for gap in (lane.get("gaps") if isinstance(lane.get("gaps"), list) else []) if isinstance(gap, dict)],
+        ]
+        lane["status"] = workspace_orchestration_status(lane_statuses, default="draft")
+        lane["summary"] = (
+            f"{safe_int(lane.get('node_count'), 0)} 节点 · "
+            f"{safe_int(lane.get('agent_count'), 0)} Agent · "
+            f"{safe_int(lane.get('tool_count'), 0)} 工具 · "
+            f"{safe_int(lane.get('model_profile_count'), 0)} Profile"
+        )
+        lane["gaps"] = (lane.get("gaps") if isinstance(lane.get("gaps"), list) else [])[:5]
+
+    all_node_statuses = [
+        str(node.get("status") or "draft")
+        for lane in lane_items
+        for node in (lane.get("nodes") if isinstance(lane.get("nodes"), list) else [])
+        if isinstance(node, dict)
+    ]
+    status = workspace_orchestration_status(
+        [str(agent_topology.get("status") or "draft"), str(workflow_contract.get("status") or "draft"), *all_node_statuses],
+        default="draft",
+    )
+    ready_nodes = sum(1 for status_value in all_node_statuses if status_value in {"ready", "done"})
+    blocked_nodes = sum(1 for status_value in all_node_statuses if status_value in {"blocked", "failed"})
+    next_gap = next(
+        (
+            gap for gap in gaps
+            if isinstance(gap, dict) and str(gap.get("status") or "") in {"failed", "blocked", "warning", "draft"}
+        ),
+        {},
+    )
+    return {
+        "status": status,
+        "summary": f"{len(lane_items)} 个阶段车道 · {ready_nodes}/{len(all_node_statuses)} 节点闭环 · {blocked_nodes} 阻塞 · {len(gaps)} 缺口",
+        "lane_count": len(lane_items),
+        "node_count": len(all_node_statuses),
+        "ready_node_count": ready_nodes,
+        "blocked_node_count": blocked_nodes,
+        "layers": copy.deepcopy(layers),
+        "lanes": lane_items,
+        "gaps": copy.deepcopy(gaps[:12]),
+        "next_action": {
+            "status": str(next_gap.get("status") or status).strip(),
+            "title": str(next_gap.get("title") or "编排契约已形成").strip(),
+            "detail": str(next_gap.get("detail") or workflow_contract.get("summary") or "").strip(),
+            "action": str(next_gap.get("action") or "按当前执行包继续推进。").strip(),
+            "phase": str(next_gap.get("phase") or "").strip(),
+            "node_id": str(next_gap.get("node_id") or "").strip(),
+            "node_kind": str(next_gap.get("node_kind") or "").strip(),
+        },
     }
 
 
@@ -4912,24 +5537,39 @@ def derive_workspace_execution_context(
         job_id = str(execution_node.get("job_id") or "").strip()
         output_key = str(contract_node.get("output_key") or f"step_{index + 1}").strip()
         input_mapping = contract_node.get("input_mapping") if isinstance(contract_node.get("input_mapping"), dict) else {}
+        static_input_refs = {
+            str(item.get("name") or "").strip(): item
+            for item in (contract_node.get("input_refs") if isinstance(contract_node.get("input_refs"), list) else [])
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        }
         resolved_inputs: list[dict[str, str]] = []
         for key, value in input_mapping.items():
             name = str(key or "").strip()
             if not name:
                 continue
             source = str(value or "").strip()
-            source_state = workspace_context_mapping_status(
-                source,
-                input_data=input_data,
-                output_state=output_state,
-                previous_output=previous_output,
-            )
+            static_state = static_input_refs.get(name, {})
+            if static_state and str(static_state.get("status") or "") in {"blocked", "failed"}:
+                source_state = {
+                    "status": str(static_state.get("status") or "blocked"),
+                    "detail": str(static_state.get("detail") or "输入映射断开"),
+                }
+            else:
+                source_state = workspace_context_mapping_status(
+                    source,
+                    input_data=input_data,
+                    output_state=output_state,
+                    previous_output=previous_output,
+                )
             resolved_inputs.append(
                 {
                     "name": name,
                     "source": source,
                     "status": source_state["status"],
                     "detail": source_state["detail"],
+                    "source_type": str(static_state.get("source_type") or "").strip(),
+                    "upstream_output_key": str(static_state.get("upstream_output_key") or "").strip(),
+                    "upstream_node_id": str(static_state.get("upstream_node_id") or "").strip(),
                 }
             )
         input_blocked_count = len([item for item in resolved_inputs if item["status"] in {"blocked", "failed"}])
@@ -5109,6 +5749,248 @@ def workspace_reproduction_intent(workspace: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def compact_contract_items(values: list[Any], *, limit: int = 6) -> list[str]:
+    items: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        text = compact_workspace_command(str(raw or "").strip(), limit=180)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        items.append(text)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def workspace_delivery_contract(
+    workspace: dict[str, Any],
+    intent: dict[str, str],
+    *,
+    run_command: str = "",
+    setup_command: str = "",
+    artifact_paths: list[str] | None = None,
+    metric_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
+    references = inputs.get("references") if isinstance(inputs.get("references"), list) else []
+    context_blocks = inputs.get("context_blocks") if isinstance(inputs.get("context_blocks"), list) else []
+    goal_text = str(inputs.get("goal_text") or workspace.get("brief") or "").strip()
+    mode = str(intent.get("mode") or "reproduce")
+    criteria: list[str] = []
+    criteria.extend(context_blocks)
+    if mode in {"reproduce", "mixed"}:
+        criteria.extend(
+            [
+                "记录可复现命令、依赖安装方式、数据路径和 GPU/服务器选择。",
+                "收集指标、日志、checkpoint 或输出样例，能说明结果是否达到预期。",
+            ]
+        )
+    if mode in {"deploy", "mixed"}:
+        criteria.extend(
+            [
+                "给出服务启动命令、端口/API/入口说明和最小健康检查方式。",
+                "保留部署日志、配置路径、回滚或停止方式，避免只留下一个后台进程。",
+            ]
+        )
+    if run_command:
+        criteria.append(f"核心命令可执行：{run_command}")
+    if setup_command:
+        criteria.append(f"环境准备可复用：{setup_command}")
+    artifact_values = compact_contract_items([*(artifact_paths or []), *(metric_paths or [])], limit=4)
+    deliverables = compact_contract_items(
+        [
+            *(artifact_paths or []),
+            *(metric_paths or []),
+            "运行日志",
+            "执行报告",
+            "复跑命令与环境摘要",
+        ],
+        limit=6,
+    )
+    safety_checks = compact_contract_items(
+        [
+            "先跑安全发现链，再提交完整运行或部署命令。",
+            "运行前确认 workspace_dir、run_command、server/GPU、env 和 artifact_paths。",
+            "长任务必须落到 tmux/job 队列，保留日志路径。",
+            "部署模式需要有健康检查或 smoke test，避免只看进程存在。",
+        ],
+        limit=5,
+    )
+    criteria = compact_contract_items(criteria, limit=6)
+    status = "ready" if run_command and (artifact_values or criteria) else "warning" if goal_text or criteria else "draft"
+    return {
+        "mode": mode,
+        "label": str(intent.get("label") or "自动复现/部署"),
+        "status": status,
+        "goal": compact_workspace_command(goal_text, limit=220),
+        "acceptance_criteria": criteria,
+        "deliverables": deliverables,
+        "safety_checks": safety_checks,
+        "reference_count": len(references),
+        "context_count": len(context_blocks),
+        "summary": f"{len(criteria)} 条验收项 · {len(deliverables)} 个交付物 · {len(safety_checks)} 条安全检查",
+    }
+
+
+def workspace_deployment_health_path(workspace: dict[str, Any], run_command: str) -> str:
+    inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
+    source = workspace.get("source") if isinstance(workspace.get("source"), dict) else {}
+    text = " ".join(
+        [
+            str(inputs.get("goal_text") or ""),
+            " ".join(str(item or "") for item in (inputs.get("context_blocks") if isinstance(inputs.get("context_blocks"), list) else [])),
+            " ".join(str(item or "") for item in (inputs.get("references") if isinstance(inputs.get("references"), list) else [])),
+            str(source.get("idea_text") or ""),
+            str(workspace.get("brief") or ""),
+            str(run_command or ""),
+        ]
+    )
+    matches = re.findall(r"(?<![A-Za-z0-9_])/(?:api/)?(?:health|ready|readiness|live|liveness|ping|status)(?:/[A-Za-z0-9_.-]+)?", text, flags=re.IGNORECASE)
+    if matches:
+        return matches[0]
+    return "/health"
+
+
+def workspace_deployment_service_kind(run_command: str) -> str:
+    lower = str(run_command or "").lower()
+    if "docker compose" in lower or "docker-compose" in lower:
+        return "docker-compose"
+    if "uvicorn" in lower:
+        return "asgi"
+    if "gunicorn" in lower:
+        return "gunicorn"
+    if "streamlit" in lower:
+        return "streamlit"
+    if "gradio" in lower:
+        return "gradio"
+    if "flask run" in lower:
+        return "flask"
+    if "vite" in lower or "npm run dev" in lower or "npm run start" in lower or "pnpm" in lower:
+        return "web"
+    if "serve" in lower or "server" in lower or " app.py" in lower or lower.startswith("python app.py"):
+        return "service"
+    return "command"
+
+
+def workspace_deployment_port(run_command: str) -> str:
+    text = str(run_command or "")
+    patterns = [
+        r"(?:--port|-p)\s+([0-9]{2,5})",
+        r"(?:PORT|port)=([0-9]{2,5})",
+        r"(?:localhost|127\.0\.0\.1|0\.0\.0\.0):([0-9]{2,5})",
+        r"\s-p\s+[0-9.]*:([0-9]{2,5})(?::|/|\s|$)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def workspace_deployment_host(run_command: str) -> str:
+    text = str(run_command or "")
+    match = re.search(r"--host\s+([^\s]+)", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r"(?:HOST|host)=([^\s]+)", text, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return "127.0.0.1"
+
+
+def workspace_deployment_stop_command(run_command: str, service_kind: str) -> str:
+    command = str(run_command or "").strip()
+    if not command:
+        return ""
+    if service_kind == "docker-compose":
+        return "docker compose down || docker-compose down"
+    try:
+        tokens = shlex.split(command, posix=True) if command else []
+    except ValueError:
+        tokens = []
+    process_hint = " ".join(tokens[:3]) if tokens else command[:80]
+    return f"pkill -f {shlex.quote(process_hint)}"
+
+
+def workspace_deployment_plan(
+    workspace: dict[str, Any],
+    intent: dict[str, str],
+    *,
+    run_command: str = "",
+    workspace_dir: str = "",
+    target: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    mode = str(intent.get("mode") or "reproduce").strip() or "reproduce"
+    service_kind = workspace_deployment_service_kind(run_command)
+    relevant = mode in {"deploy", "mixed"} or service_kind not in {"command"}
+    port = workspace_deployment_port(run_command)
+    host = workspace_deployment_host(run_command)
+    health_path = workspace_deployment_health_path(workspace, run_command) if relevant else ""
+    health_url = f"http://127.0.0.1:{port}{health_path}" if port and health_path else ""
+    smoke_command = f"curl -fsS {shlex.quote(health_url)}" if health_url else ""
+    observe_commands = compact_contract_items(
+        [
+            f"ss -ltnp | grep ':{port}' || true" if port else "",
+            smoke_command,
+            "docker compose ps || docker-compose ps" if service_kind == "docker-compose" else "",
+        ],
+        limit=4,
+    )
+    stop_command = workspace_deployment_stop_command(run_command, service_kind) if relevant else ""
+    missing: list[dict[str, str]] = []
+    if relevant and not run_command:
+        missing.append({"field": "run_command", "label": "服务启动命令", "status": "blocked", "action": "补 run.command，例如 uvicorn/gunicorn/docker compose。"})
+    if relevant and not workspace_dir:
+        missing.append({"field": "workspace_dir", "label": "部署目录", "status": "warning", "action": "补 workspace_dir，便于部署命令、日志和停止命令可复用。"})
+    if relevant and service_kind != "docker-compose" and not port:
+        missing.append({"field": "port", "label": "服务端口", "status": "warning", "action": "在目标或命令里补 --port/PORT，才能生成健康检查。"})
+    if relevant and port and not health_path:
+        missing.append({"field": "health_path", "label": "健康检查路径", "status": "warning", "action": "补 /health、/ready、/ping 或 smoke test 路径。"})
+    blocked = any(str(item.get("status") or "") == "blocked" for item in missing)
+    status = "blocked" if blocked else "warning" if missing and relevant else "ready" if relevant and run_command else "draft"
+    target_info = target if isinstance(target, dict) else {}
+    first_missing = missing[0] if missing else {}
+    first_field = str(first_missing.get("field") or "").strip()
+    run_node = workspace_node_by_kind(workspace, "run.command")
+    path_node = workspace_node_by_kind(workspace, "path.resolve") or workspace_node_by_kind(workspace, "repo.clone")
+    next_node_id = (
+        str(path_node.get("id") or "").strip()
+        if first_field == "workspace_dir" and path_node
+        else str(run_node.get("id") or "").strip()
+        if run_node
+        else ""
+    )
+    return {
+        "schema": "relaygraph.deployment_plan.v1",
+        "relevant": bool(relevant),
+        "status": status,
+        "mode": mode,
+        "service_kind": service_kind,
+        "workspace_dir": str(workspace_dir or "").strip(),
+        "server_id": str(target_info.get("server_id") or "auto").strip() or "auto",
+        "gpu_policy": str(target_info.get("gpu_policy") or "auto").strip() or "auto",
+        "host": host,
+        "port": port,
+        "health_path": health_path,
+        "health_url": health_url,
+        "start_command": compact_workspace_command(run_command, limit=220),
+        "smoke_test_command": smoke_command,
+        "observe_commands": observe_commands,
+        "stop_command": stop_command,
+        "missing": missing,
+        "summary": "非部署目标" if not relevant else f"{service_kind} · {port or '端口待定'} · {health_path or '健康检查待定'}",
+        "next_action": {
+            "label": "补部署入口" if blocked else "补健康检查" if missing else "验证部署",
+            "action": "select-execution-node" if blocked or missing else "run-selected-workspace",
+            "status": status,
+            "title": "部署计划待补齐" if blocked or missing else "部署计划可验证",
+            "detail": str((missing[0] if missing else {}).get("action") or "运行服务后执行 smoke test，并保留观察/停止命令。"),
+            "node_id": next_node_id,
+        },
+    }
+
+
 def workspace_execution_bundle_step(
     step_id: str,
     label: str,
@@ -5135,6 +6017,42 @@ def workspace_execution_bundle_step(
     }
 
 
+def workspace_execution_bundle_missing_item(
+    field: str,
+    label: str,
+    status: str,
+    action: str,
+    *,
+    node_kind: str = "",
+    node_id: str = "",
+    button_label: str = "",
+    button_action: str = "",
+    target_id: str = "",
+    tab: str = "home",
+) -> dict[str, Any]:
+    normalized = status if status in {"ready", "warning", "blocked", "running", "done", "failed", "draft"} else "warning"
+    action_name = str(button_action or ("select-execution-node" if node_id else "advance-workspace-automation")).strip()
+    fix_action = {
+        "label": str(button_label or "处理缺项").strip(),
+        "action": action_name,
+        "title": str(action or "").strip(),
+        "detail": str(action or "").strip(),
+        "node_kind": str(node_kind or "").strip(),
+        "node_id": str(node_id or "").strip(),
+        "target_id": str(target_id or "workspaceExecutionBoard").strip(),
+        "tab": str(tab or "home").strip(),
+    }
+    return {
+        "field": str(field or "").strip(),
+        "label": str(label or field or "").strip(),
+        "status": normalized,
+        "action": str(action or "").strip(),
+        "node_kind": str(node_kind or "").strip(),
+        "node_id": str(node_id or "").strip(),
+        "fix_action": fix_action,
+    }
+
+
 def workspace_checkout_command(source: dict[str, Any], workspace_dir: str) -> str:
     repo_url = str(source.get("repo_url") or "").strip()
     repo_ref = str(source.get("repo_ref") or "").strip()
@@ -5149,6 +6067,338 @@ def workspace_checkout_command(source: dict[str, Any], workspace_dir: str) -> st
     return f"mkdir -p {shlex.quote(parent_dir)} && cd {shlex.quote(parent_dir)} && " + " ".join(parts)
 
 
+def workspace_script_export_line(key: str, value: Any) -> str:
+    normalized_key = re.sub(r"[^A-Za-z0-9_]", "_", str(key or "").strip().upper())
+    if not normalized_key or normalized_key[0].isdigit():
+        normalized_key = f"RELAYGRAPH_{normalized_key or 'VALUE'}"
+    return f"export {normalized_key}={shlex.quote(str(value))}"
+
+
+def workspace_execution_bundle_command_script(
+    target: dict[str, Any],
+    steps: list[dict[str, Any]],
+    missing: list[dict[str, Any]],
+    delivery_contract: dict[str, Any],
+    *,
+    ready_to_execute: bool,
+) -> dict[str, Any]:
+    env_name = str(target.get("env_name") or "").strip()
+    env_manager = str(target.get("env_manager") or "conda").strip().lower() or "conda"
+    workspace_dir = str(target.get("workspace_dir") or "").strip()
+    server_id = str(target.get("server_id") or "auto").strip() or "auto"
+    gpu_index = str(target.get("gpu_index") or "auto").strip() or "auto"
+    gpu_policy = str(target.get("gpu_policy") or "auto").strip() or "auto"
+    mode = str(target.get("mode") or delivery_contract.get("mode") or "reproduce").strip() or "reproduce"
+    label = str(target.get("label") or delivery_contract.get("label") or "自动复现/部署").strip()
+    blocked = [
+        {
+            "field": str(item.get("field") or "").strip(),
+            "label": str(item.get("label") or item.get("field") or "").strip(),
+            "status": str(item.get("status") or "warning").strip(),
+            "action": str(item.get("action") or "").strip(),
+        }
+        for item in missing
+        if isinstance(item, dict) and str(item.get("status") or "") == "blocked"
+    ]
+    warnings = [
+        {
+            "field": str(item.get("field") or "").strip(),
+            "label": str(item.get("label") or item.get("field") or "").strip(),
+            "status": str(item.get("status") or "warning").strip(),
+            "action": str(item.get("action") or "").strip(),
+        }
+        for item in missing
+        if isinstance(item, dict) and str(item.get("status") or "") != "blocked"
+    ]
+    lines: list[str] = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        "",
+        "# RelayGraph execution bundle",
+        f"# mode: {mode} · {label}",
+        f"# server: {server_id}",
+        f"# gpu: {gpu_index} · policy={gpu_policy}",
+    ]
+    if workspace_dir:
+        lines.append(workspace_script_export_line("RELAYGRAPH_WORKSPACE_DIR", workspace_dir))
+    lines.append(workspace_script_export_line("RELAYGRAPH_SERVER_ID", server_id))
+    lines.append(workspace_script_export_line("RELAYGRAPH_GPU_POLICY", gpu_policy))
+    if env_name:
+        lines.append(workspace_script_export_line("RELAYGRAPH_ENV_NAME", env_name))
+    if gpu_index and gpu_index != "auto" and gpu_policy.lower() not in {"cpu", "none", "no_gpu"}:
+        lines.append(workspace_script_export_line("CUDA_VISIBLE_DEVICES", gpu_index))
+    elif gpu_policy.lower() in {"cpu", "none", "no_gpu"}:
+        lines.append("unset CUDA_VISIBLE_DEVICES")
+    if blocked or warnings:
+        lines.extend(["", "# Missing inputs"])
+        for item in [*blocked, *warnings]:
+            field = item["field"] or item["label"] or "unknown"
+            action = item["action"] or "等待补齐"
+            lines.append(f"# - {field}: {action}")
+    if env_name:
+        lines.extend(["", "# Environment activation"])
+        if env_manager == "conda":
+            lines.append(conda_bootstrap(env_name))
+        elif env_manager == "venv":
+            env_path = shlex.quote(env_name)
+            lines.extend(
+                [
+                    f"if [ -f {env_path}/bin/activate ]; then",
+                    f"  . {env_path}/bin/activate",
+                    'elif [ -n "${RELAYGRAPH_WORKSPACE_DIR:-}" ] && [ -f "$RELAYGRAPH_WORKSPACE_DIR/.venv/bin/activate" ]; then',
+                    '  . "$RELAYGRAPH_WORKSPACE_DIR/.venv/bin/activate"',
+                    "fi",
+                ]
+            )
+        else:
+            lines.append(f"# env_manager={env_manager}; activate {shlex.quote(env_name)} if your runner requires it.")
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_id = str(step.get("id") or "step").strip()
+        label_text = str(step.get("label") or step_id).strip()
+        status = str(step.get("status") or "draft").strip()
+        command = str(step.get("command") or "").strip()
+        cwd = str(step.get("cwd") or "").strip()
+        env_values = step.get("env") if isinstance(step.get("env"), dict) else {}
+        detail = str(step.get("detail") or "").strip()
+        lines.extend(["", f"# Step: {label_text} ({step_id})", f"# status: {status}"])
+        if cwd:
+            lines.append(f"cd {shlex.quote(cwd)}")
+        for key, value in env_values.items():
+            value_text = str(value or "").strip()
+            if value_text:
+                lines.append(workspace_script_export_line(key, value_text))
+        if command:
+            lines.append(command)
+        else:
+            lines.append(f"# TODO {step_id}: {detail or '等待命令生成'}")
+    text = "\n".join(lines).strip() + "\n"
+    return {
+        "shell": "bash",
+        "status": "ready" if ready_to_execute and not blocked else "blocked" if blocked else "warning" if warnings else "draft",
+        "ready": bool(ready_to_execute and not blocked),
+        "text": text,
+        "lines": lines,
+        "blocked": blocked,
+        "warnings": warnings,
+        "summary": f"{len([step for step in steps if isinstance(step, dict)])} 个步骤 · {len(blocked)} 阻塞 · {len(warnings)} 提示",
+    }
+
+
+def workspace_execution_package_manifest(
+    workspace: dict[str, Any],
+    intent: dict[str, str],
+    delivery_contract: dict[str, Any],
+    target: dict[str, Any],
+    steps: list[dict[str, Any]],
+    missing: list[dict[str, Any]],
+    command_script: dict[str, Any],
+    *,
+    commands: dict[str, Any],
+    paths: dict[str, Any],
+    evidence: dict[str, Any],
+    scheduler: dict[str, Any],
+    dataset_discovery: dict[str, Any] | None = None,
+    deployment_plan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    selected = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
+    candidates = scheduler.get("candidates") if isinstance(scheduler.get("candidates"), list) else []
+    dataset_plan = dataset_discovery if isinstance(dataset_discovery, dict) else {}
+    deploy_plan = deployment_plan if isinstance(deployment_plan, dict) else {}
+    return {
+        "schema": "relaygraph.execution_package.v1",
+        "workspace": {
+            "id": str(workspace.get("id") or "").strip(),
+            "name": str(workspace.get("name") or "").strip(),
+            "template_id": str(workspace.get("template_id") or "").strip(),
+            "template_name": str(workspace.get("template_name") or "").strip(),
+        },
+        "intent": copy.deepcopy(intent),
+        "status": str(command_script.get("status") or "").strip(),
+        "ready_to_execute": bool(command_script.get("ready")),
+        "delivery_contract": copy.deepcopy(delivery_contract),
+        "deployment_plan": copy.deepcopy(deploy_plan),
+        "target": copy.deepcopy(target),
+        "commands": copy.deepcopy(commands),
+        "paths": copy.deepcopy(paths),
+        "dataset_discovery": {
+            "status": str(dataset_plan.get("status") or "").strip(),
+            "summary": str(dataset_plan.get("summary") or "").strip(),
+            "queries": copy.deepcopy(dataset_plan.get("queries") if isinstance(dataset_plan.get("queries"), list) else []),
+            "local_roots": copy.deepcopy(dataset_plan.get("local_roots") if isinstance(dataset_plan.get("local_roots"), list) else []),
+            "source_refs": copy.deepcopy(dataset_plan.get("source_refs") if isinstance(dataset_plan.get("source_refs"), list) else []),
+            "expected_layout": str(dataset_plan.get("expected_layout") or "").strip(),
+            "next_action": copy.deepcopy(dataset_plan.get("next_action") if isinstance(dataset_plan.get("next_action"), dict) else {}),
+        },
+        "steps": copy.deepcopy(steps),
+        "missing": copy.deepcopy(missing),
+        "evidence": copy.deepcopy(evidence),
+        "scheduler": {
+            "status": str(scheduler.get("status") or "").strip(),
+            "mode": str(scheduler.get("mode") or "").strip(),
+            "policy": str(scheduler.get("policy") or "").strip(),
+            "summary": str(scheduler.get("summary") or "").strip(),
+            "selected": copy.deepcopy(selected),
+            "candidate_count": len(candidates),
+        },
+        "command_script": {
+            "shell": str(command_script.get("shell") or "bash").strip(),
+            "status": str(command_script.get("status") or "").strip(),
+            "ready": bool(command_script.get("ready")),
+            "summary": str(command_script.get("summary") or "").strip(),
+            "text": str(command_script.get("text") or ""),
+        },
+    }
+
+
+def workspace_execution_bundle_step_for_node(bundle: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+    steps = bundle.get("steps") if isinstance(bundle.get("steps"), list) else []
+    node_id = str(node.get("id") or "").strip()
+    kind = str(node.get("kind") or "").strip()
+    step_id_by_kind = {
+        "repo.clone": "checkout",
+        "path.resolve": "checkout",
+        "env.infer": "setup",
+        "env.prepare": "setup",
+        "gpu.allocate": "run",
+        "run.command": "run",
+        "artifact.collect": "collect",
+        "eval.report": "report",
+    }
+    return next(
+        (
+            step for step in steps
+            if isinstance(step, dict)
+            and (
+                (node_id and str(step.get("node_id") or "").strip() == node_id)
+                or (kind and str(step.get("node_kind") or "").strip() == kind)
+                or str(step.get("id") or "").strip() == step_id_by_kind.get(kind, "")
+            )
+        ),
+        {},
+    )
+
+
+def workspace_execution_bundle_job_metadata(automation: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+    manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
+    bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}
+    if not bundle:
+        return {}
+    command_script = bundle.get("command_script") if isinstance(bundle.get("command_script"), dict) else {}
+    step = workspace_execution_bundle_step_for_node(bundle, node)
+    script_meta = {
+        "shell": str(command_script.get("shell") or "bash").strip(),
+        "status": str(command_script.get("status") or "").strip(),
+        "ready": bool(command_script.get("ready")),
+        "summary": str(command_script.get("summary") or "").strip(),
+    }
+    metadata: dict[str, Any] = {
+        "status": str(bundle.get("status") or "").strip(),
+        "ready_to_execute": bool(bundle.get("ready_to_execute")),
+        "target": copy.deepcopy(bundle.get("target") if isinstance(bundle.get("target"), dict) else {}),
+        "script": script_meta,
+    }
+    if step:
+        metadata["step"] = {
+            "id": str(step.get("id") or "").strip(),
+            "label": str(step.get("label") or "").strip(),
+            "status": str(step.get("status") or "").strip(),
+            "node_kind": str(step.get("node_kind") or "").strip(),
+            "node_id": str(step.get("node_id") or "").strip(),
+            "cwd": str(step.get("cwd") or "").strip(),
+            "env": copy.deepcopy(step.get("env") if isinstance(step.get("env"), dict) else {}),
+        }
+    if str(node.get("kind") or "").strip() == "run.command" and str(command_script.get("text") or "").strip():
+        metadata["command_script"] = {
+            **script_meta,
+            "text": str(command_script.get("text") or ""),
+        }
+    return metadata
+
+
+def workspace_scheduler_binding_metadata(
+    automation: dict[str, Any] | None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    automation = automation if isinstance(automation, dict) else {}
+    config = config if isinstance(config, dict) else {}
+    resource = automation.get("resource_orchestration") if isinstance(automation.get("resource_orchestration"), dict) else {}
+    scheduler = resource.get("scheduler") if isinstance(resource.get("scheduler"), dict) else {}
+    selected = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
+    values = workspace_scheduler_values_from_selection(scheduler) if scheduler else {}
+
+    fallback_policy = str(config.get("gpu_policy") or "").strip().lower()
+    fallback_gpu_index = str(config.get("gpu_index") if config.get("gpu_index") is not None else "").strip()
+    fallback_server_id = str(config.get("server_id") or "").strip()
+    cpu_mode = (
+        str(values.get("mode") or selected.get("mode") or "").strip().lower() == "cpu"
+        or str(values.get("gpu_policy") or fallback_policy).strip().lower() in {"cpu", "none", "no_gpu"}
+        or fallback_gpu_index in {"cpu", "none", "no_gpu"}
+    )
+    gpu_index = str(values.get("gpu_index") or fallback_gpu_index or ("none" if cpu_mode else "auto")).strip()
+    server_id = str(values.get("server_id") or selected.get("server_id") or fallback_server_id or "auto").strip() or "auto"
+    min_free_memory_gib = str(values.get("min_free_memory_gib") or config.get("min_free_memory_gib") or "").strip()
+    selected_host = selected.get("host") if isinstance(selected.get("host"), dict) else {}
+    compact_selected = {
+        "id": str(selected.get("id") or "").strip(),
+        "status": str(selected.get("status") or "").strip(),
+        "mode": str(selected.get("mode") or values.get("mode") or ("cpu" if cpu_mode else "gpu")).strip(),
+        "score": safe_int(selected.get("score") if selected.get("score") is not None else values.get("score"), 0),
+        "server_id": str(selected.get("server_id") or server_id).strip(),
+        "server_name": str(selected.get("server_name") or "").strip(),
+        "gpu_index": str(selected.get("gpu_index") if selected.get("gpu_index") is not None else gpu_index).strip(),
+        "gpu_name": str(selected.get("gpu_name") or "").strip(),
+        "gpu_state": str(selected.get("gpu_state") or "").strip(),
+        "memory_free_mib": safe_int(selected.get("memory_free_mib"), 0),
+        "memory_total_mib": safe_int(selected.get("memory_total_mib"), 0),
+        "gpu_util": safe_int(selected.get("gpu_util"), 0),
+        "process_count": safe_int(selected.get("process_count"), 0),
+        "snapshot_age_seconds": safe_int(selected.get("snapshot_age_seconds"), 0),
+        "collected_at": str(selected.get("collected_at") or "").strip(),
+    }
+    return {
+        "status": str(scheduler.get("status") or values.get("status") or "draft").strip(),
+        "mode": "cpu" if cpu_mode else str(values.get("mode") or scheduler.get("mode") or selected.get("mode") or "gpu").strip(),
+        "policy": str(values.get("gpu_policy") or scheduler.get("policy") or fallback_policy or ("cpu" if cpu_mode else "auto")).strip(),
+        "server_id": server_id,
+        "gpu_index": "none" if cpu_mode else gpu_index,
+        "min_free_memory_gib": min_free_memory_gib,
+        "summary": str(scheduler.get("summary") or resource.get("summary") or "").strip(),
+        "candidate_count": safe_int(scheduler.get("candidate_count"), 0),
+        "ready_count": safe_int(scheduler.get("ready_count"), 0),
+        "requested_server_id": str(scheduler.get("requested_server_id") or "").strip(),
+        "requested_gpu_index": str(scheduler.get("requested_gpu_index") or "").strip(),
+        "selected": compact_selected,
+        "host": copy.deepcopy(selected_host),
+        "reasons": copy.deepcopy(selected.get("reasons") if isinstance(selected.get("reasons"), list) else []),
+        "warnings": copy.deepcopy(selected.get("warnings") if isinstance(selected.get("warnings"), list) else []),
+    }
+
+
+def workspace_execution_bundle_result(automation: dict[str, Any], jobs: list[dict[str, Any]]) -> dict[str, Any]:
+    manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
+    bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}
+    if not bundle:
+        return {}
+    command_script = bundle.get("command_script") if isinstance(bundle.get("command_script"), dict) else {}
+    package_manifest = bundle.get("package_manifest") if isinstance(bundle.get("package_manifest"), dict) else {}
+    return {
+        "status": str(bundle.get("status") or "").strip(),
+        "ready_to_execute": bool(bundle.get("ready_to_execute")),
+        "target": copy.deepcopy(bundle.get("target") if isinstance(bundle.get("target"), dict) else {}),
+        "script": {
+            "shell": str(command_script.get("shell") or "bash").strip(),
+            "status": str(command_script.get("status") or "").strip(),
+            "ready": bool(command_script.get("ready")),
+            "summary": str(command_script.get("summary") or "").strip(),
+        },
+        "package_manifest": copy.deepcopy(package_manifest),
+        "job_count": len(jobs),
+        "job_ids": [str(job.get("id") or "").strip() for job in jobs if isinstance(job, dict) and str(job.get("id") or "").strip()],
+    }
+
+
 def derive_workspace_reproduction_manifest(
     workspace: dict[str, Any],
     execution: dict[str, Any],
@@ -5156,6 +6406,7 @@ def derive_workspace_reproduction_manifest(
     evidence: list[dict[str, Any]],
     run_plan: dict[str, Any],
     resource_orchestration: dict[str, Any],
+    dataset_discovery: dict[str, Any],
     execution_context: dict[str, Any],
 ) -> dict[str, Any]:
     source = workspace.get("source") if isinstance(workspace.get("source"), dict) else {}
@@ -5192,6 +6443,10 @@ def derive_workspace_reproduction_manifest(
     data_roots = workspace_config_values(path_config.get("data_roots")) + workspace_config_values(dataset_config.get("data_roots"))
     output_roots = workspace_config_values(path_config.get("output_roots"))
     dataset_hints = workspace_config_values(dataset_config.get("dataset_hints"))
+    dataset_plan = dataset_discovery if isinstance(dataset_discovery, dict) else derive_workspace_dataset_discovery_plan(workspace, execution, evidence)
+    dataset_queries = dataset_plan.get("queries") if isinstance(dataset_plan.get("queries"), list) else []
+    dataset_roots = dataset_plan.get("local_roots") if isinstance(dataset_plan.get("local_roots"), list) else []
+    dataset_sources = dataset_plan.get("source_refs") if isinstance(dataset_plan.get("source_refs"), list) else []
     artifact_paths = workspace_config_values(artifact_config.get("artifact_paths"))
     metric_paths = workspace_config_values(artifact_config.get("metric_paths")) + workspace_config_values(eval_config.get("metric_paths"))
     setup_command = str(env_prepare_config.get("setup_command") or "").strip()
@@ -5250,11 +6505,11 @@ def derive_workspace_reproduction_manifest(
         workspace_reproduction_manifest_item(
             "dataset",
             "数据集",
-            str(dataset_item.get("status") or "warning"),
-            str(dataset_item.get("title") or "缺数据集线索"),
-            str(dataset_item.get("value") or (dataset_hints[0] if dataset_hints else "")),
-            f"{len(dataset_hints)} 数据线索 · {len(data_roots)} 候选根",
-            str(dataset_item.get("action") or "运行 dataset.find 或补数据集名称、本地路径、下载页。"),
+            str(dataset_item.get("status") or dataset_plan.get("status") or "warning"),
+            str(dataset_item.get("title") or ("发现计划已生成" if dataset_queries or dataset_roots else "缺数据集线索")),
+            str(dataset_item.get("value") or (dataset_hints[0] if dataset_hints else dataset_queries[0] if dataset_queries else dataset_roots[0] if dataset_roots else "")),
+            f"{len(dataset_queries)} 查询 · {len(dataset_roots)} 本地根 · {len(dataset_sources)} 资料入口 · {len(dataset_hints)} 手动线索",
+            str(dataset_item.get("action") or (dataset_plan.get("next_action") or {}).get("detail") or "运行 dataset.find 或补数据集名称、本地路径、下载页。"),
             node_kind="dataset.find",
             node_id=node_by_kind.get("dataset.find", ""),
             evidence_count=safe_int(dataset_item.get("evidence_count"), 0),
@@ -5346,6 +6601,14 @@ def derive_workspace_reproduction_manifest(
         manifest_items[-1] if manifest_items else {},
     )
     intent = workspace_reproduction_intent(workspace)
+    delivery_contract = workspace_delivery_contract(
+        workspace,
+        intent,
+        run_command=run_command,
+        setup_command=setup_command,
+        artifact_paths=artifact_paths,
+        metric_paths=metric_paths,
+    )
     ready_count = status_counts.get("ready", 0) + status_counts.get("done", 0)
     checkout_source = copy.deepcopy(source)
     if not str(checkout_source.get("repo_url") or "").strip() and repo_urls:
@@ -5360,6 +6623,7 @@ def derive_workspace_reproduction_manifest(
         **cuda_env,
         **({"CONDA_DEFAULT_ENV": str(env.get("name") or "").strip()} if str(env.get("name") or "").strip() else {}),
     }
+    dataset_command = workspace_dataset_discovery_bundle_command(dataset_plan)
     bundle_steps = [
         workspace_execution_bundle_step(
             "checkout",
@@ -5370,6 +6634,16 @@ def derive_workspace_reproduction_manifest(
             node_kind="repo.clone",
             node_id=node_by_kind.get("repo.clone", "") or node_by_kind.get("path.resolve", ""),
             cwd=os.path.dirname(workspace_dir.rstrip("/")) if workspace_dir else "",
+        ),
+        workspace_execution_bundle_step(
+            "dataset",
+            "定位数据集",
+            dataset_command,
+            "ready" if str(dataset_plan.get("status") or "") in {"ready", "done"} else "warning",
+            str(dataset_plan.get("summary") or "从目标、论文、README、参考路径和本地数据根定位数据集。"),
+            node_kind="dataset.find",
+            node_id=node_by_kind.get("dataset.find", ""),
+            cwd=workspace_dir,
         ),
         workspace_execution_bundle_step(
             "setup",
@@ -5416,19 +6690,83 @@ def derive_workspace_reproduction_manifest(
             env=command_env,
         ),
     ]
+    path_node_id = node_by_kind.get("path.resolve", "") or node_by_kind.get("repo.clone", "")
+    env_node_id = node_by_kind.get("env.prepare", "") or node_by_kind.get("env.infer", "")
+    gpu_node_id = node_by_kind.get("gpu.allocate", "")
+    run_node_id = node_by_kind.get("run.command", "")
+    artifact_node_id = node_by_kind.get("artifact.collect", "") or node_by_kind.get("eval.report", "")
     bundle_missing = []
     if not workspace_dir:
-        bundle_missing.append({"field": "workspace_dir", "label": "工作目录", "status": "blocked", "action": "补 workspace_dir 或运行 path.resolve。"})
+        bundle_missing.append(
+            workspace_execution_bundle_missing_item(
+                "workspace_dir",
+                "工作目录",
+                "blocked",
+                "补 workspace_dir 或运行 path.resolve。",
+                node_kind="path.resolve" if node_by_kind.get("path.resolve", "") else "repo.clone",
+                node_id=path_node_id,
+                button_label="定位路径节点",
+                button_action="select-execution-node",
+                target_id="workspaceExecutionDetail",
+            )
+        )
     if not run_command:
-        bundle_missing.append({"field": "run_command", "label": "运行命令", "status": "blocked", "action": "补 run.command 或让自动发现推断入口。"})
+        bundle_missing.append(
+            workspace_execution_bundle_missing_item(
+                "run_command",
+                "运行命令",
+                "blocked",
+                "补 run.command 或让自动发现推断入口。",
+                node_kind="run.command",
+                node_id=run_node_id,
+                button_label="定位运行节点",
+                button_action="select-execution-node",
+                target_id="workspaceExecutionDetail",
+            )
+        )
     if not setup_command:
-        bundle_missing.append({"field": "setup_command", "label": "环境安装命令", "status": "warning", "action": "运行 env.infer/env.prepare 生成安装建议。"})
+        bundle_missing.append(
+            workspace_execution_bundle_missing_item(
+                "setup_command",
+                "环境安装命令",
+                "warning",
+                "运行 env.infer/env.prepare 生成安装建议。",
+                node_kind="env.prepare" if node_by_kind.get("env.prepare", "") else "env.infer",
+                node_id=env_node_id,
+                button_label="自动发现",
+                button_action="run-workspace-discovery",
+                target_id="workspaceExecutionDetail",
+            )
+        )
     if not artifact_paths and not metric_paths:
-        bundle_missing.append({"field": "artifact_paths", "label": "产物路径", "status": "warning", "action": "补 runs/outputs/checkpoints/logs/metrics 路径。"})
+        bundle_missing.append(
+            workspace_execution_bundle_missing_item(
+                "artifact_paths",
+                "产物路径",
+                "warning",
+                "补 runs/outputs/checkpoints/logs/metrics 路径。",
+                node_kind="artifact.collect" if node_by_kind.get("artifact.collect", "") else "eval.report",
+                node_id=artifact_node_id,
+                button_label="定位产物节点",
+                button_action="select-execution-node",
+                target_id="workspaceExecutionDetail",
+            )
+        )
     if recommended_server_id == "auto" and not safe_int(resource_candidates.get("online_server_count"), 0):
-        bundle_missing.append({"field": "server_id", "label": "目标服务器", "status": "warning", "action": "刷新资源或选择可用服务器。"})
+        bundle_missing.append(
+            workspace_execution_bundle_missing_item(
+                "server_id",
+                "目标服务器",
+                "warning",
+                "刷新资源或选择可用服务器。",
+                node_kind="gpu.allocate",
+                node_id=gpu_node_id,
+                button_label="刷新资源",
+                button_action="refresh-workspace-resources",
+                target_id="workspaceCockpitOperations",
+            )
+        )
     bundle_status = "blocked" if any(item["status"] == "blocked" for item in bundle_missing) else "warning" if bundle_missing else "ready"
-    run_node_id = node_by_kind.get("run.command", "")
     first_missing = bundle_missing[0] if bundle_missing else {}
     missing_field = str(first_missing.get("field") or "").strip()
     if bundle_status == "ready" and str(run_plan.get("status") or "") == "ready":
@@ -5485,34 +6823,85 @@ def derive_workspace_reproduction_manifest(
             "detail": "让系统按当前执行包、门禁和证据决定下一步。",
             "node_id": run_node_id,
         }
+    ready_to_execute = bundle_status == "ready" and str(run_plan.get("status") or "") == "ready"
+    bundle_target = {
+        "mode": intent["mode"],
+        "label": intent["label"],
+        "workspace_dir": workspace_dir,
+        "server_id": recommended_server_id,
+        "gpu_index": recommended_gpu_index or "auto",
+        "gpu_policy": gpu_policy,
+        "env_name": str(env.get("name") or "").strip(),
+        "env_manager": str(env.get("manager") or "").strip() or "conda",
+        "python": str(env.get("python") or "").strip(),
+    }
+    deployment_plan = workspace_deployment_plan(
+        workspace,
+        intent,
+        run_command=run_command,
+        workspace_dir=workspace_dir,
+        target=bundle_target,
+    )
+    command_script = workspace_execution_bundle_command_script(
+        bundle_target,
+        bundle_steps,
+        bundle_missing,
+        delivery_contract,
+        ready_to_execute=ready_to_execute,
+    )
+    bundle_evidence = {
+        "total_count": evidence_count,
+        "artifact_count": artifact_count,
+        "metric_count": metric_count,
+        "data_roots": data_roots[:6],
+        "dataset_hints": dataset_hints[:6],
+    }
+    manifest_commands = {
+        "checkout_command": compact_workspace_command(checkout_command, limit=180),
+        "setup_command": compact_workspace_command(setup_command, limit=180),
+        "run_command": compact_workspace_command(run_command, limit=180),
+        "report_command": compact_workspace_command(report_command, limit=180),
+    }
+    manifest_paths = {
+        "workspace_dir": workspace_dir,
+        "data_roots": data_roots[:6],
+        "output_roots": output_roots[:6],
+        "artifact_paths": artifact_paths[:8],
+        "metric_paths": metric_paths[:8],
+    }
+    package_manifest = workspace_execution_package_manifest(
+        workspace,
+        intent,
+        delivery_contract,
+        bundle_target,
+        bundle_steps,
+        bundle_missing,
+        command_script,
+        commands=manifest_commands,
+        paths=manifest_paths,
+        evidence=bundle_evidence,
+        scheduler=resource_orchestration.get("scheduler") if isinstance(resource_orchestration.get("scheduler"), dict) else {},
+        dataset_discovery=dataset_plan,
+        deployment_plan=deployment_plan,
+    )
     execution_bundle = {
         "status": bundle_status,
-        "ready_to_execute": bundle_status == "ready" and str(run_plan.get("status") or "") == "ready",
+        "ready_to_execute": ready_to_execute,
         "next_action": bundle_next_action,
-        "target": {
-            "mode": intent["mode"],
-            "label": intent["label"],
-            "workspace_dir": workspace_dir,
-            "server_id": recommended_server_id,
-            "gpu_index": recommended_gpu_index or "auto",
-            "gpu_policy": gpu_policy,
-            "env_name": str(env.get("name") or "").strip(),
-            "env_manager": str(env.get("manager") or "").strip() or "conda",
-            "python": str(env.get("python") or "").strip(),
-        },
+        "target": bundle_target,
         "steps": bundle_steps,
         "missing": bundle_missing,
-        "evidence": {
-            "total_count": evidence_count,
-            "artifact_count": artifact_count,
-            "metric_count": metric_count,
-            "data_roots": data_roots[:6],
-            "dataset_hints": dataset_hints[:6],
-        },
+        "command_script": command_script,
+        "package_manifest": package_manifest,
+        "evidence": bundle_evidence,
+        "delivery_contract": delivery_contract,
+        "deployment_plan": deployment_plan,
     }
     return {
         "status": status,
         "intent": intent,
+        "delivery_contract": delivery_contract,
+        "deployment_plan": deployment_plan,
         "summary": f"{intent['label']}清单 · {ready_count}/{len(manifest_items)} 项就绪 · {status_counts.get('blocked', 0)} 阻塞 · {status_counts.get('warning', 0)} 提示",
         "items": manifest_items,
         "counts": status_counts,
@@ -5525,18 +6914,9 @@ def derive_workspace_reproduction_manifest(
             "node_id": str(next_item.get("node_id") or "").strip(),
             "status": str(next_item.get("status") or status).strip(),
         },
-        "commands": {
-            "setup_command": compact_workspace_command(setup_command, limit=180),
-            "run_command": compact_workspace_command(run_command, limit=180),
-            "report_command": compact_workspace_command(report_command, limit=180),
-        },
-        "paths": {
-            "workspace_dir": workspace_dir,
-            "data_roots": data_roots[:6],
-            "output_roots": output_roots[:6],
-            "artifact_paths": artifact_paths[:8],
-            "metric_paths": metric_paths[:8],
-        },
+        "commands": manifest_commands,
+        "paths": manifest_paths,
+        "dataset_discovery": copy.deepcopy(dataset_plan),
         "execution_bundle": execution_bundle,
         "ready_to_run": status == "ready" and str(run_plan.get("status") or "") == "ready",
     }
@@ -5628,6 +7008,354 @@ def workspace_resource_item(
     }
 
 
+def workspace_preflight_action(
+    label: str,
+    action: str,
+    *,
+    tone: str = "secondary",
+    title: str = "",
+    node_id: str = "",
+    server_id: str = "",
+    tab: str = "",
+    mode: str = "",
+) -> dict[str, Any]:
+    return {
+        "label": str(label or "操作").strip(),
+        "action": str(action or "").strip(),
+        "tone": "primary" if tone == "primary" else "secondary",
+        "title": str(title or label or "").strip(),
+        "node_id": str(node_id or "").strip(),
+        "server_id": str(server_id or "").strip(),
+        "tab": str(tab or "").strip(),
+        "mode": str(mode or "").strip(),
+    }
+
+
+def workspace_preflight_item(
+    item_id: str,
+    label: str,
+    status: str,
+    title: str,
+    detail: str,
+    action: str,
+    *,
+    layer: str = "",
+    phase: str = "",
+    node_kind: str = "",
+    node_id: str = "",
+    requires: list[str] | None = None,
+    missing: list[str] | None = None,
+    metrics: dict[str, Any] | None = None,
+    action_button: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized = status if status in {"ready", "warning", "blocked", "running", "done", "failed", "draft"} else "warning"
+    return {
+        "id": str(item_id or "").strip(),
+        "label": str(label or "").strip(),
+        "status": normalized,
+        "title": str(title or "").strip(),
+        "detail": str(detail or "").strip(),
+        "action": str(action or "").strip(),
+        "layer": str(layer or "").strip(),
+        "phase": str(phase or "").strip(),
+        "node_kind": str(node_kind or "").strip(),
+        "node_id": str(node_id or "").strip(),
+        "requires": [str(item or "").strip() for item in (requires or []) if str(item or "").strip()],
+        "missing": [str(item or "").strip() for item in (missing or []) if str(item or "").strip()],
+        "metrics": metrics or {},
+        "action_button": action_button or {},
+    }
+
+
+def workspace_preflight_combined_status(*statuses: Any) -> str:
+    normalized = [str(status or "").strip() for status in statuses if str(status or "").strip()]
+    for status in ("failed", "blocked", "warning", "draft", "running", "ready", "done"):
+        if status in normalized:
+            return status
+    return "draft"
+
+
+def derive_workspace_preflight(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    checks: list[dict[str, Any]],
+    run_plan: dict[str, Any],
+    dataset_discovery: dict[str, Any],
+    resource_orchestration: dict[str, Any],
+    agent_topology: dict[str, Any],
+    reproduction_manifest: dict[str, Any],
+    execution_readiness: dict[str, Any],
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    check_index = {
+        str(check.get("id") or "").strip(): check
+        for check in checks
+        if isinstance(check, dict) and str(check.get("id") or "").strip()
+    }
+    nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
+    source = workspace.get("source") if isinstance(workspace.get("source"), dict) else {}
+    inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
+    bundle = reproduction_manifest.get("execution_bundle") if isinstance(reproduction_manifest.get("execution_bundle"), dict) else {}
+    scheduler = resource_orchestration.get("scheduler") if isinstance(resource_orchestration.get("scheduler"), dict) else {}
+    selected = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
+    job_state = execution_readiness.get("job_state") if isinstance(execution_readiness.get("job_state"), dict) else {}
+    readiness_steps = {
+        str(step.get("id") or "").strip(): step
+        for step in (execution_readiness.get("steps") if isinstance(execution_readiness.get("steps"), list) else [])
+        if isinstance(step, dict) and str(step.get("id") or "").strip()
+    }
+
+    def check(check_id: str) -> dict[str, Any]:
+        return check_index.get(check_id, {})
+
+    def node_id(kind: str) -> str:
+        node = workspace_node_by_kind(workspace, kind)
+        return str(node.get("id") or "").strip() if node else ""
+
+    def missing_from_checks(*check_ids: str) -> list[str]:
+        values: list[str] = []
+        for check_id in check_ids:
+            item = check(check_id)
+            if str(item.get("status") or "") in {"failed", "blocked", "warning", "draft"}:
+                text = str(item.get("title") or item.get("detail") or item.get("label") or check_id).strip()
+                if text:
+                    values.append(text)
+        return values
+
+    source_count = sum(
+        1
+        for value in (
+            source.get("repo_url"),
+            source.get("paper_url"),
+            source.get("idea_text"),
+            workspace.get("brief"),
+            inputs.get("goal_text"),
+        )
+        if str(value or "").strip()
+    )
+    source_count += len(inputs.get("repo_urls") if isinstance(inputs.get("repo_urls"), list) else [])
+    source_count += len(inputs.get("paper_urls") if isinstance(inputs.get("paper_urls"), list) else [])
+    source_count += len(inputs.get("references") if isinstance(inputs.get("references"), list) else [])
+    source_check = check("source")
+    starter_check = check("starter_chain")
+    path_check = check("paths")
+    dataset_check = check("dataset")
+    env_check = check("env")
+    gpu_check = check("gpu")
+    run_check = check("run")
+    artifact_check = check("artifact")
+    agents_check = check("agents")
+
+    run_blocking = run_plan.get("blocking") if isinstance(run_plan.get("blocking"), list) else []
+    bundle_missing = bundle.get("missing") if isinstance(bundle.get("missing"), list) else []
+    topology_layers = agent_topology.get("layers") if isinstance(agent_topology.get("layers"), dict) else {}
+    model_layer = topology_layers.get("ai") if isinstance(topology_layers.get("ai"), dict) else {}
+    agent_layer = topology_layers.get("agent") if isinstance(topology_layers.get("agent"), dict) else {}
+    tool_layer = topology_layers.get("tool") if isinstance(topology_layers.get("tool"), dict) else {}
+    dataset_queries = dataset_discovery.get("queries") if isinstance(dataset_discovery.get("queries"), list) else []
+    dataset_roots = dataset_discovery.get("local_roots") if isinstance(dataset_discovery.get("local_roots"), list) else []
+    resource_candidates = resource_orchestration.get("resource_candidates") if isinstance(resource_orchestration.get("resource_candidates"), dict) else {}
+    active_count = safe_int(job_state.get("active_count"), 0)
+    failed_count = safe_int(job_state.get("failed_count"), 0)
+    done_count = safe_int(job_state.get("done_count"), 0)
+
+    items = [
+        workspace_preflight_item(
+            "launcher",
+            "项目启动器",
+            str(source_check.get("status") or "draft"),
+            str(source_check.get("title") or ("输入已绑定" if source_count else "等待输入")),
+            str(source_check.get("detail") or f"{source_count} 条输入线索"),
+            str(source_check.get("action") or "补 repo、论文、目标描述、参考路径和约束。"),
+            layer="project",
+            phase="launch",
+            requires=["repo / paper / idea", "目标简报", "参考路径或约束"],
+            missing=missing_from_checks("source"),
+            metrics={"input_count": source_count},
+            action_button=workspace_preflight_action("项目设置", "switch-workspace-tab", tab="project", title="打开项目设置，补齐启动输入和目录环境。"),
+        ),
+        workspace_preflight_item(
+            "workflow_chain",
+            "工作流节点链",
+            workspace_preflight_combined_status(starter_check.get("status"), run_plan.get("status")),
+            str(run_plan.get("summary") or starter_check.get("title") or "等待节点链"),
+            str(starter_check.get("detail") or f"{safe_int(run_plan.get('node_count'), 0)} 个可执行节点"),
+            str(starter_check.get("action") or "补齐路径、数据、环境、GPU、运行、产物和报告节点。"),
+            layer="workflow",
+            phase="orchestrate",
+            requires=["Starter Chain", "节点 I/O 契约", "可执行 run node"],
+            missing=missing_from_checks("starter_chain", "run") + [
+                str(item.get("detail") or item.get("title") or item.get("field") or "").strip()
+                for item in run_blocking[:4]
+                if isinstance(item, dict)
+            ],
+            metrics={"node_count": len(nodes), "run_node_count": safe_int(run_plan.get("node_count"), 0), "blocking_count": len(run_blocking)},
+            action_button=workspace_preflight_action("节点链", "switch-workspace-tab", tab="workflow", title="打开工作流页，查看节点链和 I/O 交接。"),
+        ),
+        workspace_preflight_item(
+            "data_paths",
+            "数据和路径",
+            workspace_preflight_combined_status(path_check.get("status"), dataset_check.get("status"), dataset_discovery.get("status")),
+            str(dataset_discovery.get("summary") or dataset_check.get("title") or "等待数据计划"),
+            f"{len(dataset_queries)} 查询 · {len(dataset_roots)} 本地根 · workspace_dir={str(workspace.get('workspace_dir') or '未设置')}",
+            str(dataset_check.get("action") or path_check.get("action") or "运行 path.resolve / dataset.find，或补本地数据根。"),
+            layer="data",
+            phase="discover",
+            node_kind="dataset.find",
+            node_id=node_id("dataset.find"),
+            requires=["workspace_dir", "data_roots", "dataset hints / query"],
+            missing=missing_from_checks("paths", "dataset"),
+            metrics={"query_count": len(dataset_queries), "local_root_count": len(dataset_roots)},
+            action_button=workspace_preflight_action("自动发现", "run-workspace-discovery", tone="primary", title="运行安全发现链，收集路径和数据候选。"),
+        ),
+        workspace_preflight_item(
+            "environment",
+            "环境准备",
+            str(env_check.get("status") or "warning"),
+            str(env_check.get("title") or "等待环境入口"),
+            str(env_check.get("detail") or "等待 env_name、setup_command 或环境清单。"),
+            str(env_check.get("action") or "运行 env.infer 或补 setup_command。"),
+            layer="env",
+            phase="setup",
+            node_kind="env.prepare",
+            node_id=node_id("env.prepare"),
+            requires=["env_name", "setup_command", "requirements / environment manifest"],
+            missing=missing_from_checks("env"),
+            metrics={"manifest_count": len(workspace_config_values(workspace_node_config_by_kind(workspace, "env.infer").get("manifest_paths")))},
+            action_button=workspace_preflight_action("环境节点", "switch-workspace-tab", tab="workflow", title="打开工作流页，定位环境推断和准备节点。"),
+        ),
+        workspace_preflight_item(
+            "scheduler",
+            "资源/GPU 调度",
+            workspace_preflight_combined_status(gpu_check.get("status"), resource_orchestration.get("status"), scheduler.get("status")),
+            str(scheduler.get("summary") or resource_orchestration.get("summary") or gpu_check.get("title") or "等待调度"),
+            str(resource_orchestration.get("next_action", {}).get("detail") if isinstance(resource_orchestration.get("next_action"), dict) else "") or str(gpu_check.get("detail") or ""),
+            str(gpu_check.get("action") or "刷新资源快照，或设置 server_id/gpu_policy/min_free_memory_gib。"),
+            layer="resource",
+            phase="schedule",
+            node_kind="gpu.allocate",
+            node_id=node_id("gpu.allocate"),
+            requires=["server snapshot", "GPU policy", "host/GPU availability"],
+            missing=missing_from_checks("gpu"),
+            metrics={
+                "candidate_count": safe_int(scheduler.get("candidate_count"), 0),
+                "ready_count": safe_int(scheduler.get("ready_count"), 0),
+                "online_server_count": safe_int(resource_candidates.get("online_server_count"), 0),
+                "idle_gpu_count": safe_int(resource_candidates.get("idle_gpu_count"), 0),
+            },
+            action_button=workspace_preflight_action(
+                "刷新调度",
+                "refresh-workspace-resource-server" if str(selected.get("server_id") or "").strip() else "refresh-workspace-resources",
+                tone="primary" if str(resource_orchestration.get("status") or "") in {"blocked", "warning", "draft"} else "secondary",
+                title="刷新资源快照并更新 GPU/主机调度候选。",
+                server_id=str(selected.get("server_id") or "").strip(),
+            ),
+        ),
+        workspace_preflight_item(
+            "agent_tool_ai",
+            "Agent / Tool / AI",
+            workspace_preflight_combined_status(agents_check.get("status"), agent_topology.get("status"), model_layer.get("status")),
+            str(agent_topology.get("summary") or agents_check.get("title") or "等待分层"),
+            f"Agent {agent_layer.get('assigned_count', 0)}/{agent_layer.get('required_count', 0)} · Tool {tool_layer.get('assigned_count', 0)}/{tool_layer.get('required_count', 0)} · AI {model_layer.get('title') or model_layer.get('status') or '待配置'}",
+            str(agents_check.get("action") or "补 Agent 归属、工具 allowlist 和 Provider Profile。"),
+            layer="agent_tool_ai",
+            phase="delegate",
+            requires=["node owner Agent", "tool allowlist", "Provider Profile / routing"],
+            missing=missing_from_checks("agents") + [
+                str(item.get("title") or item.get("detail") or item.get("type") or "").strip()
+                for item in (agent_topology.get("gaps") if isinstance(agent_topology.get("gaps"), list) else [])[:4]
+                if isinstance(item, dict)
+            ],
+            metrics={
+                "agent_assigned": safe_int(agent_layer.get("assigned_count"), 0),
+                "tool_assigned": safe_int(tool_layer.get("assigned_count"), 0),
+                "gap_count": len(agent_topology.get("gaps") if isinstance(agent_topology.get("gaps"), list) else []),
+            },
+            action_button=workspace_preflight_action("分层配置", "switch-workspace-tab", tab="agents", title="打开 Agent 分层页，检查角色、工具和模型覆盖。"),
+        ),
+        workspace_preflight_item(
+            "execution_package",
+            "执行包",
+            str(bundle.get("status") or reproduction_manifest.get("status") or "draft"),
+            "执行包可提交" if bundle.get("ready_to_execute") else str(bundle.get("next_action", {}).get("label") if isinstance(bundle.get("next_action"), dict) else "") or "执行包未就绪",
+            str(bundle.get("command_script", {}).get("summary") if isinstance(bundle.get("command_script"), dict) else "") or str(reproduction_manifest.get("summary") or ""),
+            str(bundle.get("next_action", {}).get("detail") if isinstance(bundle.get("next_action"), dict) else "") or "先补齐执行包缺失字段。",
+            layer="package",
+            phase="execute",
+            node_kind="run.command",
+            node_id=node_id("run.command"),
+            requires=["checkout/setup/run/report script", "target server/GPU", "delivery contract"],
+            missing=[
+                str(item.get("field") or item.get("label") or item.get("detail") or "").strip()
+                for item in bundle_missing[:6]
+                if isinstance(item, dict)
+            ],
+            metrics={"ready_to_execute": bool(bundle.get("ready_to_execute")), "missing_count": len(bundle_missing)},
+            action_button=workspace_preflight_action(
+                "提交执行包" if bundle.get("ready_to_execute") else "自动推进",
+                "run-selected-workspace" if bundle.get("ready_to_execute") else "advance-workspace-automation",
+                tone="primary",
+                title="提交完整执行包，或让系统先自动补齐缺失项。",
+            ),
+        ),
+        workspace_preflight_item(
+            "run_records",
+            "运行/报告闭环",
+            "failed" if failed_count else "running" if active_count else str(report.get("status") or readiness_steps.get("collect_report", {}).get("status") or "draft"),
+            str(report.get("headline") or readiness_steps.get("collect_report", {}).get("title") or "等待运行记录"),
+            str(report.get("summary") or f"{active_count} 活跃 · {failed_count} 失败 · {done_count} 完成"),
+            str((report.get("next_actions") if isinstance(report.get("next_actions"), list) and report.get("next_actions") else [{}])[0].get("action") or "运行完成后收集日志、指标、产物和复跑报告。"),
+            layer="report",
+            phase="collect",
+            requires=["job logs", "artifacts", "metrics", "re-run report"],
+            missing=[] if active_count or failed_count or done_count else ["还没有运行记录"],
+            metrics={"active": active_count, "failed": failed_count, "done": done_count},
+            action_button=workspace_preflight_action(
+                "打开输出" if active_count or failed_count else "运行记录",
+                "open-last-workspace-log" if active_count or failed_count else "switch-workspace-tab",
+                tone="primary" if active_count or failed_count else "secondary",
+                tab="" if active_count or failed_count else "runs",
+                title="打开最近任务输出，或进入运行记录查看历史。",
+            ),
+        ),
+    ]
+
+    counts: dict[str, int] = {}
+    for item in items:
+        status = str(item.get("status") or "draft")
+        counts[status] = counts.get(status, 0) + 1
+    if counts.get("failed"):
+        status = "failed"
+    elif counts.get("running"):
+        status = "running"
+    elif counts.get("blocked"):
+        status = "blocked"
+    elif counts.get("warning") or counts.get("draft"):
+        status = "warning"
+    else:
+        status = "ready"
+    ready_count = counts.get("ready", 0) + counts.get("done", 0)
+    next_item = next(
+        (
+            item for item in items
+            if str(item.get("status") or "") in {"failed", "blocked", "warning", "draft", "running"}
+        ),
+        items[-1] if items else {},
+    )
+    return {
+        "status": status,
+        "summary": f"{ready_count}/{len(items)} 环节就绪 · {counts.get('blocked', 0)} 阻塞 · {counts.get('warning', 0)} 提示 · {counts.get('running', 0)} 运行",
+        "items": items,
+        "counts": counts,
+        "ready_count": ready_count,
+        "blocked_count": counts.get("blocked", 0),
+        "warning_count": counts.get("warning", 0) + counts.get("draft", 0),
+        "running_count": counts.get("running", 0),
+        "failed_count": counts.get("failed", 0),
+        "next_action": next_item,
+    }
+
+
 def derive_workspace_resource_orchestration(
     workspace: dict[str, Any],
     execution: dict[str, Any],
@@ -5656,6 +7384,7 @@ def derive_workspace_resource_orchestration(
     dataset_group = workspace_evidence_group(evidence, "dataset")
     env_group = workspace_evidence_group(evidence, "env")
     gpu_group = workspace_evidence_group(evidence, "gpu")
+    run_group = workspace_evidence_group(evidence, "run")
     artifact_group = workspace_evidence_group(evidence, "artifact")
     metric_group = workspace_evidence_group(evidence, "metric")
 
@@ -5666,7 +7395,6 @@ def derive_workspace_resource_orchestration(
         if isinstance(gpu, dict)
     ]
     idle_gpus = [gpu for gpu in all_gpus if str(gpu.get("state") or "") == "idle"]
-    best_gpu = infer_workspace_best_gpu(statuses)
 
     data_roots = workspace_config_values(path_config.get("data_roots")) + workspace_config_values(dataset_config.get("data_roots"))
     output_roots = workspace_config_values(path_config.get("output_roots"))
@@ -5678,6 +7406,18 @@ def derive_workspace_resource_orchestration(
     run_command = str(run_config.get("run_command") or "").strip()
     gpu_policy = str(run_config.get("gpu_policy") or gpu_config.get("gpu_policy") or "auto").strip().lower() or "auto"
     cpu_mode = gpu_policy in {"cpu", "none", "no_gpu"}
+    requested_server_id = str(run_config.get("server_id") or gpu_config.get("server_id") or "auto").strip() or "auto"
+    requested_gpu_index = str(run_config.get("gpu_index") or gpu_config.get("gpu_index") or "").strip()
+    min_free_memory_gib = safe_int(run_config.get("min_free_memory_gib") or gpu_config.get("min_free_memory_gib"), 0)
+    scheduler = derive_workspace_resource_scheduler(
+        statuses,
+        gpu_policy=gpu_policy,
+        requested_server_id=requested_server_id,
+        requested_gpu_index=requested_gpu_index,
+        min_free_memory_gib=min_free_memory_gib,
+    )
+    selected_candidate = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
+    best_gpu = selected_candidate if selected_candidate.get("mode") == "gpu" else infer_workspace_best_gpu(statuses)
 
     path_check = check_index.get("paths", {})
     dataset_check = check_index.get("dataset", {})
@@ -5688,6 +7428,7 @@ def derive_workspace_resource_orchestration(
 
     first_dataset_item = next((item for item in dataset_group.get("items", []) if isinstance(item, dict)), {})
     first_env_item = next((item for item in env_group.get("items", []) if isinstance(item, dict)), {})
+    first_run_item = next((item for item in run_group.get("items", []) if isinstance(item, dict)), {})
     first_artifact_item = next((item for item in artifact_group.get("items", []) if isinstance(item, dict)), {})
     repo_or_paper = str(source.get("repo_url") or source.get("paper_url") or source.get("idea_text") or workspace.get("brief") or "").strip()
 
@@ -5746,13 +7487,13 @@ def derive_workspace_resource_orchestration(
             "run",
             "运行入口",
             str(run_check.get("status") or "blocked"),
-            str(run_check.get("title") or ("运行命令已设置" if run_command else "缺 run command")),
-            compact_workspace_command(run_command) if run_command else "等待可提交命令",
+            str(run_check.get("title") or ("运行命令已设置" if run_command else "发现运行候选" if first_run_item else "缺 run command")),
+            compact_workspace_command(run_command) if run_command else str(first_run_item.get("value") or "等待可提交命令"),
             str(run_plan.get("summary") or "等待运行预案"),
-            str(run_check.get("action") or "补 run.command，或让 Agent 从 README/脚本中推断。"),
+            str(run_check.get("action") or ("回填发现运行命令后再提交完整工作流。" if first_run_item else "补 run.command，或让 Agent 从 README/脚本中推断。")),
             node_kind="run.command",
             phase="run",
-            evidence_count=0,
+            evidence_count=safe_int(run_group.get("count"), 0),
         ),
         workspace_resource_item(
             "artifact",
@@ -5793,10 +7534,11 @@ def derive_workspace_resource_orchestration(
             "online_server_count": len(online_statuses),
             "gpu_count": len(all_gpus),
             "idle_gpu_count": len(idle_gpus),
-            "recommended_server_id": str(best_gpu.get("server_id") or "").strip(),
-            "recommended_gpu_index": str(best_gpu.get("gpu_index") or "").strip(),
+            "recommended_server_id": str(selected_candidate.get("server_id") or best_gpu.get("server_id") or "").strip(),
+            "recommended_gpu_index": str(selected_candidate.get("gpu_index") or best_gpu.get("gpu_index") or "").strip(),
             "recommended_gpu_free_mib": safe_int(best_gpu.get("memory_free_mib"), 0),
         },
+        "scheduler": scheduler,
     }
 
 
@@ -6305,6 +8047,199 @@ def derive_workspace_execution_readiness(
     }
 
 
+def workspace_playbook_step(
+    step_id: str,
+    label: str,
+    status: str,
+    title: str,
+    detail: str,
+    action: str,
+    *,
+    button_action: str = "",
+    node_id: str = "",
+    server_id: str = "",
+    phase: str = "",
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized = status if status in {"ready", "warning", "blocked", "running", "done", "failed", "draft"} else "warning"
+    return {
+        "id": str(step_id or "").strip(),
+        "label": str(label or "").strip(),
+        "status": normalized,
+        "title": str(title or "").strip(),
+        "detail": str(detail or "").strip(),
+        "action": str(action or "").strip(),
+        "button_action": str(button_action or "").strip(),
+        "node_id": str(node_id or "").strip(),
+        "server_id": str(server_id or "").strip(),
+        "phase": str(phase or "").strip(),
+        "metrics": metrics or {},
+    }
+
+
+def derive_workspace_automation_playbook(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    advance: dict[str, Any],
+    execution_readiness: dict[str, Any],
+    resource_orchestration: dict[str, Any],
+    reproduction_manifest: dict[str, Any],
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    readiness_steps = {
+        str(step.get("id") or "").strip(): step
+        for step in (execution_readiness.get("steps") if isinstance(execution_readiness.get("steps"), list) else [])
+        if isinstance(step, dict) and str(step.get("id") or "").strip()
+    }
+    manifest_items = {
+        str(item.get("id") or "").strip(): item
+        for item in (reproduction_manifest.get("items") if isinstance(reproduction_manifest.get("items"), list) else [])
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+    job_state = execution_readiness.get("job_state") if isinstance(execution_readiness.get("job_state"), dict) else {}
+    gate = execution_readiness.get("gate") if isinstance(execution_readiness.get("gate"), dict) else {}
+    bundle = reproduction_manifest.get("execution_bundle") if isinstance(reproduction_manifest.get("execution_bundle"), dict) else {}
+    scheduler = resource_orchestration.get("scheduler") if isinstance(resource_orchestration.get("scheduler"), dict) else {}
+    selected_resource = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
+    intent = reproduction_manifest.get("intent") if isinstance(reproduction_manifest.get("intent"), dict) else {}
+    report_actions = report.get("next_actions") if isinstance(report.get("next_actions"), list) else []
+    active_count = safe_int(job_state.get("active_count"), 0)
+    failed_count = safe_int(job_state.get("failed_count"), 0)
+    discovery_run_count = safe_int(job_state.get("discovery_run_count"), 0)
+    evidence_payload = bundle.get("evidence") if isinstance(bundle.get("evidence"), dict) else {}
+    evidence_count = safe_int(evidence_payload.get("total_count"), 0)
+    last_job_id = str(job_state.get("last_job_id") or execution.get("last_job_id") or "").strip()
+    run_node_id = str((manifest_items.get("run") or {}).get("node_id") or bundle.get("next_action", {}).get("node_id") or "").strip() if isinstance(bundle.get("next_action"), dict) else str((manifest_items.get("run") or {}).get("node_id") or "").strip()
+
+    safe_discovery = readiness_steps.get("safe_discovery", {})
+    backfill = readiness_steps.get("defaults_evidence", {})
+    resources = readiness_steps.get("resource_binding", {})
+    hard_gate = readiness_steps.get("hard_gate", {})
+    full_run = readiness_steps.get("full_run", {})
+    collect = readiness_steps.get("collect_report", {})
+
+    steps = [
+        workspace_playbook_step(
+            "observe",
+            "观察/复查",
+            "running" if active_count else "failed" if failed_count else "done",
+            "当前任务未结束" if active_count else "失败任务待复查" if failed_count else "没有未处理任务",
+            f"{active_count} 活跃 · {failed_count} 失败 · 最近任务 {last_job_id or '无'}",
+            "打开最近输出，确认任务状态。" if active_count or failed_count else "可以进入自动发现或执行准备。",
+            button_action="open-last-workspace-log" if last_job_id and (active_count or failed_count) else "advance-workspace-automation",
+            phase="observe",
+            metrics={"active": active_count, "failed": failed_count},
+        ),
+        workspace_playbook_step(
+            "discover",
+            "安全发现",
+            str(safe_discovery.get("status") or ("done" if discovery_run_count else "ready")),
+            str(safe_discovery.get("title") or ("已有发现链记录" if discovery_run_count else "提交安全发现")),
+            str(safe_discovery.get("detail") or f"{discovery_run_count} 次发现 · {evidence_count} 条证据"),
+            str(safe_discovery.get("action") or "先收集源码、路径、数据、环境、GPU 和产物入口证据。"),
+            button_action="run-workspace-discovery" if not discovery_run_count else "advance-workspace-automation",
+            phase="discover",
+            metrics={"discovery_runs": discovery_run_count, "evidence": evidence_count},
+        ),
+        workspace_playbook_step(
+            "backfill",
+            "证据回填",
+            str(backfill.get("status") or ("ready" if evidence_count else "draft")),
+            str(backfill.get("title") or ("发现证据可回填" if evidence_count else "等待发现证据")),
+            str(backfill.get("detail") or f"{evidence_count} 条证据会进入路径、数据、环境、GPU、产物配置。"),
+            str(backfill.get("action") or "把发现证据写回节点配置，后续执行包使用这些默认值。"),
+            button_action="apply-workspace-automation" if evidence_count else "run-workspace-discovery",
+            phase="prepare",
+            metrics={"evidence": evidence_count},
+        ),
+        workspace_playbook_step(
+            "schedule",
+            "资源调度",
+            str(resources.get("status") or resource_orchestration.get("status") or "draft"),
+            str(resources.get("title") or resource_orchestration.get("summary") or "等待资源调度"),
+            str(resources.get("detail") or scheduler.get("summary") or "根据 GPU、主机资源和快照新鲜度选择执行目标。"),
+            str(resources.get("action") or scheduler.get("next_action") or "刷新资源或调整 server/GPU 策略。"),
+            button_action="refresh-workspace-resource-server" if str(selected_resource.get("server_id") or "").strip() else "refresh-workspace-resources",
+            server_id=str(selected_resource.get("server_id") or "").strip(),
+            phase="schedule",
+            metrics={
+                "candidate_count": safe_int(scheduler.get("candidate_count"), 0),
+                "ready_count": safe_int(scheduler.get("ready_count"), 0),
+                "selected_score": safe_int(selected_resource.get("score"), 0),
+            },
+        ),
+        workspace_playbook_step(
+            "gate",
+            "门禁确认",
+            str(hard_gate.get("status") or gate.get("status") or "draft"),
+            str(hard_gate.get("title") or gate.get("title") or "等待门禁"),
+            str(hard_gate.get("detail") or gate.get("detail") or "确认 Starter Chain、Agent、Tool、运行命令和资源绑定。"),
+            str(hard_gate.get("action") or gate.get("action") or "处理阻塞后再继续自动推进。"),
+            button_action="switch-workspace-manage" if str(gate.get("status") or hard_gate.get("status") or "") in {"blocked", "failed"} else "advance-workspace-automation",
+            phase="gate",
+            metrics={"blockers": len(execution_readiness.get("blockers") if isinstance(execution_readiness.get("blockers"), list) else [])},
+        ),
+        workspace_playbook_step(
+            "execute",
+            "提交执行包",
+            str(full_run.get("status") or bundle.get("status") or "draft"),
+            str(full_run.get("title") or ("执行包可提交" if bundle.get("ready_to_execute") else "执行包未就绪")),
+            str(full_run.get("detail") or bundle.get("next_action", {}).get("detail") or "按 checkout/setup/run/collect/report 顺序提交。") if isinstance(bundle.get("next_action"), dict) else str(full_run.get("detail") or "按 checkout/setup/run/collect/report 顺序提交。"),
+            str(full_run.get("action") or bundle.get("next_action", {}).get("detail") or "提交完整执行链。") if isinstance(bundle.get("next_action"), dict) else str(full_run.get("action") or "提交完整执行链。"),
+            button_action="run-selected-workspace" if bundle.get("ready_to_execute") else "advance-workspace-automation",
+            node_id=run_node_id,
+            phase="execute",
+            metrics={"ready_to_execute": bool(bundle.get("ready_to_execute")), "missing": len(bundle.get("missing") if isinstance(bundle.get("missing"), list) else [])},
+        ),
+        workspace_playbook_step(
+            "collect",
+            "产物/报告",
+            str(collect.get("status") or report.get("status") or "draft"),
+            str(collect.get("title") or report.get("headline") or "等待产物回收"),
+            str(collect.get("detail") or report.get("summary") or "收集 logs、checkpoints、metrics、复跑命令和报告。"),
+            str(collect.get("action") or (report_actions[0].get("action") if report_actions and isinstance(report_actions[0], dict) else "整理复现/部署报告。")),
+            button_action="advance-workspace-automation",
+            phase="report",
+            metrics={"report_actions": len(report_actions)},
+        ),
+    ]
+
+    current_step = next(
+        (
+            step for step in steps
+            if str(step.get("status") or "") in {"running", "failed", "blocked", "warning", "draft"}
+        ),
+        steps[-1] if steps else {},
+    )
+    if str(advance.get("action") or "") == "watch":
+        current_step = steps[0]
+    elif str(advance.get("action") or "") == "discover":
+        current_step = next((step for step in steps if step["id"] == "discover"), current_step)
+    elif str(advance.get("action") or "") == "run":
+        current_step = next((step for step in steps if step["id"] == "execute"), current_step)
+    elif str(advance.get("action") or "") == "blocked":
+        current_step = next((step for step in steps if step["id"] == "gate"), current_step)
+
+    ready_count = sum(1 for step in steps if str(step.get("status") or "") in {"ready", "done"})
+    status = str(current_step.get("status") or execution_readiness.get("status") or "draft")
+    return {
+        "status": status,
+        "mode": str(intent.get("mode") or "reproduce").strip() or "reproduce",
+        "label": str(intent.get("label") or "自动复现/部署").strip(),
+        "summary": f"{ready_count}/{len(steps)} 步闭环 · 当前：{str(current_step.get('label') or '等待')}",
+        "current_step_id": str(current_step.get("id") or "").strip(),
+        "current_action": {
+            "label": str(current_step.get("label") or advance.get("title") or "自动推进").strip(),
+            "action": str(current_step.get("button_action") or "advance-workspace-automation").strip(),
+            "title": str(current_step.get("title") or advance.get("title") or "").strip(),
+            "detail": str(current_step.get("detail") or advance.get("reason") or "").strip(),
+            "node_id": str(current_step.get("node_id") or "").strip(),
+            "server_id": str(current_step.get("server_id") or "").strip(),
+        },
+        "steps": steps,
+    }
+
+
 def derive_workspace_automation_state(
     workspace: dict[str, Any],
     execution: dict[str, Any],
@@ -6505,6 +8440,7 @@ def derive_workspace_automation_state(
     weighted = sum(max(workspace_status_priority(str(check.get("status") or "")), 0) for check in checks)
     score = round((weighted / max(len(checks) * workspace_status_priority("ready"), 1)) * 100)
     evidence = derive_workspace_automation_evidence(execution)
+    dataset_discovery = derive_workspace_dataset_discovery_plan(workspace, execution, evidence)
     run_plan = derive_workspace_run_plan(workspace, execution, checks)
     agent_topology = derive_workspace_agent_topology(workspace, run_plan)
     resource_orchestration = derive_workspace_resource_orchestration(
@@ -6523,6 +8459,7 @@ def derive_workspace_automation_state(
         run_plan,
         agent_topology,
     )
+    orchestration_contract = derive_workspace_orchestration_contract(agent_topology, workflow_contract)
     execution_context = derive_workspace_execution_context(workspace, execution, workflow_contract)
     reproduction_manifest = derive_workspace_reproduction_manifest(
         workspace,
@@ -6531,11 +8468,12 @@ def derive_workspace_automation_state(
         evidence,
         run_plan,
         resource_orchestration,
+        dataset_discovery,
         execution_context,
     )
     report = derive_workspace_automation_report(workspace, execution, checks, evidence, run_plan, status_counts)
     advance = derive_workspace_automation_advance_hint(execution, checks)
-    evidence_backfill = derive_workspace_evidence_backfill_plan(workspace, execution)
+    evidence_backfill = derive_workspace_evidence_backfill_plan(workspace, execution, resource_orchestration)
     execution_readiness = derive_workspace_execution_readiness(
         workspace,
         execution,
@@ -6545,6 +8483,27 @@ def derive_workspace_automation_state(
         advance,
         agent_topology,
         resource_orchestration,
+    )
+    playbook = derive_workspace_automation_playbook(
+        workspace,
+        execution,
+        advance,
+        execution_readiness,
+        resource_orchestration,
+        reproduction_manifest,
+        report,
+    )
+    preflight = derive_workspace_preflight(
+        workspace,
+        execution,
+        checks,
+        run_plan,
+        dataset_discovery,
+        resource_orchestration,
+        agent_topology,
+        reproduction_manifest,
+        execution_readiness,
+        report,
     )
     next_check = next(
         (
@@ -6562,11 +8521,15 @@ def derive_workspace_automation_state(
         "evidence_backfill": evidence_backfill,
         "run_plan": run_plan,
         "workflow_contract": workflow_contract,
+        "orchestration_contract": orchestration_contract,
         "execution_context": execution_context,
+        "dataset_discovery": dataset_discovery,
         "reproduction_manifest": reproduction_manifest,
         "agent_topology": agent_topology,
         "resource_orchestration": resource_orchestration,
         "execution_readiness": execution_readiness,
+        "playbook": playbook,
+        "preflight": preflight,
         "report": report,
         "advance": advance,
         "missing": [check for check in checks if str(check.get("status") or "") in {"blocked", "warning", "draft"}],
@@ -6723,6 +8686,246 @@ def infer_workspace_data_roots(workspace: dict[str, Any], workspace_dir: str = "
     return roots
 
 
+def workspace_dataset_value_kind(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    lower = text.lower()
+    if lower.startswith(("http://", "https://", "doi:", "arxiv:", "hf://", "kaggle:")):
+        return "source"
+    if text.startswith(("~", "/", "./", "../")) or ":\\" in text:
+        return "path"
+    if any(token in lower for token in ("dataset", "数据集", "benchmark", "imagenet", "coco", "kaggle", "huggingface")):
+        return "query"
+    return "query"
+
+
+def append_unique_text(target: list[str], value: Any, *, limit: int = 12) -> None:
+    text = compact_workspace_command(str(value or "").strip(), limit=180)
+    if not text or text in target or len(target) >= limit:
+        return
+    target.append(text)
+
+
+def derive_workspace_dataset_discovery_plan(
+    workspace: dict[str, Any],
+    execution: dict[str, Any] | None = None,
+    evidence: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    source = workspace.get("source") if isinstance(workspace.get("source"), dict) else {}
+    inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
+    dataset_config = workspace_node_config_by_kind(workspace, "dataset.find")
+    path_config = workspace_node_config_by_kind(workspace, "path.resolve")
+    nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
+    dataset_node_id = next(
+        (
+            str(node.get("id") or "").strip()
+            for node in nodes
+            if isinstance(node, dict) and str(node.get("kind") or "").strip() == "dataset.find"
+        ),
+        "",
+    )
+
+    queries: list[str] = []
+    local_roots: list[str] = []
+    source_refs: list[str] = []
+    hints: list[str] = []
+    expected_layout = str(dataset_config.get("expected_layout") or "").strip()
+
+    for value in workspace_config_values(dataset_config.get("query")):
+        append_unique_text(queries, value)
+    for value in workspace_config_values(dataset_config.get("dataset_hints")):
+        kind = workspace_dataset_value_kind(value)
+        append_unique_text(hints, value)
+        if kind == "path":
+            append_unique_text(local_roots, value)
+        elif kind == "source":
+            append_unique_text(source_refs, value)
+        else:
+            append_unique_text(queries, value)
+    for value in workspace_config_values(path_config.get("data_roots")) + workspace_config_values(dataset_config.get("data_roots")):
+        append_unique_text(local_roots, value)
+
+    repo_url = str(source.get("repo_url") or "").strip()
+    paper_url = str(source.get("paper_url") or "").strip()
+    if repo_url:
+        append_unique_text(source_refs, repo_url)
+        repo_name = repo_name_from_url(repo_url)
+        if repo_name:
+            append_unique_text(queries, f"{repo_name} dataset")
+    if paper_url:
+        append_unique_text(source_refs, paper_url)
+        append_unique_text(queries, paper_url)
+
+    for value in parse_line_list(inputs.get("paper_urls", [])):
+        append_unique_text(source_refs, value)
+        append_unique_text(queries, value)
+    for value in parse_line_list(inputs.get("repo_urls", [])):
+        append_unique_text(source_refs, value)
+        repo_name = repo_name_from_url(value)
+        append_unique_text(queries, f"{repo_name or value} dataset")
+    for value in parse_line_list(inputs.get("references", [])) + parse_line_list(workspace.get("references", [])):
+        kind = workspace_dataset_value_kind(value)
+        append_unique_text(hints, value)
+        if kind == "path":
+            append_unique_text(local_roots, value)
+        elif kind == "source":
+            append_unique_text(source_refs, value)
+        else:
+            append_unique_text(queries, value)
+    for value in parse_line_list(inputs.get("context_blocks", [])):
+        lowered = value.lower()
+        if any(token in lowered for token in ("dataset", "数据", "benchmark", "kaggle", "huggingface", "imagenet", "coco")):
+            append_unique_text(queries, value)
+    for value in (
+        inputs.get("goal_text"),
+        source.get("idea_text"),
+        workspace.get("brief"),
+        workspace.get("name"),
+    ):
+        text = str(value or "").strip()
+        if text and (not queries or any(token in text.lower() for token in ("dataset", "数据", "benchmark", "复现", "baseline"))):
+            append_unique_text(queries, text)
+
+    inferred_roots = infer_workspace_data_roots(workspace, str(workspace.get("workspace_dir") or "").strip())
+    for value in inferred_roots:
+        append_unique_text(local_roots, value)
+
+    evidence_group = workspace_evidence_group(evidence or [], "dataset")
+    evidence_items = evidence_group.get("items") if isinstance(evidence_group.get("items"), list) else []
+    found_datasets = [
+        str(item.get("value") or "").strip()
+        for item in evidence_items
+        if isinstance(item, dict)
+        and str(item.get("label") or "") in {"候选数据集", "数据集线索"}
+        and str(item.get("value") or "").strip()
+    ]
+    for value in found_datasets:
+        append_unique_text(hints, value)
+
+    if not dataset_node_id:
+        status = "blocked"
+    elif found_datasets:
+        status = "ready"
+    elif queries or local_roots or source_refs or hints:
+        status = "ready"
+    else:
+        status = "warning"
+
+    actions: list[dict[str, Any]] = []
+    if local_roots:
+        actions.append(
+            {
+                "id": "scan_local_roots",
+                "label": "扫描本地数据根",
+                "status": "ready",
+                "detail": f"扫描 {len(local_roots)} 个候选根目录，匹配查询词和目录名。",
+            }
+        )
+    if queries or source_refs:
+        actions.append(
+            {
+                "id": "derive_queries",
+                "label": "派生数据集查询",
+                "status": "ready" if queries else "warning",
+                "detail": f"{len(queries)} 个查询词 · {len(source_refs)} 个资料入口。",
+            }
+        )
+    actions.append(
+        {
+            "id": "verify_layout",
+            "label": "验证数据结构",
+            "status": "ready" if found_datasets or expected_layout else "warning",
+            "detail": expected_layout or "确认 train/val、images/annotations、metadata 或项目 README 要求。",
+        }
+    )
+
+    if not dataset_node_id:
+        next_action = {
+            "action": "switch-workspace-manage",
+            "title": "补 dataset.find 节点",
+            "detail": "当前链路缺少数据集发现节点，无法形成数据证据。",
+            "node_id": "",
+        }
+    elif found_datasets:
+        next_action = {
+            "action": "apply-workspace-automation",
+            "title": "回填数据集证据",
+            "detail": "把发现的数据集路径或线索写回 dataset.find / path.resolve。",
+            "node_id": dataset_node_id,
+        }
+    elif local_roots or queries:
+        next_action = {
+            "action": "run-workspace-discovery",
+            "title": "运行数据集发现",
+            "detail": "提交安全发现链，扫描本地数据根并输出 dataset_profile。",
+            "node_id": dataset_node_id,
+        }
+    else:
+        next_action = {
+            "action": "select-execution-node",
+            "title": "补数据集线索",
+            "detail": "填写数据集名、下载页、本地路径或论文资料后再发现。",
+            "node_id": dataset_node_id,
+        }
+
+    return {
+        "status": status,
+        "summary": f"{len(queries)} 个查询 · {len(local_roots)} 个本地根 · {len(source_refs)} 个资料入口 · {safe_int(evidence_group.get('count'), 0)} 条证据",
+        "node_kind": "dataset.find",
+        "node_id": dataset_node_id,
+        "queries": queries[:12],
+        "local_roots": local_roots[:12],
+        "source_refs": source_refs[:12],
+        "hints": hints[:12],
+        "expected_layout": expected_layout,
+        "found_datasets": found_datasets[:12],
+        "evidence_count": safe_int(evidence_group.get("count"), 0),
+        "actions": actions,
+        "next_action": next_action,
+    }
+
+
+def workspace_dataset_discovery_bundle_command(plan: dict[str, Any]) -> str:
+    queries = plan.get("queries") if isinstance(plan.get("queries"), list) else []
+    local_roots = plan.get("local_roots") if isinstance(plan.get("local_roots"), list) else []
+    source_refs = plan.get("source_refs") if isinstance(plan.get("source_refs"), list) else []
+    expected_layout = str(plan.get("expected_layout") or "").strip()
+    if not queries and not local_roots and not source_refs and not expected_layout:
+        return ""
+    return f"""python3 - <<'PY'
+from pathlib import Path
+
+queries = {json.dumps(queries[:12], ensure_ascii=False)}
+local_roots = {json.dumps(local_roots[:12], ensure_ascii=False)}
+source_refs = {json.dumps(source_refs[:12], ensure_ascii=False)}
+expected_layout = {json.dumps(expected_layout, ensure_ascii=False)}
+
+for query in queries:
+    print("dataset_plan_query:", query)
+for source in source_refs:
+    print("dataset_source:", source)
+if expected_layout:
+    print("expected_layout:", expected_layout)
+terms = [part.lower() for query in queries for part in query.replace("/", " ").replace("_", " ").replace("-", " ").split() if len(part) >= 3]
+for raw in local_roots:
+    path = Path(raw).expanduser()
+    print(f"candidate_root: {{path}} exists={{path.exists()}}")
+    if not path.exists() or not path.is_dir():
+        continue
+    matches = []
+    for child in sorted(path.iterdir(), key=lambda item: item.name.lower()):
+        name = child.name.lower()
+        if not terms or any(term in name for term in terms):
+            matches.append(child)
+        if len(matches) >= 12:
+            break
+    for child in matches:
+        kind = "dir" if child.is_dir() else "file"
+        print(f"  match: {{child.name}} ({{kind}})")
+PY"""
+
+
 def infer_workspace_setup_command(workspace_dir: str) -> str:
     root = Path(workspace_dir).expanduser()
     if not workspace_dir or not root.exists():
@@ -6777,6 +8980,415 @@ def infer_workspace_best_gpu(statuses: list[dict[str, Any]]) -> dict[str, Any]:
     return best
 
 
+def clamp_score(value: float) -> int:
+    return max(0, min(100, int(round(value))))
+
+
+def workspace_status_age_seconds(status: dict[str, Any], now_ts: float | None = None) -> int:
+    collected_ts = parse_iso_timestamp(status.get("collected_at"))
+    if collected_ts <= 0:
+        return 0
+    current = now_ts if now_ts is not None else time.time()
+    return max(0, int(round(current - collected_ts)))
+
+
+def workspace_host_resource_summary_for_scheduler(status: dict[str, Any]) -> dict[str, Any]:
+    resources = status.get("host_resources") if isinstance(status.get("host_resources"), dict) else {}
+    if not resources:
+        return {
+            "ok": False,
+            "cpu_percent": 0.0,
+            "memory_percent": 0.0,
+            "load1": 0.0,
+            "summary": "主机资源待采集",
+        }
+    if resources.get("ok") is False:
+        return {
+            "ok": False,
+            "cpu_percent": 0.0,
+            "memory_percent": 0.0,
+            "load1": 0.0,
+            "summary": str(resources.get("error") or "主机资源采集异常"),
+        }
+    cpu = resources.get("cpu") if isinstance(resources.get("cpu"), dict) else {}
+    memory = resources.get("memory") if isinstance(resources.get("memory"), dict) else {}
+    cpu_percent = safe_float(cpu.get("util_percent"), 0.0)
+    memory_percent = safe_float(memory.get("used_percent"), 0.0)
+    load1 = safe_float(cpu.get("load1"), 0.0)
+    return {
+        "ok": True,
+        "cpu_percent": round(cpu_percent, 1),
+        "memory_percent": round(memory_percent, 1),
+        "load1": round(load1, 2),
+        "summary": f"CPU {cpu_percent:.1f}% · 内存 {memory_percent:.1f}%",
+    }
+
+
+def workspace_scheduler_candidate_status(
+    *,
+    mode: str,
+    gpu_state: str = "",
+    memory_free_mib: int = 0,
+    min_free_memory_mib: int = 0,
+    host: dict[str, Any] | None = None,
+) -> str:
+    host = host or {}
+    if mode == "cpu":
+        if host.get("ok") is False:
+            return "warning"
+        if safe_float(host.get("cpu_percent"), 0.0) >= 92 or safe_float(host.get("memory_percent"), 0.0) >= 94:
+            return "warning"
+        return "ready"
+    if min_free_memory_mib and memory_free_mib < min_free_memory_mib:
+        return "blocked"
+    if gpu_state == "idle":
+        return "ready"
+    return "warning"
+
+
+def workspace_scheduler_score(
+    *,
+    mode: str,
+    status_value: str,
+    memory_free_mib: int = 0,
+    gpu_state: str = "",
+    gpu_util: int = 0,
+    process_count: int = 0,
+    host: dict[str, Any] | None = None,
+    age_seconds: int = 0,
+) -> int:
+    host = host or {}
+    score = 70.0 if mode == "cpu" else 45.0
+    if mode == "gpu":
+        score += min(memory_free_mib / 1024 * 1.8, 34)
+        score += 18 if gpu_state == "idle" else -16
+        score -= min(max(gpu_util, 0) / 2.5, 24)
+        score -= min(max(process_count, 0) * 7, 21)
+    score -= max(safe_float(host.get("cpu_percent"), 0.0) - 70, 0) * 0.35
+    score -= max(safe_float(host.get("memory_percent"), 0.0) - 78, 0) * 0.45
+    if host.get("ok") is False:
+        score -= 7
+    if age_seconds > 180:
+        score -= min((age_seconds - 180) / 30, 18)
+    if status_value == "blocked":
+        score -= 45
+    elif status_value == "warning":
+        score -= 12
+    return clamp_score(score)
+
+
+def workspace_scheduler_reasons(
+    *,
+    mode: str,
+    candidate_status: str,
+    memory_free_mib: int = 0,
+    min_free_memory_mib: int = 0,
+    gpu_state: str = "",
+    gpu_util: int = 0,
+    process_count: int = 0,
+    host: dict[str, Any] | None = None,
+    age_seconds: int = 0,
+) -> tuple[list[str], list[str]]:
+    host = host or {}
+    reasons: list[str] = []
+    warnings: list[str] = []
+    if mode == "cpu":
+        reasons.append("CPU/无 GPU 模式")
+    else:
+        reasons.append(f"{memory_free_mib // 1024} GiB 显存空闲")
+        reasons.append("GPU 空闲" if gpu_state == "idle" else f"GPU {gpu_state or '未知'}")
+        if gpu_util:
+            warnings.append(f"GPU util {gpu_util}%")
+        if process_count:
+            warnings.append(f"{process_count} 个 GPU 进程")
+        if min_free_memory_mib and memory_free_mib < min_free_memory_mib:
+            warnings.append(f"低于最小显存 {min_free_memory_mib // 1024} GiB")
+    if host.get("summary"):
+        reasons.append(str(host.get("summary")))
+    if host.get("ok") is False:
+        warnings.append(str(host.get("summary") or "主机资源异常"))
+    if safe_float(host.get("cpu_percent"), 0.0) >= 90:
+        warnings.append("主机 CPU 偏高")
+    if safe_float(host.get("memory_percent"), 0.0) >= 90:
+        warnings.append("主机内存偏高")
+    if age_seconds > 180:
+        warnings.append(f"快照 {age_seconds}s 前")
+    if candidate_status == "ready" and not warnings:
+        reasons.append("可作为执行包目标")
+    return (compact_contract_items(reasons, limit=5), compact_contract_items(warnings, limit=5))
+
+
+def derive_workspace_resource_scheduler(
+    statuses: list[dict[str, Any]],
+    *,
+    gpu_policy: str = "auto",
+    requested_server_id: str = "",
+    requested_gpu_index: str = "",
+    min_free_memory_gib: int = 0,
+) -> dict[str, Any]:
+    policy = str(gpu_policy or "auto").strip().lower() or "auto"
+    cpu_mode = policy in {"cpu", "none", "no_gpu"}
+    mode = "cpu" if cpu_mode else "gpu"
+    min_free_memory_mib = max(safe_int(min_free_memory_gib, 0), 0) * 1024
+    now_ts = time.time()
+    candidates: list[dict[str, Any]] = []
+    rejected_count = 0
+    online_statuses = [item for item in statuses if isinstance(item, dict) and item.get("online")]
+
+    for status in online_statuses:
+        server_id = str(status.get("id") or "").strip()
+        if requested_server_id and requested_server_id not in {"auto", server_id}:
+            continue
+        server_name = str(status.get("name") or server_id).strip()
+        host = workspace_host_resource_summary_for_scheduler(status)
+        age_seconds = workspace_status_age_seconds(status, now_ts)
+        process_count_by_gpu: dict[str, int] = {}
+        for process in (status.get("processes") if isinstance(status.get("processes"), list) else []):
+            if not isinstance(process, dict):
+                continue
+            key = str(process.get("gpu_index") if process.get("gpu_index") is not None else "").strip()
+            if key:
+                process_count_by_gpu[key] = process_count_by_gpu.get(key, 0) + 1
+        if cpu_mode:
+            candidate_status = workspace_scheduler_candidate_status(mode="cpu", host=host)
+            score = workspace_scheduler_score(mode="cpu", status_value=candidate_status, host=host, age_seconds=age_seconds)
+            reasons, warnings = workspace_scheduler_reasons(
+                mode="cpu",
+                candidate_status=candidate_status,
+                host=host,
+                age_seconds=age_seconds,
+            )
+            candidates.append(
+                {
+                    "id": f"{server_id}:cpu",
+                    "status": candidate_status,
+                    "mode": "cpu",
+                    "score": score,
+                    "server_id": server_id,
+                    "server_name": server_name,
+                    "gpu_index": "cpu",
+                    "gpu_name": "CPU",
+                    "gpu_state": "cpu",
+                    "memory_free_mib": 0,
+                    "memory_total_mib": 0,
+                    "gpu_util": 0,
+                    "process_count": 0,
+                    "host": host,
+                    "snapshot_age_seconds": age_seconds,
+                    "collected_at": str(status.get("collected_at") or "").strip(),
+                    "reasons": reasons,
+                    "warnings": warnings,
+                }
+            )
+            continue
+        for gpu in (status.get("gpus") if isinstance(status.get("gpus"), list) else []):
+            if not isinstance(gpu, dict):
+                continue
+            gpu_index = str(gpu.get("index") if gpu.get("index") is not None else "auto")
+            if requested_gpu_index and requested_gpu_index not in {"auto", gpu_index}:
+                rejected_count += 1
+                continue
+            memory_free_mib = safe_int(gpu.get("memory_free_mib"), 0)
+            gpu_state = str(gpu.get("state") or "").strip()
+            gpu_util = safe_int(gpu.get("gpu_util"), 0)
+            process_count = process_count_by_gpu.get(gpu_index, 0)
+            candidate_status = workspace_scheduler_candidate_status(
+                mode="gpu",
+                gpu_state=gpu_state,
+                memory_free_mib=memory_free_mib,
+                min_free_memory_mib=min_free_memory_mib,
+                host=host,
+            )
+            score = workspace_scheduler_score(
+                mode="gpu",
+                status_value=candidate_status,
+                memory_free_mib=memory_free_mib,
+                gpu_state=gpu_state,
+                gpu_util=gpu_util,
+                process_count=process_count,
+                host=host,
+                age_seconds=age_seconds,
+            )
+            reasons, warnings = workspace_scheduler_reasons(
+                mode="gpu",
+                candidate_status=candidate_status,
+                memory_free_mib=memory_free_mib,
+                min_free_memory_mib=min_free_memory_mib,
+                gpu_state=gpu_state,
+                gpu_util=gpu_util,
+                process_count=process_count,
+                host=host,
+                age_seconds=age_seconds,
+            )
+            candidates.append(
+                {
+                    "id": f"{server_id}:{gpu_index}",
+                    "status": candidate_status,
+                    "mode": "gpu",
+                    "score": score,
+                    "server_id": server_id,
+                    "server_name": server_name,
+                    "gpu_index": gpu_index,
+                    "gpu_name": str(gpu.get("name") or f"GPU {gpu_index}").strip(),
+                    "gpu_state": gpu_state,
+                    "memory_free_mib": memory_free_mib,
+                    "memory_total_mib": safe_int(gpu.get("memory_total_mib"), 0),
+                    "gpu_util": gpu_util,
+                    "process_count": process_count,
+                    "host": host,
+                    "snapshot_age_seconds": age_seconds,
+                    "collected_at": str(status.get("collected_at") or "").strip(),
+                    "reasons": reasons,
+                    "warnings": warnings,
+                }
+            )
+
+    candidates.sort(
+        key=lambda item: (
+            workspace_status_priority(str(item.get("status") or "draft")),
+            safe_int(item.get("score"), 0),
+            safe_int(item.get("memory_free_mib"), 0),
+        ),
+        reverse=True,
+    )
+    selected = candidates[0] if candidates else {}
+    ready_count = sum(1 for item in candidates if str(item.get("status") or "") == "ready")
+    if not online_statuses:
+        status = "blocked"
+    elif selected and str(selected.get("status") or "") == "ready":
+        status = "ready"
+    elif candidates:
+        status = "warning"
+    else:
+        status = "blocked"
+    return {
+        "status": status,
+        "mode": mode,
+        "policy": policy,
+        "requested_server_id": requested_server_id or "auto",
+        "requested_gpu_index": requested_gpu_index or ("cpu" if cpu_mode else "auto"),
+        "min_free_memory_mib": min_free_memory_mib,
+        "selected": copy.deepcopy(selected),
+        "candidates": copy.deepcopy(candidates[:8]),
+        "candidate_count": len(candidates),
+        "ready_count": ready_count,
+        "rejected_count": rejected_count,
+        "summary": (
+            f"{ready_count}/{len(candidates)} 个候选可用 · "
+            f"{'CPU 模式' if cpu_mode else f'最小显存 {min_free_memory_mib // 1024} GiB'}"
+        ),
+        "next_action": "刷新单机或调整 gpu_policy/server_id/min_free_memory_gib" if status != "ready" else "调度目标可写入执行包",
+    }
+
+
+def workspace_scheduler_values_from_selection(scheduler: dict[str, Any]) -> dict[str, Any]:
+    selected = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
+    if not selected:
+        return {
+            "server_id": "",
+            "gpu_index": "",
+            "gpu_policy": "",
+            "min_free_memory_gib": "",
+            "mode": str(scheduler.get("mode") or "").strip(),
+            "status": str(scheduler.get("status") or "draft").strip(),
+        }
+    mode = str(selected.get("mode") or scheduler.get("mode") or "gpu").strip().lower()
+    cpu_mode = mode == "cpu" or str(scheduler.get("policy") or "").strip().lower() in {"cpu", "none", "no_gpu"}
+    policy = str(scheduler.get("policy") or ("cpu" if cpu_mode else "auto")).strip().lower() or ("cpu" if cpu_mode else "auto")
+    server_id = str(selected.get("server_id") or "").strip()
+    gpu_index = "none" if cpu_mode else str(selected.get("gpu_index") or "").strip()
+    min_free_memory_gib = ""
+    if not cpu_mode:
+        requested_min_mib = safe_int(scheduler.get("min_free_memory_mib"), 0)
+        if requested_min_mib > 0:
+            min_free_memory_gib = str(max(requested_min_mib // 1024, 1))
+        else:
+            memory_free_mib = safe_int(selected.get("memory_free_mib"), 0)
+            if memory_free_mib:
+                min_free_memory_gib = str(max(memory_free_mib // 1024 - 2, 1))
+    return {
+        "server_id": server_id,
+        "gpu_index": gpu_index,
+        "gpu_policy": policy if cpu_mode else "auto",
+        "min_free_memory_gib": min_free_memory_gib,
+        "mode": "cpu" if cpu_mode else "gpu",
+        "status": str(scheduler.get("status") or selected.get("status") or "draft").strip(),
+        "score": safe_int(selected.get("score"), 0),
+    }
+
+
+def workspace_scheduler_values_from_candidate(
+    candidate: dict[str, Any] | None,
+    scheduler: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(candidate, dict):
+        return {}
+    scheduler = scheduler if isinstance(scheduler, dict) else {}
+    server_id = str(candidate.get("server_id") or candidate.get("serverId") or "").strip()
+    if not server_id:
+        return {}
+    raw_mode = str(candidate.get("mode") or "").strip().lower()
+    raw_policy = str(candidate.get("gpu_policy") or candidate.get("policy") or scheduler.get("policy") or "").strip().lower()
+    raw_gpu_index = str(
+        candidate.get("gpu_index")
+        if candidate.get("gpu_index") is not None
+        else candidate.get("gpuIndex")
+        if candidate.get("gpuIndex") is not None
+        else ""
+    ).strip()
+    cpu_mode = (
+        raw_mode in {"cpu", "none", "no_gpu"}
+        or raw_policy in {"cpu", "none", "no_gpu"}
+        or raw_gpu_index in {"cpu", "none", "no_gpu"}
+    )
+    policy = "cpu" if cpu_mode else (raw_policy if raw_policy not in {"cpu", "none", "no_gpu"} else "") or "auto"
+    gpu_index = "none" if cpu_mode else raw_gpu_index or "auto"
+    min_free_memory_gib = ""
+    if not cpu_mode:
+        requested_min_gib = safe_int(candidate.get("min_free_memory_gib") or candidate.get("minFreeMemoryGib"), 0)
+        if requested_min_gib > 0:
+            min_free_memory_gib = str(requested_min_gib)
+        else:
+            requested_min_mib = safe_int(candidate.get("min_free_memory_mib") or scheduler.get("min_free_memory_mib"), 0)
+            if requested_min_mib > 0:
+                min_free_memory_gib = str(max(requested_min_mib // 1024, 1))
+            else:
+                memory_free_mib = safe_int(candidate.get("memory_free_mib") or candidate.get("memoryFreeMib"), 0)
+                if memory_free_mib:
+                    min_free_memory_gib = str(max(memory_free_mib // 1024 - 2, 1))
+    return {
+        "server_id": server_id,
+        "gpu_index": gpu_index,
+        "gpu_policy": policy,
+        "min_free_memory_gib": min_free_memory_gib,
+        "mode": "cpu" if cpu_mode else "gpu",
+        "status": str(candidate.get("status") or scheduler.get("status") or "draft").strip(),
+        "score": safe_int(candidate.get("score"), 0),
+    }
+
+
+def derive_workspace_scheduler_values(
+    workspace: dict[str, Any],
+    statuses: list[dict[str, Any]],
+) -> dict[str, Any]:
+    gpu_config = workspace_node_config_by_kind(workspace, "gpu.allocate")
+    run_config = workspace_node_config_by_kind(workspace, "run.command")
+    gpu_policy = str(run_config.get("gpu_policy") or gpu_config.get("gpu_policy") or "auto").strip().lower() or "auto"
+    requested_server_id = str(run_config.get("server_id") or gpu_config.get("server_id") or "auto").strip() or "auto"
+    requested_gpu_index = str(run_config.get("gpu_index") or gpu_config.get("gpu_index") or "").strip()
+    min_free_memory_gib = safe_int(run_config.get("min_free_memory_gib") or gpu_config.get("min_free_memory_gib"), 0)
+    scheduler = derive_workspace_resource_scheduler(
+        statuses,
+        gpu_policy=gpu_policy,
+        requested_server_id=requested_server_id,
+        requested_gpu_index=requested_gpu_index,
+        min_free_memory_gib=min_free_memory_gib,
+    )
+    values = workspace_scheduler_values_from_selection(scheduler)
+    values["scheduler"] = scheduler
+    return values
+
+
 def apply_workspace_config_value(
     config: dict[str, Any],
     key: str,
@@ -6792,6 +9404,28 @@ def apply_workspace_config_value(
         return
     config[key] = value
     applied.append({"field": key, "label": label, "value": value})
+
+
+def apply_workspace_scheduler_config_value(
+    config: dict[str, Any],
+    key: str,
+    value: Any,
+    applied: list[dict[str, Any]],
+    label: str,
+    *,
+    force: bool = False,
+) -> None:
+    if value in (None, ""):
+        return
+    text_value = str(value).strip()
+    current = str(config.get(key) or "").strip()
+    replace_default_auto = key in {"server_id", "gpu_policy", "gpu_index"} and current == "auto" and text_value != "auto"
+    if not force and current and not replace_default_auto:
+        return
+    if current == text_value:
+        return
+    config[key] = value
+    applied.append({"field": key, "label": label, "value": value, "source": "scheduler"})
 
 
 def workspace_mutable_node_config_by_kind(workspace: dict[str, Any], kind: str) -> dict[str, Any]:
@@ -6873,6 +9507,7 @@ def workspace_discovery_evidence_values(execution: dict[str, Any]) -> dict[str, 
     metric_paths: list[str] = []
     found_manifests: list[str] = []
     setup_suggestion = ""
+    run_suggestion = ""
     gpu_server_id = ""
 
     def append_unique(items: list[str], value: Any) -> None:
@@ -6887,8 +9522,11 @@ def workspace_discovery_evidence_values(execution: dict[str, Any]) -> dict[str, 
         resources = node.get("resources") if isinstance(node.get("resources"), dict) else {}
         if kind in {"env.infer", "repo.inspect"}:
             setup_suggestion = str(resources.get("setup_suggestion") or setup_suggestion or "").strip()
+            run_suggestion = str(resources.get("run_suggestion") or run_suggestion or "").strip()
             for manifest in (resources.get("found_manifests") if isinstance(resources.get("found_manifests"), list) else []):
                 append_unique(found_manifests, manifest)
+        elif kind == "run.command":
+            run_suggestion = str(resources.get("run_suggestion") or run_suggestion or "").strip()
         elif kind == "gpu.allocate":
             server_id = str(resources.get("server_id") or "").strip()
             if server_id and server_id != "auto":
@@ -6910,6 +9548,8 @@ def workspace_discovery_evidence_values(execution: dict[str, Any]) -> dict[str, 
                 append_unique(data_roots, value)
             elif label == "输出目录":
                 append_unique(output_roots, value)
+                if status == "found":
+                    append_unique(artifact_paths, value)
             elif label == "产物路径":
                 append_unique(artifact_paths, value)
             elif label == "指标路径":
@@ -6925,6 +9565,7 @@ def workspace_discovery_evidence_values(execution: dict[str, Any]) -> dict[str, 
         "metric_paths": metric_paths,
         "found_manifests": found_manifests,
         "setup_suggestion": setup_suggestion,
+        "run_suggestion": run_suggestion,
         "gpu_server_id": gpu_server_id,
     }
 
@@ -6961,6 +9602,9 @@ def workspace_evidence_backfill_item(
     elif mode == "replace" and current_text == candidate_values[0]:
         status = "done"
         action = "证据已经写入该字段。"
+    elif mode == "replace" and field in {"server_id", "gpu_policy", "gpu_index"} and current_text == "auto":
+        status = "ready"
+        action = "回填会替换默认自动值。"
     elif mode == "replace":
         status = "ready"
         action = "回填证据会写入当前空字段。"
@@ -6987,6 +9631,7 @@ def workspace_evidence_backfill_item(
 def derive_workspace_evidence_backfill_plan(
     workspace: dict[str, Any],
     execution: dict[str, Any],
+    resource_orchestration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     values = workspace_discovery_evidence_values(execution)
     items = [
@@ -6996,12 +9641,46 @@ def derive_workspace_evidence_backfill_plan(
         workspace_evidence_backfill_item(workspace, "dataset.find", "dataset_hints", "发现数据集线索", values["dataset_candidates"]),
         workspace_evidence_backfill_item(workspace, "env.infer", "manifest_paths", "发现环境清单", values["found_manifests"]),
         workspace_evidence_backfill_item(workspace, "env.prepare", "setup_command", "发现环境安装命令", values["setup_suggestion"], mode="replace"),
+        workspace_evidence_backfill_item(workspace, "run.command", "run_command", "发现运行命令", values["run_suggestion"], mode="replace"),
         workspace_evidence_backfill_item(workspace, "artifact.collect", "artifact_paths", "发现产物路径", values["artifact_paths"]),
         workspace_evidence_backfill_item(workspace, "artifact.collect", "metric_paths", "发现指标路径", values["metric_paths"]),
         workspace_evidence_backfill_item(workspace, "eval.report", "metric_paths", "发现报告指标路径", values["metric_paths"]),
     ]
+    scheduler = (
+        resource_orchestration.get("scheduler")
+        if isinstance(resource_orchestration, dict) and isinstance(resource_orchestration.get("scheduler"), dict)
+        else {}
+    )
+    scheduler_values = workspace_scheduler_values_from_selection(scheduler) if scheduler else {}
+    scheduler_server_id = str(scheduler_values.get("server_id") or "").strip()
+    scheduler_gpu_index = str(scheduler_values.get("gpu_index") or "").strip()
+    scheduler_gpu_policy = str(scheduler_values.get("gpu_policy") or "").strip()
+    scheduler_min_free = str(scheduler_values.get("min_free_memory_gib") or "").strip()
+    if scheduler_server_id:
+        scheduler_items = [
+            ("gpu.allocate", "server_id", "调度目标服务器", scheduler_server_id),
+            ("gpu.allocate", "gpu_policy", "调度 GPU 策略", scheduler_gpu_policy),
+            ("gpu.allocate", "gpu_index", "调度 GPU 编号", scheduler_gpu_index),
+            ("run.command", "server_id", "调度运行服务器", scheduler_server_id),
+            ("run.command", "gpu_policy", "调度运行 GPU 策略", scheduler_gpu_policy),
+            ("run.command", "gpu_index", "调度运行 GPU 编号", scheduler_gpu_index),
+        ]
+        if scheduler_min_free:
+            scheduler_items.extend(
+                [
+                    ("gpu.allocate", "min_free_memory_gib", "调度最低空闲显存", scheduler_min_free),
+                    ("run.command", "min_free_memory_gib", "调度最低空闲显存", scheduler_min_free),
+                ]
+            )
+        items.extend(
+            [
+                workspace_evidence_backfill_item(workspace, node_kind, field, label, value, mode="replace")
+                for node_kind, field, label, value in scheduler_items
+                if str(value or "").strip()
+            ]
+        )
     gpu_server_id = str(values.get("gpu_server_id") or "").strip()
-    if gpu_server_id:
+    if gpu_server_id and not scheduler_server_id:
         items.extend(
             [
                 workspace_evidence_backfill_item(workspace, "gpu.allocate", "server_id", "发现调度服务器", gpu_server_id, mode="replace"),
@@ -7053,6 +9732,7 @@ def apply_workspace_discovery_evidence_to_payload(
     metric_paths = values["metric_paths"]
     found_manifests = values["found_manifests"]
     setup_suggestion = values["setup_suggestion"]
+    run_suggestion = values["run_suggestion"]
     gpu_server_id = values["gpu_server_id"]
 
     path_config = workspace_mutable_node_config_by_kind(updated, "path.resolve")
@@ -7080,6 +9760,17 @@ def apply_workspace_discovery_evidence_to_payload(
             force=force,
         )
 
+    run_config = workspace_mutable_node_config_by_kind(updated, "run.command")
+    if run_config and run_suggestion:
+        apply_workspace_evidence_config_value(
+            run_config,
+            "run_command",
+            run_suggestion,
+            applied,
+            "发现运行命令",
+            force=force,
+        )
+
     artifact_config = workspace_mutable_node_config_by_kind(updated, "artifact.collect")
     if artifact_config:
         merge_workspace_evidence_config_values(artifact_config, "artifact_paths", artifact_paths, applied, "发现产物路径", force=force)
@@ -7101,11 +9792,92 @@ def apply_workspace_discovery_evidence_to_payload(
     return updated, applied
 
 
+def workspace_payload_bool(payload: dict[str, Any], key: str, default: bool = False) -> bool:
+    value = payload.get(key, default) if isinstance(payload, dict) else default
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
+def workspace_backfill_request_matches(item: dict[str, Any], requested: dict[str, Any]) -> bool:
+    node_kind = str(requested.get("node_kind") or requested.get("nodeKind") or "").strip()
+    field = str(requested.get("field") or "").strip()
+    if node_kind and str(item.get("node_kind") or "").strip() != node_kind:
+        return False
+    if field and str(item.get("field") or "").strip() != field:
+        return False
+    label = str(requested.get("label") or "").strip()
+    if label and str(item.get("label") or "").strip() != label:
+        return False
+    value = str(requested.get("value") or "").strip()
+    if value and str(item.get("value") or "").strip() != value:
+        return False
+    return bool(node_kind and field)
+
+
+def apply_workspace_evidence_backfill_item_to_payload(
+    workspace: dict[str, Any],
+    jobs: list[dict[str, Any]],
+    requested_item: dict[str, Any],
+    *,
+    statuses: list[dict[str, Any]] | None = None,
+    force: bool = False,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    updated = copy.deepcopy(workspace)
+    execution = derive_workspace_execution_state(updated, jobs)
+    if statuses is not None:
+        automation = derive_workspace_automation_state(updated, execution, statuses)
+        plan = (
+            automation.get("evidence_backfill")
+            if isinstance(automation.get("evidence_backfill"), dict)
+            else {}
+        )
+    else:
+        plan = derive_workspace_evidence_backfill_plan(updated, execution)
+    plan_items = plan.get("items") if isinstance(plan.get("items"), list) else []
+    item = next(
+        (
+            candidate for candidate in plan_items
+            if isinstance(candidate, dict) and workspace_backfill_request_matches(candidate, requested_item)
+        ),
+        None,
+    )
+    if not item:
+        raise ValueError("backfill item not found")
+    status = str(item.get("status") or "").strip()
+    if status in {"blocked", "draft", "failed"}:
+        raise ValueError(str(item.get("action") or "this backfill item is not ready"))
+    node_kind = str(item.get("node_kind") or "").strip()
+    field = str(item.get("field") or "").strip()
+    label = str(item.get("label") or field or "证据回填").strip()
+    mode = str(item.get("mode") or "append").strip()
+    value = str(item.get("value") or "").strip()
+    if not node_kind or not field or not value:
+        raise ValueError("backfill item is missing node kind, field or value")
+    config = workspace_mutable_node_config_by_kind(updated, node_kind)
+    if not config:
+        raise ValueError(f"missing {node_kind} node")
+
+    applied: list[dict[str, Any]] = []
+    if mode == "replace":
+        apply_workspace_evidence_config_value(config, field, value, applied, label, force=force)
+    else:
+        merge_workspace_evidence_config_values(config, field, workspace_config_values(value), applied, label, force=force)
+    for applied_item in applied:
+        applied_item["node_kind"] = node_kind
+        applied_item["mode"] = mode
+        applied_item["source"] = "evidence"
+    if applied:
+        updated["updated_at"] = now_iso()
+    return updated, applied
+
+
 def apply_workspace_automation_defaults_to_payload(
     workspace: dict[str, Any],
     statuses: list[dict[str, Any]],
     *,
     force: bool = False,
+    scheduler_candidate: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     updated = copy.deepcopy(workspace)
     applied: list[dict[str, Any]] = []
@@ -7152,7 +9924,13 @@ def apply_workspace_automation_defaults_to_payload(
     setup_command = infer_workspace_setup_command(workspace_dir)
     run_command = infer_workspace_run_command(workspace_dir)
     report_command = "echo '[eval.report] inspect metrics, results and reports'"
-    best_gpu = infer_workspace_best_gpu(statuses)
+    scheduler_values = derive_workspace_scheduler_values(updated, statuses)
+    explicit_scheduler_values = workspace_scheduler_values_from_candidate(
+        scheduler_candidate,
+        scheduler_values.get("scheduler") if isinstance(scheduler_values.get("scheduler"), dict) else {},
+    )
+    if explicit_scheduler_values.get("server_id"):
+        scheduler_values.update(explicit_scheduler_values)
     artifact_paths = "runs\noutputs\ncheckpoints\nlogs"
 
     for node in (updated.get("nodes") if isinstance(updated.get("nodes"), list) else []):
@@ -7186,16 +9964,19 @@ def apply_workspace_automation_defaults_to_payload(
         elif kind == "env.prepare":
             apply_workspace_config_value(config, "setup_command", setup_command, applied, "环境安装命令", force=force)
         elif kind == "gpu.allocate":
-            if best_gpu:
-                apply_workspace_config_value(config, "server_id", best_gpu["server_id"], applied, "推荐服务器", force=force)
-                apply_workspace_config_value(config, "gpu_policy", "auto", applied, "GPU 策略", force=force)
-                if best_gpu.get("memory_free_mib"):
-                    min_gib = max(int(best_gpu["memory_free_mib"] // 1024) - 2, 1)
-                    apply_workspace_config_value(config, "min_free_memory_gib", str(min_gib), applied, "最低空闲显存", force=force)
+            if scheduler_values.get("server_id"):
+                apply_workspace_scheduler_config_value(config, "server_id", scheduler_values["server_id"], applied, "调度服务器", force=force)
+                apply_workspace_scheduler_config_value(config, "gpu_policy", scheduler_values["gpu_policy"], applied, "调度 GPU 策略", force=force)
+                apply_workspace_scheduler_config_value(config, "gpu_index", scheduler_values["gpu_index"], applied, "调度 GPU 编号", force=force)
+                if scheduler_values.get("min_free_memory_gib"):
+                    apply_workspace_scheduler_config_value(config, "min_free_memory_gib", scheduler_values["min_free_memory_gib"], applied, "最低空闲显存", force=force)
         elif kind == "run.command":
-            if best_gpu:
-                apply_workspace_config_value(config, "server_id", best_gpu["server_id"], applied, "运行服务器", force=force)
-                apply_workspace_config_value(config, "gpu_policy", "auto", applied, "运行 GPU 策略", force=force)
+            if scheduler_values.get("server_id"):
+                apply_workspace_scheduler_config_value(config, "server_id", scheduler_values["server_id"], applied, "运行服务器", force=force)
+                apply_workspace_scheduler_config_value(config, "gpu_policy", scheduler_values["gpu_policy"], applied, "运行 GPU 策略", force=force)
+                apply_workspace_scheduler_config_value(config, "gpu_index", scheduler_values["gpu_index"], applied, "运行 GPU 编号", force=force)
+                if scheduler_values.get("min_free_memory_gib"):
+                    apply_workspace_scheduler_config_value(config, "min_free_memory_gib", scheduler_values["min_free_memory_gib"], applied, "运行最低空闲显存", force=force)
             apply_workspace_config_value(config, "run_command", run_command, applied, "运行命令", force=force)
         elif kind == "artifact.collect":
             apply_workspace_config_value(config, "artifact_paths", artifact_paths, applied, "产物路径", force=force)
@@ -7328,6 +10109,11 @@ def normalize_workspace_payload(
         env_manager=env_manager,
         python_version=python_version,
         recipe=recipe,
+        recipe_command_overrides={
+            key
+            for key in ("setup_command", "run_command", "report_command", "schedule")
+            if key in payload
+        },
     )
     if raw_links is None and not rebuild_graph:
         raw_links = current.get("links") if isinstance(current.get("links"), list) else None
@@ -7705,6 +10491,13 @@ def save_user_overlay(config_path: Path, overlay: dict[str, Any]) -> None:
     user_path.write_text(text, encoding="utf-8")
 
 
+def set_terminal_winsize(fd: int, columns: int = TMUX_DEFAULT_COLUMNS, rows: int = TMUX_DEFAULT_ROWS) -> None:
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+    except OSError:
+        pass
+
+
 class WebTerminal:
     """Long-lived PTY backing a browser terminal session."""
 
@@ -7733,16 +10526,20 @@ class WebTerminal:
     def _spawn(self) -> None:
         pid, master_fd = pty.fork()
         if pid == 0:
+            set_terminal_winsize(0)
             env = os.environ.copy()
             env["TERM"] = "dumb"
             env["NO_COLOR"] = "1"
             env["CLICOLOR"] = "0"
+            env["COLUMNS"] = str(TMUX_DEFAULT_COLUMNS)
+            env["LINES"] = str(TMUX_DEFAULT_ROWS)
             try:
                 os.execvpe(self.command[0], self.command, env)
             except Exception:
                 os._exit(1)
         self.pid = pid
         self.master_fd = master_fd
+        set_terminal_winsize(master_fd)
 
     def _read_loop(self) -> None:
         assert self.master_fd is not None
@@ -7850,6 +10647,50 @@ def run_command(command: list[str], timeout: int) -> subprocess.CompletedProcess
 
 def run_shell(script: str, timeout: int) -> subprocess.CompletedProcess[str]:
     return run_command(["bash", "-lc", script], timeout)
+
+
+def tmux_new_session_args(session: str, shell_command: str) -> list[str]:
+    return [
+        "tmux",
+        "new-session",
+        "-d",
+        "-s",
+        session,
+        "-x",
+        str(TMUX_DEFAULT_COLUMNS),
+        "-y",
+        str(TMUX_DEFAULT_ROWS),
+        shell_command,
+    ]
+
+
+def tmux_resize_commands(session: str) -> list[list[str]]:
+    columns = str(TMUX_DEFAULT_COLUMNS)
+    rows = str(TMUX_DEFAULT_ROWS)
+    return [
+        ["tmux", "resize-window", "-t", session, "-x", columns, "-y", rows],
+        ["tmux", "resize-pane", "-t", session, "-x", columns, "-y", rows],
+    ]
+
+
+def tmux_resize_shell_script(session: str) -> str:
+    target = shlex.quote(session)
+    columns = str(TMUX_DEFAULT_COLUMNS)
+    rows = str(TMUX_DEFAULT_ROWS)
+    return "\n".join(
+        [
+            f"tmux resize-window -t {target} -x {columns} -y {rows} 2>/dev/null || true",
+            f"tmux resize-pane -t {target} -x {columns} -y {rows} 2>/dev/null || true",
+        ]
+    )
+
+
+def prepare_tmux_for_capture(session: str) -> None:
+    for command in tmux_resize_commands(session):
+        try:
+            run_command(command, timeout=TMUX_RESIZE_TIMEOUT_SECONDS)
+        except (OSError, subprocess.SubprocessError):
+            pass
 
 
 def run_pty_password_command(command: list[str], password: str, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -9105,6 +11946,49 @@ finally:
     )
 
 
+def remote_file_download_endpoint(server: ServerConfig, path_text: str) -> str:
+    return f"{server.target_label()}:{str(path_text or '').strip()}"
+
+
+def download_remote_file_to_local(
+    server: ServerConfig,
+    path_text: str,
+    destination_dir: Path,
+    timeout: int = 45,
+) -> Path:
+    source_path = str(path_text or "").strip()
+    if not source_path:
+        raise ValueError("请选择要预览的远程文件。")
+    destination = destination_dir.expanduser().resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    args = [
+        "rsync",
+        "-a",
+        "--protect-args",
+        "--partial",
+        "--append-verify",
+        "-e",
+        rsync_remote_shell(server, bool(server.password)),
+        remote_file_download_endpoint(server, source_path),
+        str(destination) + "/",
+    ]
+    if server.password:
+        result = run_shell(rsync_password_wrapper(server.password, args), timeout)
+    else:
+        result = run_command(args, timeout)
+    output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+    if result.returncode != 0:
+        raise ValueError(output.strip() or "远程文件下载失败")
+    candidate_name = Path(source_path.rstrip("/")).name or "download"
+    candidate = destination / candidate_name
+    if candidate.exists():
+        return candidate.resolve()
+    children = sorted(destination.iterdir(), key=lambda item: item.name.lower())
+    if len(children) == 1:
+        return children[0].resolve()
+    raise ValueError("远程文件已下载，但没有找到本机缓存文件。")
+
+
 def build_transfer_command(spec: dict[str, Any], servers: list[ServerConfig]) -> tuple[str, str]:
     raw_sources = spec.get("sources") or []
     sources: list[str] = []
@@ -9483,6 +12367,7 @@ class TotalControlState:
         self.next_queue_rank = 1
         self.terminals: dict[str, WebTerminal] = {}
         self.terminals_lock = threading.Lock()
+        self.file_preview_cache: dict[str, dict[str, Any]] = {}
         self.stop_event = threading.Event()
         if self.bootstrap_queue_ranks():
             write_json(JOBS_PATH, self.jobs)
@@ -9493,6 +12378,7 @@ class TotalControlState:
         if not isinstance(raw_workflow_templates, list) or not raw_workflow_templates:
             write_json(WORKFLOW_TEMPLATES_PATH, self.workflow_templates)
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+        FILE_PREVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         self.thread = threading.Thread(target=self.scheduler_loop, daemon=True)
         self.thread.start()
 
@@ -9566,6 +12452,115 @@ class TotalControlState:
             limit_bytes=limit_bytes,
             timeout=self.config.remote_timeout_seconds + 4,
         )
+
+    def ensure_file_preview_cache(self) -> dict[str, dict[str, Any]]:
+        cache = getattr(self, "file_preview_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            self.file_preview_cache = cache
+        FILE_PREVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        return cache
+
+    def register_file_preview(
+        self,
+        *,
+        source_path: str,
+        local_path: Path,
+        server_id: str,
+        mime_type: str,
+        preview_kind: str,
+        cached: bool,
+    ) -> dict[str, Any]:
+        cache = self.ensure_file_preview_cache()
+        cache_id = uuid.uuid4().hex
+        entry = {
+            "cache_id": cache_id,
+            "source_path": source_path,
+            "local_path": str(local_path),
+            "server_id": server_id or "local",
+            "mime_type": mime_type,
+            "preview_kind": preview_kind,
+            "cached": bool(cached),
+            "created_at": now_iso(),
+        }
+        with self.lock:
+            cache[cache_id] = entry
+        return entry
+
+    def file_preview_entry(self, cache_id: str) -> dict[str, Any]:
+        cache = self.ensure_file_preview_cache()
+        with self.lock:
+            entry = copy.deepcopy(cache.get(str(cache_id or "").strip()) or {})
+        if not entry:
+            raise ValueError("预览缓存不存在或已失效。")
+        local_path = Path(str(entry.get("local_path") or "")).expanduser()
+        if not local_path.exists() or not local_path.is_file():
+            raise ValueError("预览缓存文件不存在。")
+        entry["local_path"] = str(local_path.resolve())
+        return entry
+
+    def fetch_file_preview(
+        self,
+        server_id: str | None,
+        path_text: str = "",
+        limit_bytes: int = 131072,
+    ) -> dict[str, Any]:
+        server = self.server_by_id(server_id or "")
+        source_path = str(path_text or "").strip()
+        if not source_path:
+            raise ValueError("请选择要预览的文件。")
+        if not server or server.mode == "local":
+            local_path = resolve_local_browser_target(source_path)
+            if local_path.is_dir():
+                raise ValueError("当前路径是目录，请选择文件。")
+            resolved_server_id = server.id if server else "local"
+            cached = False
+        else:
+            cache_dir = FILE_PREVIEW_CACHE_DIR / uuid.uuid4().hex
+            local_path = download_remote_file_to_local(
+                server,
+                source_path,
+                cache_dir,
+                timeout=max(30, self.config.remote_timeout_seconds + 30),
+            )
+            if local_path.is_dir():
+                raise ValueError("当前路径是目录，请选择文件。")
+            resolved_server_id = server.id
+            cached = True
+        mime_type = guess_file_mime_type(str(local_path))
+        preview_kind = preview_kind_for_path(str(local_path), mime_type)
+        registered = self.register_file_preview(
+            source_path=source_path,
+            local_path=local_path.resolve(),
+            server_id=resolved_server_id,
+            mime_type=mime_type,
+            preview_kind=preview_kind,
+            cached=cached,
+        )
+        file_info = file_entry(local_path.resolve())
+        payload = {
+            "cache_id": registered["cache_id"],
+            "cached": cached,
+            "created_at": registered["created_at"],
+            "download_url": f"/api/files/cache/{registered['cache_id']}?download=1",
+            "inline_supported": preview_kind in {"text", "image", "pdf", "audio", "video"},
+            "local_path": str(local_path.resolve()),
+            "mime_type": mime_type,
+            "name": file_info["name"],
+            "path": source_path,
+            "preview_kind": preview_kind,
+            "preview_url": f"/api/files/cache/{registered['cache_id']}",
+            "server_id": resolved_server_id,
+            "size": file_info["size"],
+            "size_text": file_info["size_text"],
+            "mtime": file_info["mtime"],
+        }
+        if preview_kind == "text":
+            text_payload = read_local_text_file(str(local_path.resolve()), limit_bytes=limit_bytes)
+            payload["text"] = text_payload["text"]
+            payload["encoding"] = text_payload["encoding"]
+            payload["truncated"] = bool(text_payload["truncated"])
+        return payload
 
     def reload_config(self) -> None:
         config = load_config(self.config_path)
@@ -10038,8 +13033,15 @@ class TotalControlState:
     def apply_workspace_automation_defaults(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         requested_payload = payload if isinstance(payload, dict) else {}
-        force = bool(requested_payload.get("force") or False)
-        apply_evidence = bool(requested_payload.get("apply_evidence", True))
+        force = workspace_payload_bool(requested_payload, "force", False)
+        apply_defaults = workspace_payload_bool(requested_payload, "apply_defaults", True)
+        apply_evidence = workspace_payload_bool(requested_payload, "apply_evidence", True)
+        scheduler_candidate = requested_payload.get("scheduler_candidate")
+        if not isinstance(scheduler_candidate, dict):
+            scheduler_candidate = None
+        backfill_item = requested_payload.get("backfill_item")
+        if not isinstance(backfill_item, dict):
+            backfill_item = None
         evidence_applied: list[dict[str, Any]] = []
         with self.lock:
             current = self.workspace_by_id(workspace_id)
@@ -10047,12 +13049,25 @@ class TotalControlState:
                 raise ValueError("workspace not found")
             statuses_snapshot = copy.deepcopy(getattr(self, "statuses", []))
             jobs_snapshot = copy.deepcopy(getattr(self, "jobs", []))
-            updated, applied = apply_workspace_automation_defaults_to_payload(
-                current,
-                statuses_snapshot,
-                force=force,
-            )
-            if apply_evidence:
+            if apply_defaults:
+                updated, applied = apply_workspace_automation_defaults_to_payload(
+                    current,
+                    statuses_snapshot,
+                    force=force,
+                    scheduler_candidate=scheduler_candidate,
+                )
+            else:
+                updated, applied = copy.deepcopy(current), []
+            if backfill_item:
+                updated, evidence_applied = apply_workspace_evidence_backfill_item_to_payload(
+                    updated,
+                    jobs_snapshot,
+                    backfill_item,
+                    statuses=statuses_snapshot,
+                    force=force,
+                )
+                applied.extend(evidence_applied)
+            elif apply_evidence:
                 updated, evidence_applied = apply_workspace_discovery_evidence_to_payload(
                     updated,
                     jobs_snapshot,
@@ -10508,7 +13523,11 @@ class TotalControlState:
                     ]
                     allowed_tools = [tool_map[tid] for tid in allowed_tool_ids]
                     llm_client = LLMClient(profile)
-                    tool_executor = create_workspace_tool_executor(preview_workspace_public)
+                    tool_executor = create_workspace_tool_executor(
+                        preview_workspace_public,
+                        statuses=copy.deepcopy(self.statuses),
+                        jobs=copy.deepcopy(self.jobs),
+                    )
                     executor = AgentExecutor(
                         agent=agent,
                         llm_client=llm_client,
@@ -10552,6 +13571,7 @@ class TotalControlState:
         node: dict[str, Any],
         *,
         previous_job_id: str = "",
+        automation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         kind = str(node.get("kind") or "").strip()
         if kind not in WORKSPACE_EXECUTABLE_NODE_KINDS:
@@ -10722,6 +13742,16 @@ for item in sorted(root.iterdir(), key=lambda p: p.name.lower()):
     if len(top_level) >= 30:
         break
 print("top_level:", ", ".join(top_level))
+
+entry_names = {item.rstrip("/") for item in top_level}
+if "pytest.ini" in entry_names or "tests" in entry_names:
+    print("suggest_run: python -m pytest -q")
+elif "train.py" in entry_names:
+    print("suggest_run: python train.py --help")
+elif "main.py" in entry_names:
+    print("suggest_run: python main.py --help")
+elif "app.py" in entry_names:
+    print("suggest_run: python app.py")
 PY"""
         elif kind == "artifact.collect":
             artifact_paths = str(config.get("artifact_paths") or "runs\noutputs\ncheckpoints\nlogs").strip()
@@ -10760,11 +13790,40 @@ PY"""
             gpu_index = "none"
         elif gpu_policy in {"cpu", "none", "no_gpu"}:
             gpu_index = "none"
+        else:
+            configured_gpu_index = str(config.get("gpu_index") or "").strip()
+            if configured_gpu_index and configured_gpu_index != "auto":
+                gpu_index = configured_gpu_index
         job_cwd = workspace_dir
         if kind == "repo.clone":
             job_cwd = ""
         elif kind in WORKSPACE_NO_CWD_NODE_KINDS:
             job_cwd = ""
+        if automation is None:
+            jobs_snapshot = copy.deepcopy(getattr(self, "jobs", []))
+            statuses_snapshot = copy.deepcopy(getattr(self, "statuses", []))
+            runtime_workspace = apply_workspace_job_runtime(workspace, jobs_snapshot)
+            execution = derive_workspace_execution_state(runtime_workspace, jobs_snapshot)
+            automation = derive_workspace_automation_state(runtime_workspace, execution, statuses_snapshot)
+        runtime_execution_mode = (
+            "gpu"
+            if is_gpu_job and str(gpu_index).strip().lower() not in {"none", "cpu", "no_gpu"}
+            else "cpu"
+        )
+        execution_bundle_metadata = workspace_execution_bundle_job_metadata(automation, node)
+        scheduler_binding = workspace_scheduler_binding_metadata(automation, config)
+        runtime_binding = {
+            "node_kind": kind,
+            "server_id": server_id,
+            "gpu_index": str(gpu_index),
+            "gpu_policy": gpu_policy,
+            "execution_mode": runtime_execution_mode,
+            "cwd": job_cwd,
+            "env_name": str(config.get("env_name") or workspace_env.get("name") or "").strip(),
+            "wait_for_idle": wait_for_idle,
+            "scheduler_status": str(scheduler_binding.get("status") or "").strip(),
+            "scheduler_summary": str(scheduler_binding.get("summary") or "").strip(),
+        }
         payload: dict[str, Any] = {
             "name": f"{workspace.get('name') or workspace.get('id') or 'workspace'} · {name_suffix}",
             "server_id": server_id,
@@ -10780,10 +13839,13 @@ PY"""
                 "node_id": str(node.get("id") or "").strip(),
                 "node_kind": kind,
                 "node_title": name_suffix,
-                "execution_mode": "gpu" if is_gpu_job else "cpu",
+                "execution_mode": runtime_execution_mode,
                 "resource_plan": workspace_node_resources(workspace, node, None),
                 "artifact_plan": workspace_node_artifacts(workspace, node, None),
                 "workflow_contract_node": workspace_node_workflow_contract_metadata(workspace, node),
+                "execution_bundle": execution_bundle_metadata,
+                "scheduler_binding": scheduler_binding,
+                "runtime_binding": runtime_binding,
             },
             "kind": "command",
         }
@@ -10821,6 +13883,7 @@ PY"""
         workspace_id = str(workspace_id or "").strip()
         requested_payload = payload if isinstance(payload, dict) else {}
         force = bool(requested_payload.get("force") or False)
+        until_node_id = str(requested_payload.get("until_node_id") or requested_payload.get("target_node_id") or "").strip()
         auto_apply_raw = requested_payload.get("auto_apply", requested_payload.get("apply_defaults", True))
         auto_apply = (
             auto_apply_raw.strip().lower() not in {"0", "false", "no", "off"}
@@ -10863,6 +13926,19 @@ PY"""
                 node for node in (workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else [])
                 if isinstance(node, dict) and str(node.get("kind") or "").strip() in WORKSPACE_EXECUTABLE_NODE_KINDS
             ]
+            target_node: dict[str, Any] | None = None
+            if until_node_id:
+                target_index = next(
+                    (
+                        index for index, node in enumerate(nodes)
+                        if str(node.get("id") or "").strip() == until_node_id
+                    ),
+                    -1,
+                )
+                if target_index < 0:
+                    raise ValueError("target node is not executable or not found")
+                target_node = copy.deepcopy(nodes[target_index])
+                nodes = nodes[:target_index + 1]
         if auto_apply:
             self.save_workspaces()
         if not nodes:
@@ -10872,6 +13948,11 @@ PY"""
         execution = derive_workspace_execution_state(runtime_workspace, jobs_snapshot)
         automation = derive_workspace_automation_state(runtime_workspace, execution, statuses_snapshot)
         blocked_checks = workspace_workflow_blocking_checks(automation)
+        if until_node_id:
+            blocked_checks = [
+                check for check in blocked_checks
+                if str(check.get("id") or "") == "starter_chain"
+            ]
         if blocked_checks and not force:
             with self.lock:
                 payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
@@ -10886,7 +13967,7 @@ PY"""
         invalid_checks: list[dict[str, Any]] = []
         for node in nodes:
             try:
-                self.workspace_node_job_payload(workspace, node)
+                self.workspace_node_job_payload(workspace, node, automation=automation)
             except ValueError as exc:
                 invalid_checks.append(
                     {
@@ -10912,9 +13993,17 @@ PY"""
 
         jobs: list[dict[str, Any]] = []
         previous_job_id = ""
-        for node in nodes:
-            payload = self.workspace_node_job_payload(workspace, node, previous_job_id=previous_job_id)
+        for index, node in enumerate(nodes):
+            payload = self.workspace_node_job_payload(workspace, node, previous_job_id=previous_job_id, automation=automation)
             payload["wait_for_idle"] = True
+            metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+            metadata["workflow_index"] = index
+            if until_node_id:
+                metadata["workflow_phase"] = "run_to_node"
+                metadata["workflow_until_node_id"] = until_node_id
+                metadata["workflow_until_node_title"] = str((target_node or {}).get("title") or "").strip()
+                metadata["workflow_until_node_kind"] = str((target_node or {}).get("kind") or "").strip()
+            payload["metadata"] = metadata
             job = self.create_job(payload)
             jobs.append(job)
             previous_job_id = str(job.get("id") or "")
@@ -10922,11 +14011,20 @@ PY"""
         with self.lock:
             refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
             payload_workspace = self.workspace_public_payload(refreshed_workspace)
+        execution_package = workspace_execution_bundle_result(automation, jobs)
+        if until_node_id:
+            execution_package["scope"] = {
+                "mode": "run_to_node",
+                "target_node_id": until_node_id,
+                "target_node_title": str((target_node or {}).get("title") or "").strip(),
+                "target_node_kind": str((target_node or {}).get("kind") or "").strip(),
+            }
         return {
             "workspace": payload_workspace,
             "jobs": jobs,
             "applied": applied,
             "evidence_applied": evidence_applied,
+            "execution_package": execution_package,
         }
 
     def append_workspace_chat(self, workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -10990,7 +14088,11 @@ PY"""
 
                     # Create and execute agent
                     llm_client = LLMClient(profile)
-                    tool_executor = create_workspace_tool_executor(preview_workspace)
+                    tool_executor = create_workspace_tool_executor(
+                        preview_workspace,
+                        statuses=copy.deepcopy(self.statuses),
+                        jobs=copy.deepcopy(self.jobs),
+                    )
                     executor = AgentExecutor(
                         agent=agent,
                         llm_client=llm_client,
@@ -11110,7 +14212,11 @@ PY"""
 
                     # Create LLM client and agent executor
                     llm_client = LLMClient(profile)
-                    tool_executor = create_workspace_tool_executor(preview_workspace)
+                    tool_executor = create_workspace_tool_executor(
+                        preview_workspace,
+                        statuses=copy.deepcopy(self.statuses),
+                        jobs=copy.deepcopy(self.jobs),
+                    )
                     executor = AgentExecutor(
                         agent=agent,
                         llm_client=llm_client,
@@ -11678,7 +14784,7 @@ PY"""
                 command_override=runtime_command,
                 command_display=runtime_display,
             )
-            command = ["tmux", "new-session", "-d", "-s", session, "bash -lc " + shlex.quote(script)]
+            command = tmux_new_session_args(session, "bash -lc " + shlex.quote(script))
             result = run_command(command, timeout=5)
         else:
             log_path = str(local_log_path(server.id, job["id"]).resolve())
@@ -11692,7 +14798,11 @@ PY"""
                 command_display=runtime_display,
             )
             shell_command = "bash -lc " + shlex.quote(script)
-            remote_command = f"tmux new-session -d -s {shlex.quote(session)} {shlex.quote(shell_command)}"
+            remote_command = (
+                f"tmux new-session -d -s {shlex.quote(session)} "
+                f"-x {TMUX_DEFAULT_COLUMNS} -y {TMUX_DEFAULT_ROWS} "
+                f"{shlex.quote(shell_command)}"
+            )
             result = ssh_command(server, remote_command, timeout=self.config.remote_timeout_seconds)
 
         job["log_path"] = log_path
@@ -11785,14 +14895,19 @@ PY"""
         history = max(50, min(int(lines), 50000))
         # -p print to stdout, -J join wrapped lines, -S -N start N lines back into history
         if server.mode == "local":
+            prepare_tmux_for_capture(session)
             result = run_command(
                 ["tmux", "capture-pane", "-p", "-J", "-S", f"-{history}", "-t", session],
                 timeout=4,
             )
         else:
             remote_cmd = (
-                "tmux capture-pane -p -J "
-                f"-S -{history} -t {shlex.quote(session)}"
+                "bash -lc "
+                + shlex.quote(
+                    tmux_resize_shell_script(session)
+                    + "\n"
+                    + f"tmux capture-pane -p -J -S -{history} -t {shlex.quote(session)}"
+                )
             )
             result = ssh_command(server, remote_cmd, timeout=self.config.remote_timeout_seconds)
         if result.returncode != 0:
@@ -12328,6 +15443,24 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_file(self, path: Path, *, content_type: str, disposition: str, filename: str) -> None:
+        target = path.expanduser().resolve()
+        stat = target.stat()
+        encoded_name = quote(filename or target.name)
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type or "application/octet-stream")
+        self.send_header("Content-Length", str(stat.st_size))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{encoded_name}")
+        self.end_headers()
+        with target.open("rb") as handle:
+            while True:
+                chunk = handle.read(64 * 1024)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
     def read_body(self) -> dict[str, Any]:
         size = safe_int(self.headers.get("Content-Length"), 0)
         raw = self.rfile.read(size).decode("utf-8") if size else "{}"
@@ -12438,6 +15571,19 @@ class Handler(SimpleHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path.startswith("/api/files/cache/"):
+                parts = parsed.path.split("/")
+                cache_id = parts[4] if len(parts) >= 5 else ""
+                entry = STATE.file_preview_entry(cache_id)
+                query = parse_qs(parsed.query)
+                download = str((query.get("download") or ["0"])[0]).lower() in {"1", "true", "yes", "on"}
+                self.send_file(
+                    Path(str(entry.get("local_path") or "")),
+                    content_type=str(entry.get("mime_type") or "application/octet-stream"),
+                    disposition="attachment" if download else "inline",
+                    filename=Path(str(entry.get("source_path") or entry.get("local_path") or "preview")).name or "preview",
+                )
+                return
             if parsed.path == "/api/admin/servers":
                 self.send_json(STATE.list_servers_admin())
                 return
@@ -12535,6 +15681,16 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/task-plans/preview":
                 self.send_json(STATE.task_plan_preview(self.read_body()))
+                return
+            if parsed.path == "/api/files/fetch":
+                body = self.read_body()
+                self.send_json(
+                    STATE.fetch_file_preview(
+                        server_id=str(body.get("server_id") or ""),
+                        path_text=str(body.get("path") or ""),
+                        limit_bytes=safe_int(body.get("limit_bytes"), 131072),
+                    )
+                )
                 return
             if parsed.path == "/api/task-plans/schedule":
                 result = STATE.create_task_plan_jobs(self.read_body())

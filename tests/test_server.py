@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 import threading
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import total_control.server as server_module
+from total_control.agent_executor import create_workspace_tool_executor
 from total_control.server import (
     AppConfig,
     ServerConfig,
@@ -16,12 +18,14 @@ from total_control.server import (
     browse_local_files,
     collect_server,
     build_transfer_command,
+    download_remote_file_to_local,
     gpu_activity_state,
     load_config,
     parse_loadavg,
     parse_meminfo,
     parse_proc_net_dev,
     parse_remote_marked_json,
+    preview_kind_for_path,
     read_local_text_file,
     run_server_checks,
     stop_server_process,
@@ -258,6 +262,173 @@ exclude = []
     def test_gpu_activity_state_marks_processes_as_busy(self) -> None:
         self.assertEqual(gpu_activity_state(0, 10, has_processes=True), "busy")
 
+    def test_workspace_tool_executor_reads_workspace_gpu_env_and_jobs(self) -> None:
+        workspace = {
+            "id": "ws-1",
+            "name": "Reproduce Demo",
+            "workspace_dir": "/srv/repro/demo",
+            "source": {"repo_url": "https://example.com/repo.git"},
+            "inputs": {
+                "goal_text": "复现 demo baseline",
+                "references": ["/data/imagenet", "ImageNet-1k"],
+            },
+            "env": {"name": "rg-demo", "manager": "conda", "python": "3.10"},
+            "automation": {
+                "reproduction_manifest": {
+                    "execution_bundle": {
+                        "status": "ready",
+                        "ready_to_execute": True,
+                        "next_action": {"action": "run-selected-workspace", "label": "提交执行包"},
+                        "target": {
+                            "workspace_dir": "/srv/repro/demo",
+                            "server_id": "gpu-box",
+                            "gpu_index": "1",
+                            "gpu_policy": "auto",
+                            "env_name": "rg-demo",
+                        },
+                        "missing": [],
+                        "command_script": {
+                            "shell": "bash",
+                            "status": "ready",
+                            "ready": True,
+                            "summary": "6 个步骤 · 0 阻塞",
+                            "text": "cd /srv/repro/demo\npython train.py --data /data/imagenet\n",
+                        },
+                        "package_manifest": {
+                            "commands": {"run_command": "python train.py --data /data/imagenet"},
+                            "paths": {
+                                "workspace_dir": "/srv/repro/demo",
+                                "data_roots": ["/data/imagenet"],
+                                "artifact_paths": ["runs"],
+                            },
+                            "dataset_discovery": {"status": "ready", "local_roots": ["/data/imagenet"]},
+                        },
+                    }
+                },
+                "resource_orchestration": {
+                    "scheduler": {
+                        "status": "ready",
+                        "mode": "gpu",
+                        "policy": "auto",
+                        "summary": "1/2 个候选可用",
+                        "selected": {"server_id": "gpu-box", "gpu_index": "1", "memory_free_mib": 18000},
+                        "candidate_count": 2,
+                        "ready_count": 1,
+                    }
+                },
+                "evidence_backfill": {
+                    "status": "ready",
+                    "summary": "1 项可回填",
+                    "ready_count": 1,
+                    "items": [
+                        {
+                            "node_kind": "artifact.collect",
+                            "field": "artifact_paths",
+                            "label": "发现产物路径",
+                            "value": "runs",
+                            "status": "ready",
+                        }
+                    ],
+                },
+                "execution_readiness": {
+                    "status": "ready",
+                    "summary": "执行包可提交",
+                    "gate": {"status": "ready"},
+                },
+            },
+            "nodes": [
+                {
+                    "id": "dataset",
+                    "kind": "dataset.find",
+                    "title": "找数据",
+                    "config": {"query": "ImageNet", "data_roots": "/data/imagenet"},
+                },
+                {
+                    "id": "env",
+                    "kind": "env.infer",
+                    "title": "推断环境",
+                    "config": {"manifest_paths": "requirements.txt, pyproject.toml"},
+                },
+                {
+                    "id": "prepare",
+                    "kind": "env.prepare",
+                    "title": "准备环境",
+                    "config": {"setup_command": "pip install -r requirements.txt"},
+                },
+                {
+                    "id": "gpu",
+                    "kind": "gpu.allocate",
+                    "title": "分配 GPU",
+                    "config": {"server_id": "gpu-box", "min_free_memory_gib": "8"},
+                },
+                {
+                    "id": "run",
+                    "kind": "run.command",
+                    "title": "运行",
+                    "config": {"run_command": "python train.py --data /data/imagenet", "gpu_index": "auto"},
+                },
+            ],
+        }
+        statuses = [
+            {
+                "id": "gpu-box",
+                "name": "GPU Box",
+                "online": True,
+                "collected_at": "2026-06-08T20:00:00",
+                "gpus": [
+                    {"index": 0, "name": "RTX", "memory_free_mib": 24000, "memory_total_mib": 24576, "gpu_util": 98, "state": "busy"},
+                    {"index": 1, "name": "RTX", "memory_free_mib": 18000, "memory_total_mib": 24576, "gpu_util": 0, "state": "idle"},
+                ],
+            }
+        ]
+        jobs = [
+            {
+                "id": "job-1",
+                "status": "done",
+                "metadata": {"workspace_id": "ws-1"},
+                "log_path": "/tmp/job-1.log",
+                "updated_at": "2026-06-08T20:10:00",
+            }
+        ]
+
+        executor = create_workspace_tool_executor(workspace, statuses=statuses, jobs=jobs)
+
+        plan = json.loads(executor("workflow.plan", {}))
+        self.assertEqual(plan["node_count"], 5)
+        self.assertEqual(plan["run_command"], "python train.py --data /data/imagenet")
+
+        dataset = json.loads(executor("dataset.find", {}))
+        self.assertEqual(dataset["status"], "ready")
+        self.assertIn("/data/imagenet", dataset["data_roots"])
+        self.assertIn("ImageNet-1k", dataset["dataset_hints"])
+
+        env = json.loads(executor("env.infer", {}))
+        self.assertEqual(env["env_name"], "rg-demo")
+        self.assertIn("requirements.txt", env["manifest_paths"])
+        self.assertEqual(env["setup_command"], "pip install -r requirements.txt")
+
+        allocation = json.loads(executor("gpu.allocate", {}))
+        self.assertEqual(allocation["status"], "allocated")
+        self.assertEqual(allocation["selected"]["server_id"], "gpu-box")
+        self.assertEqual(allocation["selected"]["gpu_index"], 1)
+
+        run = json.loads(executor("job.run", {}))
+        self.assertTrue(run["dry_run"])
+        self.assertEqual(run["command"], "python train.py --data /data/imagenet")
+
+        package = json.loads(executor("execution.package", {}))
+        self.assertEqual(package["status"], "ready")
+        self.assertTrue(package["package"]["ready_to_execute"])
+        self.assertEqual(package["package"]["target"]["server_id"], "gpu-box")
+        self.assertEqual(package["package"]["scheduler"]["selected"]["gpu_index"], "1")
+        self.assertEqual(package["package"]["commands"]["run_command"], "python train.py --data /data/imagenet")
+        self.assertEqual(package["package"]["backfill"]["items"][0]["field"], "artifact_paths")
+        self.assertIn("python train.py", package["package"]["script"]["text"])
+
+        log = json.loads(executor("log.read", {}))
+        self.assertEqual(log["status"], "found")
+        self.assertEqual(log["job_id"], "job-1")
+
     def test_host_resource_parsers_report_memory_load_and_network(self) -> None:
         memory = parse_meminfo(
             "\n".join(
@@ -410,6 +581,77 @@ exclude = []
             with self.assertRaisesRegex(ValueError, "二进制"):
                 read_local_text_file(str(path), limit_bytes=32)
 
+    def test_preview_kind_treats_html_and_svg_as_text(self) -> None:
+        self.assertEqual(preview_kind_for_path("/tmp/report.html", "text/html"), "text")
+        self.assertEqual(preview_kind_for_path("/tmp/diagram.svg", "image/svg+xml"), "text")
+        self.assertEqual(preview_kind_for_path("/tmp/chart.png", "image/png"), "image")
+
+    def test_download_remote_file_to_local_uses_rsync(self) -> None:
+        server = ServerConfig(
+            id="gpu-box",
+            name="GPU Box",
+            mode="ssh",
+            host_name="10.0.0.8",
+            user="alice",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            destination = Path(tmp_dir) / "cache"
+
+            def fake_run_command(command: list[str], _timeout: int) -> subprocess.CompletedProcess[str]:
+                self.assertEqual(command[0], "rsync")
+                self.assertIn("--protect-args", command)
+                self.assertEqual(command[-2], "alice@10.0.0.8:/srv/train.log")
+                self.assertIn("StrictHostKeyChecking=accept-new", command[command.index("-e") + 1])
+                target_dir = Path(str(command[-1]).rstrip("/"))
+                target_dir.mkdir(parents=True, exist_ok=True)
+                (target_dir / "train.log").write_text("downloaded", encoding="utf-8")
+                return subprocess.CompletedProcess(command, 0, "ok\n", "")
+
+            with patch.object(server_module, "run_command", side_effect=fake_run_command):
+                local_path = download_remote_file_to_local(server, "/srv/train.log", destination)
+
+            self.assertEqual(local_path, (destination / "train.log").resolve())
+
+    def test_fetch_file_preview_registers_local_file(self) -> None:
+        state = object.__new__(TotalControlState)
+        state.lock = threading.RLock()
+        state.config = AppConfig(remote_timeout_seconds=3)
+        state.servers = [ServerConfig(id="local", name="Local", mode="local")]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "train.log"
+            path.write_text("0123456789abcdef", encoding="utf-8")
+
+            payload = TotalControlState.fetch_file_preview(state, "local", str(path), limit_bytes=10)
+
+            self.assertEqual(payload["preview_kind"], "text")
+            self.assertEqual(payload["text"], "0123456789")
+            self.assertTrue(payload["truncated"])
+            self.assertFalse(payload["cached"])
+            self.assertTrue(payload["preview_url"].startswith("/api/files/cache/"))
+            entry = TotalControlState.file_preview_entry(state, payload["cache_id"])
+            self.assertEqual(entry["local_path"], str(path.resolve()))
+
+    def test_fetch_file_preview_downloads_remote_binary_to_cache(self) -> None:
+        state = object.__new__(TotalControlState)
+        state.lock = threading.RLock()
+        state.config = AppConfig(remote_timeout_seconds=3)
+        state.servers = [
+            ServerConfig(id="gpu-box", name="GPU Box", mode="ssh", host_name="10.0.0.8", user="alice"),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cached = Path(tmp_dir) / "preview.png"
+            cached.write_bytes(b"PNG")
+
+            with patch.object(server_module, "download_remote_file_to_local", return_value=cached):
+                payload = TotalControlState.fetch_file_preview(state, "gpu-box", "/srv/preview.png")
+
+            self.assertEqual(payload["preview_kind"], "image")
+            self.assertTrue(payload["cached"])
+            self.assertEqual(payload["local_path"], str(cached.resolve()))
+            self.assertTrue(payload["download_url"].endswith("?download=1"))
+
     def test_parse_remote_marked_json_joins_wrapped_base64_lines(self) -> None:
         output = "\n".join(
             [
@@ -479,6 +721,84 @@ exclude = []
 
         with self.assertRaisesRegex(ValueError, "invalid pid"):
             TotalControlState.stop_process(state, "local", "abc")
+
+    def test_start_job_uses_wide_tmux_geometry(self) -> None:
+        state = object.__new__(TotalControlState)
+        state.lock = threading.RLock()
+        state.config = AppConfig()
+        state.servers = [ServerConfig(id="local", name="Local", mode="local")]
+        state.save_jobs = lambda: None
+        job = {
+            "id": "job-wide",
+            "name": "Wide Job",
+            "server_id": "local",
+            "candidate_server_ids": [],
+            "gpu_index": "none",
+            "session": "tc_wide",
+            "command": "python train.py --long-argument value",
+            "command_display": "python train.py --long-argument value",
+            "cwd": "",
+            "env_name": "",
+            "kind": "command",
+            "metadata": {},
+        }
+
+        with patch.object(
+            server_module,
+            "run_command",
+            return_value=subprocess.CompletedProcess(["tmux"], 0, "", ""),
+        ) as run:
+            TotalControlState.start_job(state, job)
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[:5], ["tmux", "new-session", "-d", "-s", "tc_wide"])
+        self.assertIn("-x", command)
+        self.assertIn("-y", command)
+        self.assertEqual(command[command.index("-x") + 1], str(server_module.TMUX_DEFAULT_COLUMNS))
+        self.assertEqual(command[command.index("-y") + 1], str(server_module.TMUX_DEFAULT_ROWS))
+
+    def test_capture_tmux_resizes_before_capture(self) -> None:
+        state = object.__new__(TotalControlState)
+        state.config = AppConfig()
+        state.servers = [ServerConfig(id="local", name="Local", mode="local")]
+        calls: list[list[str]] = []
+
+        def fake_run(command: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            if command[:2] == ["tmux", "capture-pane"]:
+                return subprocess.CompletedProcess(command, 0, "wide output\n", "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(server_module, "run_command", side_effect=fake_run):
+            text = TotalControlState.capture_tmux(state, "local", "tc_wide", lines=120)
+
+        self.assertEqual(text, "wide output\n")
+        self.assertEqual(calls[0][:2], ["tmux", "resize-window"])
+        self.assertEqual(calls[1][:2], ["tmux", "resize-pane"])
+        self.assertEqual(calls[2][:2], ["tmux", "capture-pane"])
+        self.assertEqual(calls[0][calls[0].index("-x") + 1], str(server_module.TMUX_DEFAULT_COLUMNS))
+        self.assertEqual(calls[1][calls[1].index("-y") + 1], str(server_module.TMUX_DEFAULT_ROWS))
+        self.assertIn("-J", calls[2])
+
+    def test_capture_tmux_remote_resizes_before_capture(self) -> None:
+        state = object.__new__(TotalControlState)
+        state.config = AppConfig(remote_timeout_seconds=3)
+        state.servers = [ServerConfig(id="gpu-box", name="GPU Box", mode="ssh", ssh_alias="gpu-box")]
+
+        with patch.object(
+            server_module,
+            "ssh_command",
+            return_value=subprocess.CompletedProcess(["ssh"], 0, "remote wide output\n", ""),
+        ) as ssh:
+            text = TotalControlState.capture_tmux(state, "gpu-box", "tc_remote", lines=120)
+
+        self.assertEqual(text, "remote wide output\n")
+        remote_command = ssh.call_args.args[1]
+        self.assertIn("resize-window", remote_command)
+        self.assertIn("resize-pane", remote_command)
+        self.assertIn(f"-x {server_module.TMUX_DEFAULT_COLUMNS}", remote_command)
+        self.assertIn(f"-y {server_module.TMUX_DEFAULT_ROWS}", remote_command)
+        self.assertIn("capture-pane -p -J", remote_command)
 
     def test_create_workspace_builds_starter_graph(self) -> None:
         state = object.__new__(TotalControlState)
@@ -663,11 +983,15 @@ exclude = []
         self.assertEqual(workspace["references"], ["https://example.com/doc", "/path/to/local/note.md"])
         self.assertTrue(workspace["tools"])
         self.assertEqual(workspace["tools"][0]["id"], "workflow.plan")
+        self.assertIn("execution.package", [tool["id"] for tool in workspace["tools"]])
         self.assertTrue(workspace["agents"])
         self.assertEqual(workspace["agents"][0]["id"], "planner")
         self.assertIn("watcher", [agent["id"] for agent in workspace["agents"]])
         self.assertIn("reporter", [agent["id"] for agent in workspace["agents"]])
         self.assertIn("chat.write", workspace["agents"][0]["tools"])
+        agent_tools = {agent["id"]: set(agent.get("tools") or []) for agent in workspace["agents"]}
+        for agent_id in ("planner", "runner", "evaluator", "reporter"):
+            self.assertIn("execution.package", agent_tools[agent_id])
         self.assertEqual(workspace["model"]["routing_mode"], "workspace_default")
         self.assertEqual(workspace["chat"], [])
         source_node = next(node for node in workspace["nodes"] if node["kind"] == "source.idea")
@@ -715,6 +1039,19 @@ exclude = []
         for index, job in enumerate(jobs):
             expected_targets = [] if index == 0 else [jobs[index - 1]["id"]]
             self.assertEqual(job["target_job_ids"], expected_targets)
+        run_job = next(job for job in jobs if job["metadata"]["node_kind"] == "run.command")
+        run_bundle = run_job["metadata"]["execution_bundle"]
+        self.assertEqual(run_bundle["step"]["id"], "run")
+        self.assertEqual(run_bundle["step"]["node_kind"], "run.command")
+        self.assertIn("command_script", run_bundle)
+        self.assertIn("python train.py", run_bundle["command_script"]["text"])
+        self.assertEqual(result["execution_package"]["job_count"], len(jobs))
+        self.assertEqual(result["execution_package"]["job_ids"], [job["id"] for job in jobs])
+        self.assertEqual(result["execution_package"]["package_manifest"]["schema"], "relaygraph.execution_package.v1")
+        self.assertIn("python train.py", result["execution_package"]["package_manifest"]["command_script"]["text"])
+        run_execution_node = next(node for node in result["workspace"]["execution"]["nodes"] if node["kind"] == "run.command")
+        self.assertEqual(run_execution_node["execution_bundle"]["step"]["id"], "run")
+        self.assertEqual(run_execution_node["execution_bundle"]["target"]["workspace_dir"], "/tmp/demo")
 
     def test_pick_server_for_cpu_job_prefers_local_when_available(self) -> None:
         state = object.__new__(TotalControlState)
@@ -869,6 +1206,8 @@ exclude = []
 
         self.assertEqual(result["job"]["metadata"]["workspace_id"], workspace["id"])
         self.assertEqual(result["job"]["metadata"]["node_id"], run_node["id"])
+        self.assertEqual(result["job"]["metadata"]["execution_bundle"]["step"]["id"], "run")
+        self.assertIn("python train.py --config base.yaml", result["job"]["metadata"]["execution_bundle"]["command_script"]["text"])
         self.assertEqual(result["job"]["command"], "python train.py --config base.yaml")
         runtime_node = next(node for node in result["workspace"]["nodes"] if node["id"] == run_node["id"])
         self.assertEqual(runtime_node["runtime"]["run_count"], 1)
@@ -960,6 +1299,138 @@ exclude = []
         self.assertTrue(workspace["agents"])
         self.assertTrue(workspace["tools"])
 
+    def test_update_template_workspace_preserves_node_command_configs(self) -> None:
+        state = make_registry_state()
+        template = state.workflow_templates[0]
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "template_id": template["id"],
+                "inputs": {
+                    "goal_text": "复现 demo 项目并保留节点配置",
+                    "repo_urls": ["https://github.com/example/demo.git"],
+                    "references": ["/datasets/imagenet-mini"],
+                },
+            },
+        )
+        state.workspaces = [workspace]
+
+        env_node = next(node for node in workspace["nodes"] if node["kind"] == "env.prepare")
+        run_node = next(node for node in workspace["nodes"] if node["kind"] == "run.command")
+        dataset_node = next(node for node in workspace["nodes"] if node["kind"] == "dataset.find")
+        env_node["config"]["setup_command"] = "pip install -e ."
+        run_node["config"]["run_command"] = "python train.py --config configs/base.yaml"
+        run_node["config"]["schedule"] = "manual"
+        run_node["input_mapping"] = {"dataset_profile": "$context.outputs.dataset_profile"}
+        run_node["output_key"] = "smoke_run_result"
+        dataset_node["config"]["dataset_hints"] = "/datasets/imagenet-mini\n/data/shared"
+
+        updated = TotalControlState.update_workspace(state, workspace["id"], workspace)
+        updated_nodes = {node["kind"]: node for node in updated["nodes"]}
+
+        self.assertEqual(updated["template_id"], template["id"])
+        self.assertEqual(updated["template_snapshot"]["template_id"], template["id"])
+        self.assertEqual(updated["inputs"]["repo_urls"], ["https://github.com/example/demo.git"])
+        self.assertEqual(updated_nodes["env.prepare"]["config"]["setup_command"], "pip install -e .")
+        self.assertEqual(updated_nodes["run.command"]["config"]["run_command"], "python train.py --config configs/base.yaml")
+        self.assertEqual(updated_nodes["run.command"]["config"]["schedule"], "manual")
+        self.assertEqual(updated_nodes["run.command"]["input_mapping"], {"dataset_profile": "$context.outputs.dataset_profile"})
+        self.assertEqual(updated_nodes["run.command"]["output_key"], "smoke_run_result")
+        self.assertIn("/datasets/imagenet-mini", updated_nodes["dataset.find"]["config"]["dataset_hints"])
+        run_contract = next(node for node in updated["automation"]["workflow_contract"]["nodes"] if node["kind"] == "run.command")
+        self.assertEqual(run_contract["input_mapping"], {"dataset_profile": "$context.outputs.dataset_profile"})
+        self.assertEqual(run_contract["output_key"], "smoke_run_result")
+
+        overridden = TotalControlState.update_workspace(
+            state,
+            workspace["id"],
+            {
+                "setup_command": "python -m pip install -r requirements.txt",
+                "run_command": "python train.py --smoke",
+            },
+        )
+        overridden_nodes = {node["kind"]: node for node in overridden["nodes"]}
+
+        self.assertEqual(overridden_nodes["env.prepare"]["config"]["setup_command"], "python -m pip install -r requirements.txt")
+        self.assertEqual(overridden_nodes["run.command"]["config"]["run_command"], "python train.py --smoke")
+
+    def test_update_workflow_template_preserves_io_contract_when_creating_workspace(self) -> None:
+        state = make_registry_state()
+        template = next(item for item in state.workflow_templates if item["source"]["type"] == "repo")
+        nodes = json.loads(json.dumps(template["nodes"]))
+        run_node = next(node for node in nodes if node["kind"] == "run.command")
+        run_node["input_mapping"] = {
+            "repo_profile": "$context.outputs.repo_profile",
+            "dataset_profile": "$context.outputs.dataset_profile",
+            "env_ready": "$context.outputs.env_ready",
+            "gpu_allocation": "$context.outputs.gpu_allocation",
+        }
+        run_node["output_key"] = "template_run_result"
+
+        updated_template = TotalControlState.update_workflow_template(
+            state,
+            template["id"],
+            {
+                "nodes": nodes,
+                "workspace_dir": "/tmp/template-io-contract",
+                "env_name": "template-io-contract",
+                "setup_command": "pip install -r requirements.txt",
+                "run_command": "python train.py --contract",
+            },
+        )
+        updated_template_nodes = {node["kind"]: node for node in updated_template["nodes"]}
+
+        self.assertEqual(updated_template_nodes["run.command"]["input_mapping"], run_node["input_mapping"])
+        self.assertEqual(updated_template_nodes["run.command"]["output_key"], "template_run_result")
+
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "template_id": template["id"],
+                "inputs": {
+                    "goal_text": "复现模板 IO 契约",
+                    "repo_urls": ["https://github.com/example/io-contract.git"],
+                },
+            },
+        )
+        workspace_nodes = {node["kind"]: node for node in workspace["nodes"]}
+        snapshot_nodes = {node["kind"]: node for node in workspace["template_snapshot"]["nodes"]}
+        automation = workspace["automation"]
+        contract_nodes = {
+            node["kind"]: node
+            for node in automation["workflow_contract"]["nodes"]
+        }
+        context_steps = {
+            step["node_kind"]: step
+            for step in automation["execution_context"]["step_results"]
+        }
+        orchestration_nodes = {
+            node["kind"]: node
+            for lane in automation["orchestration_contract"]["lanes"]
+            for node in lane["nodes"]
+        }
+
+        self.assertEqual(snapshot_nodes["run.command"]["input_mapping"], run_node["input_mapping"])
+        self.assertEqual(snapshot_nodes["run.command"]["output_key"], "template_run_result")
+        self.assertEqual(workspace_nodes["run.command"]["input_mapping"], run_node["input_mapping"])
+        self.assertEqual(workspace_nodes["run.command"]["output_key"], "template_run_result")
+        self.assertEqual(contract_nodes["run.command"]["input_mapping"], run_node["input_mapping"])
+        self.assertEqual(contract_nodes["run.command"]["output_key"], "template_run_result")
+        self.assertEqual(contract_nodes["run.command"]["input_status"], "ready")
+        self.assertEqual(context_steps["run.command"]["input_mapping"], run_node["input_mapping"])
+        self.assertEqual(context_steps["run.command"]["output_key"], "template_run_result")
+        self.assertEqual(orchestration_nodes["run.command"]["output_key"], "template_run_result")
+
+        result = TotalControlState.run_workspace_workflow(state, workspace["id"])
+        run_job = next(job for job in result["jobs"] if job["metadata"]["node_kind"] == "run.command")
+        run_job_contract = run_job["metadata"]["workflow_contract_node"]
+        execution_run = next(node for node in result["workspace"]["execution"]["nodes"] if node["kind"] == "run.command")
+
+        self.assertEqual(run_job_contract["input_mapping"], run_node["input_mapping"])
+        self.assertEqual(run_job_contract["output_key"], "template_run_result")
+        self.assertEqual(execution_run["workflow_contract_node"]["input_mapping"], run_node["input_mapping"])
+        self.assertEqual(execution_run["workflow_contract_node"]["output_key"], "template_run_result")
+
     def test_run_workspace_workflow_from_template_sequences_jobs_and_current_node(self) -> None:
         scenarios = [
             {
@@ -1046,6 +1517,8 @@ exclude = []
                         self.assertEqual(contract["output_key"], "run_result")
                         self.assertIn("gpu_allocation", contract["input_mapping"])
                         self.assertTrue(any(tool["id"] == "job.run" for tool in contract["tools"]))
+                    if executable_nodes[index]["kind"] == "repo.inspect":
+                        self.assertIn("suggest_run:", job["command"])
                     if executable_nodes[index]["kind"] in {"repo.inspect", "env.prepare", "run.command", "eval.report"}:
                         self.assertEqual(job["metadata"]["resource_plan"]["cwd"], job["cwd"])
                     elif executable_nodes[index]["kind"] != "repo.clone":
@@ -1221,11 +1694,14 @@ exclude = []
             "evidence_backfill",
             "run_plan",
             "workflow_contract",
+            "orchestration_contract",
             "execution_context",
             "reproduction_manifest",
             "agent_topology",
             "resource_orchestration",
             "execution_readiness",
+            "playbook",
+            "preflight",
             "report",
             "advance",
             "next_action",
@@ -1238,12 +1714,15 @@ exclude = []
         self.assertIsInstance(automation["evidence_backfill"]["items"], list)
         self.assertIsInstance(automation["run_plan"]["nodes"], list)
         self.assertIsInstance(automation["workflow_contract"]["nodes"], list)
+        self.assertIsInstance(automation["orchestration_contract"]["lanes"], list)
         self.assertIsInstance(automation["execution_context"]["step_results"], list)
         self.assertIsInstance(automation["execution_context"]["outputs"], list)
         self.assertIsInstance(automation["reproduction_manifest"]["items"], list)
         self.assertIsInstance(automation["agent_topology"]["stages"], list)
         self.assertIsInstance(automation["resource_orchestration"]["items"], list)
         self.assertIsInstance(automation["execution_readiness"]["steps"], list)
+        self.assertIsInstance(automation["playbook"]["steps"], list)
+        self.assertIsInstance(automation["preflight"]["items"], list)
         self.assertIsInstance(automation["report"]["highlights"], list)
         self.assertEqual(checks["source"]["status"], "ready")
         self.assertEqual(checks["starter_chain"]["status"], "ready")
@@ -1260,6 +1739,19 @@ exclude = []
         self.assertEqual(contract_nodes["run.command"]["context"]["previous_key"], "$prev.output")
         self.assertIn("gpu_allocation", contract_nodes["run.command"]["input_mapping"])
         self.assertTrue(any(tool["id"] == "job.run" for tool in contract_nodes["run.command"]["tools"]))
+        orchestration = automation["orchestration_contract"]
+        orchestration_nodes = [
+            node
+            for lane in orchestration["lanes"]
+            for node in lane["nodes"]
+        ]
+        self.assertIn("agent", orchestration["layers"])
+        self.assertIn("tool", orchestration["layers"])
+        self.assertIn("ai", orchestration["layers"])
+        self.assertGreaterEqual(orchestration["lane_count"], 1)
+        self.assertTrue(any(lane["id"] == "run" for lane in orchestration["lanes"]))
+        self.assertTrue(any(node["kind"] == "run.command" and node["output_key"] == "run_result" for node in orchestration_nodes))
+        self.assertTrue(any("Agent" in node["agent"]["name"] or node["agent"]["id"] for node in orchestration_nodes))
         context_bus = automation["execution_context"]
         context_steps = {item["node_kind"]: item for item in context_bus["step_results"]}
         self.assertEqual(context_bus["context"]["outputs_key"], "$context.outputs")
@@ -1269,10 +1761,15 @@ exclude = []
         self.assertTrue(any(item["key"] == "run_result" for item in context_bus["outputs"]))
         manifest = automation["reproduction_manifest"]
         manifest_items = {item["id"]: item for item in manifest["items"]}
+        delivery_contract = manifest["delivery_contract"]
         self.assertIn("run", manifest_items)
         self.assertIn("environment", manifest_items)
         self.assertIn("gpu", manifest_items)
         self.assertIn("artifacts", manifest_items)
+        self.assertEqual(delivery_contract["mode"], "reproduce")
+        self.assertEqual(delivery_contract["label"], "自动复现")
+        self.assertIn("acceptance_criteria", delivery_contract)
+        self.assertTrue(any("可复现命令" in item for item in delivery_contract["acceptance_criteria"]))
         self.assertEqual(manifest["commands"]["run_command"], "")
         self.assertEqual(manifest_items["run"]["status"], "blocked")
         self.assertEqual(manifest_items["run"]["node_kind"], "run.command")
@@ -1284,12 +1781,29 @@ exclude = []
         self.assertEqual(bundle["status"], "blocked")
         self.assertFalse(bundle["ready_to_execute"])
         self.assertEqual(bundle["target"]["mode"], "reproduce")
+        self.assertEqual(bundle["delivery_contract"]["mode"], "reproduce")
         self.assertEqual(bundle["next_action"]["action"], "select-execution-node")
         self.assertEqual(bundle["next_action"]["node_id"], manifest_items["checkout"]["node_id"])
+        package = bundle["package_manifest"]
+        self.assertEqual(package["schema"], "relaygraph.execution_package.v1")
+        self.assertFalse(package["ready_to_execute"])
+        self.assertEqual(package["target"]["mode"], "reproduce")
+        self.assertTrue(any(item["field"] == "run_command" for item in package["missing"]))
+        self.assertEqual(bundle["command_script"]["shell"], "bash")
+        self.assertFalse(bundle["command_script"]["ready"])
+        self.assertIn("run_command", bundle["command_script"]["text"])
+        self.assertTrue(any(item["field"] == "run_command" for item in bundle["command_script"]["blocked"]))
         self.assertIn("run", bundle_steps)
         self.assertEqual(bundle_steps["run"]["status"], "blocked")
         self.assertEqual(bundle_steps["run"]["node_id"], manifest_items["run"]["node_id"])
         self.assertTrue(any(item["field"] == "run_command" for item in bundle["missing"]))
+        run_missing = next(item for item in bundle["missing"] if item["field"] == "run_command")
+        self.assertEqual(run_missing["node_kind"], "run.command")
+        self.assertEqual(run_missing["node_id"], manifest_items["run"]["node_id"])
+        self.assertEqual(run_missing["fix_action"]["action"], "select-execution-node")
+        self.assertEqual(run_missing["fix_action"]["node_id"], manifest_items["run"]["node_id"])
+        self.assertEqual(run_missing["fix_action"]["target_id"], "workspaceExecutionDetail")
+        self.assertEqual(run_missing["fix_action"]["tab"], "home")
         self.assertEqual(automation["advance"]["action"], "discover")
         self.assertIn("发现链证据", automation["advance"]["reason"])
         topology = automation["agent_topology"]
@@ -1318,6 +1832,26 @@ exclude = []
         self.assertIn("fix_action", run_blocker)
         self.assertTrue(any(item.get("node_id") == manifest_items["run"]["node_id"] for item in readiness["gate"]["blockers"]))
         self.assertTrue(any(item.get("field") == "run_command" for item in readiness["force_run"]["blockers"]))
+        playbook = automation["playbook"]
+        self.assertEqual(playbook["current_step_id"], "discover")
+        self.assertTrue(any(step["id"] == "execute" and step["button_action"] in {"advance-workspace-automation", "run-selected-workspace"} for step in playbook["steps"]))
+        self.assertEqual(playbook["current_action"]["action"], "run-workspace-discovery")
+        preflight = automation["preflight"]
+        preflight_items = {item["id"]: item for item in preflight["items"]}
+        self.assertEqual(len(preflight_items), 8)
+        self.assertEqual(preflight["status"], "blocked")
+        self.assertIn("launcher", preflight_items)
+        self.assertIn("workflow_chain", preflight_items)
+        self.assertIn("data_paths", preflight_items)
+        self.assertIn("environment", preflight_items)
+        self.assertIn("scheduler", preflight_items)
+        self.assertIn("agent_tool_ai", preflight_items)
+        self.assertIn("execution_package", preflight_items)
+        self.assertIn("run_records", preflight_items)
+        self.assertEqual(preflight_items["execution_package"]["status"], "blocked")
+        self.assertTrue(preflight_items["execution_package"]["missing"])
+        self.assertEqual(preflight_items["agent_tool_ai"]["layer"], "agent_tool_ai")
+        self.assertEqual(preflight_items["workflow_chain"]["action_button"]["action"], "switch-workspace-tab")
         self.assertGreater(automation["score"], 0)
         self.assertLess(automation["score"], 100)
 
@@ -1374,8 +1908,19 @@ exclude = []
         contract = automation["workflow_contract"]
         self.assertEqual(contract["status"], "ready")
         self.assertEqual(contract["mapped_count"], contract["node_count"])
+        self.assertEqual(contract["input_gap_count"], 0)
         self.assertTrue(any(item["kind"] == "dataset.find" and item["output_key"] == "dataset_profile" for item in contract["nodes"]))
         self.assertTrue(any(item["kind"] == "artifact.collect" and item["next_node_title"] for item in contract["nodes"]))
+        orchestration = automation["orchestration_contract"]
+        orchestration_nodes = [
+            node
+            for lane in orchestration["lanes"]
+            for node in lane["nodes"]
+        ]
+        self.assertGreaterEqual(orchestration["lane_count"], 4)
+        self.assertEqual(orchestration["blocked_node_count"], 0)
+        self.assertTrue(any(node["kind"] == "run.command" and node["input_count"] >= 1 for node in orchestration_nodes))
+        self.assertTrue(any(node["kind"] == "run.command" and any(tool["id"] == "job.run" for tool in node["tools"]) for node in orchestration_nodes))
         self.assertEqual(automation["advance"]["action"], "discover")
         topology = automation["agent_topology"]
         self.assertGreaterEqual(topology["required_tool_count"], 8)
@@ -1385,17 +1930,31 @@ exclude = []
         self.assertEqual(resources["status"], "ready")
         self.assertEqual(resources["resource_candidates"]["recommended_server_id"], "local")
         self.assertEqual(resources["resource_candidates"]["recommended_gpu_index"], "0")
+        scheduler = resources["scheduler"]
+        self.assertEqual(scheduler["status"], "ready")
+        self.assertEqual(scheduler["selected"]["server_id"], "local")
+        self.assertEqual(scheduler["selected"]["gpu_index"], "0")
+        self.assertTrue(scheduler["candidates"])
+        self.assertTrue(any("显存空闲" in reason for reason in scheduler["selected"]["reasons"]))
         self.assertTrue(any(item["id"] == "gpu" and item["status"] == "ready" for item in resources["items"]))
         self.assertTrue(any(item["id"] == "run" and "python train.py --smoke" in item["value"] for item in resources["items"]))
+        dataset_plan = automation["dataset_discovery"]
+        self.assertEqual(dataset_plan["status"], "ready")
+        self.assertIn("/datasets/imagenet-mini", dataset_plan["local_roots"])
+        self.assertTrue(dataset_plan["queries"])
         manifest = automation["reproduction_manifest"]
         self.assertEqual(manifest["status"], "ready")
         self.assertTrue(manifest["ready_to_run"])
         self.assertEqual(manifest["commands"]["run_command"], "python train.py --smoke")
+        self.assertEqual(manifest["dataset_discovery"]["local_roots"], dataset_plan["local_roots"])
+        self.assertEqual(manifest["delivery_contract"]["status"], "ready")
+        self.assertTrue(any("python train.py --smoke" in item for item in manifest["delivery_contract"]["acceptance_criteria"]))
         bundle = manifest["execution_bundle"]
         bundle_steps = {item["id"]: item for item in bundle["steps"]}
         self.assertEqual(bundle["status"], "ready")
         self.assertTrue(bundle["ready_to_execute"])
         self.assertFalse(bundle["missing"])
+        self.assertEqual(bundle["delivery_contract"]["status"], "ready")
         self.assertEqual(bundle["next_action"]["action"], "run-selected-workspace")
         self.assertEqual(bundle["next_action"]["label"], "提交执行包")
         self.assertEqual(bundle["target"]["server_id"], "local")
@@ -1404,6 +1963,35 @@ exclude = []
         self.assertEqual(bundle_steps["run"]["command"], "python train.py --smoke")
         self.assertEqual(bundle_steps["run"]["cwd"], "/tmp/relaygraph-ready")
         self.assertEqual(bundle_steps["run"]["env"]["CUDA_VISIBLE_DEVICES"], "0")
+        script = bundle["command_script"]
+        self.assertEqual(script["shell"], "bash")
+        self.assertEqual(script["status"], "ready")
+        self.assertTrue(script["ready"])
+        self.assertFalse(script["blocked"])
+        self.assertIn("cd /tmp/relaygraph-ready", script["text"])
+        self.assertIn("pip install -r requirements.txt", script["text"])
+        self.assertIn("python train.py --smoke", script["text"])
+        self.assertIn("python eval.py --summary", script["text"])
+        self.assertIn("CUDA_VISIBLE_DEVICES=0", script["text"])
+        self.assertIn("CONDA_DEFAULT_ENV=relaygraph-ready", script["text"])
+        package = bundle["package_manifest"]
+        self.assertEqual(package["schema"], "relaygraph.execution_package.v1")
+        self.assertTrue(package["ready_to_execute"])
+        self.assertEqual(package["workspace"]["id"], workspace["id"])
+        self.assertEqual(package["target"]["server_id"], "local")
+        self.assertEqual(package["scheduler"]["selected"]["gpu_index"], "0")
+        self.assertIn("python train.py --smoke", package["command_script"]["text"])
+        self.assertEqual(package["commands"]["run_command"], "python train.py --smoke")
+        self.assertEqual(package["paths"]["workspace_dir"], "/tmp/relaygraph-ready")
+        self.assertEqual(package["dataset_discovery"]["local_roots"], dataset_plan["local_roots"])
+        self.assertFalse(package["missing"])
+        backfill_fields = {
+            (item["node_kind"], item["field"])
+            for item in automation["evidence_backfill"]["items"]
+            if item["status"] in {"ready", "done"}
+        }
+        self.assertIn(("gpu.allocate", "gpu_index"), backfill_fields)
+        self.assertIn(("run.command", "gpu_index"), backfill_fields)
         self.assertTrue(any(item["id"] == "environment" and item["status"] == "ready" for item in manifest["items"]))
         self.assertTrue(any(item["id"] == "artifacts" and item["status"] == "ready" for item in manifest["items"]))
         self.assertTrue(all(item["node_id"] for item in manifest["items"] if item["id"] != "source"))
@@ -1415,9 +2003,123 @@ exclude = []
         self.assertEqual(readiness_steps["full_run"]["status"], "ready")
         self.assertEqual(readiness_steps["resource_binding"]["status"], "ready")
         self.assertEqual(readiness["job_state"]["full_run_node_count"], automation["run_plan"]["node_count"])
+        playbook = automation["playbook"]
+        self.assertEqual(playbook["current_step_id"], "discover")
+        self.assertTrue(any(step["id"] == "execute" and step["button_action"] == "run-selected-workspace" for step in playbook["steps"]))
+        self.assertTrue(any(step["id"] == "schedule" and step["metrics"]["ready_count"] >= 1 for step in playbook["steps"]))
+        preflight = automation["preflight"]
+        preflight_items = {item["id"]: item for item in preflight["items"]}
+        self.assertEqual(preflight["status"], "warning")
+        self.assertEqual(preflight_items["scheduler"]["status"], "ready")
+        self.assertEqual(preflight_items["execution_package"]["status"], "ready")
+        self.assertTrue(preflight_items["execution_package"]["metrics"]["ready_to_execute"])
+        self.assertEqual(preflight_items["execution_package"]["action_button"]["action"], "run-selected-workspace")
+        self.assertEqual(preflight_items["run_records"]["missing"], ["还没有运行记录"])
         self.assertEqual(checks["gpu"]["status"], "ready")
         self.assertEqual(checks["run"]["status"], "ready")
         self.assertEqual(checks["artifact"]["status"], "ready")
+
+    def test_workspace_workflow_contract_blocks_explicit_broken_input_mapping(self) -> None:
+        state = make_registry_state()
+        template = state.workflow_templates[0]
+        TotalControlState.update_workflow_template(
+            state,
+            template["id"],
+            {
+                "workspace_dir": "/tmp/relaygraph-broken-input",
+                "env_name": "relaygraph-broken-input",
+                "setup_command": "pip install -r requirements.txt",
+                "run_command": "python train.py --smoke",
+            },
+        )
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "template_id": template["id"],
+                "inputs": {"repo_urls": ["https://github.com/example/demo.git"]},
+            },
+        )
+        run_node = next(node for node in workspace["nodes"] if node["kind"] == "run.command")
+        run_node["input_mapping"] = {
+            "dataset_profile": "$context.outputs.missing_dataset_profile",
+        }
+        state.workspaces = [workspace]
+
+        payload = TotalControlState.workspace_public_payload(state, workspace)
+        automation = payload["automation"]
+        contract = automation["workflow_contract"]
+        run_contract = next(node for node in contract["nodes"] if node["kind"] == "run.command")
+
+        self.assertEqual(contract["status"], "blocked")
+        self.assertEqual(run_contract["input_status"], "blocked")
+        self.assertEqual(run_contract["input_gap_count"], 1)
+        self.assertEqual(run_contract["missing_inputs"][0]["upstream_output_key"], "missing_dataset_profile")
+        context_bus = automation["execution_context"]
+        run_step = next(step for step in context_bus["step_results"] if step["node_kind"] == "run.command")
+        self.assertEqual(run_step["input_status"], "blocked")
+        self.assertTrue(any(item["status"] == "blocked" for item in run_step["resolved_inputs"]))
+        orchestration_nodes = [
+            node
+            for lane in automation["orchestration_contract"]["lanes"]
+            for node in lane["nodes"]
+        ]
+        orchestration_run = next(node for node in orchestration_nodes if node["kind"] == "run.command")
+        self.assertEqual(orchestration_run["input_gap_count"], 1)
+        self.assertTrue(any(gap["type"] == "input_mapping" for gap in orchestration_run["gaps"]))
+
+    def test_workspace_delivery_contract_detects_deploy_goal(self) -> None:
+        state = make_registry_state()
+        template = state.workflow_templates[0]
+        TotalControlState.update_workflow_template(
+            state,
+            template["id"],
+            {
+                "workspace_dir": "/srv/relaygraph-api",
+                "env_name": "relaygraph-api",
+                "setup_command": "pip install -r requirements.txt",
+                "run_command": "uvicorn app:app --host 0.0.0.0 --port 8000",
+            },
+        )
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "template_id": template["id"],
+                "inputs": {
+                    "goal_text": "部署这个 repo 为 API 服务，并提供 /health smoke test",
+                    "repo_urls": ["https://github.com/example/api.git"],
+                    "context_blocks": ["端口 8000 需要健康检查"],
+                },
+            },
+        )
+        state.workspaces = [workspace]
+
+        payload = TotalControlState.workspace_public_payload(state, workspace)
+        manifest = payload["automation"]["reproduction_manifest"]
+        contract = manifest["delivery_contract"]
+        deployment_plan = manifest["deployment_plan"]
+
+        self.assertEqual(contract["mode"], "deploy")
+        self.assertEqual(contract["label"], "自动部署")
+        self.assertEqual(contract["status"], "ready")
+        self.assertTrue(any("端口" in item or "API" in item for item in contract["acceptance_criteria"]))
+        self.assertTrue(any("健康检查" in item or "health" in item for item in contract["acceptance_criteria"]))
+        self.assertTrue(any("uvicorn app:app" in item for item in contract["acceptance_criteria"]))
+        self.assertTrue(deployment_plan["relevant"])
+        self.assertEqual(deployment_plan["schema"], "relaygraph.deployment_plan.v1")
+        self.assertEqual(deployment_plan["status"], "ready")
+        self.assertEqual(deployment_plan["service_kind"], "asgi")
+        self.assertEqual(deployment_plan["port"], "8000")
+        self.assertEqual(deployment_plan["health_path"], "/health")
+        self.assertEqual(deployment_plan["health_url"], "http://127.0.0.1:8000/health")
+        self.assertEqual(deployment_plan["smoke_test_command"], "curl -fsS http://127.0.0.1:8000/health")
+        self.assertTrue(any(":8000" in item for item in deployment_plan["observe_commands"]))
+        self.assertIn("uvicorn app:app", deployment_plan["stop_command"])
+        self.assertEqual(deployment_plan["next_action"]["action"], "run-selected-workspace")
+        self.assertEqual(manifest["execution_bundle"]["delivery_contract"]["mode"], "deploy")
+        self.assertEqual(manifest["execution_bundle"]["deployment_plan"]["port"], "8000")
+        self.assertEqual(manifest["execution_bundle"]["package_manifest"]["deployment_plan"]["health_url"], "http://127.0.0.1:8000/health")
+        self.assertIn("uvicorn app:app --host 0.0.0.0 --port 8000", manifest["execution_bundle"]["command_script"]["text"])
+        self.assertIn("# mode: deploy", manifest["execution_bundle"]["command_script"]["text"])
 
     def test_workspace_execution_readiness_tracks_active_and_failed_jobs(self) -> None:
         state = make_registry_state()
@@ -1601,8 +2303,250 @@ exclude = []
             self.assertEqual(nodes["env.prepare"]["config"]["setup_command"], "pip install -r requirements.txt")
             self.assertEqual(nodes["run.command"]["config"]["run_command"], "python -m pytest -q")
             self.assertEqual(nodes["gpu.allocate"]["config"]["server_id"], "local")
+            self.assertEqual(nodes["gpu.allocate"]["config"]["gpu_index"], "0")
             self.assertEqual(nodes["run.command"]["config"]["server_id"], "local")
+            self.assertEqual(nodes["run.command"]["config"]["gpu_index"], "0")
+            job_payload = state.workspace_node_job_payload(updated, nodes["run.command"])
+            self.assertEqual(job_payload["server_id"], "local")
+            self.assertEqual(str(job_payload["gpu_index"]), "0")
+            self.assertEqual(job_payload["metadata"]["execution_bundle"]["target"]["server_id"], "local")
+            self.assertEqual(job_payload["metadata"]["execution_bundle"]["target"]["gpu_index"], "0")
+            self.assertIn("python -m pytest -q", job_payload["metadata"]["execution_bundle"]["command_script"]["text"])
             self.assertEqual(updated["automation"]["checks"][0]["status"], "ready")
+
+    def test_apply_workspace_automation_defaults_preserves_cpu_scheduler_semantics(self) -> None:
+        state = make_registry_state()
+        state.statuses = [
+            {
+                "id": "local",
+                "name": "Local",
+                "online": True,
+                "gpus": [],
+                "host_resources": {
+                    "ok": True,
+                    "cpu": {"util_percent": 12, "load1": 0.3},
+                    "memory": {"used_percent": 34},
+                },
+            }
+        ]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_dir = Path(temp_dir) / "project"
+            project_dir.mkdir()
+            (project_dir / "requirements.txt").write_text("pytest\n", encoding="utf-8")
+            (project_dir / "tests").mkdir()
+            template = next(item for item in state.workflow_templates if item["source"]["type"] == "repo")
+            workspace = TotalControlState.create_workspace(
+                state,
+                {
+                    "template_id": template["id"],
+                    "inputs": {
+                        "repo_urls": ["https://github.com/example/demo.git"],
+                        "references": [str(project_dir)],
+                    },
+                },
+            )
+            for node in workspace["nodes"]:
+                if node["kind"] in {"gpu.allocate", "run.command"}:
+                    node["config"]["gpu_policy"] = "cpu"
+            state.workspaces = [workspace]
+
+            result = TotalControlState.apply_workspace_automation_defaults(state, workspace["id"], {})
+            updated = result["workspace"]
+            nodes = {node["kind"]: node for node in updated["nodes"]}
+            gpu_config = nodes["gpu.allocate"]["config"]
+            run_config = nodes["run.command"]["config"]
+
+            self.assertEqual(gpu_config["server_id"], "local")
+            self.assertEqual(gpu_config["gpu_policy"], "cpu")
+            self.assertEqual(gpu_config["gpu_index"], "none")
+            self.assertEqual(run_config["server_id"], "local")
+            self.assertEqual(run_config["gpu_policy"], "cpu")
+            self.assertEqual(run_config["gpu_index"], "none")
+            job_payload = state.workspace_node_job_payload(updated, nodes["run.command"])
+            self.assertEqual(job_payload["gpu_index"], "none")
+            bundle_env = updated["automation"]["reproduction_manifest"]["execution_bundle"]["steps"][2]["env"]
+            self.assertNotIn("CUDA_VISIBLE_DEVICES", bundle_env)
+
+    def test_apply_workspace_automation_defaults_uses_explicit_gpu_scheduler_candidate(self) -> None:
+        state = make_registry_state()
+        state.statuses = [
+            {
+                "id": "large",
+                "name": "Large GPU",
+                "online": True,
+                "gpus": [
+                    {
+                        "index": 0,
+                        "state": "idle",
+                        "memory_free_mib": 24576,
+                    }
+                ],
+            },
+            {
+                "id": "target",
+                "name": "Target GPU",
+                "online": True,
+                "host_resources": {
+                    "ok": True,
+                    "cpu": {"util_percent": 11, "load1": 0.4},
+                    "memory": {"used_percent": 35},
+                },
+                "gpus": [
+                    {
+                        "index": 1,
+                        "state": "idle",
+                        "memory_free_mib": 12288,
+                        "memory_total_mib": 24576,
+                    }
+                ],
+            },
+        ]
+        state.servers = [
+            ServerConfig(id="large", name="Large GPU", mode="ssh", ssh_alias="large"),
+            ServerConfig(id="target", name="Target GPU", mode="ssh", ssh_alias="target"),
+        ]
+        template = next(item for item in state.workflow_templates if item["source"]["type"] == "repo")
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "template_id": template["id"],
+                "inputs": {
+                    "repo_urls": ["https://github.com/example/demo.git"],
+                },
+            },
+        )
+        for node in workspace["nodes"]:
+            if node["kind"] == "run.command":
+                node["config"]["run_command"] = "python train.py"
+        state.workspaces = [workspace]
+
+        result = TotalControlState.apply_workspace_automation_defaults(
+            state,
+            workspace["id"],
+            {
+                "apply_evidence": False,
+                "force": True,
+                "scheduler_candidate": {
+                    "server_id": "target",
+                    "gpu_index": "1",
+                    "mode": "gpu",
+                    "gpu_policy": "auto",
+                    "min_free_memory_gib": "8",
+                },
+            },
+        )
+        updated = result["workspace"]
+        nodes = {node["kind"]: node for node in updated["nodes"]}
+        gpu_config = nodes["gpu.allocate"]["config"]
+        run_config = nodes["run.command"]["config"]
+
+        self.assertEqual(gpu_config["server_id"], "target")
+        self.assertEqual(gpu_config["gpu_policy"], "auto")
+        self.assertEqual(gpu_config["gpu_index"], "1")
+        self.assertEqual(gpu_config["min_free_memory_gib"], "8")
+        self.assertEqual(run_config["server_id"], "target")
+        self.assertEqual(run_config["gpu_policy"], "auto")
+        self.assertEqual(run_config["gpu_index"], "1")
+        self.assertEqual(run_config["min_free_memory_gib"], "8")
+        job_payload = state.workspace_node_job_payload(updated, nodes["run.command"])
+        self.assertEqual(job_payload["server_id"], "target")
+        self.assertEqual(str(job_payload["gpu_index"]), "1")
+        self.assertEqual(job_payload["metadata"]["execution_bundle"]["target"]["server_id"], "target")
+        self.assertEqual(job_payload["metadata"]["execution_bundle"]["target"]["gpu_index"], "1")
+        scheduler_binding = job_payload["metadata"]["scheduler_binding"]
+        runtime_binding = job_payload["metadata"]["runtime_binding"]
+        self.assertEqual(job_payload["metadata"]["execution_mode"], "gpu")
+        self.assertEqual(scheduler_binding["status"], "ready")
+        self.assertEqual(scheduler_binding["mode"], "gpu")
+        self.assertEqual(scheduler_binding["server_id"], "target")
+        self.assertEqual(scheduler_binding["gpu_index"], "1")
+        self.assertEqual(scheduler_binding["min_free_memory_gib"], "8")
+        self.assertEqual(scheduler_binding["selected"]["server_id"], "target")
+        self.assertEqual(scheduler_binding["selected"]["gpu_index"], "1")
+        self.assertEqual(scheduler_binding["selected"]["memory_free_mib"], 12288)
+        self.assertIn("CPU 11.0%", scheduler_binding["host"]["summary"])
+        self.assertEqual(runtime_binding["execution_mode"], "gpu")
+        self.assertEqual(runtime_binding["server_id"], "target")
+        self.assertEqual(runtime_binding["gpu_index"], "1")
+        self.assertEqual(runtime_binding["scheduler_status"], "ready")
+        resources = server_module.workspace_node_resources(updated, nodes["run.command"], job_payload)
+        self.assertEqual(resources["scheduler_binding"]["server_id"], "target")
+        self.assertEqual(resources["scheduler_binding"]["gpu_index"], "1")
+        self.assertEqual(resources["scheduler_status"], "ready")
+        self.assertEqual(resources["runtime_binding"]["execution_mode"], "gpu")
+
+    def test_apply_workspace_automation_defaults_uses_explicit_cpu_scheduler_candidate(self) -> None:
+        state = make_registry_state()
+        state.statuses = [
+            {
+                "id": "cpu-host",
+                "name": "CPU Host",
+                "online": True,
+                "gpus": [],
+                "host_resources": {
+                    "ok": True,
+                    "cpu": {"util_percent": 8, "load1": 0.2},
+                    "memory": {"used_percent": 28},
+                },
+            }
+        ]
+        state.servers = [ServerConfig(id="cpu-host", name="CPU Host", mode="ssh", ssh_alias="cpu-host")]
+        template = next(item for item in state.workflow_templates if item["source"]["type"] == "repo")
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "template_id": template["id"],
+                "inputs": {
+                    "repo_urls": ["https://github.com/example/demo.git"],
+                },
+            },
+        )
+        for node in workspace["nodes"]:
+            if node["kind"] == "run.command":
+                node["config"]["run_command"] = "python train.py"
+        state.workspaces = [workspace]
+
+        result = TotalControlState.apply_workspace_automation_defaults(
+            state,
+            workspace["id"],
+            {
+                "apply_evidence": False,
+                "force": True,
+                "scheduler_candidate": {
+                    "server_id": "cpu-host",
+                    "gpu_index": "none",
+                    "mode": "cpu",
+                    "gpu_policy": "cpu",
+                },
+            },
+        )
+        updated = result["workspace"]
+        nodes = {node["kind"]: node for node in updated["nodes"]}
+        gpu_config = nodes["gpu.allocate"]["config"]
+        run_config = nodes["run.command"]["config"]
+
+        self.assertEqual(gpu_config["server_id"], "cpu-host")
+        self.assertEqual(gpu_config["gpu_policy"], "cpu")
+        self.assertEqual(gpu_config["gpu_index"], "none")
+        self.assertFalse(str(gpu_config.get("min_free_memory_gib") or "").strip())
+        self.assertEqual(run_config["server_id"], "cpu-host")
+        self.assertEqual(run_config["gpu_policy"], "cpu")
+        self.assertEqual(run_config["gpu_index"], "none")
+        job_payload = state.workspace_node_job_payload(updated, nodes["run.command"])
+        self.assertEqual(job_payload["server_id"], "cpu-host")
+        self.assertEqual(job_payload["gpu_index"], "none")
+        self.assertEqual(job_payload["metadata"]["execution_mode"], "cpu")
+        self.assertEqual(job_payload["metadata"]["runtime_binding"]["execution_mode"], "cpu")
+        self.assertEqual(job_payload["metadata"]["scheduler_binding"]["mode"], "cpu")
+        self.assertEqual(job_payload["metadata"]["scheduler_binding"]["policy"], "cpu")
+        self.assertEqual(job_payload["metadata"]["scheduler_binding"]["gpu_index"], "none")
+        self.assertEqual(job_payload["metadata"]["scheduler_binding"]["selected"]["gpu_index"], "cpu")
+        resources = server_module.workspace_node_resources(updated, nodes["run.command"], job_payload)
+        self.assertEqual(resources["execution_mode"], "cpu")
+        self.assertEqual(resources["scheduler_binding"]["mode"], "cpu")
+        self.assertEqual(resources["scheduler_binding"]["gpu_index"], "none")
+        bundle_env = updated["automation"]["reproduction_manifest"]["execution_bundle"]["steps"][2]["env"]
+        self.assertNotIn("CUDA_VISIBLE_DEVICES", bundle_env)
 
     def test_apply_workspace_automation_defaults_backfills_discovery_evidence(self) -> None:
         state = make_registry_state()
@@ -1611,10 +2555,12 @@ exclude = []
             workspace_dir = root / "project"
             data_root = root / "datasets"
             dataset_dir = data_root / "imagenet-mini"
+            resolved_output_dir = root / "resolved-outputs"
             run_dir = workspace_dir / "runs"
             metric_dir = workspace_dir / "results"
             data_root.mkdir()
             dataset_dir.mkdir()
+            resolved_output_dir.mkdir()
 
             workspace = TotalControlState.create_workspace(
                 state,
@@ -1658,7 +2604,27 @@ exclude = []
                 ),
                 encoding="utf-8",
             )
+            path_log = root / "path.log"
+            path_log.write_text(
+                "\n".join(
+                    [
+                        f"workspace_dir: {workspace_dir}",
+                        f"output_root: {resolved_output_dir} exists=True",
+                    ]
+                ),
+                encoding="utf-8",
+            )
             state.jobs = [
+                {
+                    "id": "job-path",
+                    "status": "done",
+                    "created_at": "2026-06-07T09:58:00",
+                    "finished_at": "2026-06-07T09:59:00",
+                    "server_id": "local",
+                    "gpu_index": "none",
+                    "log_path": str(path_log),
+                    "metadata": {"workspace_id": workspace["id"], "node_id": nodes["path.resolve"]["id"]},
+                },
                 {
                     "id": "job-dataset",
                     "status": "done",
@@ -1712,11 +2678,90 @@ exclude = []
             self.assertIn(str(data_root), updated_nodes["dataset.find"]["config"]["data_roots"].splitlines())
             self.assertIn(str(dataset_dir), updated_nodes["dataset.find"]["config"]["dataset_hints"].splitlines())
             self.assertEqual(updated_nodes["env.prepare"]["config"]["setup_command"], "pip install -r requirements.txt")
+            self.assertIn(str(resolved_output_dir), updated_nodes["path.resolve"]["config"]["output_roots"].splitlines())
+            self.assertIn(str(resolved_output_dir), updated_nodes["artifact.collect"]["config"]["artifact_paths"].splitlines())
             self.assertIn(str(run_dir), updated_nodes["artifact.collect"]["config"]["artifact_paths"].splitlines())
             self.assertIn(str(metric_dir), updated_nodes["artifact.collect"]["config"]["metric_paths"].splitlines())
             self.assertIn(str(metric_dir), updated_nodes["eval.report"]["config"]["metric_paths"].splitlines())
             self.assertIn("dataset_hints", evidence_fields)
             self.assertIn("setup_command", evidence_fields)
+            self.assertIn(str(resolved_output_dir), result["workspace"]["automation"]["reproduction_manifest"]["paths"]["artifact_paths"])
+            self.assertTrue(all(item.get("source") == "evidence" for item in result["evidence_applied"]))
+
+    def test_apply_workspace_automation_defaults_applies_single_backfill_item(self) -> None:
+        state = make_registry_state()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace_dir = root / "project"
+            data_root = root / "datasets"
+            dataset_dir = data_root / "imagenet-mini"
+            data_root.mkdir()
+            dataset_dir.mkdir()
+
+            workspace = TotalControlState.create_workspace(
+                state,
+                {
+                    "source_type": "repo",
+                    "repo_url": "https://github.com/example/demo.git",
+                    "workspace_dir": str(workspace_dir),
+                    "run_command": "python train.py",
+                },
+            )
+            state.workspaces = [workspace]
+            nodes = {node["kind"]: node for node in workspace["nodes"]}
+            dataset_log = root / "dataset.log"
+            dataset_log.write_text(
+                "\n".join(
+                    [
+                        f"candidate_root: {data_root} exists=True",
+                        "  match: imagenet-mini (dir)",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            env_log = root / "env.log"
+            env_log.write_text("suggest_setup: pip install -r requirements.txt\n", encoding="utf-8")
+            state.jobs = [
+                {
+                    "id": "job-dataset",
+                    "status": "done",
+                    "created_at": "2026-06-07T10:00:00",
+                    "finished_at": "2026-06-07T10:01:00",
+                    "server_id": "local",
+                    "gpu_index": "none",
+                    "log_path": str(dataset_log),
+                    "metadata": {"workspace_id": workspace["id"], "node_id": nodes["dataset.find"]["id"]},
+                },
+                {
+                    "id": "job-env",
+                    "status": "done",
+                    "created_at": "2026-06-07T10:02:00",
+                    "finished_at": "2026-06-07T10:03:00",
+                    "server_id": "local",
+                    "gpu_index": "none",
+                    "log_path": str(env_log),
+                    "metadata": {"workspace_id": workspace["id"], "node_id": nodes["env.infer"]["id"]},
+                },
+            ]
+
+            result = TotalControlState.apply_workspace_automation_defaults(
+                state,
+                workspace["id"],
+                {
+                    "apply_defaults": False,
+                    "apply_evidence": False,
+                    "backfill_item": {
+                        "node_kind": "dataset.find",
+                        "field": "dataset_hints",
+                    },
+                },
+            )
+            updated_nodes = {node["kind"]: node for node in result["workspace"]["nodes"]}
+
+            self.assertIn(str(dataset_dir), updated_nodes["dataset.find"]["config"]["dataset_hints"].splitlines())
+            self.assertFalse(str(updated_nodes["env.prepare"]["config"].get("setup_command") or "").strip())
+            self.assertEqual([item["field"] for item in result["evidence_applied"]], ["dataset_hints"])
+            self.assertEqual(result["evidence_applied"][0]["node_kind"], "dataset.find")
             self.assertTrue(all(item.get("source") == "evidence" for item in result["evidence_applied"]))
 
     def test_repo_inspect_log_feeds_discovery_evidence_backfill(self) -> None:
@@ -1791,6 +2836,74 @@ exclude = []
             self.assertIn(("env.prepare", "setup_command"), ready_fields)
             self.assertIn(("artifact.collect", "artifact_paths"), ready_fields)
             self.assertIn(("eval.report", "metric_paths"), ready_fields)
+
+    def test_repo_inspect_log_backfills_run_command_suggestion(self) -> None:
+        state = make_registry_state()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            workspace_dir = root / "project"
+            workspace_dir.mkdir()
+            workspace = TotalControlState.create_workspace(
+                state,
+                {
+                    "source_type": "repo",
+                    "repo_url": "https://github.com/example/demo.git",
+                    "workspace_dir": str(workspace_dir),
+                },
+            )
+            state.workspaces = [workspace]
+            nodes = {node["kind"]: node for node in workspace["nodes"]}
+            nodes["run.command"]["config"]["run_command"] = ""
+            repo_log = root / "repo-inspect-run.log"
+            repo_log.write_text(
+                "\n".join(
+                    [
+                        f"workspace_dir: {workspace_dir}",
+                        "found: README.md",
+                        "top_level: README.md, train.py, configs/, outputs/",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            state.jobs = [
+                {
+                    "id": "job-repo-inspect-run",
+                    "status": "done",
+                    "created_at": "2026-06-07T09:10:00",
+                    "finished_at": "2026-06-07T09:11:00",
+                    "server_id": "local",
+                    "gpu_index": "none",
+                    "log_path": str(repo_log),
+                    "metadata": {"workspace_id": workspace["id"], "node_id": nodes["repo.inspect"]["id"]},
+                }
+            ]
+
+            preview = TotalControlState.workspace_public_payload(state, workspace)
+            evidence = {item["id"]: item for item in preview["automation"]["evidence"]}
+            ready_fields = {
+                (item["node_kind"], item["field"])
+                for item in preview["automation"]["evidence_backfill"]["items"]
+                if item["status"] == "ready"
+            }
+
+            self.assertTrue(
+                any(
+                    item["label"] == "运行命令候选" and item["value"] == "python train.py --help"
+                    for item in evidence["run"]["items"]
+                )
+            )
+            self.assertIn(("run.command", "run_command"), ready_fields)
+
+            result = TotalControlState.apply_workspace_automation_defaults(state, workspace["id"], {})
+            updated_nodes = {node["kind"]: node for node in result["workspace"]["nodes"]}
+            evidence_fields = [item["field"] for item in result["evidence_applied"]]
+
+            self.assertEqual(updated_nodes["run.command"]["config"]["run_command"], "python train.py --help")
+            self.assertIn("run_command", evidence_fields)
+            self.assertEqual(
+                result["workspace"]["automation"]["reproduction_manifest"]["commands"]["run_command"],
+                "python train.py --help",
+            )
 
     def test_run_workspace_discovery_applies_defaults_and_sequences_safe_nodes(self) -> None:
         state = make_registry_state()
@@ -2058,6 +3171,88 @@ exclude = []
             updated_nodes = {node["kind"]: node for node in result["workspace"]["nodes"]}
             self.assertEqual(updated_nodes["env.prepare"]["config"]["setup_command"], "pip install -r requirements.txt")
 
+    def test_advance_workspace_automation_runs_after_discovered_run_command(self) -> None:
+        state = make_registry_state()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "project"
+            workspace = TotalControlState.create_workspace(
+                state,
+                {
+                    "source_type": "repo",
+                    "repo_url": "https://github.com/example/demo.git",
+                    "workspace_dir": str(workspace_dir),
+                    "report_command": "python eval.py",
+                },
+            )
+            nodes = {node["kind"]: node for node in workspace["nodes"]}
+            nodes["run.command"]["config"]["run_command"] = ""
+            state.workspaces = [workspace]
+            env_log = Path(temp_dir) / "env.log"
+            env_log.write_text(
+                "\n".join(
+                    [
+                        f"workspace_dir: {workspace_dir}",
+                        "found_manifest: requirements.txt",
+                        "suggest_setup: pip install -r requirements.txt",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            repo_log = Path(temp_dir) / "repo-inspect.log"
+            repo_log.write_text(
+                "\n".join(
+                    [
+                        f"workspace_dir: {workspace_dir}",
+                        "found: README.md",
+                        "top_level: README.md, train.py, configs/, outputs/",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            state.jobs = [
+                {
+                    "id": "job-repo-discovery",
+                    "status": "done",
+                    "created_at": "2026-06-07T12:00:00",
+                    "finished_at": "2026-06-07T12:01:00",
+                    "server_id": "local",
+                    "gpu_index": "none",
+                    "log_path": str(repo_log),
+                    "metadata": {
+                        "workspace_id": workspace["id"],
+                        "node_id": nodes["repo.inspect"]["id"],
+                        "node_kind": "repo.inspect",
+                        "workflow_phase": "discovery",
+                    },
+                },
+                {
+                    "id": "job-env-discovery",
+                    "status": "done",
+                    "created_at": "2026-06-07T12:02:00",
+                    "finished_at": "2026-06-07T12:03:00",
+                    "server_id": "local",
+                    "gpu_index": "none",
+                    "log_path": str(env_log),
+                    "metadata": {
+                        "workspace_id": workspace["id"],
+                        "node_id": nodes["env.infer"]["id"],
+                        "node_kind": "env.infer",
+                        "workflow_phase": "discovery",
+                    },
+                },
+            ]
+
+            result = TotalControlState.advance_workspace_automation(state, workspace["id"], {})
+            updated_nodes = {node["kind"]: node for node in result["workspace"]["nodes"]}
+            job_kinds = [job["metadata"]["node_kind"] for job in result["jobs"]]
+
+            self.assertEqual(result["action"], "run")
+            self.assertEqual(updated_nodes["run.command"]["config"]["run_command"], "python train.py --help")
+            self.assertIn("run_command", [item["field"] for item in result["evidence_applied"]])
+            self.assertIn("run.command", job_kinds)
+            run_job = result["jobs"][job_kinds.index("run.command")]
+            self.assertEqual(run_job["command"], "python train.py --help")
+
     def test_run_workspace_workflow_blocks_before_partial_job_creation_when_not_ready(self) -> None:
         state = make_registry_state()
         template = next(item for item in state.workflow_templates if item["source"]["type"] == "repo")
@@ -2100,6 +3295,44 @@ exclude = []
         blocked_kinds = {item["node_kind"] for item in raised.exception.blocked_checks}
         self.assertIn("run.command", blocked_kinds)
         self.assertIn("env.prepare", blocked_kinds)
+
+    def test_run_workspace_workflow_until_node_runs_prefix_without_future_run_gate(self) -> None:
+        state = make_registry_state()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_dir = Path(temp_dir) / "project"
+            workspace = TotalControlState.create_workspace(
+                state,
+                {
+                    "source_type": "repo",
+                    "repo_url": "https://github.com/example/demo.git",
+                    "workspace_dir": str(workspace_dir),
+                },
+            )
+            nodes = {node["kind"]: node for node in workspace["nodes"]}
+            nodes["env.prepare"]["config"]["setup_command"] = "pip install -r requirements.txt"
+            nodes["run.command"]["config"]["run_command"] = ""
+            state.workspaces = [workspace]
+
+            result = TotalControlState.run_workspace_workflow(
+                state,
+                workspace["id"],
+                {
+                    "until_node_id": nodes["env.prepare"]["id"],
+                    "auto_apply": False,
+                },
+            )
+            job_kinds = [job["metadata"]["node_kind"] for job in result["jobs"]]
+
+            self.assertEqual(job_kinds[-1], "env.prepare")
+            self.assertIn("repo.clone", job_kinds)
+            self.assertIn("dataset.find", job_kinds)
+            self.assertNotIn("gpu.allocate", job_kinds)
+            self.assertNotIn("run.command", job_kinds)
+            self.assertEqual(result["jobs"][-1]["command"], "pip install -r requirements.txt")
+            self.assertEqual(result["jobs"][-1]["metadata"]["workflow_phase"], "run_to_node")
+            self.assertEqual(result["jobs"][-1]["metadata"]["workflow_until_node_id"], nodes["env.prepare"]["id"])
+            self.assertEqual(result["execution_package"]["scope"]["mode"], "run_to_node")
+            self.assertEqual(result["execution_package"]["scope"]["target_node_kind"], "env.prepare")
 
     def test_workspace_public_payload_derives_execution_state_for_template_instance(self) -> None:
         state = object.__new__(TotalControlState)
