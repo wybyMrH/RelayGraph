@@ -106,6 +106,28 @@
             </form>
 
             <div id="hiddenList"></div>
+
+            <h4>预览缓存</h4>
+            <p class="muted preview-cache-note">仅清理本项目在 <code>/tmp/total-control-file-preview</code> 下的远程文件快览缓存，不会触碰远程主机或其他临时目录。</p>
+            <div id="previewCacheStats" class="preview-cache-stats muted">正在读取缓存占用...</div>
+            <div class="preview-cache-settings">
+              <label>
+                自动清理 · 超过
+                <input id="previewCacheMaxAgeHours" type="number" min="0" step="1" value="24" />
+                小时
+              </label>
+              <label>
+                自动清理 · 超过
+                <input id="previewCacheMaxSizeMib" type="number" min="0" step="64" value="512" />
+                MiB
+              </label>
+              <p class="muted">填 0 表示不限制该项；两项可同时生效，满足任一条件即清理最旧缓存。</p>
+              <div class="preview-cache-actions">
+                <button id="previewCacheSaveBtn" class="secondary" type="button" title="保存自动清理阈值">保存设置</button>
+                <button id="previewCacheCleanupBtn" class="secondary danger" type="button" title="立即清空本项目预览缓存目录">立即清理预览缓存</button>
+              </div>
+              <p id="previewCacheMessage" class="form-message"></p>
+            </div>
           </div>
         </div>
       </div>
@@ -126,6 +148,7 @@
                 <button id="filePickerUpBtn" class="secondary mini" type="button" title="跳到当前路径的上一级目录">上级</button>
                 <input id="filePickerPathInput" placeholder="~/projects 或 /mnt" />
                 <button id="filePickerOpenBtn" class="secondary mini" type="button" title="按输入框路径重新加载文件列表">打开</button>
+                <button id="filePickerFavoriteBtn" class="secondary mini transfer-favorite-toggle-btn" type="button" title="把当前目录加入本机收藏（按当前服务器分别保存，不会写入项目）">收藏</button>
                 <button id="filePickerChooseDirBtn" class="primary mini" type="button" title="把当前目录填回正在配置的路径字段">选择当前文件夹</button>
               </div>
               <div class="file-picker-content">
@@ -1351,11 +1374,15 @@
                   源路径
                   <div class="path-server-grid">
                     <select id="transferSourceServerSelect" aria-label="源服务器"></select>
-                    <div class="input-action path-input-action source-path-input-action">
-                      <input id="transferSourceInput" name="source" autocomplete="off" placeholder="/path/to/project/weights/" required />
-                      <button id="sourceBrowseBtn" class="secondary mini" type="button" title="打开文件选择器，从源服务器或本机选择源路径">浏览</button>
-                      <button id="sourceInspectBtn" class="secondary mini" type="button" title="加载源路径文件树，便于多选和忽略文件">查看</button>
-                      <button id="sourcePreviewBtn" class="secondary mini" type="button" title="把源路径中的单个文件下载到本机缓存并快速预览">预览</button>
+                    <div class="path-input-stack">
+                      <div class="input-action path-input-action source-path-input-action">
+                        <input id="transferSourceInput" name="source" autocomplete="off" placeholder="/path/to/project/" required />
+                        <button id="sourceBrowseBtn" class="secondary mini" type="button" title="打开文件选择器，从源服务器或本机选择源路径">浏览</button>
+                        <button id="sourceFavoritePathBtn" class="secondary mini transfer-favorite-star-btn" type="button" title="收藏/取消收藏当前源路径（仅本机浏览器，按源服务器保存）" disabled>☆</button>
+                        <button id="sourceInspectBtn" class="secondary mini" type="button" title="加载源路径文件树，便于多选和忽略文件">查看</button>
+                        <button id="sourcePreviewBtn" class="secondary mini" type="button" title="把源路径中的单个文件下载到本机缓存并快速预览">预览</button>
+                      </div>
+                      <div id="transferSourceFavorites" class="transfer-path-favorites" hidden></div>
                     </div>
                   </div>
                 </label>
@@ -1363,10 +1390,14 @@
                   目标路径
                   <div class="path-server-grid">
                     <select id="transferTargetServerSelect" aria-label="目标服务器"></select>
-                    <div class="input-action path-input-action">
-                      <input id="transferTargetInput" name="target" autocomplete="off" placeholder="/path/to/weights/" required />
-                      <button id="targetBrowseBtn" class="secondary mini" type="button" title="打开文件选择器，从目标服务器或本机选择目标目录">浏览</button>
-                      <button id="targetInspectBtn" class="secondary mini" type="button" title="加载目标服务器目录树，确认目标路径是否存在">查看</button>
+                    <div class="path-input-stack">
+                      <div class="input-action path-input-action target-path-input-action">
+                        <input id="transferTargetInput" name="target" autocomplete="off" placeholder="/path/to/destination/" required />
+                        <button id="targetBrowseBtn" class="secondary mini" type="button" title="打开文件选择器，从目标服务器或本机选择目标目录">浏览</button>
+                        <button id="targetFavoritePathBtn" class="secondary mini transfer-favorite-star-btn" type="button" title="收藏/取消收藏当前目标路径（仅本机浏览器，按目标服务器保存）" disabled>☆</button>
+                        <button id="targetInspectBtn" class="secondary mini" type="button" title="加载目标服务器目录树，确认目标路径是否存在">查看</button>
+                      </div>
+                      <div id="transferTargetFavorites" class="transfer-path-favorites" hidden></div>
                     </div>
                   </div>
                 </label>
@@ -1376,10 +1407,18 @@
                 <section class="transfer-browser-card source-browser-card">
                   <div class="subsection-head">
                     <strong>源目录 / 文件</strong>
-                    <span id="transferTreeMeta" class="muted">选择源路径后显示文件树</span>
+                    <div class="subsection-head-actions">
+                      <button id="transferSourceTreeClearBtn" class="secondary mini" type="button" hidden title="清空源目录树和路径输入">清空</button>
+                      <button id="transferTreeClearPreviewBtn" class="secondary mini" type="button" hidden title="关闭右侧文件快览">清空快览</button>
+                      <span id="transferTreeMeta" class="muted">选择源路径后显示文件树</span>
+                    </div>
                   </div>
                   <div id="transferTree" class="inline-file-tree">
-                    <div class="empty compact-empty">还没有选择源路径。</div>
+                    <div class="empty transfer-pane-empty">
+                      <span class="transfer-pane-empty-icon" aria-hidden="true">源</span>
+                      <strong>还没有选择源路径</strong>
+                      <p>填写上方路径，或点「浏览」「查看」加载目录。</p>
+                    </div>
                   </div>
                   <div class="selected-sources-box">
                     <div class="selected-sources-head">
@@ -1387,17 +1426,28 @@
                       <span id="selectedSourceCount" class="muted">0 项</span>
                     </div>
                     <div id="selectedSourceList" class="selected-source-list">
-                      <div class="empty compact-empty">可以从文件树或弹窗里把多个文件、文件夹加入这里。</div>
+                      <div class="empty transfer-pane-empty transfer-pane-empty-compact">
+                        <span class="transfer-pane-empty-icon" aria-hidden="true">+</span>
+                        <strong>还没有待传源项</strong>
+                        <p>从文件树或弹窗把多个文件、文件夹加入这里。</p>
+                      </div>
                     </div>
                   </div>
                 </section>
                 <section class="transfer-browser-card target-browser-card">
                   <div class="subsection-head">
                     <strong>目标目录</strong>
-                    <span id="targetTreeMeta" class="muted">选择服务器后浏览目标目录</span>
+                    <div class="subsection-head-actions">
+                      <button id="transferTargetTreeClearBtn" class="secondary mini" type="button" hidden title="清空目标目录树和路径输入">清空</button>
+                      <span id="targetTreeMeta" class="muted">选择服务器后浏览目标目录</span>
+                    </div>
                   </div>
                   <div id="targetTree" class="inline-file-tree target-file-tree">
-                    <div class="empty compact-empty">还没有选择目标目录。</div>
+                    <div class="empty transfer-pane-empty">
+                      <span class="transfer-pane-empty-icon" aria-hidden="true">目标</span>
+                      <strong>还没有选择目标目录</strong>
+                      <p>选择目标服务器后点「浏览」，再选中目录。</p>
+                    </div>
                   </div>
                 </section>
                 <aside class="transfer-side-stack">
@@ -1408,11 +1458,14 @@
                         <span id="transferPreviewMeta" class="muted">点源文件或源路径预览</span>
                       </div>
                       <div class="file-preview-actions">
+                        <button id="transferPreviewClearBtn" class="secondary mini" type="button" hidden title="关闭当前快览并回到空状态">关闭</button>
                         <button id="transferPreviewOpenBtn" class="secondary mini" type="button" hidden title="在浏览器新标签中打开当前本机缓存文件">打开</button>
                         <button id="transferPreviewDownloadBtn" class="secondary mini" type="button" hidden title="把当前本机缓存文件保存到浏览器下载目录">下载</button>
                       </div>
                     </div>
-                    <div id="transferPreviewSurface" class="file-preview-surface transfer-preview-surface">在源路径填单个文件后点“预览”，或从左侧文件树点“快览”。</div>
+                    <div id="transferPreviewSurface" class="file-preview-surface transfer-preview-surface empty-state">
+                      <div class="file-preview-note">在源路径填单个文件后点「预览」，或从左侧文件树点「快览」。</div>
+                    </div>
                   </section>
                   <section class="transfer-ignore-card">
                     <div class="subsection-head">
@@ -1438,8 +1491,8 @@
                   <input name="checksum" type="checkbox" />
                   严格校验内容
                 </label>
-                <button class="primary" type="submit" title="用当前源项、目标目录和忽略规则创建 rsync 传输任务">加入传输任务</button>
                 <p id="transferMessage" class="form-message"></p>
+                <button class="primary" type="submit" title="用当前源项、目标目录和忽略规则创建 rsync 传输任务">加入传输任务</button>
               </div>
             </form>
           </section>
@@ -1548,7 +1601,7 @@
               <button id="logSearchPrevBtn" class="secondary mini" type="button" title="跳到当前输出里的上一个搜索命中">上一个</button>
               <button id="logSearchNextBtn" class="secondary mini" type="button" title="跳到当前输出里的下一个搜索命中">下一个</button>
               <button id="logDownloadBtn" class="secondary mini" type="button" title="下载当前打开的输出文本">下载</button>
-              <button id="logRefreshBtn" class="secondary mini" type="button" title="手动刷新当前任务日志或 tmux 输出">刷新</button>
+              <button id="logRefreshBtn" class="secondary mini" type="button" title="手动刷新并滚到最新输出">刷新</button>
               <button id="logClearBtn" class="secondary mini" type="button" title="收起底部输出面板，不关闭任务">收起</button>
               <button id="terminalCtrlCBtn" class="secondary mini terminal-only" type="button" title="向当前终端发送 Ctrl+C 中断信号" hidden>Ctrl+C</button>
               <button id="terminalCloseBtn" class="secondary mini danger terminal-only" type="button" title="关闭当前页面终端标签，并尝试结束对应会话" hidden>关闭终端</button>
@@ -1560,6 +1613,7 @@
                 <input id="logFollow" type="checkbox" checked />
                 到底
               </label>
+              <span id="logFollowHint" class="muted log-follow-hint" hidden>已暂停跟随，滚到底部或点刷新恢复</span>
             </div>
           </div>
           <pre id="logView" class="log-view">选择一个任务、tmux 会话或进程查看输出。</pre>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
 import threading
@@ -16,6 +17,7 @@ from total_control.server import (
     ServerConfig,
     TotalControlState,
     browse_local_files,
+    cleanup_preview_cache,
     collect_server,
     build_transfer_command,
     download_remote_file_to_local,
@@ -585,6 +587,34 @@ exclude = []
         self.assertEqual(preview_kind_for_path("/tmp/report.html", "text/html"), "text")
         self.assertEqual(preview_kind_for_path("/tmp/diagram.svg", "image/svg+xml"), "text")
         self.assertEqual(preview_kind_for_path("/tmp/chart.png", "image/png"), "image")
+
+    def test_preview_kind_treats_dotfiles_and_makefile_as_text(self) -> None:
+        self.assertEqual(preview_kind_for_path("/repo/.gitignore"), "text")
+        self.assertEqual(preview_kind_for_path("/repo/.env"), "text")
+        self.assertEqual(preview_kind_for_path("/repo/Makefile"), "text")
+        self.assertEqual(preview_kind_for_path("/repo/Dockerfile"), "text")
+
+    def test_cleanup_preview_cache_only_removes_project_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir) / "preview-cache"
+            other = Path(tmp_dir) / "other-temp"
+            root.mkdir()
+            other.mkdir()
+            old_dir = root / "old"
+            new_dir = root / "new"
+            old_dir.mkdir()
+            new_dir.mkdir()
+            (old_dir / "file.bin").write_bytes(b"x" * 1024)
+            (new_dir / "file.bin").write_bytes(b"y" * 2048)
+            (other / "keep.txt").write_text("stay", encoding="utf-8")
+            old_ts = time.time() - 48 * 3600
+            os.utime(old_dir, (old_ts, old_ts))
+            with patch.object(server_module, "FILE_PREVIEW_CACHE_DIR", root):
+                result = cleanup_preview_cache(max_age_hours=24, max_size_mib=0)
+            self.assertEqual(result["removed_count"], 1)
+            self.assertFalse(old_dir.exists())
+            self.assertTrue(new_dir.exists())
+            self.assertTrue((other / "keep.txt").exists())
 
     def test_download_remote_file_to_local_uses_rsync(self) -> None:
         server = ServerConfig(

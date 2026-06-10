@@ -25,6 +25,7 @@ data/jobs.json
 data/workspaces.json
 data/provider_profiles.json
 data/logs/
+data/preview_cache_settings.json
 
 # Local/private planning docs and scratch space
 docs/

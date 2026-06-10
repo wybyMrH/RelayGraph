@@ -73,6 +73,9 @@ const state = {
     targetTree: {},
     ignores: [],
     logs: {},
+    pathByServer: { source: {}, target: {} },
+    lastSourceServerId: "",
+    lastTargetServerId: "",
   },
   filePicker: {
     roots: [],
@@ -84,6 +87,9 @@ const state = {
     serverId: "",
     dirsOnly: false,
     requestId: 0,
+    selectedPath: "",
+    scrollAnchorPath: "",
+    navStack: [],
   },
   filePreview: {
     serverId: "",
@@ -208,6 +214,8 @@ const STORAGE_KEYS = {
   jobForm: "tc-job-form",
   taskPlanForm: "tc-task-plan-form",
   transferForm: "tc-transfer-form",
+  transferPathByServer: "tc-transfer-path-by-server",
+  transferPathFavorites: "tc-transfer-path-favorites",
   selectedWorkspaceTool: "tc-selected-workspace-tool",
   workspaceResourceServer: "tc-workspace-resource-server",
 };
@@ -848,10 +856,14 @@ function formStorageKey(formId) {
   return "";
 }
 
-function captureFormState(form) {
+const TRANSFER_FORM_PERSIST_SKIP = new Set(["source", "target"]);
+
+function captureFormState(form, options = {}) {
+  const skipNames = options.skipNames || null;
   const data = {};
   form.querySelectorAll("[name]").forEach((field) => {
     if (!field.name) return;
+    if (skipNames?.has(field.name)) return;
     if (field.type === "checkbox") data[field.name] = Boolean(field.checked);
     else data[field.name] = field.value;
   });
@@ -862,7 +874,8 @@ function persistFormState(formId) {
   const form = $(formId);
   const key = formStorageKey(formId);
   if (!form || !key) return;
-  saveStoredJson(key, captureFormState(form));
+  const skipNames = formId === "transferForm" ? TRANSFER_FORM_PERSIST_SKIP : null;
+  saveStoredJson(key, captureFormState(form, { skipNames }));
 }
 
 function restoreFormState(formId) {
@@ -9142,6 +9155,169 @@ function parseIgnoreText(text) {
   );
 }
 
+const TRANSFER_FAVORITE_LIMIT = 16;
+
+function transferPathFavoritesStore() {
+  const store = loadStoredJson(STORAGE_KEYS.transferPathFavorites, {});
+  return store && typeof store === "object" ? store : {};
+}
+
+function saveTransferPathFavoritesStore(store) {
+  saveStoredJson(STORAGE_KEYS.transferPathFavorites, store);
+}
+
+function normalizeTransferFavoritePath(path) {
+  return String(path || "").trim();
+}
+
+function transferPathFavoritesForServer(serverId) {
+  const items = transferPathFavoritesStore()[String(serverId || "local")];
+  return Array.isArray(items) ? items : [];
+}
+
+function isTransferPathFavorite(serverId, path) {
+  const normalized = normalizePathForCompare(normalizeTransferFavoritePath(path));
+  return transferPathFavoritesForServer(serverId).some(
+    (item) => normalizePathForCompare(item.path) === normalized,
+  );
+}
+
+function addTransferPathFavorite(serverId, path, label = "") {
+  const normalizedPath = normalizeTransferFavoritePath(path);
+  if (!normalizedPath) return false;
+  const key = String(serverId || "local");
+  const store = transferPathFavoritesStore();
+  const existing = transferPathFavoritesForServer(serverId).filter(
+    (item) => normalizePathForCompare(item.path) !== normalizePathForCompare(normalizedPath),
+  );
+  store[key] = [
+    {
+      path: normalizedPath,
+      label: String(label || "").trim() || pathBaseName(normalizedPath) || normalizedPath,
+      savedAt: Date.now(),
+    },
+    ...existing,
+  ].slice(0, TRANSFER_FAVORITE_LIMIT);
+  saveTransferPathFavoritesStore(store);
+  return true;
+}
+
+function removeTransferPathFavorite(serverId, path) {
+  const key = String(serverId || "local");
+  const store = transferPathFavoritesStore();
+  const normalized = normalizePathForCompare(normalizeTransferFavoritePath(path));
+  const next = transferPathFavoritesForServer(serverId).filter(
+    (item) => normalizePathForCompare(item.path) !== normalized,
+  );
+  if (next.length) store[key] = next;
+  else delete store[key];
+  saveTransferPathFavoritesStore(store);
+}
+
+function toggleTransferPathFavorite(serverId, path, label = "") {
+  if (isTransferPathFavorite(serverId, path)) {
+    removeTransferPathFavorite(serverId, path);
+    return false;
+  }
+  addTransferPathFavorite(serverId, path, label);
+  return true;
+}
+
+async function openTransferPathFavorite(mode, path) {
+  const normalized = normalizeTransferFavoritePath(path);
+  if (!normalized) return;
+  if (mode === "target") {
+    $("transferTargetInput").value = ensureDirectorySlash(normalized);
+    rememberTransferPath("target");
+    await loadTransferTargetTree(normalized);
+    return;
+  }
+  $("transferSourceInput").value = normalized;
+  rememberTransferPath("source");
+  await loadTransferSourceTree(normalized);
+}
+
+function renderTransferPathFavoriteBar(mode) {
+  const isTarget = mode === "target";
+  const box = $(isTarget ? "transferTargetFavorites" : "transferSourceFavorites");
+  if (!box) return;
+  const serverId = isTarget ? transferTargetServerId() : transferSourceServerId();
+  const favorites = transferPathFavoritesForServer(serverId);
+  if (!favorites.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    box.className = "transfer-path-favorites";
+    return;
+  }
+  box.hidden = false;
+  box.className = "transfer-path-favorites compact";
+  box.title = "收藏路径仅保存在本机浏览器，不会写入项目或提交到 Git";
+  box.innerHTML = `
+    <div class="transfer-path-favorites-list">
+      ${favorites.map((item) => `
+        <span class="transfer-path-favorite-item">
+          <button class="transfer-path-favorite-btn" type="button" data-action="open-transfer-favorite" data-mode="${escapeHtml(mode)}" data-path="${escapeHtml(item.path)}" title="${escapeHtml(item.path)}">${escapeHtml(item.label || pathBaseName(item.path))}</button>
+          <button class="transfer-path-favorite-remove" type="button" data-action="remove-transfer-favorite" data-mode="${escapeHtml(mode)}" data-path="${escapeHtml(item.path)}" title="从收藏中移除">×</button>
+        </span>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderTransferPathFavoriteBars() {
+  renderTransferPathFavoriteBar("source");
+  renderTransferPathFavoriteBar("target");
+  updateTransferPathFavoriteButtons();
+}
+
+function updateTransferPathFavoriteButtons() {
+  const sourceBtn = $("sourceFavoritePathBtn");
+  const targetBtn = $("targetFavoritePathBtn");
+  const sourcePath = transferSourceValue();
+  const targetPath = transferTargetValue();
+  if (sourceBtn) {
+    const active = Boolean(sourcePath) && isTransferPathFavorite(transferSourceServerId(), sourcePath);
+    sourceBtn.textContent = active ? "★" : "☆";
+    sourceBtn.classList.toggle("active", active);
+    sourceBtn.disabled = !sourcePath;
+  }
+  if (targetBtn) {
+    const active = Boolean(targetPath) && isTransferPathFavorite(transferTargetServerId(), targetPath);
+    targetBtn.textContent = active ? "★" : "☆";
+    targetBtn.classList.toggle("active", active);
+    targetBtn.disabled = !targetPath;
+  }
+}
+
+function renderFilePickerFavoritesSidebar(serverId, currentPath) {
+  const favorites = transferPathFavoritesForServer(serverId);
+  if (!favorites.length) {
+    return `
+      <div class="file-picker-sidebar-section">
+        <div class="file-picker-sidebar-label">收藏路径 <span class="muted">本机</span></div>
+        <p class="file-picker-favorites-empty muted">当前主机还没有收藏，浏览到目录后点「收藏」。</p>
+      </div>
+    `;
+  }
+  return `
+    <div class="file-picker-sidebar-section">
+      <div class="file-picker-sidebar-label">收藏路径 <span class="muted">本机</span></div>
+      ${favorites.map((item) => {
+        const active = currentPath && normalizePathForCompare(currentPath) === normalizePathForCompare(item.path);
+        return `
+          <div class="favorite-path-row">
+            <button class="root-button favorite-path-button${active ? " active" : ""}" type="button" data-action="open-favorite-path" data-path="${escapeHtml(item.path)}" title="${escapeHtml(item.path)}">
+              <strong>${escapeHtml(item.label || pathBaseName(item.path))}</strong>
+              <span>${escapeHtml(item.path)}</span>
+            </button>
+            <button class="favorite-path-remove" type="button" data-action="remove-favorite-path" data-path="${escapeHtml(item.path)}" title="移除收藏">×</button>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function transferRelativePath(path, isDir = false) {
   const parsedSource = parseRsyncTargetPath(transferSourceValue());
   const source = normalizePathForCompare(parsedSource || transferSourceValue());
@@ -9155,13 +9331,73 @@ function transferRelativePath(path, isDir = false) {
   return relative;
 }
 
+function humanizeFetchError(error, context = "") {
+  const raw = String(error?.message || error || "未知错误");
+  if (raw === "Failed to fetch") {
+    return context
+      ? `${context}失败：无法连接后端，请确认 Total Control 服务仍在运行。`
+      : "无法连接后端，请确认 Total Control 服务仍在运行。";
+  }
+  if (raw === "not found") {
+    return context
+      ? `${context}失败：接口不存在，请重启 Total Control 以加载最新后端。`
+      : "接口不存在，请重启 Total Control 以加载最新后端。";
+  }
+  return raw;
+}
+
+function isLikelyTextPreviewPath(path) {
+  const base = pathBaseName(String(path || "")).toLowerCase();
+  if (!base) return false;
+  if (base.startsWith(".") && base.length > 1) return true;
+  if (["dockerfile", "makefile", "gemfile", "rakefile", "procfile", "license", "readme", "changelog"].includes(base)) {
+    return true;
+  }
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return false;
+  const suffix = base.slice(dot);
+  const textSuffixes = new Set([
+    ".bat", ".c", ".cc", ".cfg", ".conf", ".cpp", ".cs", ".css", ".csv", ".dockerfile", ".env", ".go", ".h", ".hpp",
+    ".htm", ".html", ".ini", ".ipynb", ".java", ".js", ".json", ".jsonc", ".jsx", ".kt", ".less", ".log", ".lua", ".md",
+    ".mjs", ".out", ".php", ".ps1", ".py", ".rb", ".rs", ".rst", ".sass", ".scala", ".scss", ".sh", ".sql", ".svg",
+    ".swift", ".toml", ".ts", ".tsv", ".tsx", ".txt", ".vue", ".xml", ".yaml", ".yml", ".zsh",
+  ]);
+  return textSuffixes.has(suffix);
+}
+
+function formatPreviewText(path, text) {
+  const base = pathBaseName(String(path || "")).toLowerCase();
+  if (base.endsWith(".json") || base.endsWith(".jsonc")) {
+    try {
+      return JSON.stringify(JSON.parse(text), null, 2);
+    } catch {
+      return text;
+    }
+  }
+  return text;
+}
+
 async function browseFiles(path = "", maxEntries = 300, options = {}) {
   const params = new URLSearchParams();
   if (path) params.set("path", path);
   params.set("max", String(maxEntries));
   if (options.serverId) params.set("server_id", options.serverId);
   if (options.dirsOnly) params.set("dirs_only", "1");
-  return fetchJson(`/api/files/browse?${params.toString()}`);
+  const url = `/api/files/browse?${params.toString()}`;
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      return await fetchJson(url);
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0 && String(error?.message || "") === "Failed to fetch") {
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError || new Error("无法读取目录。");
 }
 
 async function readFileText(path = "", limitBytes = 131072, options = {}) {
@@ -13074,10 +13310,23 @@ function focusLogSearchHit(index, options = {}) {
   updateLogSearchControls();
 }
 
+function logViewNearBottom(view = $("logView"), threshold = 80) {
+  if (!view) return true;
+  return view.scrollHeight - view.scrollTop - view.clientHeight < threshold;
+}
+
+function updateLogFollowHint() {
+  const hint = $("logFollowHint");
+  const follow = $("logFollow")?.checked ?? true;
+  if (!hint) return;
+  const paused = follow && !logViewNearBottom();
+  hint.hidden = !paused;
+}
+
 function setLogText(text, options = {}) {
   const view = $("logView");
   const follow = $("logFollow")?.checked ?? true;
-  const wasNearBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 80;
+  const wasNearBottom = logViewNearBottom(view);
   const source = text || "";
   const query = state.logSearch.query.trim();
   if (!query) {
@@ -13108,10 +13357,13 @@ function setLogText(text, options = {}) {
   if (options.resetX) view.scrollLeft = 0;
   updateLogSearchControls();
   if (options.noAutoScroll) return;
-  if (follow || wasNearBottom || options.forceBottom) {
+  if (options.forceBottom || (follow && wasNearBottom)) {
     requestAnimationFrame(() => {
       view.scrollTop = view.scrollHeight;
+      updateLogFollowHint();
     });
+  } else {
+    updateLogFollowHint();
   }
 }
 
@@ -13954,6 +14206,7 @@ function renderTransferTargetOptions() {
   select.value = Array.from(select.options).some((option) => option.value === currentValue)
     ? currentValue
     : selectable[0]?.id || "";
+  updateTransferPathPlaceholders();
 }
 
 function renderTransferSourceOptions() {
@@ -13967,6 +14220,7 @@ function renderTransferSourceOptions() {
   select.value = Array.from(select.options).some((option) => option.value === currentValue)
     ? currentValue
     : selectable[0]?.id || "";
+  updateTransferPathPlaceholders();
 }
 
 function syncTransferTargetServerFromInput() {
@@ -14071,13 +14325,24 @@ function clearTransferSources() {
   renderSelectedSources();
 }
 
+function transferPaneEmptyMarkup(title, hint = "", options = {}) {
+  const compactClass = options.compact ? " transfer-pane-empty-compact" : "";
+  const icon = options.icon || "·";
+  const hintHtml = hint ? `<p>${escapeHtml(hint)}</p>` : "";
+  return `<div class="empty transfer-pane-empty${compactClass}"><span class="transfer-pane-empty-icon" aria-hidden="true">${escapeHtml(icon)}</span><strong>${escapeHtml(title)}</strong>${hintHtml}</div>`;
+}
+
+function transferPaneLoadingMarkup(text) {
+  return `<div class="empty transfer-pane-empty transfer-pane-loading"><span>${escapeHtml(text)}</span></div>`;
+}
+
 function renderSelectedSources() {
   const list = $("selectedSourceList");
   const count = $("selectedSourceCount");
   if (!list || !count) return;
   count.textContent = `${state.transfer.sources.length} 项`;
   if (!state.transfer.sources.length) {
-    list.innerHTML = '<div class="empty compact-empty">可以从文件树或弹窗里把多个文件、文件夹加入这里。</div>';
+    list.innerHTML = transferPaneEmptyMarkup("还没有待传源项", "从文件树或弹窗把多个文件、文件夹加入这里。", { compact: true, icon: "+" });
     return;
   }
   const rows = state.transfer.sources
@@ -14112,8 +14377,10 @@ function renderTransferTreeNode(entry, level = 0) {
   const row = `
     <div class="file-tree-row${level === 0 ? " root-row" : ""}${previewing}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" style="padding-left:${6 + level * 18}px">
       <button class="file-toggle" type="button" data-action="toggle-transfer-node" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="${entry.is_dir ? "展开或收起这个目录" : "文件项不可展开"}">${icon}</button>
-      <span class="file-name" title="${escapeHtml(entry.path)}">${entry.is_dir ? "[DIR]" : "[FILE]"} ${escapeHtml(entry.name)}</span>
-      <span class="file-meta">${escapeHtml(entry.size_text || "")}</span>
+      <div class="file-tree-main">
+        <span class="file-name" title="${escapeHtml(entry.path)}">${entry.is_dir ? "[DIR]" : "[FILE]"} ${escapeHtml(entry.name)}</span>
+        ${entry.size_text ? `<span class="file-meta">${escapeHtml(entry.size_text)}</span>` : ""}
+      </div>
       <span class="file-actions">
         ${entry.is_dir ? "" : `<button class="file-action" type="button" data-action="preview-transfer-node" data-path="${escapeHtml(entry.path)}" title="把这个文件拉到本机缓存后快速预览">快览</button>`}
         <button class="file-action primary-soft" type="button" data-action="add-transfer-source" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="把这个文件或目录加入待传源项">加入</button>
@@ -14128,6 +14395,33 @@ function renderTransferTreeNode(entry, level = 0) {
   return row + childRows;
 }
 
+function clearTransferSourceTree() {
+  state.transfer.source = null;
+  state.transfer.tree = {};
+  const input = $("transferSourceInput");
+  if (input) input.value = "";
+  rememberTransferPath("source");
+  renderTransferTree();
+  updateTransferPathFavoriteButtons();
+}
+
+function clearTransferTargetTree() {
+  state.transfer.target = null;
+  state.transfer.targetTree = {};
+  const input = $("transferTargetInput");
+  if (input) input.value = "";
+  rememberTransferPath("target");
+  renderTargetTree();
+  updateTransferPathFavoriteButtons();
+}
+
+function updateTransferTreeClearButtons() {
+  const sourceBtn = $("transferSourceTreeClearBtn");
+  const targetBtn = $("transferTargetTreeClearBtn");
+  if (sourceBtn) sourceBtn.hidden = !state.transfer.source;
+  if (targetBtn) targetBtn.hidden = !state.transfer.target;
+}
+
 function renderTransferTree() {
   const box = $("transferTree");
   const meta = $("transferTreeMeta");
@@ -14135,12 +14429,16 @@ function renderTransferTree() {
   const source = state.transfer.source;
   if (!source) {
     meta.textContent = "选择源路径后显示文件树";
-    box.innerHTML = '<div class="empty compact-empty">还没有选择源路径。</div>';
+    box.innerHTML = transferPaneEmptyMarkup("还没有选择源路径", "填写上方路径，或点「浏览」「查看」加载目录。", { icon: "源" });
+    updateTransferPreviewControls();
+    updateTransferTreeClearButtons();
     return;
   }
   const prefix = source.serverName ? `${source.serverName} · ` : "";
   meta.textContent = prefix + (source.is_dir ? "文件夹，可展开查看并忽略子项" : "单个文件");
   box.innerHTML = renderTransferTreeNode(source, 0);
+  updateTransferPreviewControls();
+  updateTransferTreeClearButtons();
 }
 
 function renderTargetTreeNode(entry, level = 0) {
@@ -14152,10 +14450,11 @@ function renderTargetTreeNode(entry, level = 0) {
     ? " selected"
     : "";
   const row = `
-    <div class="file-tree-row${level === 0 ? " root-row" : ""}${selected}" style="padding-left:${6 + level * 18}px">
+    <div class="file-tree-row${level === 0 ? " root-row" : ""}${selected}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" style="padding-left:${6 + level * 18}px">
       <button class="file-toggle" type="button" data-action="toggle-target-node" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="展开或收起这个目标目录">${icon}</button>
-      <span class="file-name" title="${escapeHtml(entry.path)}">[DIR] ${escapeHtml(entry.name || entry.path)}</span>
-      <button class="file-action" type="button" data-action="choose-target-node" data-path="${escapeHtml(entry.path)}" title="把这个目录设为传输目标路径">选择</button>
+      <div class="file-tree-main">
+        <span class="file-name" title="${escapeHtml(entry.path)}">[DIR] ${escapeHtml(entry.name || entry.path)}</span>
+      </div>
     </div>
   `;
   if (!entry.is_dir || !open) return row;
@@ -14169,26 +14468,140 @@ function renderTargetTree() {
   const target = state.transfer.target;
   if (!target) {
     meta.textContent = "选择服务器后浏览目标目录";
-    box.innerHTML = '<div class="empty compact-empty">还没有选择目标目录。</div>';
+    box.innerHTML = transferPaneEmptyMarkup("还没有选择目标目录", "选择目标服务器后点「浏览」，再选中目录。", { icon: "目标" });
+    updateTransferTreeClearButtons();
     return;
   }
   meta.textContent = target.serverName ? `${target.serverName} · 点击目录可选择` : "点击目录可选择";
   box.innerHTML = renderTargetTreeNode(target, 0);
+  updateTransferTreeClearButtons();
+}
+
+function defaultTransferPathForServer(_serverId) {
+  return "";
+}
+
+function loadTransferPathByServer() {
+  const stored = loadStoredJson(STORAGE_KEYS.transferPathByServer, { source: {}, target: {} });
+  return {
+    source: stored?.source && typeof stored.source === "object" ? stored.source : {},
+    target: stored?.target && typeof stored.target === "object" ? stored.target : {},
+  };
+}
+
+function saveTransferPathByServer() {
+  if (!state.transfer.pathByServer) return;
+  saveStoredJson(STORAGE_KEYS.transferPathByServer, state.transfer.pathByServer);
+}
+
+function transferPathPlaceholder(mode, serverId) {
+  const server = serverById(serverId);
+  if (server?.mode === "local") {
+    return mode === "source" ? "/path/to/project/" : "/path/to/destination/";
+  }
+  return mode === "source" ? "/remote/path/to/project/" : "/remote/path/to/destination/";
+}
+
+function updateTransferPathPlaceholders() {
+  const sourceInput = $("transferSourceInput");
+  const targetInput = $("transferTargetInput");
+  if (sourceInput) sourceInput.placeholder = transferPathPlaceholder("source", transferSourceServerId());
+  if (targetInput) targetInput.placeholder = transferPathPlaceholder("target", transferTargetServerId());
+}
+
+function syncTransferPathInputsFromServers() {
+  const sourceInput = $("transferSourceInput");
+  const targetInput = $("transferTargetInput");
+  const sourceId = transferSourceServerId();
+  const targetId = transferTargetServerId();
+  if (sourceInput) sourceInput.value = resolveTransferPathForServer("source", sourceId);
+  if (targetInput) targetInput.value = resolveTransferPathForServer("target", targetId);
+  updateTransferPathPlaceholders();
+  updateTransferPathFavoriteButtons();
+}
+
+function rememberTransferPath(mode) {
+  const isTarget = mode === "target";
+  const serverId = isTarget ? transferTargetServerId() : transferSourceServerId();
+  const path = isTarget ? transferTargetValue() : transferSourceValue();
+  if (!state.transfer.pathByServer) state.transfer.pathByServer = { source: {}, target: {} };
+  if (!serverId) return;
+  state.transfer.pathByServer[isTarget ? "target" : "source"][serverId] = path;
+  saveTransferPathByServer();
+}
+
+function resolveTransferPathForServer(mode, serverId) {
+  if (!state.transfer.pathByServer) state.transfer.pathByServer = { source: {}, target: {} };
+  const bucket = state.transfer.pathByServer[mode] || {};
+  if (Object.prototype.hasOwnProperty.call(bucket, serverId)) return bucket[serverId];
+  return defaultTransferPathForServer(serverId);
+}
+
+function seedTransferPathMemory() {
+  if (!state.transfer.pathByServer) state.transfer.pathByServer = loadTransferPathByServer();
+  rememberTransferPath("source");
+  rememberTransferPath("target");
+  state.transfer.lastSourceServerId = transferSourceServerId();
+  state.transfer.lastTargetServerId = transferTargetServerId();
+}
+
+function handleTransferSourceServerChange() {
+  const select = $("transferSourceServerSelect");
+  const input = $("transferSourceInput");
+  const nextServerId = select?.value || "";
+  const prevServerId = state.transfer.lastSourceServerId || "";
+  if (!nextServerId) return;
+  if (prevServerId && prevServerId !== nextServerId) {
+    if (!state.transfer.pathByServer) state.transfer.pathByServer = { source: {}, target: {} };
+    state.transfer.pathByServer.source[prevServerId] = transferSourceValue();
+  }
+  if (input) {
+    input.value = prevServerId === nextServerId
+      ? transferPathOnly(input.value)
+      : resolveTransferPathForServer("source", nextServerId);
+  }
+  state.transfer.lastSourceServerId = nextServerId;
+  state.transfer.source = null;
+  state.transfer.tree = {};
+  renderTransferTree();
+  updateTransferPathPlaceholders();
+  renderTransferPathFavoriteBars();
+  updateTransferPathFavoriteButtons();
+}
+
+function handleTransferTargetServerChange() {
+  const select = $("transferTargetServerSelect");
+  const input = $("transferTargetInput");
+  const nextServerId = select?.value || "";
+  const prevServerId = state.transfer.lastTargetServerId || "";
+  if (!nextServerId) return;
+  if (prevServerId && prevServerId !== nextServerId) {
+    if (!state.transfer.pathByServer) state.transfer.pathByServer = { source: {}, target: {} };
+    state.transfer.pathByServer.target[prevServerId] = transferTargetValue();
+  }
+  if (input) {
+    input.value = prevServerId === nextServerId
+      ? transferPathOnly(input.value)
+      : resolveTransferPathForServer("target", nextServerId);
+  }
+  state.transfer.lastTargetServerId = nextServerId;
+  state.transfer.target = null;
+  state.transfer.targetTree = {};
+  renderTargetTree();
+  updateTransferPathPlaceholders();
+  renderTransferPathFavoriteBars();
+  updateTransferPathFavoriteButtons();
 }
 
 function transferTargetBrowsePath() {
   const raw = transferTargetValue();
   if (raw) return raw;
-  const server = serverById(transferTargetServerId());
-  if (server?.mode === "local") return "/mnt";
   return "/";
 }
 
 function transferSourceBrowsePath() {
   const raw = transferSourceValue();
   if (raw) return raw;
-  const server = serverById(transferSourceServerId());
-  if (server?.mode === "local") return "/mnt";
   return "/";
 }
 
@@ -14205,7 +14618,7 @@ async function loadTransferSourceTree(path = transferSourceBrowsePath()) {
     renderTransferTree();
     return;
   }
-  if (box) box.innerHTML = '<div class="empty compact-empty">正在读取目录...</div>';
+  if (box) box.innerHTML = transferPaneLoadingMarkup("正在读取目录...");
   if (meta) meta.textContent = "加载中";
   if (message) {
     message.textContent = "";
@@ -14242,7 +14655,7 @@ async function loadTransferTargetTree(path = transferTargetBrowsePath()) {
   const message = $("transferMessage");
   const serverId = transferTargetServerId();
   const server = serverById(serverId);
-  if (box) box.innerHTML = '<div class="empty compact-empty">正在读取目标目录...</div>';
+  if (box) box.innerHTML = transferPaneLoadingMarkup("正在读取目标目录...");
   if (meta) meta.textContent = "加载中";
   if (message) {
     message.textContent = "";
@@ -14413,9 +14826,9 @@ async function updateTransferProgress() {
   renderJobs();
 }
 
-function clearFilePreview(message = "选择文件查看预览。") {
-  state.filePreview = {
-    serverId: state.filePicker.serverId || "",
+function emptyFilePreviewState(serverId = "") {
+  return {
+    serverId: serverId || state.filePicker.serverId || "",
     path: "",
     text: "",
     encoding: "",
@@ -14431,8 +14844,28 @@ function clearFilePreview(message = "选择文件查看预览。") {
     error: "",
     loading: false,
   };
+}
+
+function clearFilePreview(message = "选择文件查看预览。") {
+  state.filePreview = emptyFilePreviewState();
   renderFilePreview(message);
   renderTransferPreview("在源路径填单个文件后点“预览”，或从左侧文件树点“快览”。");
+  updateTransferPreviewControls();
+}
+
+function clearTransferPreview() {
+  clearFilePreview();
+  renderTransferTree();
+  renderSelectedSources();
+  if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
+}
+
+function updateTransferPreviewControls() {
+  const hasPreview = Boolean(state.filePreview.path || state.filePreview.loading || state.filePreview.error);
+  const closeBtn = $("transferPreviewClearBtn");
+  const treeBtn = $("transferTreeClearPreviewBtn");
+  if (closeBtn) closeBtn.hidden = !hasPreview;
+  if (treeBtn) treeBtn.hidden = !hasPreview || !state.transfer.source;
 }
 
 function filePreviewKindLabel(kind) {
@@ -14513,10 +14946,22 @@ function buildFilePreviewDisplay(emptyMessage = "选择文件查看预览。") {
     </div>
   `;
   if (kind === "text") {
+    const previewText = formatPreviewText(state.filePreview.path, state.filePreview.text || "文件为空。");
+    const htmlKind = pathBaseName(state.filePreview.path || "").toLowerCase().endsWith(".html")
+      || pathBaseName(state.filePreview.path || "").toLowerCase().endsWith(".htm");
+    if (htmlKind && state.filePreview.previewUrl) {
+      return {
+        title,
+        meta,
+        html: `${summary}<div class="file-preview-embed"><iframe sandbox="" src="${escapeHtml(state.filePreview.previewUrl)}" title="${escapeHtml(pathBaseName(state.filePreview.path))}"></iframe></div>`,
+        canOpen: true,
+        canDownload: Boolean(state.filePreview.downloadUrl),
+      };
+    }
     return {
       title,
       meta,
-      html: `${summary}<pre class="file-preview-text">${escapeHtml(state.filePreview.text || "文件为空。")}</pre>`,
+      html: `${summary}<pre class="file-preview-text">${escapeHtml(previewText)}</pre>`,
       canOpen: Boolean(state.filePreview.previewUrl),
       canDownload: Boolean(state.filePreview.downloadUrl),
     };
@@ -14581,6 +15026,7 @@ function renderFilePreviewSurface(target, emptyMessage) {
   box.innerHTML = display.html;
   if (openBtn) openBtn.hidden = !display.canOpen;
   if (downloadBtn) downloadBtn.hidden = !display.canDownload;
+  if (target.boxId === "transferPreviewSurface") updateTransferPreviewControls();
 }
 
 function renderFilePreview(emptyMessage = "选择文件查看预览。") {
@@ -14641,7 +15087,28 @@ async function previewFile(path, options = {}) {
   renderFilePreview();
   renderTransferPreview();
   try {
-    const payload = await fetchFilePreviewAsset(path, { serverId, limitBytes: 131072 });
+    let payload;
+    try {
+      payload = await fetchFilePreviewAsset(path, { serverId, limitBytes: 131072 });
+    } catch (primaryError) {
+      if (!isLikelyTextPreviewPath(path)) throw primaryError;
+      const textPayload = await readFileText(path, 131072, { serverId });
+      payload = {
+        path: textPayload.path || path,
+        server_id: textPayload.server_id || serverId || "",
+        text: textPayload.text || "",
+        encoding: textPayload.encoding || "utf-8",
+        truncated: Boolean(textPayload.truncated),
+        preview_kind: "text",
+        mime_type: "text/plain",
+        size_text: "",
+        local_path: textPayload.path || path,
+        preview_url: "",
+        download_url: "",
+        inline_supported: true,
+        cached: false,
+      };
+    }
     state.filePreview = {
       serverId: payload.server_id || serverId || "",
       path: payload.path || path,
@@ -14674,7 +15141,7 @@ async function previewFile(path, options = {}) {
       downloadUrl: "",
       inlineSupported: false,
       cached: false,
-      error: error.message,
+      error: humanizeFetchError(error, "预览"),
       loading: false,
     };
   }
@@ -14720,6 +15187,113 @@ async function previewTransferSourceInput() {
   }
 }
 
+function findFilePickerRow(path) {
+  const list = $("filePickerList");
+  if (!list || !path) return null;
+  const target = normalizePathForCompare(path);
+  for (const row of list.querySelectorAll(".file-picker-row")) {
+    if (normalizePathForCompare(row.dataset.path || "") === target) return row;
+  }
+  return null;
+}
+
+function restoreFilePickerScrollAfterRender() {
+  const anchor = state.filePicker.scrollAnchorPath;
+  if (!anchor) return;
+  requestAnimationFrame(() => {
+    const row = findFilePickerRow(anchor);
+    if (row) row.scrollIntoView({ block: "center", inline: "nearest" });
+    state.filePicker.scrollAnchorPath = "";
+  });
+}
+
+function resetFilePickerNavigation() {
+  state.filePicker.navStack = [];
+  state.filePicker.selectedPath = "";
+  state.filePicker.scrollAnchorPath = "";
+}
+
+function renderPreviewCachePanel(payload = {}) {
+  const stats = $("previewCacheStats");
+  const ageInput = $("previewCacheMaxAgeHours");
+  const sizeInput = $("previewCacheMaxSizeMib");
+  const message = $("previewCacheMessage");
+  if (stats) {
+    const count = Number(payload.entry_count || 0);
+    const total = payload.total_text || "0 B";
+    const dir = payload.cache_dir || "/tmp/total-control-file-preview";
+    stats.textContent = `当前 ${count} 项 · 占用 ${total} · 目录 ${dir}`;
+  }
+  if (ageInput && payload.settings) ageInput.value = String(payload.settings.max_age_hours ?? 24);
+  if (sizeInput && payload.settings) sizeInput.value = String(payload.settings.max_size_mib ?? 512);
+  if (message && !message.classList.contains("error") && !message.textContent) message.textContent = "";
+}
+
+async function loadPreviewCachePanel() {
+  const message = $("previewCacheMessage");
+  try {
+    const payload = await fetchJson("/api/admin/preview-cache");
+    renderPreviewCachePanel(payload);
+    if (message) {
+      message.textContent = "";
+      message.classList.remove("error");
+    }
+  } catch (error) {
+    if (message) {
+      message.textContent = humanizeFetchError(error, "读取预览缓存");
+      message.classList.add("error");
+    }
+  }
+}
+
+async function savePreviewCacheSettings() {
+  const message = $("previewCacheMessage");
+  const ageInput = $("previewCacheMaxAgeHours");
+  const sizeInput = $("previewCacheMaxSizeMib");
+  if (message) {
+    message.textContent = "正在保存...";
+    message.classList.remove("error");
+  }
+  try {
+    const payload = await fetchJson("/api/admin/preview-cache/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_age_hours: Number(ageInput?.value || 0),
+        max_size_mib: Number(sizeInput?.value || 0),
+      }),
+    });
+    renderPreviewCachePanel(payload);
+    if (message) message.textContent = "自动清理设置已保存。";
+  } catch (error) {
+    if (message) {
+      message.textContent = humanizeFetchError(error, "保存设置");
+      message.classList.add("error");
+    }
+  }
+}
+
+async function cleanupPreviewCacheNow() {
+  const message = $("previewCacheMessage");
+  if (!confirm("确定清理本项目预览缓存吗？仅删除 /tmp/total-control-file-preview 下的文件。")) return;
+  if (message) {
+    message.textContent = "正在清理...";
+    message.classList.remove("error");
+  }
+  try {
+    const payload = await fetchJson("/api/admin/preview-cache/cleanup", { method: "POST" });
+    renderPreviewCachePanel(payload);
+    if (message) {
+      message.textContent = `已清理 ${payload.removed_count || 0} 项，释放 ${payload.removed_text || "0 B"}。`;
+    }
+  } catch (error) {
+    if (message) {
+      message.textContent = humanizeFetchError(error, "清理预览缓存");
+      message.classList.add("error");
+    }
+  }
+}
+
 function renderFilePicker(payload = state.filePicker) {
   const roots = $("filePickerRoots");
   const list = $("filePickerList");
@@ -14733,14 +15307,14 @@ function renderFilePicker(payload = state.filePicker) {
   if (title) title.textContent = payload.mode === "target" ? "选择目标目录" : "选择源文件或文件夹";
   if (subtitle) {
     subtitle.textContent = payload.mode === "target"
-      ? `正在浏览 ${server?.name || "目标服务器"}，只显示目录。`
+      ? `正在浏览 ${server?.name || "目标服务器"}，点目录进入，或用「选择」设为路径。`
       : server && server.mode !== "local"
-        ? `正在浏览 ${server.name} 的文件系统，点文件可快览并缓存到本机。`
-        : "浏览 WSL 可访问路径，例如 /mnt/e、/mnt/f、Home 和项目目录；点文件可快览。";
+        ? `正在浏览 ${server.name} 的文件系统，点目录进入、点文件快览。`
+        : "浏览 WSL 可访问路径，例如 /mnt/e、/mnt/f、Home 和项目目录；点目录进入、点文件快览。";
   }
   if (chooseDir) chooseDir.textContent = payload.mode === "target" ? "选择当前目录" : "加入当前文件夹";
   input.value = payload.path || "";
-  roots.innerHTML = (payload.roots || [])
+  const rootButtons = (payload.roots || [])
     .map((root) => {
       const active = payload.path && normalizePathForCompare(payload.path).startsWith(normalizePathForCompare(root.path));
       return `
@@ -14751,15 +15325,32 @@ function renderFilePicker(payload = state.filePicker) {
       `;
     })
     .join("");
+  roots.innerHTML = `
+    <div class="file-picker-sidebar-section">
+      <div class="file-picker-sidebar-label">根目录</div>
+      ${rootButtons || '<p class="file-picker-favorites-empty muted">暂无根目录。</p>'}
+    </div>
+    ${renderFilePickerFavoritesSidebar(payload.serverId, payload.path)}
+  `;
+  const favoriteBtn = $("filePickerFavoriteBtn");
+  if (favoriteBtn) {
+    const favorited = Boolean(payload.path) && isTransferPathFavorite(payload.serverId, payload.path);
+    favoriteBtn.textContent = favorited ? "已收藏" : "收藏";
+    favoriteBtn.classList.toggle("active", favorited);
+    favoriteBtn.disabled = !payload.path;
+  }
   const rows = (payload.entries || [])
     .map((entry) => {
-      const active = previewPathMatchesState(entry.path, payload.serverId || "") ? " active" : "";
+      const selected = normalizePathForCompare(entry.path) === normalizePathForCompare(payload.selectedPath || "")
+        ? " selected"
+        : "";
+      const previewActive = previewPathMatchesState(entry.path, payload.serverId || "") ? " preview-active" : "";
       const meta = [
         entry.is_dir ? "文件夹" : (entry.size_text || "文件"),
         fmtDate(entry.mtime) || "",
       ].filter(Boolean).join(" · ");
       return `
-      <div class="file-picker-row${active}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}">
+      <div class="file-picker-row${selected}${previewActive}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}">
         <div class="file-picker-row-main">
           <span class="file-kind">${entry.is_dir ? "DIR" : "FILE"}</span>
           <div class="file-picker-row-text">
@@ -14768,7 +15359,7 @@ function renderFilePicker(payload = state.filePicker) {
           </div>
         </div>
         <div class="file-actions file-picker-row-actions">
-          ${entry.is_dir ? '<button class="file-action" type="button" data-action="open-picker" title="进入这个目录继续浏览">打开</button>' : '<button class="file-action" type="button" data-action="preview-picker" title="把这个文件拉到本机缓存后快速预览">快览</button>'}
+          ${entry.is_dir ? "" : '<button class="file-action" type="button" data-action="preview-picker" title="把这个文件拉到本机缓存后快速预览">快览</button>'}
           <button class="file-action${payload.mode !== "target" && entry.is_dir ? " primary-soft" : ""}" type="button" data-action="choose-picker" title="${payload.mode === "target" ? "把这个目录设为目标路径" : "把这个文件或目录加入源项"}">${payload.mode === "target" ? "选择" : "加入"}</button>
         </div>
       </div>
@@ -14780,6 +15371,7 @@ function renderFilePicker(payload = state.filePicker) {
     message.textContent = payload.truncated ? "目录项较多，仅显示前一部分。" : "";
     message.classList.remove("error");
   }
+  restoreFilePickerScrollAfterRender();
 }
 
 async function loadFilePicker(path = "") {
@@ -14809,13 +15401,20 @@ async function loadFilePicker(path = "") {
       mode,
       serverId,
       dirsOnly,
+      selectedPath: state.filePicker.selectedPath || "",
+      scrollAnchorPath: state.filePicker.scrollAnchorPath || "",
+      navStack: Array.isArray(state.filePicker.navStack) ? state.filePicker.navStack : [],
       requestId,
     };
     renderFilePicker(state.filePicker);
   } catch (error) {
     if (requestId !== state.filePicker.requestId) return;
+    const errorText = humanizeFetchError(error, "读取目录");
+    if (list) {
+      list.innerHTML = `<div class="empty compact-empty">${escapeHtml(errorText)}</div>`;
+    }
     if (message) {
-      message.textContent = error.message;
+      message.textContent = errorText;
       message.classList.add("error");
     }
   }
@@ -14825,6 +15424,7 @@ async function openFilePicker(mode = "source") {
   state.filePicker.mode = mode;
   state.filePicker.serverId = mode === "target" ? transferTargetServerId() : transferSourceServerId();
   state.filePicker.dirsOnly = mode === "target";
+  resetFilePickerNavigation();
   clearFilePreview();
   $("filePickerModal").hidden = false;
   const initialPath = mode === "target"
@@ -14997,6 +15597,7 @@ function loadJobIntoExecution(event, jobId) {
       $("transferTargetInput").value = transferPathOnly(spec.target || "");
     }
     if ($("transferTargetServerSelect") && spec.target_server_id) $("transferTargetServerSelect").value = spec.target_server_id;
+    seedTransferPathMemory();
     const form = $("transferForm");
     if (form) {
       form.elements.checksum.checked = Boolean(spec.options?.checksum);
@@ -18044,6 +18645,7 @@ function render(payload = {}, options = {}) {
   renderTerminalActivity();
   renderTransferSourceOptions();
   renderTransferTargetOptions();
+  renderTransferPathFavoriteBars();
   renderSelectedSources();
   renderJobFilters();
   renderJobs();
@@ -18095,11 +18697,27 @@ function restoreStoredUiState() {
   setProviderProfiles([], { render: false });
 }
 
+function restoreTransferFormOptions() {
+  const form = $("transferForm");
+  const data = storedFormState("transferForm");
+  if (!form || !data || typeof data !== "object") return;
+  form.querySelectorAll("[name]").forEach((field) => {
+    if (!field.name || TRANSFER_FORM_PERSIST_SKIP.has(field.name)) return;
+    if (!(field.name in data)) return;
+    if (field.type === "checkbox") field.checked = Boolean(data[field.name]);
+    else field.value = data[field.name];
+  });
+}
+
 function restorePersistedForms() {
   restoreFormState("workspaceForm");
   restoreFormState("jobForm");
   restoreFormState("taskPlanForm");
-  restoreFormState("transferForm");
+  state.transfer.pathByServer = loadTransferPathByServer();
+  restoreTransferFormOptions();
+  syncTransferPathInputsFromServers();
+  state.transfer.lastSourceServerId = transferSourceServerId();
+  state.transfer.lastTargetServerId = transferTargetServerId();
   restoreWorkspaceLauncherDraft();
   const storedNodes = loadStoredJson(STORAGE_KEYS.workspaceNodes, []);
   setWorkspaceToolsDraft(loadStoredArray(STORAGE_KEYS.workspaceTools), { render: false });
@@ -19065,11 +19683,7 @@ function appendTerminalOutput(text) {
   const tab = state.outputTabs.find((item) => item.type === "terminal" && item.terminalId === state.terminal.id);
   if (tab) tab.content = state.terminal.text;
   if (state.activeOutput?.type !== "terminal" || state.activeOutput.terminalId !== state.terminal.id) return;
-  const output = $("logView");
-  const wasNearBottom = output.scrollHeight - output.scrollTop - output.clientHeight < 80;
-  setLogText(state.terminal.text, {
-    forceBottom: wasNearBottom || $("logFollow")?.checked,
-  });
+  setLogText(state.terminal.text);
 }
 
 async function pollTerminalOutput() {
@@ -20663,29 +21277,56 @@ function bindEvents() {
   $("workspaceNodeEditor")?.addEventListener("change", handleNodeEditorField);
   $("jobForm").addEventListener("submit", submitJob);
   $("transferForm")?.addEventListener("submit", submitTransfer);
+  $("transferForm")?.addEventListener("click", (event) => {
+    const openBtn = event.target.closest("[data-action='open-transfer-favorite']");
+    if (openBtn?.dataset.path) {
+      void openTransferPathFavorite(openBtn.dataset.mode || "source", openBtn.dataset.path);
+      return;
+    }
+    const removeBtn = event.target.closest("[data-action='remove-transfer-favorite']");
+    if (removeBtn?.dataset.path) {
+      const mode = removeBtn.dataset.mode || "source";
+      const serverId = mode === "target" ? transferTargetServerId() : transferSourceServerId();
+      removeTransferPathFavorite(serverId, removeBtn.dataset.path);
+      renderTransferPathFavoriteBars();
+      if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
+    }
+  });
+  $("sourceFavoritePathBtn")?.addEventListener("click", () => {
+    const path = transferSourceValue();
+    if (!path) return;
+    toggleTransferPathFavorite(transferSourceServerId(), path);
+    renderTransferPathFavoriteBars();
+    if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
+  });
+  $("targetFavoritePathBtn")?.addEventListener("click", () => {
+    const path = transferTargetValue();
+    if (!path) return;
+    toggleTransferPathFavorite(transferTargetServerId(), path);
+    renderTransferPathFavoriteBars();
+    if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
+  });
   $("sourceBrowseBtn")?.addEventListener("click", () => openFilePicker("source"));
   $("sourceInspectBtn")?.addEventListener("click", () => loadTransferSourceTree());
   $("sourcePreviewBtn")?.addEventListener("click", () => {
     void previewTransferSourceInput();
   });
-  $("transferSourceInput")?.addEventListener("blur", syncTransferSourceServerFromInput);
-  $("transferSourceServerSelect")?.addEventListener("change", () => {
-    const input = $("transferSourceInput");
-    if (input) input.value = transferPathOnly(input.value);
-    state.transfer.source = null;
-    state.transfer.tree = {};
-    renderTransferTree();
+  $("transferSourceInput")?.addEventListener("blur", () => {
+    syncTransferSourceServerFromInput();
+    rememberTransferPath("source");
+    updateTransferPathFavoriteButtons();
   });
+  $("transferSourceInput")?.addEventListener("input", updateTransferPathFavoriteButtons);
+  $("transferSourceServerSelect")?.addEventListener("change", handleTransferSourceServerChange);
   $("targetBrowseBtn")?.addEventListener("click", () => openFilePicker("target"));
   $("targetInspectBtn")?.addEventListener("click", () => loadTransferTargetTree());
-  $("transferTargetInput")?.addEventListener("blur", syncTransferTargetServerFromInput);
-  $("transferTargetServerSelect")?.addEventListener("change", () => {
-    const input = $("transferTargetInput");
-    if (input) input.value = transferPathOnly(input.value);
-    state.transfer.target = null;
-    state.transfer.targetTree = {};
-    renderTargetTree();
+  $("transferTargetInput")?.addEventListener("blur", () => {
+    syncTransferTargetServerFromInput();
+    rememberTransferPath("target");
+    updateTransferPathFavoriteButtons();
   });
+  $("transferTargetInput")?.addEventListener("input", updateTransferPathFavoriteButtons);
+  $("transferTargetServerSelect")?.addEventListener("change", handleTransferTargetServerChange);
   $("transferExcludeInput")?.addEventListener("change", syncIgnoreStateFromInput);
   $("ignoreChips")?.addEventListener("click", (event) => {
     const button = event.target.closest(".chip-remove");
@@ -20715,6 +21356,10 @@ function bindEvents() {
     const rowPath = row.dataset.path || "";
     const rowIsDir = row.dataset.dir === "1";
     if (!button) {
+      if (rowIsDir && event.target.closest(".file-name")) {
+        void toggleTransferNode(rowPath, true);
+        return;
+      }
       if (!rowIsDir && event.target.closest(".file-name")) void previewFileInTransfer(rowPath);
       return;
     }
@@ -20732,23 +21377,38 @@ function bindEvents() {
   });
   $("targetTree")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
-    if (!button) return;
-    const path = button.dataset.path || "";
-    const isDir = button.dataset.dir === "1";
+    const row = event.target.closest(".file-tree-row");
+    if (!row) return;
+    const rowPath = row.dataset.path || "";
+    const rowIsDir = row.dataset.dir === "1";
+    if (!button) {
+      if (rowIsDir && event.target.closest(".file-name")) chooseTransferTargetDirectory(rowPath);
+      return;
+    }
+    const path = button.dataset.path || rowPath;
+    const isDir = button.dataset.dir === "1" || rowIsDir;
     if (button.dataset.action === "toggle-target-node") {
       void toggleTransferTargetNode(path, isDir);
-    } else if (button.dataset.action === "choose-target-node") {
-      chooseTransferTargetDirectory(path);
     }
   });
   $("closeFilePickerBtn")?.addEventListener("click", closeFilePicker);
   $("filePickerModal")?.addEventListener("click", (event) => {
     if (event.target.id === "filePickerModal") closeFilePicker();
   });
-  $("filePickerOpenBtn")?.addEventListener("click", () => loadFilePicker($("filePickerPathInput").value));
+  $("filePickerOpenBtn")?.addEventListener("click", () => {
+    resetFilePickerNavigation();
+    void loadFilePicker($("filePickerPathInput").value);
+  });
+  $("filePickerFavoriteBtn")?.addEventListener("click", () => {
+    if (!state.filePicker.path) return;
+    toggleTransferPathFavorite(state.filePicker.serverId, state.filePicker.path);
+    renderFilePicker(state.filePicker);
+    renderTransferPathFavoriteBars();
+  });
   $("filePickerPathInput")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
+      resetFilePickerNavigation();
       void loadFilePicker(event.currentTarget.value);
     }
   });
@@ -20756,18 +21416,44 @@ function bindEvents() {
     state.filePicker.requestId = (state.filePicker.requestId || 0) + 1;
   });
   $("filePickerUpBtn")?.addEventListener("click", () => {
-    if (state.filePicker.parent) void loadFilePicker(state.filePicker.parent);
+    if (!state.filePicker.parent) return;
+    const anchor = state.filePicker.navStack.pop();
+    if (anchor) {
+      state.filePicker.scrollAnchorPath = anchor;
+      state.filePicker.selectedPath = anchor;
+    }
+    void loadFilePicker(state.filePicker.parent);
   });
   $("filePickerChooseDirBtn")?.addEventListener("click", () => {
     if (state.filePicker.path) void chooseFilePickerPath(state.filePicker.path, true);
   });
   $("filePreviewOpenBtn")?.addEventListener("click", openCurrentFilePreview);
   $("filePreviewDownloadBtn")?.addEventListener("click", downloadCurrentFilePreview);
+  $("transferSourceTreeClearBtn")?.addEventListener("click", clearTransferSourceTree);
+  $("transferTargetTreeClearBtn")?.addEventListener("click", clearTransferTargetTree);
+  $("transferPreviewClearBtn")?.addEventListener("click", clearTransferPreview);
+  $("transferTreeClearPreviewBtn")?.addEventListener("click", clearTransferPreview);
   $("transferPreviewOpenBtn")?.addEventListener("click", openCurrentFilePreview);
   $("transferPreviewDownloadBtn")?.addEventListener("click", downloadCurrentFilePreview);
   $("filePickerRoots")?.addEventListener("click", (event) => {
+    const removeBtn = event.target.closest("[data-action='remove-favorite-path']");
+    if (removeBtn?.dataset.path) {
+      removeTransferPathFavorite(state.filePicker.serverId, removeBtn.dataset.path);
+      renderFilePicker(state.filePicker);
+      renderTransferPathFavoriteBars();
+      return;
+    }
+    const openFavorite = event.target.closest("[data-action='open-favorite-path']");
+    if (openFavorite?.dataset.path) {
+      resetFilePickerNavigation();
+      void loadFilePicker(openFavorite.dataset.path);
+      return;
+    }
     const button = event.target.closest(".root-button");
-    if (button?.dataset.path) void loadFilePicker(button.dataset.path);
+    if (button?.dataset.path) {
+      resetFilePickerNavigation();
+      void loadFilePicker(button.dataset.path);
+    }
   });
   $("filePickerList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
@@ -20776,12 +21462,19 @@ function bindEvents() {
     const path = row.dataset.path || "";
     const isDir = row.dataset.dir === "1";
     if (!button) {
-      if (!isDir && event.target.closest(".file-picker-row-main")) void previewFileInPicker(path);
+      if (event.target.closest(".file-picker-row-main")) {
+        state.filePicker.selectedPath = path;
+        if (isDir) {
+          state.filePicker.navStack.push(path);
+          void loadFilePicker(path);
+        } else {
+          void previewFileInPicker(path);
+        }
+      }
       return;
     }
-    if (button.dataset.action === "open-picker") {
-      void loadFilePicker(path);
-    } else if (button.dataset.action === "preview-picker") {
+    if (button.dataset.action === "preview-picker") {
+      state.filePicker.selectedPath = path;
       void previewFileInPicker(path);
     } else if (button.dataset.action === "choose-picker") {
       void chooseFilePickerPath(path, isDir);
@@ -20812,6 +21505,9 @@ function bindEvents() {
     if (state.selectedGpu !== "auto") scrollGpuSelectionIntoView();
   });
   $("logRefreshBtn")?.addEventListener("click", () => refreshActiveOutput({ forceBottom: true }));
+  $("logFollow")?.addEventListener("change", updateLogFollowHint);
+  $("logView")?.addEventListener("scroll", updateLogFollowHint, { passive: true });
+  updateLogFollowHint();
   $("logSearchInput")?.addEventListener("input", (event) => {
     setLogSearchQuery(event.target.value, { focusMatch: Boolean(event.target.value) });
   });
@@ -20886,6 +21582,8 @@ function bindEvents() {
     });
   });
   $("manageServersBtn").addEventListener("click", openServerModal);
+  $("previewCacheSaveBtn")?.addEventListener("click", () => void savePreviewCacheSettings());
+  $("previewCacheCleanupBtn")?.addEventListener("click", () => void cleanupPreviewCacheNow());
   $("closeModalBtn").addEventListener("click", closeServerModal);
   $("serverModal").addEventListener("click", (event) => {
     if (event.target.id === "serverModal") closeServerModal();
@@ -20905,6 +21603,9 @@ function bindEvents() {
   });
   renderIgnoreChips();
   renderTargetTree();
+  renderTransferPathFavoriteBars();
+  updateTransferPreviewControls();
+  updateTransferTreeClearButtons();
   renderTransferProgress();
   toggleWorkspaceSourceFields();
   toggleTaskTemplateFields();
@@ -20914,7 +21615,7 @@ let editingServerId = null; // null = add mode, string = edit mode
 
 async function openServerModal() {
   $("serverModal").hidden = false;
-  await loadAdminServers();
+  await Promise.all([loadAdminServers(), loadPreviewCachePanel()]);
 }
 
 function closeServerModal() {

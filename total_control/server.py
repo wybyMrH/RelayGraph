@@ -51,6 +51,11 @@ AGENT_DEFINITIONS_PATH = DATA_DIR / "agent_definitions.json"
 TOOL_DEFINITIONS_PATH = DATA_DIR / "tool_definitions.json"
 LOG_DIR = DATA_DIR / "logs"
 FILE_PREVIEW_CACHE_DIR = Path("/tmp/total-control-file-preview")
+PREVIEW_CACHE_SETTINGS_PATH = DATA_DIR / "preview_cache_settings.json"
+DEFAULT_PREVIEW_CACHE_SETTINGS = {
+    "max_age_hours": 24,
+    "max_size_mib": 512,
+}
 DEFAULT_CONFIG = ROOT / "config" / "servers.toml"
 
 GPU_QUERY = (
@@ -827,30 +832,75 @@ def build_text_preview_payload(path: str, data: bytes, *, truncated: bool, serve
 
 
 TEXT_PREVIEW_SUFFIXES = {
+    ".bat",
+    ".c",
+    ".cc",
     ".cfg",
     ".conf",
+    ".cpp",
+    ".cs",
+    ".css",
     ".csv",
+    ".dockerfile",
     ".env",
     ".err",
+    ".go",
+    ".h",
+    ".hpp",
     ".htm",
     ".html",
     ".ini",
     ".ipynb",
+    ".java",
+    ".js",
     ".json",
+    ".jsonc",
+    ".jsx",
+    ".kt",
+    ".less",
     ".log",
+    ".lua",
     ".md",
+    ".mjs",
     ".out",
+    ".php",
+    ".ps1",
     ".py",
+    ".rb",
+    ".rs",
     ".rst",
+    ".sass",
+    ".scala",
+    ".scss",
     ".sh",
     ".sql",
     ".svg",
+    ".swift",
     ".toml",
+    ".ts",
     ".tsv",
+    ".tsx",
     ".txt",
+    ".vue",
     ".xml",
     ".yaml",
     ".yml",
+    ".zsh",
+}
+
+TEXT_PREVIEW_BASENAMES = {
+    "dockerfile",
+    "makefile",
+    "gemfile",
+    "rakefile",
+    "procfile",
+    "license",
+    "readme",
+    "changelog",
+    "authors",
+    "contributing",
+    "copying",
+    "notice",
 }
 
 
@@ -860,9 +910,15 @@ def guess_file_mime_type(path_text: str) -> str:
 
 
 def preview_kind_for_path(path_text: str, mime_type: str = "") -> str:
-    suffix = Path(str(path_text or "")).suffix.lower()
+    path = Path(str(path_text or ""))
+    suffix = path.suffix.lower()
+    name = path.name.lower()
     kind = str(mime_type or guess_file_mime_type(path_text)).lower()
     if suffix in TEXT_PREVIEW_SUFFIXES:
+        return "text"
+    if name in TEXT_PREVIEW_BASENAMES:
+        return "text"
+    if name.startswith(".") and len(name) > 1:
         return "text"
     if kind in {"text/html", "application/xhtml+xml", "image/svg+xml"}:
         return "text"
@@ -1146,6 +1202,130 @@ def write_json(path: Path, data: Any) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def preview_cache_root() -> Path:
+    return FILE_PREVIEW_CACHE_DIR.resolve()
+
+
+def is_under_preview_cache(path: Path | str) -> bool:
+    try:
+        Path(path).expanduser().resolve().relative_to(preview_cache_root())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def normalize_preview_cache_settings(raw: Any) -> dict[str, int]:
+    data = raw if isinstance(raw, dict) else {}
+    max_age_hours = max(0, safe_int(data.get("max_age_hours"), DEFAULT_PREVIEW_CACHE_SETTINGS["max_age_hours"]))
+    max_size_mib = max(0, safe_int(data.get("max_size_mib"), DEFAULT_PREVIEW_CACHE_SETTINGS["max_size_mib"]))
+    return {"max_age_hours": max_age_hours, "max_size_mib": max_size_mib}
+
+
+def load_preview_cache_settings() -> dict[str, int]:
+    return normalize_preview_cache_settings(read_json(PREVIEW_CACHE_SETTINGS_PATH, DEFAULT_PREVIEW_CACHE_SETTINGS))
+
+
+def save_preview_cache_settings(settings: dict[str, Any]) -> dict[str, int]:
+    normalized = normalize_preview_cache_settings(settings)
+    write_json(PREVIEW_CACHE_SETTINGS_PATH, normalized)
+    return normalized
+
+
+def iter_preview_cache_dirs() -> list[dict[str, Any]]:
+    root = preview_cache_root()
+    if not root.exists():
+        return []
+    entries: list[dict[str, Any]] = []
+    for child in root.iterdir():
+        if not child.is_dir() or not is_under_preview_cache(child):
+            continue
+        try:
+            size = sum(item.stat().st_size for item in child.rglob("*") if item.is_file())
+            stat = child.stat()
+        except OSError:
+            continue
+        entries.append({"path": child, "size": size, "mtime": stat.st_mtime})
+    return entries
+
+
+def preview_cache_disk_stats() -> dict[str, Any]:
+    entries = iter_preview_cache_dirs()
+    total_bytes = sum(int(item["size"]) for item in entries)
+    return {
+        "cache_dir": str(preview_cache_root()),
+        "entry_count": len(entries),
+        "total_bytes": total_bytes,
+        "total_text": format_size_text(total_bytes),
+    }
+
+
+def cleanup_preview_cache(
+    *,
+    max_age_hours: int = 0,
+    max_size_mib: int = 0,
+    remove_all: bool = False,
+) -> dict[str, Any]:
+    import shutil
+
+    entries = iter_preview_cache_dirs()
+    to_remove: list[dict[str, Any]] = []
+    if remove_all:
+        to_remove = list(entries)
+    else:
+        now = time.time()
+        remaining = list(entries)
+        if max_age_hours > 0:
+            cutoff = now - max_age_hours * 3600
+            expired = [item for item in remaining if float(item["mtime"]) < cutoff]
+            to_remove.extend(expired)
+            remaining = [item for item in remaining if item not in expired]
+        if max_size_mib > 0:
+            limit_bytes = max_size_mib * 1024 * 1024
+            total_bytes = sum(int(item["size"]) for item in remaining)
+            for item in sorted(remaining, key=lambda row: float(row["mtime"])):
+                if total_bytes <= limit_bytes:
+                    break
+                if item in to_remove:
+                    continue
+                to_remove.append(item)
+                total_bytes -= int(item["size"])
+
+    removed_count = 0
+    removed_bytes = 0
+    for item in to_remove:
+        path = Path(item["path"])
+        if not is_under_preview_cache(path):
+            continue
+        removed_bytes += int(item["size"])
+        shutil.rmtree(path, ignore_errors=True)
+        removed_count += 1
+    remaining_entries = iter_preview_cache_dirs()
+    remaining_bytes = sum(int(item["size"]) for item in remaining_entries)
+    return {
+        "removed_count": removed_count,
+        "removed_bytes": removed_bytes,
+        "removed_text": format_size_text(removed_bytes),
+        "remaining_count": len(remaining_entries),
+        "remaining_bytes": remaining_bytes,
+        "remaining_text": format_size_text(remaining_bytes),
+    }
+
+
+def format_size_text(value: int) -> str:
+    size = max(0, int(value or 0))
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    amount = float(size)
+    unit = units[0]
+    for candidate in units:
+        unit = candidate
+        if amount < 1024 or candidate == units[-1]:
+            break
+        amount /= 1024
+    if unit == "B":
+        return f"{int(amount)} {unit}"
+    return f"{amount:.1f} {unit}"
 
 
 def repo_name_from_url(url: str) -> str:
@@ -12368,6 +12548,7 @@ class TotalControlState:
         self.terminals: dict[str, WebTerminal] = {}
         self.terminals_lock = threading.Lock()
         self.file_preview_cache: dict[str, dict[str, Any]] = {}
+        self.last_preview_cache_cleanup = 0.0
         self.stop_event = threading.Event()
         if self.bootstrap_queue_ranks():
             write_json(JOBS_PATH, self.jobs)
@@ -12499,6 +12680,55 @@ class TotalControlState:
         entry["local_path"] = str(local_path.resolve())
         return entry
 
+    def prune_preview_cache_index(self) -> int:
+        removed = 0
+        with self.lock:
+            stale_ids = []
+            for cache_id, entry in self.file_preview_cache.items():
+                if not entry.get("cached"):
+                    continue
+                local_path = Path(str(entry.get("local_path") or ""))
+                if not local_path.exists() or not is_under_preview_cache(local_path):
+                    stale_ids.append(cache_id)
+            for cache_id in stale_ids:
+                self.file_preview_cache.pop(cache_id, None)
+                removed += 1
+        return removed
+
+    def preview_cache_status(self) -> dict[str, Any]:
+        stats = preview_cache_disk_stats()
+        with self.lock:
+            memory_cached = sum(1 for entry in self.file_preview_cache.values() if entry.get("cached"))
+        settings = load_preview_cache_settings()
+        return {
+            **stats,
+            "settings": settings,
+            "memory_cached_entries": memory_cached,
+        }
+
+    def update_preview_cache_settings(self, body: dict[str, Any]) -> dict[str, Any]:
+        settings = save_preview_cache_settings(body or {})
+        return {"settings": settings, **self.preview_cache_status()}
+
+    def cleanup_preview_cache_manual(self) -> dict[str, Any]:
+        result = cleanup_preview_cache(remove_all=True)
+        self.prune_preview_cache_index()
+        return {**result, **self.preview_cache_status()}
+
+    def maybe_auto_cleanup_preview_cache(self, *, force: bool = False) -> dict[str, Any] | None:
+        settings = load_preview_cache_settings()
+        max_age_hours = int(settings.get("max_age_hours") or 0)
+        max_size_mib = int(settings.get("max_size_mib") or 0)
+        if max_age_hours <= 0 and max_size_mib <= 0:
+            return None
+        now = time.time()
+        if not force and now - float(getattr(self, "last_preview_cache_cleanup", 0.0) or 0.0) < 300:
+            return None
+        self.last_preview_cache_cleanup = now
+        result = cleanup_preview_cache(max_age_hours=max_age_hours, max_size_mib=max_size_mib)
+        self.prune_preview_cache_index()
+        return result
+
     def fetch_file_preview(
         self,
         server_id: str | None,
@@ -12560,6 +12790,8 @@ class TotalControlState:
             payload["text"] = text_payload["text"]
             payload["encoding"] = text_payload["encoding"]
             payload["truncated"] = bool(text_payload["truncated"])
+        if cached:
+            self.maybe_auto_cleanup_preview_cache()
         return payload
 
     def reload_config(self) -> None:
@@ -15414,6 +15646,7 @@ PY"""
             try:
                 self.refresh_status()
                 self.monitor_jobs()
+                self.maybe_auto_cleanup_preview_cache()
             except Exception as exc:  # noqa: BLE001 - background loop must keep running.
                 print(f"[total-control] scheduler error: {exc}", flush=True)
             self.stop_event.wait(max(self.config.poll_interval_seconds, 2))
@@ -15586,6 +15819,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/admin/servers":
                 self.send_json(STATE.list_servers_admin())
+                return
+            if parsed.path == "/api/admin/preview-cache":
+                self.send_json(STATE.preview_cache_status())
                 return
             if parsed.path.startswith("/api/servers/") and parsed.path.endswith("/tmux"):
                 server_id = parsed.path.split("/")[3]
@@ -15896,6 +16132,9 @@ class Handler(SimpleHTTPRequestHandler):
                 STATE.restore_discovery(str(body.get("alias") or ""))
                 self.send_json({"ok": True})
                 return
+            if parsed.path == "/api/admin/preview-cache/cleanup":
+                self.send_json(STATE.cleanup_preview_cache_manual())
+                return
             self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except ValueError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -15930,6 +16169,10 @@ class Handler(SimpleHTTPRequestHandler):
                 profile_id = parsed.path.split("/")[3]
                 profile = STATE.update_provider_profile(profile_id, self.read_body())
                 self.send_json({"provider_profile": profile})
+                return
+            if parsed.path == "/api/admin/preview-cache/settings":
+                body = self.read_body()
+                self.send_json(STATE.update_preview_cache_settings(body))
                 return
             self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
         except ValueError as exc:
