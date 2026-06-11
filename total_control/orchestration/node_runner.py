@@ -29,6 +29,16 @@ JOB_EXECUTABLE_KINDS: frozenset[str] = frozenset(
     }
 )
 
+# Agent-capable nodes that still have shell job implementations when handler.mode != agent.
+SHELL_DISCOVERY_KINDS: frozenset[str] = frozenset(
+    {
+        "repo.inspect",
+        "dataset.find",
+        "env.infer",
+        "eval.report",
+    }
+)
+
 
 def _node_handler_mode(node: dict[str, Any]) -> str:
     handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
@@ -48,6 +58,8 @@ def resolve_node_executor_mode(node: dict[str, Any], prefer: ExecutorMode = "aut
         return "job"
     if kind in AGENT_EXECUTABLE_KINDS and _node_handler_mode(node) == "agent" and _node_agent_id(node):
         return "agent"
+    if kind in SHELL_DISCOVERY_KINDS:
+        return "job"
     return "skip"
 
 
@@ -84,11 +96,15 @@ def run_agent_node(
         "execute_llm": True,
     }
     result = debug_runner(str(workspace.get("id") or run_context.workspace_id), agent_id, payload)
-    status = "completed" if isinstance(result, dict) and result.get("execution") else "warning"
+    execution = (result or {}).get("execution") if isinstance(result, dict) else {}
+    success = bool(isinstance(execution, dict) and execution.get("success"))
+    status = "completed" if success else "failed"
+    if isinstance(result, dict) and result.get("execution") is None and result.get("debug"):
+        status = "blocked"
     return StepResult(
         status=status,
         executor="agent",
         output_key=output_key,
-        detail="agent node executed via debug runner bridge",
-        agent_execution_id=str((result or {}).get("execution", {}).get("id") or ""),
+        detail="agent node executed" if success else str(execution.get("error") or "agent execution failed"),
+        agent_execution_id=str(execution.get("id") or "") if isinstance(execution, dict) else "",
     )

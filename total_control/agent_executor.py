@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Any, Callable
 
 from .llm_client import LLMClient, ChatMessage, LLMResponse, build_agent_system_prompt, tool_definition_for_llm
+from .orchestration.workspace_mutations import apply_artifact_write, apply_workflow_edit
+from .tools.registry import TOOL_SIDE_EFFECTS, ToolSideEffect, tool_side_effect
 
 
 @dataclass
@@ -647,6 +649,53 @@ def create_workspace_tool_executor(
                 indent=2,
             )
 
+        elif tool_id == "artifact.write":
+            try:
+                result = apply_artifact_write(
+                    workspace_snapshot,
+                    node_id=str(arguments.get("node_id") or "").strip(),
+                    node_kind=str(arguments.get("node_kind") or "").strip(),
+                    label=str(arguments.get("label") or arguments.get("title") or "").strip(),
+                    path=str(arguments.get("path") or arguments.get("content_path") or "").strip(),
+                    content=str(arguments.get("content") or arguments.get("text") or "").strip(),
+                    output_key=str(arguments.get("output_key") or "").strip(),
+                    artifact_type=str(arguments.get("type") or arguments.get("artifact_type") or "note").strip(),
+                )
+                return json.dumps({"status": "written", **result}, ensure_ascii=False, indent=2)
+            except ValueError as exc:
+                return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False, indent=2)
+
+        elif tool_id == "workflow.edit":
+            patch = arguments.get("config")
+            if not isinstance(patch, dict):
+                patch = arguments.get("patch") if isinstance(arguments.get("patch"), dict) else {}
+            try:
+                result = apply_workflow_edit(
+                    workspace_snapshot,
+                    node_id=str(arguments.get("node_id") or "").strip(),
+                    node_kind=str(arguments.get("node_kind") or "").strip(),
+                    config_patch=patch,
+                )
+                return json.dumps({"status": "updated", **result}, ensure_ascii=False, indent=2)
+            except ValueError as exc:
+                return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False, indent=2)
+
+        elif tool_id == "report.write":
+            try:
+                result = apply_artifact_write(
+                    workspace_snapshot,
+                    node_id=str(arguments.get("node_id") or "").strip(),
+                    node_kind=str(arguments.get("node_kind") or "eval.report").strip(),
+                    label=str(arguments.get("label") or arguments.get("title") or "report").strip(),
+                    path=str(arguments.get("path") or arguments.get("report_path") or "").strip(),
+                    content=str(arguments.get("content") or arguments.get("text") or arguments.get("report") or "").strip(),
+                    output_key=str(arguments.get("output_key") or "eval_report").strip(),
+                    artifact_type="report",
+                )
+                return json.dumps({"status": "written", **result}, ensure_ascii=False, indent=2)
+            except ValueError as exc:
+                return json.dumps({"status": "error", "error": str(exc)}, ensure_ascii=False, indent=2)
+
         elif tool_id == "chat.write":
             message = arguments.get("message", "")
             return json.dumps({
@@ -655,11 +704,30 @@ def create_workspace_tool_executor(
             }, ensure_ascii=False, indent=2)
 
         else:
-            return json.dumps({
-                "status": "simulated",
-                "tool": tool_id,
-                "arguments": arguments,
-                "message": f"Tool '{tool_id}' executed (simulated)",
-            }, ensure_ascii=False, indent=2)
+            side_effect = tool_side_effect(tool_id)
+            meta = TOOL_SIDE_EFFECTS.get(str(tool_id or "").strip(), {})
+            implemented = bool(meta.get("implemented"))
+            if side_effect != ToolSideEffect.READ and not implemented:
+                return json.dumps(
+                    {
+                        "status": "simulated",
+                        "tool": tool_id,
+                        "side_effect": side_effect.value,
+                        "arguments": arguments,
+                        "message": f"Tool '{tool_id}' is not implemented yet; returning simulated payload.",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            return json.dumps(
+                {
+                    "status": "simulated",
+                    "tool": tool_id,
+                    "arguments": arguments,
+                    "message": f"Tool '{tool_id}' executed (simulated)",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
 
     return executor

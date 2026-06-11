@@ -38,6 +38,8 @@ from .preset_matrix import make_session_name as make_preset_session_name
 
 from .llm_client import LLMClient, ChatMessage, LLMResponse
 from .agent_executor import AgentExecutor, AgentExecutionResult, create_workspace_tool_executor
+from .orchestration.node_runner import resolve_node_executor_mode, run_agent_node
+from .orchestration.types import ExecutionRunContext, StepResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -3473,6 +3475,7 @@ def normalize_workspace_run_step(
         "node_title": str(payload.get("node_title") or current.get("node_title") or payload.get("node_kind") or current.get("node_kind") or "").strip(),
         "executor": str(payload.get("executor") or current.get("executor") or "job").strip() or "job",
         "job_id": str(payload.get("job_id") or current.get("job_id") or "").strip(),
+        "agent_execution_id": str(payload.get("agent_execution_id") or current.get("agent_execution_id") or "").strip(),
         "status": status,
         "started_at": str(payload.get("started_at") or current.get("started_at") or "").strip(),
         "completed_at": str(payload.get("completed_at") or current.get("completed_at") or "").strip(),
@@ -3601,6 +3604,40 @@ def workspace_run_step_from_job(job: dict[str, Any], index: int) -> dict[str, An
             "started_at": str(job.get("started_at") or "").strip(),
             "completed_at": str(job.get("finished_at") or "").strip(),
             "error": str(job.get("error") or "").strip(),
+        }
+    )
+
+
+def workspace_run_step_from_agent(
+    node: dict[str, Any],
+    step_result: StepResult | dict[str, Any],
+    index: int,
+) -> dict[str, Any]:
+    payload = step_result.as_dict() if isinstance(step_result, StepResult) else step_result
+    raw_status = str(payload.get("status") or "").strip()
+    if payload.get("skipped"):
+        step_status = "done"
+    elif raw_status in {"completed", "warning"}:
+        step_status = "done"
+    elif raw_status == "failed":
+        step_status = "failed"
+    elif raw_status == "blocked":
+        step_status = "blocked"
+    else:
+        step_status = "blocked"
+    timestamp = now_iso()
+    return normalize_workspace_run_step(
+        {
+            "index": index,
+            "node_id": str(node.get("id") or "").strip(),
+            "node_kind": str(node.get("kind") or "").strip(),
+            "node_title": str(node.get("title") or node.get("kind") or "").strip(),
+            "executor": "agent",
+            "agent_execution_id": str(payload.get("agent_execution_id") or "").strip(),
+            "status": step_status,
+            "started_at": timestamp,
+            "completed_at": timestamp,
+            "error": str(payload.get("reason") or payload.get("detail") or "").strip(),
         }
     )
 
@@ -14225,32 +14262,58 @@ class TotalControlState:
         kind: str,
         trigger: str = "user",
         summary: str = "",
-        jobs: list[dict[str, Any]],
+        jobs: list[dict[str, Any]] | None = None,
+        steps: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         run_kind = str(kind or "").strip() or "node"
         if run_kind not in WORKSPACE_EXECUTION_RUN_KINDS:
             run_kind = "node"
         run_id = make_workspace_execution_run_id()
-        steps: list[dict[str, Any]] = []
-        for index, job in enumerate(jobs):
-            if not isinstance(job, dict):
-                continue
-            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
-            metadata["execution_run_id"] = run_id
-            metadata["step_index"] = index
-            job["metadata"] = metadata
-            steps.append(workspace_run_step_from_job(job, index))
+        normalized_steps: list[dict[str, Any]] = []
+        if steps is not None:
+            normalized_steps = [
+                normalize_workspace_run_step(item, existing=None)
+                for item in steps
+                if isinstance(item, dict)
+            ]
+            job_items = jobs if isinstance(jobs, list) else []
+            for job in job_items:
+                if not isinstance(job, dict):
+                    continue
+                metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+                metadata["execution_run_id"] = run_id
+                job_id = str(job.get("id") or "").strip()
+                step_index = next(
+                    (
+                        safe_int(step.get("index"), idx)
+                        for idx, step in enumerate(normalized_steps)
+                        if str(step.get("job_id") or "").strip() == job_id
+                    ),
+                    safe_int(metadata.get("step_index"), len(normalized_steps)),
+                )
+                metadata["step_index"] = step_index
+                job["metadata"] = metadata
+        else:
+            job_items = jobs if isinstance(jobs, list) else []
+            for index, job in enumerate(job_items):
+                if not isinstance(job, dict):
+                    continue
+                metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+                metadata["execution_run_id"] = run_id
+                metadata["step_index"] = index
+                job["metadata"] = metadata
+                normalized_steps.append(workspace_run_step_from_job(job, index))
         run = normalize_workspace_execution_run(
             {
                 "id": run_id,
                 "workspace_id": workspace_id,
                 "kind": run_kind,
-                "status": derive_workspace_execution_run_status(steps),
+                "status": derive_workspace_execution_run_status(normalized_steps),
                 "trigger": str(trigger or "user").strip() or "user",
                 "summary": str(summary or "").strip(),
-                "steps": steps,
-                "progress": derive_workspace_execution_run_progress(steps),
+                "steps": normalized_steps,
+                "progress": derive_workspace_execution_run_progress(normalized_steps),
                 "created_at": now_iso(),
                 "updated_at": now_iso(),
             }
@@ -15099,9 +15162,16 @@ PY"""
             payload["metadata"]["workflow_prev_job_id"] = previous_job_id
         return payload
 
-    def run_workspace_node(self, workspace_id: str, node_id: str) -> dict[str, Any]:
+    def run_workspace_node(self, workspace_id: str, node_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         node_id = str(node_id or "").strip()
+        requested_payload = payload if isinstance(payload, dict) else {}
+        prefer_raw = str(
+            requested_payload.get("prefer")
+            or requested_payload.get("executor_mode")
+            or "auto"
+        ).strip().lower()
+        prefer = prefer_raw if prefer_raw in {"auto", "job", "agent", "skip"} else "auto"
         with self.lock:
             workspace = self.workspace_by_id(workspace_id)
             if not workspace:
@@ -15115,9 +15185,51 @@ PY"""
             )
             if not node:
                 raise ValueError("node not found")
+            node = copy.deepcopy(node)
+        executor_mode = resolve_node_executor_mode(node, prefer)
+        node_title = str(node.get("title") or node.get("kind") or "节点").strip()
+
+        if executor_mode == "agent":
+            step_result = self.execute_workspace_agent_node(workspace_id, node)
+            if step_result.status in {"completed", "warning"}:
+                run = self.register_workspace_execution_run(
+                    workspace_id,
+                    kind="node",
+                    trigger="user",
+                    summary=f"Agent 节点 · {node_title}",
+                    steps=[workspace_run_step_from_agent(node, step_result, 0)],
+                )
+                with self.lock:
+                    refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
+                    payload_workspace = self.workspace_public_payload(refreshed_workspace)
+                return {
+                    "executor": "agent",
+                    "step": step_result.as_dict(),
+                    "run": run,
+                    "run_id": run["id"],
+                    "workspace": payload_workspace,
+                }
+            if prefer != "auto" or str(node.get("kind") or "").strip() not in WORKSPACE_EXECUTABLE_NODE_KINDS:
+                run = self.register_workspace_execution_run(
+                    workspace_id,
+                    kind="node",
+                    trigger="user",
+                    summary=f"Agent 节点 · {node_title}",
+                    steps=[workspace_run_step_from_agent(node, step_result, 0)],
+                )
+                with self.lock:
+                    refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
+                    payload_workspace = self.workspace_public_payload(refreshed_workspace)
+                return {
+                    "executor": "agent",
+                    "step": step_result.as_dict(),
+                    "run": run,
+                    "run_id": run["id"],
+                    "workspace": payload_workspace,
+                }
+
         job_payload = self.workspace_node_job_payload(workspace, node)
         job = self.create_job(job_payload)
-        node_title = str(node.get("title") or node.get("kind") or "节点").strip()
         run = self.register_workspace_execution_run(
             workspace_id,
             kind="node",
@@ -15129,11 +15241,139 @@ PY"""
             refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
             payload_workspace = self.workspace_public_payload(refreshed_workspace)
         return {
+            "executor": "job",
             "job": job,
             "run": run,
             "run_id": run["id"],
             "workspace": payload_workspace,
         }
+
+    def _execute_agent_on_mutable_workspace(
+        self,
+        workspace: dict[str, Any],
+        agent: dict[str, Any],
+        *,
+        input_text: str,
+        requested_node_kind: str = "",
+        execute_llm: bool = True,
+    ) -> dict[str, Any]:
+        workspace_id = str(workspace.get("id") or "").strip()
+        tools = normalize_workspace_tools(workspace.get("tools"), existing=workspace.get("tools"))
+        model_config = workspace.get("model") if isinstance(workspace.get("model"), dict) else {}
+        routing_mode = str(model_config.get("routing_mode") or "workspace_default").strip() or "workspace_default"
+        workspace_profile_id = str(model_config.get("provider_profile_id") or "").strip()
+        agent_profile_id = str(agent.get("provider_profile_id") or "").strip()
+        effective_profile_id = workspace_profile_id
+        if routing_mode == "agent_override" and agent_profile_id:
+            effective_profile_id = agent_profile_id
+
+        if not execute_llm or not input_text:
+            return {
+                "success": False,
+                "error": "agent execution requires input text",
+                "final_answer": "",
+            }
+        if not effective_profile_id:
+            return {
+                "success": False,
+                "error": "No provider profile configured for this workspace/agent",
+                "final_answer": "",
+            }
+        profile = self.provider_profile_by_id(effective_profile_id)
+        if not profile or not profile.get("api_key"):
+            return {
+                "success": False,
+                "error": "Provider profile not found or API key not configured",
+                "final_answer": "",
+            }
+
+        tool_map = {t.get("id"): t for t in tools if isinstance(t, dict) and t.get("id")}
+        allowed_tool_ids = [
+            tid for tid in parse_tag_list(agent.get("tools", []))
+            if tid in tool_map
+        ]
+        allowed_tools = [tool_map[tid] for tid in allowed_tool_ids]
+        llm_client = LLMClient(profile)
+        tool_executor = create_workspace_tool_executor(
+            workspace,
+            statuses=copy.deepcopy(self.statuses),
+            jobs=copy.deepcopy(self.jobs),
+        )
+        executor = AgentExecutor(
+            agent=agent,
+            llm_client=llm_client,
+            tools=allowed_tools,
+            tool_executor=tool_executor,
+        )
+        execution_result = executor.run(
+            input_text,
+            context={
+                "workspace_id": workspace_id,
+                "workspace_name": workspace.get("name", ""),
+                "source_type": (workspace.get("source") or {}).get("type", "") if isinstance(workspace.get("source"), dict) else "",
+                "node_kind": requested_node_kind,
+            },
+        )
+        return execution_result.to_dict()
+
+    def execute_workspace_agent_node(
+        self,
+        workspace_id: str,
+        node: dict[str, Any],
+        *,
+        run_context: ExecutionRunContext | None = None,
+        input_text: str = "",
+    ) -> StepResult:
+        workspace_id = str(workspace_id or "").strip()
+        node = copy.deepcopy(node) if isinstance(node, dict) else {}
+        handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
+        agent_id = str(handler.get("agent_id") or "").strip()
+        node_kind = str(node.get("kind") or "").strip()
+        output_key = str(handler.get("output_key") or node.get("output_key") or "").strip()
+
+        with self.lock:
+            current = self.workspace_by_id(workspace_id)
+            if not current:
+                raise ValueError("workspace not found")
+            workspace = copy.deepcopy(current)
+            tools = normalize_workspace_tools(workspace.get("tools"), existing=workspace.get("tools"))
+            tool_ids = [str(item.get("id") or "").strip() for item in tools if isinstance(item, dict) and str(item.get("id") or "").strip()]
+            agents = normalize_workspace_agents(workspace.get("agents"), existing=workspace.get("agents"), tool_ids=tool_ids)
+            agent = next((item for item in agents if item["id"] == agent_id), None)
+            if not agent:
+                return StepResult(status="blocked", executor="agent", reason=f"agent not found: {agent_id or 'unset'}")
+
+        if not input_text:
+            inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
+            brief = str(inputs.get("goal_text") or workspace.get("brief") or "").strip()
+            node_title = str(node.get("title") or node_kind or "node").strip()
+            focus_line = f"Execute workflow node “{node_title}” ({node_kind})."
+            if output_key:
+                focus_line = f"{focus_line} Write results to output_key `{output_key}`."
+            input_text = f"{brief}\n\n{focus_line}".strip() if brief else focus_line
+
+        context = run_context or ExecutionRunContext(workspace_id=workspace_id, outputs={"input": input_text})
+
+        def debug_runner(_workspace_id: str, _agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+            execution = self._execute_agent_on_mutable_workspace(
+                workspace,
+                agent,
+                input_text=str(payload.get("input") or input_text or "").strip(),
+                requested_node_kind=str(payload.get("node_kind") or node_kind or "").strip(),
+                execute_llm=bool(payload.get("execute_llm", True)),
+            )
+            return {"execution": execution}
+
+        step_result = run_agent_node(workspace, node, context, debug_runner=debug_runner)
+        with self.lock:
+            index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+            if index < 0:
+                raise ValueError("workspace not found")
+            existing = self.workspaces[index]
+            updated = normalize_workspace_payload(workspace, existing=existing)
+            self.workspaces[index] = updated
+        self.save_workspaces()
+        return step_result
 
     def run_workspace_workflow(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
@@ -15152,6 +15392,8 @@ PY"""
             if isinstance(apply_evidence_raw, str)
             else bool(apply_evidence_raw)
         )
+        executor_mode_raw = str(requested_payload.get("executor_mode") or requested_payload.get("prefer") or "auto").strip().lower()
+        executor_prefer = executor_mode_raw if executor_mode_raw in {"auto", "job", "agent", "skip"} else "auto"
         applied: list[dict[str, Any]] = []
         evidence_applied: list[dict[str, Any]] = []
         with self.lock:
@@ -15222,6 +15464,8 @@ PY"""
 
         invalid_checks: list[dict[str, Any]] = []
         for node in nodes:
+            if resolve_node_executor_mode(node, executor_prefer) != "job":
+                continue
             try:
                 self.workspace_node_job_payload(workspace, node, automation=automation)
             except ValueError as exc:
@@ -15248,8 +15492,31 @@ PY"""
             )
 
         jobs: list[dict[str, Any]] = []
+        run_steps: list[dict[str, Any]] = []
         previous_job_id = ""
+        agent_step_count = 0
         for index, node in enumerate(nodes):
+            mode = resolve_node_executor_mode(node, executor_prefer)
+            if mode == "agent":
+                with self.lock:
+                    workspace = copy.deepcopy(self.workspace_by_id(workspace_id) or workspace)
+                run_context = ExecutionRunContext(workspace_id=workspace_id, step_index=len(run_steps))
+                step_result = self.execute_workspace_agent_node(workspace_id, node, run_context=run_context)
+                if step_result.status in {"completed", "warning"}:
+                    run_steps.append(workspace_run_step_from_agent(node, step_result, len(run_steps)))
+                    agent_step_count += 1
+                    continue
+                if (
+                    executor_prefer == "auto"
+                    and str(node.get("kind") or "").strip() in WORKSPACE_EXECUTABLE_NODE_KINDS
+                ):
+                    mode = "job"
+                else:
+                    run_steps.append(workspace_run_step_from_agent(node, step_result, len(run_steps)))
+                    agent_step_count += 1
+                    break
+            if mode == "skip":
+                continue
             payload = self.workspace_node_job_payload(workspace, node, previous_job_id=previous_job_id, automation=automation)
             payload["wait_for_idle"] = True
             metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
@@ -15262,12 +15529,22 @@ PY"""
             payload["metadata"] = metadata
             job = self.create_job(payload)
             jobs.append(job)
+            run_steps.append(workspace_run_step_from_job(job, len(run_steps)))
             previous_job_id = str(job.get("id") or "")
+
+        if not run_steps:
+            raise ValueError("workspace has no runnable steps")
 
         run_summary = (
             f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
             if until_node_id
-            else f"完整工作流 · {len(jobs)} 步"
+            else (
+                f"混合工作流 · {agent_step_count} agent · {len(jobs)} job"
+                if agent_step_count and jobs
+                else f"Agent 工作流 · {agent_step_count} 步"
+                if agent_step_count
+                else f"完整工作流 · {len(jobs)} 步"
+            )
         )
         run = self.register_workspace_execution_run(
             workspace_id,
@@ -15275,6 +15552,7 @@ PY"""
             trigger="user",
             summary=run_summary,
             jobs=jobs,
+            steps=run_steps,
         )
         with self.lock:
             refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
@@ -15461,59 +15739,22 @@ PY"""
 
         # Execute LLM if requested and input is provided
         if execute_llm and input_text:
-            model_config = preview_workspace.get("model") if isinstance(preview_workspace.get("model"), dict) else {}
-            routing_mode = str(model_config.get("routing_mode") or "workspace_default").strip() or "workspace_default"
-            workspace_profile_id = str(model_config.get("provider_profile_id") or "").strip()
-            agent_profile_id = str(agent.get("provider_profile_id") or "").strip()
-            effective_profile_id = workspace_profile_id
-            if routing_mode == "agent_override" and agent_profile_id:
-                effective_profile_id = agent_profile_id
-
-            if effective_profile_id:
-                profile = self.provider_profile_by_id(effective_profile_id)
-                if profile and profile.get("api_key"):
-                    # Get allowed tools for this agent
-                    tool_map = {t.get("id"): t for t in tools if isinstance(t, dict) and t.get("id")}
-                    allowed_tool_ids = [
-                        tid for tid in parse_tag_list(agent.get("tools", []))
-                        if tid in tool_map
-                    ]
-                    allowed_tools = [tool_map[tid] for tid in allowed_tool_ids]
-
-                    # Create LLM client and agent executor
-                    llm_client = LLMClient(profile)
-                    tool_executor = create_workspace_tool_executor(
-                        preview_workspace,
-                        statuses=copy.deepcopy(self.statuses),
-                        jobs=copy.deepcopy(self.jobs),
-                    )
-                    executor = AgentExecutor(
-                        agent=agent,
-                        llm_client=llm_client,
-                        tools=allowed_tools,
-                        tool_executor=tool_executor,
-                    )
-
-                    # Execute agent
-                    execution_result = executor.run(input_text, context={
-                        "workspace_id": workspace_id,
-                        "workspace_name": preview_workspace.get("name", ""),
-                        "source_type": preview_workspace.get("source", {}).get("type", ""),
-                    })
-
-                    result["execution"] = execution_result.to_dict()
-                else:
-                    result["execution"] = {
-                        "success": False,
-                        "error": "Provider profile not found or API key not configured",
-                        "final_answer": "",
-                    }
-            else:
-                result["execution"] = {
-                    "success": False,
-                    "error": "No provider profile configured for this workspace/agent",
-                    "final_answer": "",
-                }
+            execution_payload = self._execute_agent_on_mutable_workspace(
+                preview_workspace,
+                agent,
+                input_text=input_text,
+                requested_node_kind=requested_node_kind,
+                execute_llm=True,
+            )
+            result["execution"] = execution_payload
+            if execution_payload.get("success"):
+                with self.lock:
+                    index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+                    if index >= 0:
+                        existing = self.workspaces[index]
+                        updated = normalize_workspace_payload(preview_workspace, existing=existing)
+                        self.workspaces[index] = updated
+                self.save_workspaces()
 
         return result
 
@@ -17080,7 +17321,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if len(parts) >= 7:
                     workspace_id = parts[3]
                     node_id = parts[5]
-                    result = STATE.run_workspace_node(workspace_id, node_id)
+                    result = STATE.run_workspace_node(workspace_id, node_id, self.read_body())
                     self.send_json(result, HTTPStatus.CREATED)
                     return
             if (

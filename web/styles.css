@@ -5951,8 +5951,114 @@ textarea:focus {
 }
 
 .workspace-cockpit-band {
+  display: none;
+}
+
+.workspace-chain-inspect-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.workspace-chain-inspect-shell {
   display: grid;
-  margin-top: 4px;
+  gap: 16px;
+  min-width: 0;
+}
+
+.workspace-chain-inspect-head {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #edf0f4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.workspace-chain-inspect-head strong {
+  color: #162132;
+  font-size: 15px;
+}
+
+.workspace-chain-inspect-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.workspace-chain-inspect-summary-card {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid #edf0f4;
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.workspace-chain-inspect-summary-card span {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.workspace-chain-inspect-summary-card strong {
+  color: #162132;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-chain-inspect-summary-card.status-blocked,
+.workspace-chain-inspect-summary-card.status-failed {
+  border-left-color: #f04438;
+  background: #fff8f8;
+}
+
+.workspace-chain-inspect-summary-card.status-ready,
+.workspace-chain-inspect-summary-card.status-done {
+  border-left-color: #1f9d55;
+}
+
+.workspace-chain-inspect-summary-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.workspace-chain-inspect-block {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  border: 1px solid #edf0f4;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.workspace-chain-inspect-block-head {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.workspace-chain-inspect-block-head strong {
+  color: #162132;
+  font-size: 13px;
+}
+
+.workspace-chain-inspect-block-head span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.workspace-chain-inspect-block .workspace-cockpit-chain,
+.workspace-chain-inspect-block .workspace-cockpit-handoff,
+.workspace-chain-inspect-block .workspace-cockpit-gap-queue,
+.workspace-chain-inspect-block .workspace-cockpit-readiness {
+  margin-top: 0;
+  order: unset;
 }
 
 .workspace-use-detail {

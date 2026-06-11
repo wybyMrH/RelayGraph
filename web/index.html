@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles.css?v=20260611cockpit9" />
+    <link rel="stylesheet" href="/styles.css?v=20260611cockpit11" />
   </head>
   <body>
     <div class="shell">
@@ -340,7 +340,6 @@
                   </section>
                   <aside class="workspace-use-status-panel">
                     <div id="workspaceUseMonitor" class="workspace-use-monitor-shell" hidden></div>
-                    <div id="workspaceCockpitDecision" class="workspace-home-decision" hidden></div>
                     <div id="workspaceLauncherPlan" class="workspace-launcher-plan" hidden></div>
                     <div id="workspaceCapabilityBaseline" class="workspace-capability-baseline"></div>
                   </aside>
@@ -397,73 +396,6 @@
                     </div>
                   </details>
                 </div>
-              </section>
-
-              <section class="workspace-cockpit-band">
-                <div class="subsection-head">
-                  <strong>驾驶舱概览</strong>
-                  <span class="muted">先看这次复现缺什么、下一步做什么、资源是否足够。</span>
-                </div>
-                <details class="workspace-home-collapse workspace-cockpit-advanced" open>
-                  <summary>
-                    <strong>高级概览</strong>
-                    <span>状态卡片、复现管线、执行链、门禁与运维细节。</span>
-                  </summary>
-                  <div class="workspace-home-collapse-body workspace-cockpit-advanced-body">
-                    <nav class="workspace-cockpit-advanced-toc" aria-label="高级概览目录">
-                      <span>状态卡片</span>
-                      <span>复现管线</span>
-                      <span>节点交接</span>
-                      <span>Agent 分层</span>
-                      <span>资源调度</span>
-                      <span>运行蓝图</span>
-                      <span>执行链</span>
-                      <span>缺口队列</span>
-                      <span>门禁就绪</span>
-                      <span>运维操作</span>
-                    </nav>
-                    <section class="workspace-cockpit-advanced-block" data-section="cards">
-                      <header class="workspace-cockpit-advanced-head"><strong>状态卡片</strong><span>自动化体检、推进、资源、拓扑与任务闭环</span></header>
-                      <div id="workspaceCockpitCards" class="workspace-cockpit-grid"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="pipeline">
-                      <header class="workspace-cockpit-advanced-head"><strong>复现管线</strong><span>从输入到交付的阶段视图</span></header>
-                      <div id="workspaceCockpitPipeline" class="workspace-repro-pipeline"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="handoff">
-                      <header class="workspace-cockpit-advanced-head"><strong>节点交接</strong><span>上下游 I/O 与 context 承接</span></header>
-                      <div id="workspaceCockpitHandoff" class="workspace-cockpit-handoff"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="layering">
-                      <header class="workspace-cockpit-advanced-head"><strong>Agent / Tool 分层</strong><span>各节点 Agent、工具与模型路由</span></header>
-                      <div id="workspaceCockpitLayering" class="workspace-cockpit-layering"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="scheduling">
-                      <header class="workspace-cockpit-advanced-head"><strong>资源调度</strong><span>主机、GPU 与调度闭环</span></header>
-                      <div id="workspaceCockpitScheduling" class="workspace-cockpit-scheduling"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="blueprint">
-                      <header class="workspace-cockpit-advanced-head"><strong>运行蓝图</strong><span>数据、环境、GPU、运行与交付入口</span></header>
-                      <div id="workspaceCockpitBlueprint" class="workspace-cockpit-blueprint"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="chain">
-                      <header class="workspace-cockpit-advanced-head"><strong>执行链（Chain Board）</strong><span>节点状态、任务绑定、配置就绪与错误</span></header>
-                      <div id="workspaceCockpitChain" class="workspace-cockpit-chain"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="gaps">
-                      <header class="workspace-cockpit-advanced-head"><strong>缺口队列</strong><span>待补齐字段与修复入口</span></header>
-                      <div id="workspaceCockpitGapQueue" class="workspace-cockpit-gap-queue"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="readiness">
-                      <header class="workspace-cockpit-advanced-head"><strong>门禁就绪</strong><span>发现、回填、门禁、完整链与产物回收</span></header>
-                      <div id="workspaceCockpitReadiness" class="workspace-cockpit-readiness"></div>
-                    </section>
-                    <section class="workspace-cockpit-advanced-block" data-section="operations">
-                      <header class="workspace-cockpit-advanced-head"><strong>运维操作</strong><span>刷新、推进、运行与日志入口</span></header>
-                      <div id="workspaceCockpitOperations" class="workspace-cockpit-operations"></div>
-                    </section>
-                  </div>
-                </details>
               </section>
 
               <div class="workspace-use-grid workspace-use-stack">
@@ -548,8 +480,9 @@
                 <button class="tab-chip" data-tab="agents" type="button" title="维护全局 Agent 角色、提示词、工具 allowlist 和模型覆盖">Agent</button>
                 <button class="tab-chip" data-tab="tools" type="button" title="维护工具注册表，控制 Agent 可以使用哪些真实动作">工具</button>
                 <button class="tab-chip" data-tab="ai" type="button" title="维护 Provider Profile、模型路由和模板默认聊天 Agent">AI</button>
+                <button class="tab-chip" data-tab="inspect" type="button" title="完整链路诊断：节点链、I/O 交接、缺口与门禁（只读检查，编辑请回各配置页）">链路检查</button>
               </div>
-              <section class="workspace-manage-overview">
+              <section id="workspaceManageOverviewSection" class="workspace-manage-overview">
                 <div class="subsection-head">
                   <strong>配置中心概览</strong>
                   <span class="muted">这里维护自动复现/部署的能力底座：Starter Chain、Agent 角色、工具边界和模型路由。</span>
@@ -774,6 +707,46 @@
                     <div id="manageProviderProfileList" class="workspace-template-list"></div>
                   </aside>
                   <section id="manageAiEditor" class="workspace-template-studio"></section>
+                </div>
+              </section>
+
+              <section id="workspaceManageInspectPanel" class="workspace-manage-panel workspace-chain-inspect-panel" hidden>
+                <div class="workspace-chain-inspect-shell">
+                  <header class="workspace-chain-inspect-head">
+                    <div>
+                      <strong>完整链路检查</strong>
+                      <span class="muted">只读诊断：核对节点链、I/O 交接、待补字段与门禁。编辑 Agent / 工具 / 路由请回到对应配置页。</span>
+                    </div>
+                  </header>
+                  <div id="workspaceManageInspectSummary" class="workspace-chain-inspect-summary"></div>
+                  <section class="workspace-chain-inspect-block">
+                    <header class="workspace-chain-inspect-block-head">
+                      <strong>执行链</strong>
+                      <span>节点顺序、配置就绪、实例运行态与任务绑定</span>
+                    </header>
+                    <div id="workspaceManageInspectChain" class="workspace-cockpit-chain"></div>
+                  </section>
+                  <section class="workspace-chain-inspect-block">
+                    <header class="workspace-chain-inspect-block-head">
+                      <strong>节点交接</strong>
+                      <span>上下游 input_mapping 与 context 承接关系</span>
+                    </header>
+                    <div id="workspaceManageInspectHandoff" class="workspace-cockpit-handoff"></div>
+                  </section>
+                  <section class="workspace-chain-inspect-block">
+                    <header class="workspace-chain-inspect-block-head">
+                      <strong>缺口队列</strong>
+                      <span>待补字段与一键跳转修复</span>
+                    </header>
+                    <div id="workspaceManageInspectGaps" class="workspace-cockpit-gap-queue"></div>
+                  </section>
+                  <section class="workspace-chain-inspect-block">
+                    <header class="workspace-chain-inspect-block-head">
+                      <strong>门禁就绪</strong>
+                      <span>发现、回填、硬门禁、完整链与产物回收</span>
+                    </header>
+                    <div id="workspaceManageInspectReadiness" class="workspace-cockpit-readiness"></div>
+                  </section>
                 </div>
               </section>
             <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
@@ -1697,6 +1670,6 @@
         </div>
       </main>
     </div>
-    <script src="/app.js?v=20260611cockpit9"></script>
+    <script src="/app.js?v=20260611cockpit11"></script>
   </body>
 </html>
