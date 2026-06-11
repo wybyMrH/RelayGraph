@@ -3336,6 +3336,7 @@ def normalize_workspace_instance_from_template(
         "template_name": str(template.get("name") or "").strip(),
         "template_snapshot": template_snapshot,
         "execution": copy.deepcopy(current.get("execution") if isinstance(current.get("execution"), dict) else {}),
+        "runs": normalize_workspace_execution_runs(current.get("runs")),
         "created_at": created_at,
         "updated_at": now_iso(),
     }
@@ -3433,6 +3434,234 @@ def derive_workspace_execution_state(
         "last_job_status": str(latest_job.get("status") or "").strip() if latest_job else "",
         "latest_error": str(latest_error_job.get("error") or "").strip() if latest_error_job else "",
     }
+
+
+WORKSPACE_EXECUTION_RUN_KINDS = frozenset({"discovery", "reproduction", "node", "agent_debug", "advance"})
+WORKSPACE_EXECUTION_RUN_MAX = 50
+
+
+def make_workspace_execution_run_id() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
+
+
+def workspace_run_step_status_from_job(job: dict[str, Any]) -> str:
+    status = str(job.get("status") or "queued").strip()
+    if status in {"starting", "running"}:
+        return "running"
+    if status in {"failed", "stopped"}:
+        return "failed"
+    if status == "done":
+        return "done"
+    if status == "blocked":
+        return "blocked"
+    return "queued"
+
+
+def normalize_workspace_run_step(
+    value: Any,
+    *,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = existing if isinstance(existing, dict) else {}
+    payload = value if isinstance(value, dict) else {}
+    index = safe_int(payload.get("index"), safe_int(current.get("index"), 0))
+    status = str(payload.get("status") or current.get("status") or "queued").strip() or "queued"
+    return {
+        "index": index,
+        "node_id": str(payload.get("node_id") or current.get("node_id") or "").strip(),
+        "node_kind": str(payload.get("node_kind") or current.get("node_kind") or "").strip(),
+        "node_title": str(payload.get("node_title") or current.get("node_title") or payload.get("node_kind") or current.get("node_kind") or "").strip(),
+        "executor": str(payload.get("executor") or current.get("executor") or "job").strip() or "job",
+        "job_id": str(payload.get("job_id") or current.get("job_id") or "").strip(),
+        "status": status,
+        "started_at": str(payload.get("started_at") or current.get("started_at") or "").strip(),
+        "completed_at": str(payload.get("completed_at") or current.get("completed_at") or "").strip(),
+        "error": str(payload.get("error") or current.get("error") or "").strip(),
+    }
+
+
+def derive_workspace_execution_run_status(steps: list[dict[str, Any]]) -> str:
+    if not steps:
+        return "pending"
+    statuses = [str(step.get("status") or "").strip() for step in steps]
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if any(status == "blocked" for status in statuses):
+        return "blocked"
+    if any(status == "running" for status in statuses):
+        return "running"
+    if any(status == "queued" for status in statuses):
+        return "queued"
+    if all(status == "done" for status in statuses):
+        return "done"
+    return "pending"
+
+
+def derive_workspace_execution_run_progress(steps: list[dict[str, Any]]) -> dict[str, int]:
+    total = len(steps)
+    done = sum(1 for step in steps if str(step.get("status") or "") == "done")
+    failed = sum(1 for step in steps if str(step.get("status") or "") in {"failed", "blocked"})
+    running = sum(1 for step in steps if str(step.get("status") or "") == "running")
+    queued = sum(1 for step in steps if str(step.get("status") or "") == "queued")
+    percent = int((done / total) * 100) if total else 0
+    return {
+        "total": total,
+        "done": done,
+        "failed": failed,
+        "running": running,
+        "queued": queued,
+        "percent": percent,
+    }
+
+
+def normalize_workspace_execution_run(
+    value: Any,
+    *,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = existing if isinstance(existing, dict) else {}
+    payload = value if isinstance(value, dict) else {}
+    run_id = str(payload.get("id") or current.get("id") or "").strip() or make_workspace_execution_run_id()
+    workspace_id = str(payload.get("workspace_id") or current.get("workspace_id") or "").strip()
+    kind = str(payload.get("kind") or current.get("kind") or "node").strip() or "node"
+    if kind not in WORKSPACE_EXECUTION_RUN_KINDS:
+        kind = "node"
+    raw_steps = payload.get("steps") if isinstance(payload.get("steps"), list) else current.get("steps")
+    existing_steps = current.get("steps") if isinstance(current.get("steps"), list) else []
+    steps = [
+        normalize_workspace_run_step(
+            item,
+            existing=existing_steps[index] if index < len(existing_steps) and isinstance(existing_steps[index], dict) else None,
+        )
+        for index, item in enumerate(raw_steps or [])
+        if isinstance(item, dict)
+    ]
+    steps.sort(key=lambda item: safe_int(item.get("index"), 0))
+    status = str(payload.get("status") or current.get("status") or derive_workspace_execution_run_status(steps)).strip()
+    progress = payload.get("progress") if isinstance(payload.get("progress"), dict) else current.get("progress")
+    if not isinstance(progress, dict):
+        progress = derive_workspace_execution_run_progress(steps)
+    else:
+        progress = derive_workspace_execution_run_progress(steps)
+    created_at = str(payload.get("created_at") or current.get("created_at") or now_iso()).strip() or now_iso()
+    return {
+        "id": run_id,
+        "workspace_id": workspace_id,
+        "kind": kind,
+        "status": status,
+        "trigger": str(payload.get("trigger") or current.get("trigger") or "user").strip() or "user",
+        "summary": str(payload.get("summary") or current.get("summary") or "").strip(),
+        "steps": steps,
+        "progress": progress,
+        "created_at": created_at,
+        "updated_at": str(payload.get("updated_at") or current.get("updated_at") or created_at).strip() or created_at,
+    }
+
+
+def normalize_workspace_execution_runs(
+    value: Any,
+    *,
+    existing: list[dict[str, Any]] | None = None,
+    limit: int = WORKSPACE_EXECUTION_RUN_MAX,
+) -> list[dict[str, Any]]:
+    raw_items = value if isinstance(value, list) else []
+    existing_items = existing if isinstance(existing, list) else []
+    existing_by_id = {
+        str(item.get("id") or "").strip(): item
+        for item in existing_items
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+    runs = [
+        normalize_workspace_execution_run(
+            item,
+            existing=existing_by_id.get(str(item.get("id") or "").strip()),
+        )
+        for item in raw_items
+        if isinstance(item, dict)
+    ]
+    runs.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
+    return runs[: max(limit, 1)]
+
+
+def workspace_execution_run_sort_key(run: dict[str, Any]) -> tuple[str, str]:
+    return (str(run.get("created_at") or ""), str(run.get("id") or ""))
+
+
+def workspace_run_step_from_job(job: dict[str, Any], index: int) -> dict[str, Any]:
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    return normalize_workspace_run_step(
+        {
+            "index": index,
+            "node_id": str(metadata.get("node_id") or "").strip(),
+            "node_kind": str(metadata.get("node_kind") or "").strip(),
+            "node_title": str(metadata.get("node_title") or metadata.get("node_kind") or "").strip(),
+            "executor": "job",
+            "job_id": str(job.get("id") or "").strip(),
+            "status": workspace_run_step_status_from_job(job),
+            "started_at": str(job.get("started_at") or "").strip(),
+            "completed_at": str(job.get("finished_at") or "").strip(),
+            "error": str(job.get("error") or "").strip(),
+        }
+    )
+
+
+def refresh_workspace_execution_run(
+    run: dict[str, Any],
+    jobs_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    steps = run.get("steps") if isinstance(run.get("steps"), list) else []
+    refreshed_steps: list[dict[str, Any]] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        job_id = str(step.get("job_id") or "").strip()
+        job = jobs_by_id.get(job_id)
+        if job:
+            refreshed_steps.append(workspace_run_step_from_job(job, safe_int(step.get("index"), len(refreshed_steps))))
+        else:
+            refreshed_steps.append(normalize_workspace_run_step(step))
+    return normalize_workspace_execution_run(
+        {
+            **run,
+            "steps": refreshed_steps,
+            "status": derive_workspace_execution_run_status(refreshed_steps),
+            "progress": derive_workspace_execution_run_progress(refreshed_steps),
+            "updated_at": now_iso(),
+        },
+        existing=run,
+    )
+
+
+def workspace_execution_runs_public(
+    runs: Any,
+    jobs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    jobs_by_id = {
+        str(job.get("id") or "").strip(): job
+        for job in jobs
+        if isinstance(job, dict) and str(job.get("id") or "").strip()
+    }
+    normalized = normalize_workspace_execution_runs(runs)
+    refreshed = [refresh_workspace_execution_run(run, jobs_by_id) for run in normalized]
+    refreshed.sort(key=workspace_execution_run_sort_key, reverse=True)
+    return refreshed
+
+
+def workspace_execution_run_snapshot(run: dict[str, Any]) -> tuple[str, tuple[tuple[str, str], ...]]:
+    steps = run.get("steps") if isinstance(run.get("steps"), list) else []
+    return (
+        str(run.get("status") or ""),
+        tuple(
+            (
+                str(step.get("status") or ""),
+                str(step.get("error") or ""),
+                str(step.get("started_at") or ""),
+                str(step.get("completed_at") or ""),
+            )
+            for step in steps
+            if isinstance(step, dict)
+        ),
+    )
 
 
 def workspace_job_binding(job: dict[str, Any]) -> tuple[str, str]:
@@ -8713,9 +8942,21 @@ def derive_workspace_automation_state(
         "report": report,
         "advance": advance,
         "missing": [check for check in checks if str(check.get("status") or "") in {"blocked", "warning", "draft"}],
-        "next_action": next_check,
+        "next_check": next_check,
         "summary": f"{status_counts.get('ready', 0) + status_counts.get('done', 0)} 项就绪 · {status_counts.get('warning', 0)} 项提示 · {status_counts.get('blocked', 0)} 项阻塞",
     }
+
+
+def attach_workspace_cockpit(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any],
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    cockpit = derive_workspace_cockpit(workspace, execution, automation, jobs=jobs)
+    automation["cockpit"] = cockpit
+    automation["next_action"] = cockpit.get("next_action")
+    return automation
 
 
 def workspace_workflow_blocking_checks(automation: dict[str, Any]) -> list[dict[str, Any]]:
@@ -8755,6 +8996,411 @@ def workspace_advance_decision(
         "title": str(title or "").strip(),
         "reason": str(reason or "").strip(),
         "next_action": str(next_action or "").strip(),
+    }
+
+
+def workspace_next_action_button(
+    label: str,
+    action: str,
+    *,
+    tab: str = "",
+    node_id: str = "",
+    job_id: str = "",
+    server_id: str = "",
+    tone: str = "primary",
+    title: str = "",
+) -> dict[str, str]:
+    return {
+        "label": str(label or "").strip(),
+        "action": str(action or "").strip(),
+        "tab": str(tab or "").strip(),
+        "node_id": str(node_id or "").strip(),
+        "job_id": str(job_id or "").strip(),
+        "server_id": str(server_id or "").strip(),
+        "tone": str(tone or "primary").strip() or "primary",
+        "title": str(title or label or "").strip(),
+    }
+
+
+def workspace_jobs_for_workspace(
+    workspace_id: str,
+    jobs: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    workspace_id = str(workspace_id or "").strip()
+    if not workspace_id:
+        return []
+    return [
+        job for job in (jobs or [])
+        if isinstance(job, dict) and workspace_job_binding(job)[0] == workspace_id
+    ]
+
+
+def workspace_node_config_ready_status(
+    workspace: dict[str, Any],
+    node: dict[str, Any],
+) -> str:
+    kind = str(node.get("kind") or "").strip()
+    config = node.get("config") if isinstance(node.get("config"), dict) else {}
+    workspace_dir = str(config.get("workspace_dir") or workspace.get("workspace_dir") or "").strip()
+    if kind in {"source.repo", "repo.clone"}:
+        repo_url = str(config.get("repo_url") or (workspace.get("source") or {}).get("repo_url") or "").strip()
+        return "ready" if repo_url else "blocked"
+    if kind in {"source.paper"}:
+        paper_url = str(config.get("paper_url") or (workspace.get("source") or {}).get("paper_url") or "").strip()
+        return "ready" if paper_url else "blocked"
+    if kind in {"source.idea"}:
+        idea = str(config.get("idea_text") or workspace.get("brief") or "").strip()
+        return "ready" if idea else "draft"
+    if kind in {"path.resolve", "repo.inspect", "dataset.find", "env.infer", "env.prepare", "artifact.collect"}:
+        return "ready" if workspace_dir else "blocked"
+    if kind == "gpu.allocate":
+        policy = str(config.get("gpu_policy") or "").strip()
+        return "ready" if policy else "warning"
+    if kind == "run.command":
+        run_command = str(config.get("run_command") or "").strip()
+        return "ready" if run_command and workspace_dir else "blocked" if not run_command else "warning"
+    if kind in WORKSPACE_EXECUTABLE_NODE_KINDS:
+        return "ready" if workspace_dir else "warning"
+    return "draft"
+
+
+def derive_workspace_cockpit_chain(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+) -> list[dict[str, Any]]:
+    execution_nodes = execution.get("nodes") if isinstance(execution.get("nodes"), list) else []
+    source_nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
+    source_index = {
+        str(item.get("id") or "").strip(): item
+        for item in source_nodes
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+    chain: list[dict[str, Any]] = []
+    for node in execution_nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or "").strip()
+        source = source_index.get(node_id) or {}
+        config_ready = workspace_node_config_ready_status(workspace, {**source, **node})
+        chain.append(
+            {
+                "id": node_id,
+                "kind": str(node.get("kind") or source.get("kind") or "").strip(),
+                "title": str(node.get("title") or source.get("title") or node.get("kind") or "").strip(),
+                "status": str(node.get("status") or "pending").strip() or "pending",
+                "config_ready": config_ready,
+                "agent_id": str(node.get("agent_id") or "").strip(),
+                "agent_name": str(node.get("agent_name") or "").strip(),
+                "job_id": str(node.get("job_id") or "").strip(),
+                "job_status": str(node.get("job_status") or "").strip(),
+                "run_count": safe_int(node.get("run_count"), 0),
+                "error": str(node.get("error") or "").strip(),
+            }
+        )
+    return chain
+
+
+def workspace_next_action(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any],
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Single source of truth for cockpit primary/secondary actions."""
+    workspace_id = str(workspace.get("id") or "").strip()
+    counts = execution.get("counts") if isinstance(execution.get("counts"), dict) else {}
+    advance = automation.get("advance") if isinstance(automation.get("advance"), dict) else {}
+    playbook = automation.get("playbook") if isinstance(automation.get("playbook"), dict) else {}
+    current = playbook.get("current_action") if isinstance(playbook.get("current_action"), dict) else {}
+    readiness = automation.get("execution_readiness") if isinstance(automation.get("execution_readiness"), dict) else {}
+    gate = readiness.get("gate") if isinstance(readiness.get("gate"), dict) else {}
+    manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
+    bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}
+    evidence_backfill = automation.get("evidence_backfill") if isinstance(automation.get("evidence_backfill"), dict) else {}
+    blocked_checks = workspace_workflow_blocking_checks(automation)
+    gate_blockers = [
+        item for item in (
+            *(gate.get("blockers") if isinstance(gate.get("blockers"), list) else []),
+            *(readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []),
+            *blocked_checks,
+        )
+        if isinstance(item, dict)
+    ]
+    focus_node_id = str(execution.get("current_node_id") or "").strip()
+    last_job_id = str(execution.get("last_job_id") or "").strip()
+
+    bound_jobs = workspace_jobs_for_workspace(workspace_id, jobs)
+    active_jobs = [
+        job for job in bound_jobs
+        if str(job.get("status") or "") in {"queued", "blocked", "starting", "running"}
+    ]
+    failed_jobs = [
+        job for job in bound_jobs
+        if str(job.get("status") or "") in {"failed", "stopped"}
+    ]
+
+    phase = str(current.get("phase") or advance.get("action") or "推进").strip()
+    facts = [
+        {
+            "label": "阶段",
+            "value": str(current.get("title") or advance.get("title") or "自动推进").strip(),
+            "status": str(current.get("status") or advance.get("status") or automation.get("status") or "draft").strip(),
+        },
+        {
+            "label": "任务",
+            "value": f"{len(bound_jobs)} 个 · {len(active_jobs)} 活跃",
+            "status": "running" if active_jobs else "ready",
+        },
+        {
+            "label": "节点",
+            "value": (
+                f"{safe_int(counts.get('done'), 0)}/"
+                f"{len(execution.get('nodes') if isinstance(execution.get('nodes'), list) else [])} 完成"
+            ),
+            "status": "failed" if safe_int(counts.get("failed"), 0) else ("running" if active_jobs else "ready"),
+        },
+    ]
+
+    if active_jobs:
+        primary_job_id = str(active_jobs[0].get("id") or last_job_id or "").strip()
+        return {
+            "status": "running",
+            "phase": "运行中",
+            "title": f"{len(active_jobs)} 个任务正在执行",
+            "reason": "当前有任务在队列或运行，先观察输出再继续推进。",
+            "detail": advance.get("next_action") or "打开最近任务日志，等当前步骤完成后再自动推进。",
+            "focus_node_id": focus_node_id,
+            "blocked_checks": [],
+            "primary": workspace_next_action_button(
+                "打开输出",
+                "open-last-workspace-log",
+                job_id=primary_job_id,
+                title="打开当前实例最近绑定任务的日志输出。",
+            ),
+            "secondary": workspace_next_action_button(
+                "执行链",
+                "focus-workspace-execution-board",
+                tone="secondary",
+                title="查看节点链与当前阶段状态。",
+            ),
+            "facts": facts,
+        }
+
+    if failed_jobs:
+        failed_job_id = str(failed_jobs[0].get("id") or "").strip()
+        return {
+            "status": "failed",
+            "phase": "失败复查",
+            "title": f"{len(failed_jobs)} 个任务异常",
+            "reason": "存在失败或停止的任务，继续前需要确认日志和节点配置。",
+            "detail": str(failed_jobs[0].get("error") or execution.get("latest_error") or advance.get("next_action") or "").strip(),
+            "focus_node_id": focus_node_id,
+            "blocked_checks": gate_blockers[:4],
+            "primary": workspace_next_action_button(
+                "查看运行记录",
+                "switch-workspace-tab",
+                tab="runs",
+                job_id=failed_job_id,
+                title="查看失败任务输出和错误信息。",
+            ),
+            "secondary": workspace_next_action_button(
+                "自动推进",
+                "advance-workspace-automation",
+                tone="secondary",
+                title="让系统复查失败状态并给出下一步。",
+            ),
+            "facts": facts,
+        }
+
+    advance_action = str(advance.get("action") or "").strip()
+    if advance_action == "discover":
+        return {
+            "status": str(advance.get("status") or "ready").strip() or "ready",
+            "phase": "发现",
+            "title": str(advance.get("title") or "提交安全发现").strip(),
+            "reason": str(advance.get("reason") or "").strip(),
+            "detail": str(advance.get("next_action") or "先跑 repo/path/data/env/GPU/artifact 安全节点收集证据。").strip(),
+            "focus_node_id": focus_node_id,
+            "blocked_checks": gate_blockers[:4],
+            "primary": workspace_next_action_button(
+                "运行自动发现",
+                "run-workspace-discovery",
+                title="提交安全发现链，收集路径、数据、环境和 GPU 证据。",
+            ),
+            "secondary": workspace_next_action_button(
+                "自动推进",
+                "advance-workspace-automation",
+                tone="secondary",
+                title="由系统自动决定发现、回填与后续步骤。",
+            ),
+            "facts": facts,
+        }
+
+    if blocked_checks:
+        blocker = blocked_checks[0]
+        blocker_node_kind = str(blocker.get("node_kind") or "").strip()
+        focus_from_blocker = ""
+        for chain_node in derive_workspace_cockpit_chain(workspace, execution):
+            if blocker_node_kind and chain_node.get("kind") == blocker_node_kind:
+                focus_from_blocker = str(chain_node.get("id") or "").strip()
+                break
+        return {
+            "status": "blocked",
+            "phase": "门禁",
+            "title": str(blocker.get("label") or blocker.get("title") or "运行门禁阻塞").strip(),
+            "reason": workspace_readiness_message(blocked_checks),
+            "detail": str(blocker.get("action") or advance.get("next_action") or "补齐节点链、Agent 归属或运行命令。").strip(),
+            "focus_node_id": focus_from_blocker or focus_node_id,
+            "blocked_checks": blocked_checks[:6],
+            "primary": workspace_next_action_button(
+                "处理阻塞项",
+                "focus-workspace-execution-board",
+                node_id=focus_from_blocker or focus_node_id,
+                title="定位到阻塞节点并查看配置与证据。",
+            ),
+            "secondary": workspace_next_action_button(
+                "分层配置",
+                "switch-workspace-tab",
+                tab="workflow",
+                tone="secondary",
+                title="打开工作流页检查节点链与运行入口。",
+            ),
+            "facts": facts,
+        }
+
+    backfill_ready = safe_int(evidence_backfill.get("ready_count"), 0) > 0
+    if backfill_ready and str(evidence_backfill.get("status") or "") in {"ready", "warning"}:
+        return {
+            "status": "ready",
+            "phase": "回填",
+            "title": "应用发现证据",
+            "reason": str(evidence_backfill.get("summary") or "发现证据已就绪，可写回节点配置。").strip(),
+            "detail": str(advance.get("next_action") or "回填路径、环境、GPU 和运行入口后再提交完整链。").strip(),
+            "focus_node_id": focus_node_id,
+            "blocked_checks": gate_blockers[:4],
+            "primary": workspace_next_action_button(
+                "回填建议/发现",
+                "apply-workspace-automation",
+                title="把默认建议和发现证据写回节点配置。",
+            ),
+            "secondary": workspace_next_action_button(
+                "自动推进",
+                "advance-workspace-automation",
+                tone="secondary",
+                title="自动回填并继续判断是否提交完整运行。",
+            ),
+            "facts": facts,
+        }
+
+    if bundle.get("ready_to_execute"):
+        return {
+            "status": "ready",
+            "phase": "执行",
+            "title": "提交完整运行",
+            "reason": str(bundle.get("next_action", {}).get("detail") if isinstance(bundle.get("next_action"), dict) else "执行包已就绪。").strip(),
+            "detail": str(advance.get("next_action") or "门禁已通过，可以提交完整工作流。").strip(),
+            "focus_node_id": focus_node_id,
+            "blocked_checks": gate_blockers[:4],
+            "primary": workspace_next_action_button(
+                "运行工作流",
+                "run-selected-workspace",
+                title="在门禁通过后提交完整执行链。",
+            ),
+            "secondary": workspace_next_action_button(
+                "自动推进",
+                "advance-workspace-automation",
+                tone="secondary",
+                title="由系统自动整理并提交运行。",
+            ),
+            "facts": facts,
+        }
+
+    if advance_action == "run":
+        return {
+            "status": str(advance.get("status") or "ready").strip() or "ready",
+            "phase": "执行",
+            "title": str(advance.get("title") or "整理并提交运行").strip(),
+            "reason": str(advance.get("reason") or "").strip(),
+            "detail": str(advance.get("next_action") or "点击自动推进提交完整执行链。").strip(),
+            "focus_node_id": focus_node_id,
+            "blocked_checks": gate_blockers[:4],
+            "primary": workspace_next_action_button(
+                "自动推进",
+                "advance-workspace-automation",
+                title="自动回填证据并提交完整工作流。",
+            ),
+            "secondary": workspace_next_action_button(
+                "运行工作流",
+                "run-selected-workspace",
+                tone="secondary",
+                title="直接提交完整执行链（需门禁通过）。",
+            ),
+            "facts": facts,
+        }
+
+    playbook_label = str(current.get("label") or "").strip()
+    playbook_action = str(current.get("action") or "").strip()
+    if playbook_label and playbook_action:
+        return {
+            "status": str(current.get("status") or playbook.get("status") or automation.get("status") or "draft").strip(),
+            "phase": phase,
+            "title": str(current.get("title") or playbook_label).strip(),
+            "reason": str(current.get("detail") or playbook.get("summary") or "").strip(),
+            "detail": str(current.get("detail") or advance.get("next_action") or "").strip(),
+            "focus_node_id": str(current.get("node_id") or focus_node_id).strip(),
+            "blocked_checks": gate_blockers[:4],
+            "primary": workspace_next_action_button(
+                playbook_label,
+                playbook_action,
+                node_id=str(current.get("node_id") or "").strip(),
+                server_id=str(current.get("server_id") or "").strip(),
+                title=str(current.get("detail") or playbook_label).strip(),
+            ),
+            "secondary": workspace_next_action_button(
+                "自动推进",
+                "advance-workspace-automation",
+                tone="secondary",
+                title="交给系统自动判断下一步。",
+            ),
+            "facts": facts,
+        }
+
+    return {
+        "status": str(advance.get("status") or automation.get("status") or "draft").strip() or "draft",
+        "phase": phase,
+        "title": str(advance.get("title") or "等待自动推进判断").strip(),
+        "reason": str(advance.get("reason") or automation.get("summary") or "").strip(),
+        "detail": str(advance.get("next_action") or "按发现、回填、调度、门禁、执行、回收顺序推进。").strip(),
+        "focus_node_id": focus_node_id,
+        "blocked_checks": gate_blockers[:4],
+        "primary": workspace_next_action_button(
+            "自动推进",
+            "advance-workspace-automation",
+            title=str(advance.get("next_action") or "根据当前门禁自动决定下一步。").strip(),
+        ),
+        "secondary": workspace_next_action_button(
+            "执行链",
+            "focus-workspace-execution-board",
+            tone="secondary",
+            title="查看节点链、任务绑定和阶段进度。",
+        ),
+        "facts": facts,
+    }
+
+
+def derive_workspace_cockpit(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any],
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    next_action = workspace_next_action(workspace, execution, automation, jobs=jobs)
+    chain = derive_workspace_cockpit_chain(workspace, execution)
+    return {
+        "next_action": next_action,
+        "chain": chain,
+        "summary": str(automation.get("summary") or "").strip(),
+        "status": str(next_action.get("status") or automation.get("status") or "draft").strip() or "draft",
     }
 
 
@@ -12169,14 +12815,101 @@ def download_remote_file_to_local(
     raise ValueError("远程文件已下载，但没有找到本机缓存文件。")
 
 
+def normalize_rsync_directory_source(value: str, is_dir: bool = False) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if is_dir and text.endswith("/"):
+        return text.rstrip("/")
+    return text
+
+
+def transfer_item_destination_path(source_path: str, is_dir: bool, target: str) -> str:
+    text = str(source_path or "").strip()
+    target_text = str(target or "").strip()
+    if not text or not target_text:
+        return ""
+    prefix = rsync_endpoint_prefix(target_text)
+    remote_path = target_text.split(":", 1)[1] if prefix else target_text
+    target_dir = remote_path if remote_path.endswith("/") else f"{remote_path.rstrip('/')}/"
+    name = Path(text.rstrip("/")).name
+    dest_path = str(Path(target_dir) / name)
+    if prefix:
+        return f"{prefix}:{dest_path}"
+    return dest_path
+
+
+def transfer_path_exists(path_text: str, servers: list[ServerConfig], timeout: int = 8) -> bool:
+    text = str(path_text or "").strip()
+    if not text:
+        return False
+    prefix = rsync_endpoint_prefix(text)
+    remote_path = text.split(":", 1)[1] if prefix else text
+    if prefix:
+        server = server_for_rsync_endpoint(servers, text)
+        if not server:
+            return False
+        script = f"test -e {shlex.quote(remote_path)}"
+        result = ssh_command(server, f"bash -lc {shlex.quote(script)}", timeout)
+        return result.returncode == 0
+    return Path(remote_path).exists()
+
+
+def check_transfer_conflicts(spec: dict[str, Any], servers: list[ServerConfig]) -> dict[str, Any]:
+    target = str(spec.get("target") or "").strip()
+    raw_sources = spec.get("sources") or []
+    if not target or not raw_sources:
+        return {"conflicts": [], "checked": False}
+    conflicts: list[dict[str, Any]] = []
+    for item in raw_sources:
+        if isinstance(item, dict):
+            source_path = str(item.get("path") or item.get("value") or "").strip()
+            is_dir = bool(item.get("is_dir"))
+            source_value = str(item.get("value") or source_path).strip()
+        else:
+            source_path = str(item or "").strip()
+            is_dir = source_path.endswith("/")
+            source_value = source_path
+        if not source_path:
+            continue
+        destination = transfer_item_destination_path(source_path, is_dir, target)
+        if not destination:
+            continue
+        if transfer_path_exists(destination, servers):
+            conflicts.append(
+                {
+                    "source_path": source_path,
+                    "source_value": source_value,
+                    "is_dir": is_dir,
+                    "destination": destination,
+                    "name": Path(source_path.rstrip("/")).name,
+                }
+            )
+    return {"conflicts": conflicts, "checked": True}
+
+
 def build_transfer_command(spec: dict[str, Any], servers: list[ServerConfig]) -> tuple[str, str]:
     raw_sources = spec.get("sources") or []
+    skip_sources = {
+        str(item).strip()
+        for item in spec.get("skip_sources") or []
+        if str(item).strip()
+    }
     sources: list[str] = []
     for item in raw_sources:
         if isinstance(item, dict):
             value = str(item.get("value") or item.get("path") or "").strip()
+            is_dir = bool(item.get("is_dir"))
+            source_path = str(item.get("path") or value).strip()
         else:
             value = str(item or "").strip()
+            is_dir = value.endswith("/")
+            source_path = value
+        if not value:
+            continue
+        if source_path in skip_sources or value in skip_sources:
+            continue
+        value = normalize_rsync_directory_source(value, is_dir)
         if value:
             sources.append(value)
     target = str(spec.get("target") or "").strip()
@@ -12196,6 +12929,8 @@ def build_transfer_command(spec: dict[str, Any], servers: list[ServerConfig]) ->
         base_args.append("--size-only")
     if bool(options.get("resume_partial", True)):
         base_args.extend(["--partial", "--append-verify"])
+    if bool(options.get("ignore_existing")):
+        base_args.append("--ignore-existing")
     for item in excludes:
         base_args.extend(["--exclude", item])
 
@@ -12836,14 +13571,31 @@ class TotalControlState:
         return status
 
     def workspace_public_payload(self, workspace: dict[str, Any]) -> dict[str, Any]:
-        payload = apply_workspace_job_runtime(workspace, getattr(self, "jobs", []))
-        payload["execution"] = derive_workspace_execution_state(payload, getattr(self, "jobs", []))
-        payload["automation"] = derive_workspace_automation_state(
+        jobs = getattr(self, "jobs", [])
+        payload = apply_workspace_job_runtime(workspace, jobs)
+        payload["runs"] = workspace_execution_runs_public(workspace.get("runs"), jobs)
+        payload["execution"] = derive_workspace_execution_state(payload, jobs)
+        automation = derive_workspace_automation_state(
             payload,
             payload["execution"],
             getattr(self, "statuses", []),
         )
+        payload["automation"] = attach_workspace_cockpit(payload, payload["execution"], automation, jobs=jobs)
         return payload
+
+    def workspace_cockpit_payload(self, workspace_id: str) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        with self.lock:
+            workspace = self.workspace_by_id(workspace_id)
+            if not workspace:
+                raise ValueError("workspace not found")
+            public = self.workspace_public_payload(workspace)
+        return {
+            "workspace_id": workspace_id,
+            "cockpit": public.get("automation", {}).get("cockpit") if isinstance(public.get("automation"), dict) else {},
+            "execution": public.get("execution"),
+            "automation": public.get("automation"),
+        }
 
     def workflow_template_public_payload(self, template: dict[str, Any]) -> dict[str, Any]:
         payload = copy.deepcopy(template)
@@ -13318,6 +14070,152 @@ class TotalControlState:
                 "evidence_applied": evidence_applied,
             }
 
+    def register_workspace_execution_run(
+        self,
+        workspace_id: str,
+        *,
+        kind: str,
+        trigger: str = "user",
+        summary: str = "",
+        jobs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        run_kind = str(kind or "").strip() or "node"
+        if run_kind not in WORKSPACE_EXECUTION_RUN_KINDS:
+            run_kind = "node"
+        run_id = make_workspace_execution_run_id()
+        steps: list[dict[str, Any]] = []
+        for index, job in enumerate(jobs):
+            if not isinstance(job, dict):
+                continue
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            metadata["execution_run_id"] = run_id
+            metadata["step_index"] = index
+            job["metadata"] = metadata
+            steps.append(workspace_run_step_from_job(job, index))
+        run = normalize_workspace_execution_run(
+            {
+                "id": run_id,
+                "workspace_id": workspace_id,
+                "kind": run_kind,
+                "status": derive_workspace_execution_run_status(steps),
+                "trigger": str(trigger or "user").strip() or "user",
+                "summary": str(summary or "").strip(),
+                "steps": steps,
+                "progress": derive_workspace_execution_run_progress(steps),
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+            }
+        )
+        with self.lock:
+            index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+            if index < 0:
+                raise ValueError("workspace not found")
+            workspace = self.workspaces[index]
+            runs = normalize_workspace_execution_runs(workspace.get("runs"))
+            runs.insert(0, run)
+            workspace["runs"] = normalize_workspace_execution_runs(runs)
+            workspace["updated_at"] = now_iso()
+        self.save_workspaces()
+        self.save_jobs()
+        return run
+
+    def sync_workspace_execution_runs_from_jobs(self, workspace_id: str | None = None) -> bool:
+        jobs_by_id = {
+            str(job.get("id") or "").strip(): job
+            for job in getattr(self, "jobs", [])
+            if isinstance(job, dict) and str(job.get("id") or "").strip()
+        }
+        run_refs: set[tuple[str, str]] = set()
+        for job in jobs_by_id.values():
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            run_id = str(metadata.get("execution_run_id") or "").strip()
+            bound_workspace_id = str(metadata.get("workspace_id") or "").strip()
+            if not run_id or not bound_workspace_id:
+                continue
+            if workspace_id and bound_workspace_id != workspace_id:
+                continue
+            run_refs.add((bound_workspace_id, run_id))
+        if not run_refs:
+            return False
+
+        changed = False
+        with self.lock:
+            for bound_workspace_id, run_id in run_refs:
+                workspace_index = next(
+                    (idx for idx, item in enumerate(self.workspaces) if item.get("id") == bound_workspace_id),
+                    -1,
+                )
+                if workspace_index < 0:
+                    continue
+                workspace = self.workspaces[workspace_index]
+                runs = normalize_workspace_execution_runs(workspace.get("runs"))
+                run_index = next((idx for idx, item in enumerate(runs) if str(item.get("id") or "") == run_id), -1)
+                if run_index < 0:
+                    continue
+                current_run = runs[run_index]
+                refreshed_run = refresh_workspace_execution_run(current_run, jobs_by_id)
+                if workspace_execution_run_snapshot(refreshed_run) != workspace_execution_run_snapshot(current_run):
+                    runs[run_index] = refreshed_run
+                    workspace["runs"] = runs
+                    workspace["updated_at"] = now_iso()
+                    changed = True
+        if changed:
+            self.save_workspaces()
+        return changed
+
+    def create_workspace_execution_run(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        requested = payload if isinstance(payload, dict) else {}
+        kind = str(requested.get("kind") or "node").strip() or "node"
+        if kind not in WORKSPACE_EXECUTION_RUN_KINDS:
+            raise ValueError(f"unsupported run kind: {kind}")
+        trigger = str(requested.get("trigger") or "user").strip() or "user"
+        summary = str(requested.get("summary") or "").strip()
+        with self.lock:
+            workspace = self.workspace_by_id(workspace_id)
+            if not workspace:
+                raise ValueError("workspace not found")
+        run = normalize_workspace_execution_run(
+            {
+                "workspace_id": workspace_id,
+                "kind": kind,
+                "status": "pending",
+                "trigger": trigger,
+                "summary": summary,
+                "steps": [],
+                "progress": derive_workspace_execution_run_progress([]),
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
+            }
+        )
+        with self.lock:
+            index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+            if index < 0:
+                raise ValueError("workspace not found")
+            workspace = self.workspaces[index]
+            runs = normalize_workspace_execution_runs(workspace.get("runs"))
+            runs.insert(0, run)
+            workspace["runs"] = normalize_workspace_execution_runs(runs)
+            workspace["updated_at"] = now_iso()
+        self.save_workspaces()
+        with self.lock:
+            refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
+            public_workspace = self.workspace_public_payload(refreshed_workspace)
+        return {"run": run, "workspace": public_workspace}
+
+    def list_workspace_execution_runs(self, workspace_id: str) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        with self.lock:
+            workspace = self.workspace_by_id(workspace_id)
+            if not workspace:
+                raise ValueError("workspace not found")
+            public_workspace = self.workspace_public_payload(workspace)
+        return {
+            "workspace_id": workspace_id,
+            "runs": public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else [],
+        }
+
     def run_workspace_discovery(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         requested_payload = payload if isinstance(payload, dict) else {}
@@ -13455,12 +14353,21 @@ class TotalControlState:
             jobs.append(job)
             previous_job_id = str(job.get("id") or "")
 
+        run = self.register_workspace_execution_run(
+            workspace_id,
+            kind="discovery",
+            trigger="user",
+            summary=f"安全发现链 · {len(jobs)} 步",
+            jobs=jobs,
+        )
         with self.lock:
             refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
             payload_workspace = self.workspace_public_payload(refreshed_workspace)
         return {
             "workspace": payload_workspace,
             "jobs": jobs,
+            "run": run,
+            "run_id": run["id"],
             "applied": applied,
             "skipped": skipped,
         }
@@ -14103,11 +15010,21 @@ PY"""
                 raise ValueError("node not found")
         job_payload = self.workspace_node_job_payload(workspace, node)
         job = self.create_job(job_payload)
+        node_title = str(node.get("title") or node.get("kind") or "节点").strip()
+        run = self.register_workspace_execution_run(
+            workspace_id,
+            kind="node",
+            trigger="user",
+            summary=f"单节点运行 · {node_title}",
+            jobs=[job],
+        )
         with self.lock:
             refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
             payload_workspace = self.workspace_public_payload(refreshed_workspace)
         return {
             "job": job,
+            "run": run,
+            "run_id": run["id"],
             "workspace": payload_workspace,
         }
 
@@ -14240,6 +15157,18 @@ PY"""
             jobs.append(job)
             previous_job_id = str(job.get("id") or "")
 
+        run_summary = (
+            f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
+            if until_node_id
+            else f"完整工作流 · {len(jobs)} 步"
+        )
+        run = self.register_workspace_execution_run(
+            workspace_id,
+            kind="reproduction",
+            trigger="user",
+            summary=run_summary,
+            jobs=jobs,
+        )
         with self.lock:
             refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
             payload_workspace = self.workspace_public_payload(refreshed_workspace)
@@ -14254,6 +15183,8 @@ PY"""
         return {
             "workspace": payload_workspace,
             "jobs": jobs,
+            "run": run,
+            "run_id": run["id"],
             "applied": applied,
             "evidence_applied": evidence_applied,
             "execution_package": execution_package,
@@ -14986,6 +15917,7 @@ PY"""
             job["status"] = "failed"
             job["error"] = "unknown server"
             self.save_jobs()
+            self.sync_workspace_execution_runs_from_jobs()
             return
         self.apply_server_paths(job, server)
 
@@ -15003,6 +15935,7 @@ PY"""
                 job["finished_at"] = now_iso()
                 job["error"] = str(exc)
                 self.save_jobs()
+                self.sync_workspace_execution_runs_from_jobs()
                 return
 
         session = job["session"]
@@ -15049,6 +15982,7 @@ PY"""
             job["finished_at"] = now_iso()
             job["error"] = (result.stderr.strip() or result.stdout.strip() or "tmux start failed")[-1000:]
         self.save_jobs()
+        self.sync_workspace_execution_runs_from_jobs()
 
     def tmux_running(self, job: dict[str, Any]) -> bool:
         server = self.server_by_id(job["server_id"])
@@ -15183,6 +16117,7 @@ PY"""
         job["status"] = "stopped"
         job["finished_at"] = now_iso()
         self.save_jobs()
+        self.sync_workspace_execution_runs_from_jobs()
         return job
 
     def clone_job_payload(self, job: dict[str, Any]) -> dict[str, Any]:
@@ -15640,6 +16575,7 @@ PY"""
 
         if changed:
             self.save_jobs()
+            self.sync_workspace_execution_runs_from_jobs()
 
     def scheduler_loop(self) -> None:
         while not self.stop_event.is_set():
@@ -15749,6 +16685,20 @@ class Handler(SimpleHTTPRequestHandler):
                     self.send_json({"error": "tool definition not found"}, HTTPStatus.NOT_FOUND)
                     return
                 self.send_json({"tool_definition": copy.deepcopy(tool)})
+                return
+            if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/cockpit"):
+                workspace_id = parsed.path.split("/")[3]
+                try:
+                    self.send_json(STATE.workspace_cockpit_payload(workspace_id))
+                except ValueError:
+                    self.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+                return
+            if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/runs"):
+                workspace_id = parsed.path.split("/")[3]
+                try:
+                    self.send_json(STATE.list_workspace_execution_runs(workspace_id))
+                except ValueError:
+                    self.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
                 return
             # GET single workspace by ID
             if parsed.path.startswith("/api/workspaces/") and "/" not in parsed.path[16:]:
@@ -15928,6 +16878,10 @@ class Handler(SimpleHTTPRequestHandler):
                     )
                 )
                 return
+            if parsed.path == "/api/files/transfer-conflicts":
+                body = self.read_body()
+                self.send_json(check_transfer_conflicts(body, STATE.servers))
+                return
             if parsed.path == "/api/task-plans/schedule":
                 result = STATE.create_task_plan_jobs(self.read_body())
                 status = HTTPStatus.OK if result.get("dry_run") else HTTPStatus.CREATED
@@ -16045,6 +16999,15 @@ class Handler(SimpleHTTPRequestHandler):
                 workspace_id = parts[3] if len(parts) > 3 else ""
                 result = STATE.apply_workspace_automation_defaults(workspace_id, self.read_body())
                 self.send_json(result)
+                return
+            if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/runs"):
+                parts = parsed.path.split("/")
+                workspace_id = parts[3] if len(parts) > 3 else ""
+                try:
+                    result = STATE.create_workspace_execution_run(workspace_id, self.read_body())
+                    self.send_json(result, HTTPStatus.CREATED)
+                except ValueError as exc:
+                    self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
             if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/discovery/run"):
                 parts = parsed.path.split("/")

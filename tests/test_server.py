@@ -20,6 +20,9 @@ from total_control.server import (
     cleanup_preview_cache,
     collect_server,
     build_transfer_command,
+    check_transfer_conflicts,
+    normalize_rsync_directory_source,
+    transfer_item_destination_path,
     download_remote_file_to_local,
     gpu_activity_state,
     load_config,
@@ -219,6 +222,50 @@ exclude = []
         self.assertIn("StrictHostKeyChecking=accept-new", display)
         self.assertIn("/tmp/train.log", display)
         self.assertIn("alice@10.0.0.8:/srv/logs/", display)
+
+    def test_normalize_rsync_directory_source_strips_trailing_slash(self) -> None:
+        self.assertEqual(normalize_rsync_directory_source("/tmp/project/", True), "/tmp/project")
+        self.assertEqual(normalize_rsync_directory_source("/tmp/file.txt", False), "/tmp/file.txt")
+
+    def test_transfer_item_destination_path_preserves_directory_name(self) -> None:
+        self.assertEqual(
+            transfer_item_destination_path("/tmp/myfolder", True, "/srv/backup/"),
+            "/srv/backup/myfolder",
+        )
+        self.assertEqual(
+            transfer_item_destination_path("/tmp/train.log", False, "/srv/backup/"),
+            "/srv/backup/train.log",
+        )
+
+    def test_build_transfer_command_preserves_directory_name(self) -> None:
+        _actual, display = build_transfer_command(
+            {
+                "sources": [{"value": "/tmp/myfolder/", "path": "/tmp/myfolder", "is_dir": True}],
+                "target": "/srv/backup/",
+                "options": {},
+            },
+            [],
+        )
+        self.assertIn("/tmp/myfolder /srv/backup/", display)
+        self.assertNotIn("/tmp/myfolder/ /srv/backup/", display)
+
+    def test_check_transfer_conflicts_detects_existing_destination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / "backup"
+            target.mkdir()
+            existing = target / "note.txt"
+            existing.write_text("old", encoding="utf-8")
+            payload = check_transfer_conflicts(
+                {
+                    "sources": [{"path": str(root / "note.txt"), "value": str(root / "note.txt"), "is_dir": False}],
+                    "target": f"{target}/",
+                },
+                [],
+            )
+            self.assertTrue(payload["checked"])
+            self.assertEqual(len(payload["conflicts"]), 1)
+            self.assertEqual(payload["conflicts"][0]["name"], "note.txt")
 
     def test_run_server_checks_distinguishes_ssh_from_dependency_failures(self) -> None:
         server = ServerConfig(id="gpu-box", name="GPU Box", mode="ssh", host_name="10.0.0.8")
@@ -2988,6 +3035,22 @@ exclude = []
             self.assertEqual(jobs[1]["cwd"], str(project_dir))
             self.assertNotIn("run.command", job_kinds)
             self.assertNotIn("env.prepare", job_kinds)
+            self.assertIn("run_id", result)
+            self.assertEqual(result["run"]["kind"], "discovery")
+            self.assertEqual(len(result["run"]["steps"]), len(jobs))
+            self.assertEqual(
+                [job["metadata"]["execution_run_id"] for job in jobs],
+                [result["run_id"]] * len(jobs),
+            )
+            self.assertEqual(
+                [job["metadata"]["step_index"] for job in jobs],
+                list(range(len(jobs))),
+            )
+            runs = result["workspace"].get("runs")
+            self.assertIsInstance(runs, list)
+            self.assertEqual(len(runs), 1)
+            self.assertEqual(runs[0]["id"], result["run_id"])
+            self.assertEqual(len(runs[0]["steps"]), len(jobs))
 
     def test_run_workspace_discovery_bootstraps_missing_repo_source_first(self) -> None:
         state = make_registry_state()
@@ -3605,6 +3668,208 @@ exclude = []
             self.assertIn("阻塞", report["headline"])
             self.assertTrue(any(item["label"] == "核心指标" and "accuracy=91.3%" in item["value"] for item in report["highlights"]))
             self.assertTrue(report["next_actions"])
+
+
+class WorkspaceExecutionRunTests(unittest.TestCase):
+    def test_workspace_public_payload_includes_refreshed_runs(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "idea",
+                "idea_text": "demo",
+                "brief": "demo",
+            },
+        )
+        state.workspaces = [workspace]
+        job = {
+            "id": "job-run-sync-1",
+            "status": "queued",
+            "created_at": "2026-06-10T10:00:00+08:00",
+            "started_at": "",
+            "finished_at": "",
+            "error": "",
+            "metadata": {
+                "workspace_id": workspace["id"],
+                "node_id": "node-1",
+                "node_kind": "path.resolve",
+                "node_title": "路径解析",
+                "execution_run_id": "run-sync-1",
+                "step_index": 0,
+            },
+        }
+        state.jobs = [job]
+        workspace["runs"] = [
+            {
+                "id": "run-sync-1",
+                "workspace_id": workspace["id"],
+                "kind": "discovery",
+                "status": "queued",
+                "trigger": "user",
+                "summary": "测试发现",
+                "steps": [
+                    {
+                        "index": 0,
+                        "node_id": "node-1",
+                        "node_kind": "path.resolve",
+                        "node_title": "路径解析",
+                        "executor": "job",
+                        "job_id": "job-run-sync-1",
+                        "status": "queued",
+                    }
+                ],
+                "created_at": "2026-06-10T10:00:00+08:00",
+                "updated_at": "2026-06-10T10:00:00+08:00",
+            }
+        ]
+        public = state.workspace_public_payload(workspace)
+        self.assertEqual(public["runs"][0]["status"], "queued")
+
+        job["status"] = "done"
+        job["finished_at"] = "2026-06-10T10:05:00+08:00"
+        state.sync_workspace_execution_runs_from_jobs(workspace["id"])
+        public_done = state.workspace_public_payload(workspace)
+        self.assertEqual(public_done["runs"][0]["status"], "done")
+        self.assertEqual(public_done["runs"][0]["steps"][0]["status"], "done")
+        self.assertEqual(public_done["runs"][0]["progress"]["percent"], 100)
+
+    def test_list_workspace_execution_runs_endpoint_payload(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "idea",
+                "idea_text": "demo",
+                "brief": "demo",
+            },
+        )
+        state.workspaces = [workspace]
+        created = state.create_workspace_execution_run(
+            workspace["id"],
+            {"kind": "agent_debug", "summary": "手动调试"},
+        )
+        listing = state.list_workspace_execution_runs(workspace["id"])
+        self.assertEqual(listing["workspace_id"], workspace["id"])
+        self.assertEqual(len(listing["runs"]), 1)
+        self.assertEqual(listing["runs"][0]["kind"], "agent_debug")
+        self.assertEqual(created["run"]["summary"], "手动调试")
+
+
+class WorkspaceCockpitNextActionTests(unittest.TestCase):
+    def test_workspace_public_payload_includes_cockpit_next_action(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "repo",
+                "repo_url": "https://github.com/example/demo.git",
+                "workspace_dir": "/tmp/demo-cockpit",
+                "run_command": "python train.py",
+            },
+        )
+        state.workspaces = [workspace]
+        payload = state.workspace_public_payload(workspace)
+        cockpit = payload["automation"]["cockpit"]
+        next_action = cockpit["next_action"]
+        self.assertIn("primary", next_action)
+        self.assertIn("action", next_action["primary"])
+        self.assertTrue(next_action["primary"]["label"])
+        self.assertIn("status", next_action)
+        self.assertIsInstance(cockpit["chain"], list)
+        self.assertGreater(len(cockpit["chain"]), 0)
+        self.assertIn("config_ready", cockpit["chain"][0])
+
+    def test_workspace_next_action_prefers_discovery_for_fresh_instance(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "repo",
+                "repo_url": "https://github.com/example/fresh.git",
+                "workspace_dir": "/tmp/fresh-cockpit",
+            },
+        )
+        state.workspaces = [workspace]
+        payload = state.workspace_public_payload(workspace)
+        next_action = payload["automation"]["cockpit"]["next_action"]
+        self.assertIn(
+            next_action["primary"]["action"],
+            {"run-workspace-discovery", "advance-workspace-automation", "apply-workspace-automation"},
+        )
+
+    def test_workspace_next_action_reports_running_when_jobs_active(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "repo",
+                "repo_url": "https://github.com/example/running.git",
+                "workspace_dir": "/tmp/running-cockpit",
+            },
+        )
+        workspace_id = workspace["id"]
+        state.workspaces = [workspace]
+        state.jobs = [
+            {
+                "id": "job-active-1",
+                "name": "repo.clone",
+                "status": "running",
+                "metadata": {"workspace_id": workspace_id, "node_kind": "repo.clone"},
+            },
+        ]
+        payload = state.workspace_public_payload(workspace)
+        next_action = payload["automation"]["cockpit"]["next_action"]
+        self.assertEqual(next_action["status"], "running")
+        self.assertEqual(next_action["primary"]["action"], "open-last-workspace-log")
+
+    def test_derive_workspace_cockpit_chain_includes_job_and_error(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "repo",
+                "repo_url": "https://github.com/example/chain.git",
+                "workspace_dir": "/tmp/chain-cockpit",
+            },
+        )
+        node_id = workspace["nodes"][1]["id"]
+        workspace_id = workspace["id"]
+        state.workspaces = [workspace]
+        state.jobs = [
+            {
+                "id": "job-chain-1",
+                "name": "repo.clone",
+                "status": "failed",
+                "error": "clone failed: permission denied",
+                "metadata": {"workspace_id": workspace_id, "node_id": node_id},
+            },
+        ]
+        payload = state.workspace_public_payload(workspace)
+        chain = payload["automation"]["cockpit"]["chain"]
+        matched = next((item for item in chain if item.get("id") == node_id), None)
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched["job_id"], "job-chain-1")
+        self.assertEqual(matched["job_status"], "failed")
+        self.assertIn("permission denied", matched["error"])
+
+    def test_workspace_cockpit_payload_matches_public_automation(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "idea",
+                "idea_text": "复现某个 baseline",
+                "brief": "demo idea",
+            },
+        )
+        state.workspaces = [workspace]
+        public = state.workspace_public_payload(workspace)
+        cockpit_payload = state.workspace_cockpit_payload(workspace["id"])
+        self.assertEqual(cockpit_payload["workspace_id"], workspace["id"])
+        self.assertEqual(
+            cockpit_payload["cockpit"],
+            public["automation"]["cockpit"],
+        )
 
 
 if __name__ == "__main__":

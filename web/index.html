@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles.css?v=20260609cf" />
+    <link rel="stylesheet" href="/styles.css?v=20260611cockpit6" />
   </head>
   <body>
     <div class="shell">
@@ -56,6 +56,27 @@
           </button>
         </nav>
       </aside>
+
+      <div id="transferConflictModal" class="modal" hidden>
+        <div class="modal-card transfer-conflict-card">
+          <div class="modal-head">
+            <div>
+              <h3>检测到重复文件</h3>
+              <p id="transferConflictSubtitle" class="modal-subtitle">目标位置已存在同名项，请选择如何处理。</p>
+            </div>
+            <button id="transferConflictCloseBtn" class="icon-button" type="button" title="取消本次传输">×</button>
+          </div>
+          <div class="modal-body">
+            <ul id="transferConflictList" class="transfer-conflict-list"></ul>
+            <div class="button-row transfer-conflict-actions">
+              <button id="transferConflictOverwriteAllBtn" class="primary" type="button" title="覆盖全部重复项并继续传输">全部覆盖</button>
+              <button id="transferConflictSkipAllBtn" class="secondary" type="button" title="跳过全部重复项，只传输不冲突的源">跳过重复</button>
+              <button id="transferConflictPromptEachBtn" class="secondary" type="button" title="对每个重复项逐一确认是否覆盖">逐份确认</button>
+            </div>
+            <p id="transferConflictMessage" class="form-message"></p>
+          </div>
+        </div>
+      </div>
 
       <div id="serverModal" class="modal" hidden>
         <div class="modal-card server-modal-card">
@@ -293,7 +314,7 @@
           <div class="panel-head">
             <div>
               <h3>工作台 <span class="heading-note">自动化复现与部署驾驶舱</span></h3>
-              <p class="panel-subtitle">从 repo、论文或想法出发，把资料检索、仓库检查、数据集、路径、环境、GPU 调度、运行和报告串成可见工作链。</p>
+              <p class="panel-subtitle">接受目标输入、选择 Starter Chain、监控执行进度；节点/Agent/门禁等配置与校验在「配置中心」完成。</p>
             </div>
             <span id="workspaceCount" class="muted">0 个实例</span>
           </div>
@@ -312,76 +333,69 @@
                 </div>
                 <div class="workspace-use-cockpit-shell">
                   <section class="workspace-use-launcher-panel">
-                    <div class="workspace-use-launcher-grid">
-                      <div class="workspace-use-input-grid">
-                        <label class="workspace-use-goal">
-                          复现 / 部署目标
-                          <textarea id="workspaceTaskGoalInput" rows="3" placeholder="例如：复现这篇论文，自动找实现和数据集，准备环境，选择空闲 GPU 跑 baseline，并汇总指标"></textarea>
-                        </label>
-                        <div class="workspace-use-secondary-stack">
-                          <details class="workspace-home-collapse workspace-use-support-collapse">
-                            <summary>
-                              <strong>补充线索（可选）</strong>
-                              <span>仓库、论文、数据路径和约束可后续补，系统会尽量自动发现。</span>
-                            </summary>
-                            <div class="workspace-home-collapse-body">
-                              <div class="workspace-use-support-grid">
-                                <label>
-                                  候选仓库
-                                  <textarea id="workspaceTaskRepoInput" rows="4" placeholder="每行一个 GitHub / Gitee URL"></textarea>
-                                </label>
-                                <label>
-                                  论文 / 资料
-                                  <textarea id="workspaceTaskPaperInput" rows="4" placeholder="每行一个论文或资料 URL"></textarea>
-                                </label>
-                                <label>
-                                  数据集 / 路径线索
-                                  <textarea id="workspaceTaskReferenceInput" rows="4" placeholder="每行一个数据集名、数据盘路径、链接或补充参考"></textarea>
-                                </label>
-                                <label>
-                                  约束与成功标准
-                                  <textarea id="workspaceTaskContextInput" rows="4" placeholder="每行一个限制条件、成功标准、已有发现或审批要求"></textarea>
-                                </label>
-                              </div>
-                            </div>
-                          </details>
-                          <details class="workspace-home-collapse workspace-launcher-details-collapse">
-                            <summary>
-                              <strong>启动包预览</strong>
-                              <span>创建前契约、影响范围和节点承接关系。</span>
-                            </summary>
-                            <div class="workspace-home-collapse-body">
-                              <div id="workspaceLauncherDetails" class="workspace-launcher-details"></div>
-                            </div>
-                          </details>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="workspace-use-template-band">
-                      <div class="subsection-head">
-                        <strong>Starter Chain</strong>
-                        <span class="muted">选择初始链路；创建实例后会复制成独立快照，后续模板改动不会污染旧实例。</span>
-                      </div>
-                      <div class="workspace-use-template-grid">
-                        <label>
-                          链路模板
-                          <select id="workspaceTemplateSelect" title="选择这次自动化实例要复制的 Starter Chain；创建后实例会拥有自己的节点快照"></select>
-                        </label>
-                        <div id="workspaceTemplateSummary" class="workspace-template-summary"></div>
-                        <div class="workspace-template-actions">
-                          <button id="workspaceCreateTaskBtn" class="secondary" type="button" title="只创建任务实例，不立即提交发现链或运行任务">创建任务</button>
-                          <button id="workspaceCreateDiscoverTaskBtn" class="primary" type="button" title="创建实例后提交安全发现链，只探测源码、路径、数据、环境、GPU 和产物入口">创建并自动发现</button>
-                          <button id="workspaceCreateRunTaskBtn" class="secondary" type="button" title="创建实例后交给自动推进决策；首次通常先跑安全发现，门禁通过后再完整运行">创建并自动推进</button>
-                        </div>
-                      </div>
-                      <p id="workspaceUseMessage" class="form-message"></p>
-                    </div>
+                    <label class="workspace-use-goal" title="描述这次要自动化完成的复现或部署目标；仓库、论文、路径可后续补充">
+                      <span class="workspace-cockpit-field-label">复现 / 部署目标</span>
+                      <textarea id="workspaceTaskGoalInput" rows="3" class="workspace-cockpit-fixed-input" placeholder="例如：复现这篇论文，自动找实现和数据集，准备环境，选择空闲 GPU 跑 baseline，并汇总指标"></textarea>
+                    </label>
                   </section>
                   <aside class="workspace-use-status-panel">
-                    <div id="workspaceCockpitDecision" class="workspace-home-decision"></div>
-                    <div id="workspaceLauncherPlan" class="workspace-launcher-plan"></div>
+                    <div id="workspaceUseMonitor" class="workspace-use-monitor-shell" hidden></div>
+                    <div id="workspaceCockpitDecision" class="workspace-home-decision" hidden></div>
+                    <div id="workspaceLauncherPlan" class="workspace-launcher-plan" hidden></div>
                     <div id="workspaceCapabilityBaseline" class="workspace-capability-baseline"></div>
                   </aside>
+                  <details class="workspace-use-support-band workspace-home-collapse workspace-use-support-collapse">
+                    <summary>
+                      <strong>补充线索（可选）</strong>
+                      <span>仓库、论文、数据路径和约束可后续补，系统会尽量自动发现。</span>
+                    </summary>
+                    <div class="workspace-home-collapse-body">
+                      <div class="workspace-use-support-grid">
+                        <label>
+                          候选仓库
+                          <textarea id="workspaceTaskRepoInput" rows="3" placeholder="每行一个 GitHub / Gitee URL"></textarea>
+                        </label>
+                        <label>
+                          论文 / 资料
+                          <textarea id="workspaceTaskPaperInput" rows="3" placeholder="每行一个论文或资料 URL"></textarea>
+                        </label>
+                        <label>
+                          数据集 / 路径线索
+                          <textarea id="workspaceTaskReferenceInput" rows="3" placeholder="每行一个数据集名、数据盘路径、链接或补充参考"></textarea>
+                        </label>
+                        <label>
+                          约束与成功标准
+                          <textarea id="workspaceTaskContextInput" rows="3" placeholder="每行一个限制条件、成功标准、已有发现或审批要求"></textarea>
+                        </label>
+                      </div>
+                    </div>
+                  </details>
+                  <div class="workspace-use-template-band workspace-use-template-band-wide">
+                    <div class="workspace-use-template-grid">
+                      <label class="workspace-cockpit-template-pick" title="选择 Starter Chain；创建后复制为独立实例快照">
+                        <span class="workspace-cockpit-field-label">链路模板</span>
+                        <select id="workspaceTemplateSelect"></select>
+                      </label>
+                      <div id="workspaceTemplateSummary" class="workspace-template-summary"></div>
+                      <div class="workspace-template-actions workspace-template-actions-grid">
+                        <button id="workspaceCreateTaskBtn" class="secondary mini" type="button" title="只建实例快照，不提交发现链或运行队列">仅建实例</button>
+                        <button id="workspaceCreateDiscoverTaskBtn" class="primary mini" type="button" title="建实例后只跑安全发现链，先收集路径、数据、环境和 GPU 证据">建实例 + 发现</button>
+                        <button id="workspaceCreateRunTaskBtn" class="secondary mini" type="button" title="建实例后交给自动推进；首次通常先跑安全发现">建实例 + 推进</button>
+                        <button id="workspaceTestChainBtn" class="secondary mini" type="button" title="检查当前输入、链路模板、发现链、资源和执行包是否就绪，不创建实例">测试链路</button>
+                      </div>
+                    </div>
+                    <p id="workspaceUseMessage" class="form-message"></p>
+                  </div>
+                  <div id="workspaceLaunchClosure" class="workspace-use-launch-closure-band" aria-label="启动闭环"></div>
+                  <details id="workspaceLauncherPreviewBand" class="workspace-use-preview-band workspace-home-collapse">
+                    <summary>
+                      <strong>启动包预览</strong>
+                      <span class="muted">创建前契约、节点承接与补齐入口。</span>
+                    </summary>
+                    <div class="workspace-home-collapse-body">
+                      <div id="workspaceLauncherPreview" class="workspace-launcher-preview-band-body"></div>
+                    </div>
+                  </details>
                 </div>
               </section>
 
@@ -410,68 +424,84 @@
                 </details>
               </section>
 
-              <div class="workspace-use-grid">
-                <section class="workspace-use-main">
-                  <section class="workspace-use-board">
-                    <div class="subsection-head">
+              <div class="workspace-use-grid workspace-use-stack">
+                <section class="workspace-use-board workspace-use-canvas-panel">
+                  <div class="subsection-head workspace-execution-board-head">
+                    <div>
                       <strong>执行看板</strong>
-                      <span id="workspaceExecutionMeta" class="muted">按顺序显示节点、责任 Agent 和当前状态。</span>
+                      <span id="workspaceExecutionMeta" class="muted">节点进度与当前状态；滚轮缩放，左键拖动画布。</span>
                     </div>
-                    <div id="workspaceExecutionBoard" class="workspace-execution-board"></div>
-                  </section>
+                    <div class="workspace-execution-board-tools">
+                      <button id="workspaceCockpitMonitorToggle" class="secondary mini" type="button" data-action="toggle-cockpit-monitor-mode" hidden title="切换监控专用模式：隐藏启动器，专注执行看板">监控模式</button>
+                    </div>
+                  </div>
+                  <div id="workspaceExecutionBoard" class="workspace-execution-board workspace-execution-board-compact workspace-execution-canvas-shell"></div>
                 </section>
 
-                <aside class="workspace-use-side">
-                  <section class="workspace-use-detail">
-                    <div class="subsection-head">
-                      <strong>实例详情</strong>
-                      <span id="workspaceSelectedInstanceMeta" class="muted">选择右侧实例或新建任务后在这里查看当前节点。</span>
-                    </div>
-                    <div id="workspaceExecutionDetail" class="workspace-execution-detail"></div>
-                  </section>
+                <section class="workspace-execution-inspector workspace-cockpit-inspector">
+                  <header class="workspace-cockpit-inspector-head">
+                    <strong>节点详情</strong>
+                    <span id="workspaceSelectedInstanceMeta" class="muted" title="选中画布节点看流程与状态；点中间工具看详情；右侧与 Agent 对话">选中节点查看详情</span>
+                  </header>
+                  <div class="workspace-execution-inspector-grid">
+                    <aside class="workspace-execution-inspector-col workspace-execution-inspector-node">
+                      <header class="workspace-cockpit-col-head" title="节点工作任务、操作流程与输入输出">
+                        <strong id="workspaceExecutionDetailColTitle">详情</strong>
+                        <span id="workspaceExecutionDetailColLabel" class="muted">节点 / 工具</span>
+                      </header>
+                      <div id="workspaceExecutionDetail" class="workspace-execution-detail workspace-inspector-scroll"></div>
+                    </aside>
+                    <section class="workspace-execution-inspector-col workspace-execution-inspector-tools">
+                      <header class="workspace-cockpit-col-head" title="绿=可用 · 蓝=运行 · 红=故障">
+                        <strong>工具</strong>
+                        <span class="workspace-cockpit-col-legend" aria-hidden="true"><i class="dot ok"></i><i class="dot run"></i><i class="dot bad"></i></span>
+                      </header>
+                      <div id="workspaceExecutionToolsColumn" class="workspace-execution-tools-column workspace-inspector-scroll"></div>
+                    </section>
+                    <aside class="workspace-execution-inspector-col workspace-execution-inspector-chat">
+                      <header class="workspace-cockpit-col-head workspace-cockpit-chat-head">
+                        <strong title="创建实例后默认跟随运行中节点 Agent">实例对话</strong>
+                        <label class="workspace-cockpit-agent-pick" title="切换对话 Agent">
+                          <span class="muted">Agent</span>
+                          <select id="workspaceUseChatAgentSelect"></select>
+                        </label>
+                      </header>
+                      <p id="workspaceUseChatHint" class="workspace-cockpit-chat-hint muted" hidden></p>
+                      <div class="workspace-inspector-chat-panes">
+                        <section class="workspace-inspector-chat-pane pane-output" title="Agent 回复与运行结果">
+                          <strong class="workspace-cockpit-pane-label">输出</strong>
+                          <div class="workspace-inspector-output-body workspace-inspector-scroll">
+                            <div id="workspaceAgentOutputPanel" class="workspace-inspector-output-stream"></div>
+                            <div id="workspaceUseChatList" class="workspace-chat-list workspace-inspector-output-list"></div>
+                          </div>
+                        </section>
+                        <section class="workspace-inspector-chat-pane pane-input" title="补充上下文或追问">
+                          <strong class="workspace-cockpit-pane-label">输入</strong>
+                          <div class="workspace-chat-composer workspace-inspector-input-composer">
+                            <textarea id="workspaceUseChatInput" rows="3" placeholder="输入要补充给 Agent 的信息"></textarea>
+                            <button id="workspaceUseChatSendBtn" class="primary mini" type="button" title="发送给当前对话 Agent">发送</button>
+                          </div>
+                        </section>
+                      </div>
+                    </aside>
+                  </div>
+                </section>
 
-                  <details class="workspace-use-drawer workspace-use-chat">
-                    <summary>
-                      <strong>实例对话</strong>
-                      <span>补上下文、追问或让默认聊天 Agent 回复。</span>
-                    </summary>
-                    <div class="workspace-use-drawer-body">
-                    <div class="workspace-chat-toolbar">
-                      <div>
-                        <strong>实例对话</strong>
-                        <p class="muted">围绕当前实例继续补上下文、追问或让默认聊天 Agent 回复。</p>
-                      </div>
-                      <label>
-                        对话 Agent
-                        <select id="workspaceUseChatAgentSelect"></select>
-                      </label>
-                    </div>
-                    <div id="workspaceUseChatList" class="workspace-chat-list"></div>
-                    <div class="workspace-chat-composer">
-                      <textarea id="workspaceUseChatInput" rows="4" placeholder="对当前实例继续补充信息或发起追问"></textarea>
-                      <div class="button-row">
-                        <button id="workspaceUseChatSendBtn" class="primary" type="button" title="把这段补充信息发送给当前工作台对话 Agent">发送</button>
-                        <span id="workspaceUseChatHint" class="muted"></span>
-                      </div>
-                    </div>
-                    </div>
-                  </details>
-                  <details class="workspace-use-drawer workspace-use-history">
-                    <summary>
-                      <strong>任务实例 / 历史</strong>
-                      <span id="workspaceHistoryMeta" class="muted">按最近更新时间排序</span>
-                    </summary>
-                    <div class="workspace-use-drawer-body">
-                      <div id="workspaceHistoryList" class="workspace-list workspace-history-list"></div>
-                    </div>
-                  </details>
-                </aside>
+                <details class="workspace-use-drawer workspace-use-history workspace-use-history-standalone">
+                  <summary>
+                    <strong>任务实例 / 历史</strong>
+                    <span id="workspaceHistoryMeta" class="muted">按最近更新时间排序</span>
+                  </summary>
+                  <div class="workspace-use-drawer-body">
+                    <div id="workspaceHistoryList" class="workspace-list workspace-history-list"></div>
+                  </div>
+                </details>
               </div>
             </section>
 
             <section id="workspaceManageModePanel" class="workspace-mode-panel" hidden>
-              <div id="workspaceManageTabs" class="segmented-tabs workspace-manage-tabs">
-                <button class="tab-chip active" data-tab="templates" type="button" title="编辑 Starter Chain 模板，实例创建时会复制成独立快照">工作流模板</button>
+              <div id="workspaceManageTabs" class="segmented-tabs workspace-manage-tabs workspace-manage-tabs-flat">
+                <button class="tab-chip active" data-tab="templates" type="button" title="编辑 Starter Chain 模板，实例创建时会复制成独立快照">工作流</button>
                 <button class="tab-chip" data-tab="agents" type="button" title="维护全局 Agent 角色、提示词、工具 allowlist 和模型覆盖">Agent</button>
                 <button class="tab-chip" data-tab="tools" type="button" title="维护工具注册表，控制 Agent 可以使用哪些真实动作">工具</button>
                 <button class="tab-chip" data-tab="ai" type="button" title="维护 Provider Profile、模型路由和模板默认聊天 Agent">AI</button>
@@ -703,9 +733,7 @@
                   <section id="manageAiEditor" class="workspace-template-studio"></section>
                 </div>
               </section>
-            </section>
-          </div>
-          <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
+            <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
             <summary class="workspace-project-drawer-summary" title="展开项目配置、节点链、Agent、工具、AI 和运行记录编辑区">
               <span>
                 <strong>项目配置 / 高级编辑</strong>
@@ -769,10 +797,10 @@
                       </details>
                     </section>
 
-                    <section class="workspace-section workspace-home-flow-section">
+                    <section class="workspace-section workspace-home-flow-section" hidden>
                       <div class="subsection-head">
                         <strong>执行链进度</strong>
-                        <span class="muted">看自动化链路走到哪一步；分工细节默认收起。</span>
+                        <span class="muted">驾驶舱执行看板已展示链路；此处保留给项目抽屉诊断。</span>
                       </div>
                       <div id="workspaceHomeFlow" class="workspace-home-flow"></div>
                     </section>
@@ -1197,6 +1225,8 @@
             </section>
           </div>
           </details>
+            </section>
+          </div>
           </div>
         </section>
 
@@ -1624,6 +1654,6 @@
         </div>
       </main>
     </div>
-    <script src="/app.js?v=20260609cf"></script>
+    <script src="/app.js?v=20260611cockpit6"></script>
   </body>
 </html>

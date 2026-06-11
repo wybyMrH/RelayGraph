@@ -158,6 +158,12 @@ const state = {
     workspaceResourceServerId: "",
     workspaceBackfillFocus: {},
     workspaceProjectConfigOpen: false,
+    cockpitMonitorMode: true,
+    workspaceFlowZoom: 1,
+    workspaceFlowPanX: 0,
+    workspaceFlowPanY: 0,
+    workspaceInspectorChatAgentId: "",
+    selectedWorkspaceFlowToolKey: "",
     workspaceUiRevision: 0,
     offlineServersOpen: true,
     workspaceToolSearch: "",
@@ -211,6 +217,8 @@ const STORAGE_KEYS = {
   workspaceTools: "tc-workspace-tools",
   workspaceModel: "tc-workspace-model",
   workspaceProjectConfigOpen: "tc-workspace-project-config-open",
+  cockpitMonitorMode: "tc-cockpit-monitor-mode",
+  workspaceFlowZoom: "tc-workspace-flow-zoom",
   jobForm: "tc-job-form",
   taskPlanForm: "tc-task-plan-form",
   transferForm: "tc-transfer-form",
@@ -218,7 +226,428 @@ const STORAGE_KEYS = {
   transferPathFavorites: "tc-transfer-path-favorites",
   selectedWorkspaceTool: "tc-selected-workspace-tool",
   workspaceResourceServer: "tc-workspace-resource-server",
+  workspaceCanvasLayout: "tc-workspace-canvas-layout",
 };
+
+const WORKSPACE_FLOW_CANVAS = {
+  cardMinWidth: 176,
+  viewportHeight: 240,
+  zoomMin: 0.45,
+  zoomMax: 1.85,
+  zoomStep: 0.08,
+};
+
+let workspaceFlowCanvasPanState = null;
+
+const WORKSPACE_FLOW_PHASE_TONES = {
+  输入: "input",
+  发现: "discovery",
+  环境: "env",
+  调度: "schedule",
+  回收: "delivery",
+  其他: "other",
+};
+
+function workspaceFlowZoomLevel() {
+  const zoom = Number(state.ui.workspaceFlowZoom || 1);
+  if (!Number.isFinite(zoom)) return 1;
+  return Math.max(WORKSPACE_FLOW_CANVAS.zoomMin, Math.min(WORKSPACE_FLOW_CANVAS.zoomMax, zoom));
+}
+
+function setWorkspaceFlowZoom(nextZoom, options = {}) {
+  const zoom = Math.max(
+    WORKSPACE_FLOW_CANVAS.zoomMin,
+    Math.min(WORKSPACE_FLOW_CANVAS.zoomMax, Number(nextZoom || 1)),
+  );
+  state.ui.workspaceFlowZoom = zoom;
+  if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceFlowZoom, String(zoom));
+  applyWorkspaceFlowCanvasTransform($("workspaceExecutionBoard"));
+}
+
+function centerWorkspaceFlowCanvas(root = $("workspaceExecutionBoard")) {
+  const viewport = root?.querySelector(".workspace-execution-flow-viewport");
+  const track = root?.querySelector(".workspace-flow-track");
+  if (!viewport || !track) return;
+  requestAnimationFrame(() => {
+    const zoom = workspaceFlowZoomLevel();
+    const scaledWidth = track.offsetWidth * zoom;
+    const scaledHeight = track.offsetHeight * zoom;
+    state.ui.workspaceFlowPanX = Math.round((viewport.clientWidth - scaledWidth) / 2);
+    state.ui.workspaceFlowPanY = Math.round((viewport.clientHeight - scaledHeight) / 2);
+    applyWorkspaceFlowCanvasTransform(root);
+  });
+}
+
+function resetWorkspaceFlowCanvasView(options = {}) {
+  state.ui.workspaceFlowZoom = 1;
+  state.ui.workspaceFlowPanX = 0;
+  state.ui.workspaceFlowPanY = 0;
+  if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceFlowZoom, "1");
+  applyWorkspaceFlowCanvasTransform($("workspaceExecutionBoard"));
+  if (options.center !== false) centerWorkspaceFlowCanvas($("workspaceExecutionBoard"));
+}
+
+function workspaceFlowNodeContext(node = {}, index = 0, options = {}) {
+  const workspace = options.workspace || selectedWorkspace();
+  const template = options.template || selectedWorkflowTemplate();
+  const preview = Boolean(options.preview);
+  const sourceNodes = Array.isArray(workspace?.nodes) ? workspace.nodes : Array.isArray(template?.nodes) ? template.nodes : [];
+  const sourceNode = sourceNodes.find((item) => String(item?.id || "") === String(node?.id || "")) || null;
+  const io = workspaceNodeIoContractState(node, sourceNode, { workspace, template });
+  const facts = workspaceExecutionChainNodeFacts(node, index, { workspace, template, preview });
+  const tools = Array.isArray(io.tools) ? io.tools.filter((tool) => tool.enabled !== false) : [];
+  return { workspace, template, preview, sourceNode, io, facts, tools };
+}
+
+function workspaceFlowNodeToolStatuses(node = {}, tools = [], preview = false) {
+  const nodeStatus = String(node?.status || (preview ? "preview" : "pending"));
+  if (nodeStatus === "done") return tools.map(() => "done");
+  if (["failed", "stopped", "blocked"].includes(nodeStatus)) {
+    return tools.map((_, index) => (index === 0 ? "failed" : "pending"));
+  }
+  if (!["running", "starting", "queued"].includes(nodeStatus)) {
+    return tools.map(() => (preview ? "preview" : "pending"));
+  }
+  const activeIndex = Math.min(tools.length - 1, Math.max(0, tools.findIndex((_, index) => index === 0)));
+  return tools.map((_, index) => {
+    if (index < activeIndex) return "done";
+    if (index === activeIndex) return "running";
+    return "pending";
+  });
+}
+
+function workspaceFlowToolStatusLabel(status = "pending") {
+  const map = {
+    done: "完成",
+    running: "进行中",
+    failed: "失败",
+    blocked: "阻塞",
+    preview: "预览",
+    pending: "等待",
+  };
+  return map[String(status || "pending")] || "等待";
+}
+
+function workspaceFlowToolHealthStatus(tool = {}, runtimeStatus = "pending") {
+  if (tool?.enabled === false) return "fault";
+  const status = String(runtimeStatus || "pending");
+  if (["failed", "blocked"].includes(status)) return "fault";
+  if (["running", "starting"].includes(status)) return "running";
+  if (status === "done") return "done";
+  if (status === "preview") return "preview";
+  return "available";
+}
+
+function workspaceFlowToolHealthLabel(health = "available") {
+  const map = {
+    available: "可用",
+    running: "运行中",
+    fault: "故障",
+    done: "完成",
+    preview: "预览",
+    pending: "等待",
+  };
+  return map[String(health || "available")] || "可用";
+}
+
+function workspaceFlowToolStatusLightMarkup(health = "available", title = "") {
+  const label = workspaceFlowToolHealthLabel(health);
+  return `<span class="workspace-tool-status-light health-${escapeHtml(health)}" title="${escapeHtml(title || label)}" aria-hidden="true"></span>`;
+}
+
+function workspaceFlowToolSelectionKey(nodeId = "", toolId = "") {
+  const node = String(nodeId || "").trim();
+  const tool = String(toolId || "").trim();
+  return node && tool ? `${node}::${tool}` : "";
+}
+
+function parseWorkspaceFlowToolSelectionKey(key = "") {
+  const text = String(key || "").trim();
+  if (!text.includes("::")) return { nodeId: "", toolId: "" };
+  const [nodeId, toolId] = text.split("::");
+  return { nodeId: nodeId || "", toolId: toolId || "" };
+}
+
+function workspaceFlowToolChipMarkup(tool = {}, status = "pending", nodeId = "", options = {}) {
+  const toolId = String(tool.id || "").trim();
+  const selectedKey = state.ui.selectedWorkspaceFlowToolKey || "";
+  const active = selectedKey === workspaceFlowToolSelectionKey(nodeId, toolId) ? " active" : "";
+  return `
+    <button
+      class="workspace-flow-tool-chip status-${escapeHtml(status)}${active}"
+      type="button"
+      data-action="select-flow-tool"
+      data-node-id="${escapeHtml(nodeId)}"
+      data-tool-id="${escapeHtml(toolId)}"
+      title="${escapeHtml(`${tool.label || tool.id || "工具"} · ${workspaceFlowToolStatusLabel(status)}`)}"
+    >
+      <span class="workspace-flow-tool-chip-label">${escapeHtml(tool.label || tool.id || "工具")}</span>
+      <span class="workspace-flow-tool-chip-state">${escapeHtml(workspaceFlowToolStatusLabel(status))}</span>
+    </button>
+  `;
+}
+
+function workspaceFlowNodeMarkup(node, index, options = {}) {
+  const { preview, facts, tools, sourceNode } = workspaceFlowNodeContext(node, index, options);
+  const statusClass = workspaceExecutionCanvasStatusClass(node?.status || (preview ? "preview" : "pending"));
+  const phase = workspaceStarterNodePhase(node?.kind || "");
+  const phaseTone = WORKSPACE_FLOW_PHASE_TONES[phase] || "other";
+  const nodeSelected = String(node?.id || "") === String(state.selectedWorkspaceExecutionNodeId || "");
+  const active = nodeSelected && !state.ui.selectedWorkspaceFlowToolKey ? " active" : "";
+  const running = ["running", "starting", "queued"].includes(String(node?.status || "")) ? " pulsing" : "";
+  const kindMeta = workspaceNodeMeta(node?.kind || "custom.step");
+  return `
+    <article
+      class="workspace-flow-node status-${escapeHtml(statusClass)} tone-${escapeHtml(phaseTone)}${active}${running}"
+      data-node-id="${escapeHtml(node.id || "")}"
+      data-index="${index}"
+      data-status="${escapeHtml(node?.status || (preview ? "preview" : "pending"))}"
+      title="${escapeHtml(node.title || workspaceNodeLabel(node.kind))}"
+    >
+      <button
+        class="workspace-flow-node-select"
+        type="button"
+        data-action="select-flow-node"
+        data-node-id="${escapeHtml(node.id || "")}"
+      >
+        <div class="workspace-flow-node-head">
+          <span class="workspace-flow-node-icon">${escapeHtml(String(index + 1))}</span>
+          <div class="workspace-flow-node-copy">
+            <span class="workspace-flow-node-phase">${escapeHtml(phase)}</span>
+            <strong>${escapeHtml(node.title || workspaceNodeLabel(node.kind))}</strong>
+          </div>
+          <span class="workspace-flow-node-state">${escapeHtml(workspaceStatusLabel(node.status || (preview ? "preview" : "pending")))}</span>
+        </div>
+        <p class="workspace-flow-node-desc">${escapeHtml(kindMeta.description || facts.agentName || "")}</p>
+        <div class="workspace-flow-node-meta-row">
+          <span>${escapeHtml(facts.agentName || "未指派")}</span>
+          <em>${escapeHtml(facts.output ? `输出 ${facts.output}` : `${facts.inputCount} 输入`)}</em>
+        </div>
+      </button>
+    </article>
+  `;
+}
+
+function workspaceFlowConnectorMarkup(leftNode = {}, rightNode = {}) {
+  const leftStatus = workspaceExecutionCanvasStatusClass(leftNode?.status || "pending");
+  const rightStatus = workspaceExecutionCanvasStatusClass(rightNode?.status || "pending");
+  const status = leftStatus === "running" || rightStatus === "running"
+    ? "running"
+    : leftStatus === "done" && rightStatus === "done"
+      ? "done"
+      : "pending";
+  return `<div class="workspace-flow-connector status-${escapeHtml(status)}" aria-hidden="true"></div>`;
+}
+
+function workspaceFlowToolDetailMarkup(tool = {}, node = {}, sourceNode = null, context = {}) {
+  const { workspace, template, preview, io, facts } = workspaceFlowNodeContext(node, 0, context);
+  const tools = Array.isArray(io.tools) ? io.tools.filter((item) => item.enabled !== false) : [];
+  const toolIndex = tools.findIndex((item) => String(item.id || "") === String(tool.id || ""));
+  const statuses = workspaceFlowNodeToolStatuses(node, tools, preview);
+  const status = statuses[Math.max(0, toolIndex)] || "pending";
+  return `
+    <section class="workspace-flow-tool-detail status-${escapeHtml(status)}">
+      <div class="workspace-flow-tool-detail-head">
+        <span>工具</span>
+        <strong>${escapeHtml(tool.label || tool.id || "工具")}</strong>
+        <em>${escapeHtml(workspaceFlowToolStatusLabel(status))} · ${escapeHtml(workspaceToolCategoryLabel(tool.category || "general"))}</em>
+      </div>
+      <div class="workspace-flow-tool-detail-grid">
+        <article>
+          <span>所属模块</span>
+          <strong>${escapeHtml(node?.title || workspaceNodeLabel(node?.kind))}</strong>
+          <em>${escapeHtml(facts.agentName || "未指派 Agent")}</em>
+        </article>
+        <article>
+          <span>工具 ID</span>
+          <strong>${escapeHtml(tool.id || "—")}</strong>
+          <em>${escapeHtml(tool.description || tool.summary || "等待执行时由 Agent 调用")}</em>
+        </article>
+        <article>
+          <span>模块输出</span>
+          <strong>${escapeHtml(io.outputKey || io.output || "—")}</strong>
+          <em>${escapeHtml(preview ? "创建实例后写入 context.outputs" : "供下游节点 input_mapping 引用")}</em>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function workspaceInspectorToolDetailMarkup(tool = {}, node = {}, index = 0, context = {}) {
+  const { preview, tools, workspace, template } = workspaceFlowNodeContext(node, index, context);
+  const toolIndex = tools.findIndex((item) => String(item.id || "") === String(tool.id || ""));
+  const statuses = workspaceFlowNodeToolStatuses(node, tools, preview);
+  const runtimeStatus = statuses[Math.max(0, toolIndex)] || "pending";
+  const health = workspaceFlowToolHealthStatus(tool, runtimeStatus);
+  const workspaceTools = Array.isArray(workspace?.tools) && workspace.tools.length
+    ? workspace.tools
+    : Array.isArray(template?.tools) && template.tools.length
+      ? template.tools
+      : state.workspaceToolsDraft;
+  const resolved = workspaceToolById(tool.id, workspaceTools) || globalToolById(tool.id) || {};
+  const summary = String(tool.description || tool.summary || resolved.description || resolved.summary || "").trim();
+  const category = tool.category || resolved.category || "general";
+  const facts = [
+    { label: "状态", value: workspaceFlowToolHealthLabel(health) },
+    { label: "类别", value: workspaceToolCategoryLabel(category) },
+  ];
+  if (tool.id) facts.push({ label: "ID", value: tool.id });
+  return `
+    <div class="workspace-inspector-tool-detail health-${escapeHtml(health)}">
+      <div class="workspace-inspector-detail-head">
+        ${workspaceFlowToolStatusLightMarkup(health, workspaceFlowToolHealthLabel(health))}
+        <div>
+          <span class="muted">工具</span>
+          <strong>${escapeHtml(tool.label || tool.id || "工具")}</strong>
+        </div>
+      </div>
+      <div class="workspace-inspector-detail-facts">
+        ${facts.map((fact) => `
+          <div class="workspace-inspector-detail-fact">
+            <span>${escapeHtml(fact.label)}</span>
+            <strong title="${escapeHtml(fact.value)}">${escapeHtml(fact.value)}</strong>
+          </div>
+        `).join("")}
+      </div>
+      ${summary ? `<p class="workspace-inspector-detail-desc">${escapeHtml(summary)}</p>` : ""}
+      ${health === "fault" ? '<p class="workspace-inspector-detail-warn">工具不可用或执行失败，请检查配置与最近日志。</p>' : ""}
+    </div>
+  `;
+}
+
+function workspaceExecutionToolFocusMarkup(tool = {}, node = {}, index = 0, options = {}) {
+  const { preview, tools } = workspaceFlowNodeContext(node, index, options);
+  const statuses = workspaceFlowNodeToolStatuses(node, tools, preview);
+  const toolIndex = tools.findIndex((item) => String(item.id || "") === String(tool.id || ""));
+  const status = statuses[Math.max(0, toolIndex)] || "pending";
+  const summary = String(tool.description || tool.summary || "").trim();
+  return `
+    <div class="workspace-execution-tool-focus status-${escapeHtml(status)}">
+      <span>当前工具</span>
+      <strong>${escapeHtml(tool.label || tool.id || "工具")}</strong>
+      <em>${escapeHtml(`${workspaceFlowToolStatusLabel(status)} · ${workspaceToolCategoryLabel(tool.category || "general")}`)}</em>
+      ${summary ? `<p>${escapeHtml(summary)}</p>` : ""}
+    </div>
+  `;
+}
+
+function workspaceExecutionToolsColumnMarkup(nodes = [], options = {}) {
+  const nodeId = String(state.selectedWorkspaceExecutionNodeId || "").trim();
+  const node = nodes.find((item) => String(item?.id || "") === nodeId) || null;
+  if (!node) return '<div class="empty">点击画布节点查看工具状态。</div>';
+  const index = Math.max(0, nodes.findIndex((item) => item?.id === node.id));
+  const { preview, tools } = workspaceFlowNodeContext(node, index, options);
+  const statuses = workspaceFlowNodeToolStatuses(node, tools, preview);
+  if (!tools.length) return '<div class="empty">这个节点还没有绑定工具。</div>';
+  return `
+    <div class="workspace-execution-tools-list status-${escapeHtml(workspaceExecutionCanvasStatusClass(node?.status || (preview ? "preview" : "pending")))}">
+      ${tools.map((tool, toolIndex) => {
+        const status = statuses[toolIndex] || "pending";
+        const health = workspaceFlowToolHealthStatus(tool, status);
+        const selected = workspaceFlowToolSelectionKey(node.id, tool.id) === (state.ui.selectedWorkspaceFlowToolKey || "");
+        return `
+          <button
+            class="workspace-execution-tool-row status-${escapeHtml(status)}${selected ? " active" : ""}"
+            type="button"
+            data-action="select-flow-tool"
+            data-node-id="${escapeHtml(node.id || "")}"
+            data-tool-id="${escapeHtml(tool.id || "")}"
+            title="${escapeHtml(tool.description || tool.summary || tool.label || tool.id || "工具")}"
+          >
+            <span class="workspace-execution-tool-row-main">
+              ${workspaceFlowToolStatusLightMarkup(health, `${tool.label || tool.id || "工具"} · ${workspaceFlowToolHealthLabel(health)}`)}
+              <strong>${escapeHtml(tool.label || tool.id || "工具")}</strong>
+            </span>
+            <span class="workspace-execution-tool-row-status">${escapeHtml(workspaceFlowToolHealthLabel(health))}</span>
+          </button>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderWorkspaceExecutionToolsColumn(nodes = null, options = {}) {
+  const root = $("workspaceExecutionToolsColumn");
+  if (!root) return;
+  const workspace = options.workspace || selectedWorkspace();
+  const template = options.template || selectedWorkflowTemplate();
+  const preview = Boolean(options.preview || !workspace?.id);
+  const list = Array.isArray(nodes)
+    ? nodes
+    : preview
+      ? templatePreviewExecutionNodes(template)
+      : Array.isArray(workspace?.execution?.nodes) && workspace.execution.nodes.length
+        ? workspace.execution.nodes
+        : workspace?.nodes || [];
+  root.innerHTML = workspaceExecutionToolsColumnMarkup(list, { workspace, template, preview });
+}
+
+function renderWorkspaceExecutionInspector(nodes = null, options = {}) {
+  const workspace = options.workspace || selectedWorkspace();
+  const template = options.template || selectedWorkflowTemplate();
+  const preview = Boolean(options.preview || !workspace?.id);
+  const list = Array.isArray(nodes)
+    ? nodes
+    : preview
+      ? templatePreviewExecutionNodes(template)
+      : Array.isArray(workspace?.execution?.nodes) && workspace.execution.nodes.length
+        ? workspace.execution.nodes
+        : workspace?.nodes || [];
+  renderWorkspaceExecutionToolsColumn(list, { workspace, template, preview });
+  renderWorkspaceExecutionDetail();
+  renderWorkspaceUseChat();
+}
+
+function applyWorkspaceFlowCanvasTransform(root = $("workspaceExecutionBoard")) {
+  const canvas = root?.querySelector(".workspace-execution-canvas");
+  if (!canvas) return;
+  const zoom = workspaceFlowZoomLevel();
+  const panX = Number(state.ui.workspaceFlowPanX || 0) || 0;
+  const panY = Number(state.ui.workspaceFlowPanY || 0) || 0;
+  const panLayer = canvas.querySelector(".workspace-flow-pan-layer");
+  const label = canvas.querySelector("[data-flow-zoom-label]");
+  if (panLayer) {
+    panLayer.style.transform = `translate(${panX}px, ${panY}px)`;
+    panLayer.dataset.panX = String(panX);
+    panLayer.dataset.panY = String(panY);
+  }
+  const zoomLayer = canvas.querySelector(".workspace-flow-zoom-layer");
+  if (zoomLayer) {
+    zoomLayer.style.zoom = String(zoom);
+    zoomLayer.dataset.zoom = String(zoom);
+  }
+  if (label) label.textContent = `${Math.round(zoom * 100)}%`;
+}
+
+function refreshWorkspaceExecutionFlowCanvas(root = $("workspaceExecutionBoard")) {
+  applyWorkspaceFlowCanvasTransform(root);
+}
+
+function refreshWorkspaceFlowCanvasSelection(root = $("workspaceExecutionBoard")) {
+  const nodeId = String(state.selectedWorkspaceExecutionNodeId || "").trim();
+  const toolKey = state.ui.selectedWorkspaceFlowToolKey || "";
+  root?.querySelectorAll(".workspace-flow-node").forEach((nodeEl) => {
+    const active = String(nodeEl.dataset.nodeId || "") === nodeId && !toolKey;
+    nodeEl.classList.toggle("active", active);
+  });
+  root?.querySelectorAll(".workspace-flow-tool-chip, .workspace-execution-tool-row").forEach((toolEl) => {
+    const key = workspaceFlowToolSelectionKey(toolEl.dataset.nodeId || "", toolEl.dataset.toolId || "");
+    toolEl.classList.toggle("active", Boolean(toolKey) && key === toolKey);
+  });
+}
+
+function selectWorkspaceFlowTool(nodeId, toolId = "") {
+  const node = String(nodeId || "").trim();
+  const tool = String(toolId || "").trim();
+  if (!node) return;
+  state.ui.selectedWorkspaceFlowToolKey = workspaceFlowToolSelectionKey(node, tool);
+  if (state.selectedWorkspaceExecutionNodeId !== node) {
+    selectWorkspaceExecutionNode(node, { canvasSelect: true, reveal: false });
+    return;
+  }
+  refreshWorkspaceFlowCanvasSelection();
+  renderWorkspaceExecutionInspector();
+}
 
 const WORKSPACE_PROJECT_TABS = ["home", "project", "workflow", "chat", "agents", "tools", "model", "runs"];
 
@@ -2500,9 +2929,17 @@ function revealWorkspaceExecutionNode(nodeId, options = {}) {
 function selectWorkspaceExecutionNode(nodeId, options = {}) {
   const next = String(nodeId || "").trim();
   const changed = state.selectedWorkspaceExecutionNodeId !== next;
+  if (changed) state.ui.selectedWorkspaceFlowToolKey = "";
   state.selectedWorkspaceExecutionNodeId = next;
   if (changed) markWorkspaceUiInteraction();
   saveWorkspaceExecutionNodeSelection(state.selectedWorkspaceExecutionNodeId);
+  if (options.canvasSelect) {
+    syncWorkspaceInspectorChatAgent(next);
+    renderWorkspaceExecutionBoard();
+    renderWorkspaceExecutionInspector();
+    if (options.reveal) revealWorkspaceExecutionNode(next, options);
+    return;
+  }
   renderWorkspaceWorkbench();
   if (options.reveal) revealWorkspaceExecutionNode(next, options);
 }
@@ -2515,6 +2952,19 @@ function focusWorkspaceExecutionNode(nodeId, options = {}) {
   } else {
     revealWorkspacePanelTarget(options.targetId || "workspaceExecutionBoard", options);
   }
+}
+
+function focusWorkspaceFlowCanvasNode(nodeId) {
+  const next = String(nodeId || "").trim();
+  if (!next) return;
+  state.ui.selectedWorkspaceFlowToolKey = "";
+  switchWorkspaceTab("home", { reveal: false });
+  selectWorkspaceExecutionNode(next, {
+    tab: "home",
+    reveal: false,
+    canvasSelect: true,
+  });
+  refreshWorkspaceFlowCanvasSelection();
 }
 
 function workspaceExecutionPhaseGroups(nodes = []) {
@@ -2919,6 +3369,7 @@ function workspaceNodeExecutionPlanMarkup(workspace = selectedWorkspace(), node 
 function workspaceExecutionCardMarkup(node, index, options = {}) {
   const active = node.id === state.selectedWorkspaceExecutionNodeId ? " active" : "";
   const status = String(node.status || (options.preview ? "preview" : "pending"));
+  const compact = Boolean(options.compact);
   const workspace = options.workspace || selectedWorkspace();
   const template = options.template || selectedWorkflowTemplate();
   const sourceNode = options.sourceNode || null;
@@ -2930,6 +3381,18 @@ function workspaceExecutionCardMarkup(node, index, options = {}) {
   const resourceSummary = options.preview
     ? ""
     : `${resources.execution_mode || "cpu"} · ${resources.server_id || "auto"} · GPU ${resources.gpu_index || resources.gpu_policy || "auto"}`;
+  if (compact) {
+    return `
+      <button class="workspace-execution-card compact${active} status-${escapeHtml(status)}" type="button" data-action="select-execution-node" data-node-id="${escapeHtml(node.id)}" title="${escapeHtml(node.title || workspaceNodeLabel(node.kind))}">
+        <div class="workspace-execution-card-head">
+          <span class="workspace-execution-order">${index + 1}</span>
+          <strong>${escapeHtml(node.title || workspaceNodeLabel(node.kind))}</strong>
+          <span class="state ${escapeHtml(status)}">${escapeHtml(workspaceStatusLabel(status))}</span>
+        </div>
+        ${node.error ? `<div class="workspace-execution-card-error">${escapeHtml(node.error)}</div>` : ""}
+      </button>
+    `;
+  }
   return `
     <button class="workspace-execution-card${active} status-${escapeHtml(status)}" type="button" data-action="select-execution-node" data-node-id="${escapeHtml(node.id)}" title="${escapeHtml(options.preview ? "选择这个模板预览节点，查看实例创建后的计划位置" : "选择这个执行节点，查看门禁、资源、任务和产物详情")}">
       <div class="workspace-execution-card-head">
@@ -3109,6 +3572,25 @@ function workspaceExecutionChainMarkup(nodes = [], options = {}) {
   const template = options.template || selectedWorkflowTemplate();
   const groups = workspaceExecutionPhaseGroups(nodes);
   if (!groups.length) return '<div class="empty">还没有可展示的执行节点。</div>';
+  const compact = Boolean(options.compact);
+  const doneCount = nodes.filter((node) => String(node?.status || "") === "done").length;
+  const runningCount = nodes.filter((node) => ["running", "starting", "queued"].includes(String(node?.status || ""))).length;
+  const failedCount = nodes.filter((node) => ["failed", "stopped", "blocked"].includes(String(node?.status || ""))).length;
+  if (compact) {
+    return `
+      <div class="workspace-execution-chain-compact-head">
+        <strong>${escapeHtml(`${doneCount}/${nodes.length} 完成`)}</strong>
+        <span>${escapeHtml(`${runningCount} 运行 · ${failedCount} 异常`)}</span>
+      </div>
+      <div class="workspace-execution-chain-compact-list">
+        ${nodes.map((node, index) => {
+          const sourceNode = (Array.isArray(workspace?.nodes) ? workspace.nodes : Array.isArray(template?.nodes) ? template.nodes : [])
+            .find((item) => String(item?.id || "") === String(node?.id || "")) || null;
+          return workspaceExecutionCardMarkup(node, index, { ...options, workspace, template, sourceNode, compact: true });
+        }).join("")}
+      </div>
+    `;
+  }
   return `
     ${workspaceExecutionChainHeaderMarkup(nodes, groups, { ...options, workspace, template })}
     ${groups.map((group) => `
@@ -3134,6 +3616,240 @@ function workspaceExecutionChainMarkup(nodes = [], options = {}) {
   `;
 }
 
+function workspaceExecutionCanvasStatusClass(status = "pending") {
+  const value = String(status || "pending");
+  if (value === "done") return "done";
+  if (["running", "starting", "queued"].includes(value)) return "running";
+  if (["failed", "stopped", "blocked"].includes(value)) return "failed";
+  if (value === "preview") return "preview";
+  return "pending";
+}
+
+function workspaceInspectorNodeOperationSteps(node = {}, sourceNode = null, io = {}, index = 0) {
+  const kind = String(sourceNode?.kind || node?.kind || "").trim();
+  const contract = workspaceNodeIoContract(kind, index);
+  const inputs = (Array.isArray(io.inputs) && io.inputs.length ? io.inputs : contract.inputs || [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const tools = (Array.isArray(io.tools) ? io.tools : []).filter((tool) => tool.enabled !== false);
+  const toolNames = tools.map((tool) => tool.label || tool.id).filter(Boolean).slice(0, 3);
+  const agentName = String(io.agentName || "Agent").trim();
+  const outputKey = String(io.outputKey || contract.output || "").trim();
+  const evidence = String(contract.evidence || "").trim();
+  const steps = [];
+  if (inputs.length) steps.push({ label: "读取", text: inputs.join("、") });
+  if (toolNames.length) steps.push({ label: "执行", text: `${agentName} 调用 ${toolNames.join("、")}` });
+  else steps.push({ label: "执行", text: `${agentName} 完成节点任务` });
+  if (outputKey) steps.push({ label: "产出", text: evidence ? `${outputKey} · ${evidence}` : outputKey });
+  const handoff = String(io.handoff || "").trim();
+  const nextTitle = String(io.nextTitle || "").trim();
+  if (handoff) steps.push({ label: "交接", text: handoff });
+  else if (nextTitle && nextTitle !== "最终报告") steps.push({ label: "交接", text: `交给 ${nextTitle}` });
+  return steps;
+}
+
+function workspaceInspectorNodeConfigHighlights(sourceNode = null) {
+  if (!sourceNode) return [];
+  const kind = String(sourceNode.kind || "").trim();
+  const config = sourceNode.config && typeof sourceNode.config === "object" ? sourceNode.config : {};
+  const meta = workspaceNodeMeta(kind);
+  const fields = Array.isArray(meta.configFields) ? meta.configFields : [];
+  const highlights = fields
+    .map((field) => {
+      const value = String(config[field.key] || "").trim();
+      if (!value) return null;
+      const short = value.length > 56 ? `${value.slice(0, 56)}…` : value;
+      return { label: field.label || field.key, value: short };
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  if (highlights.length) return highlights;
+  const summary = String(workspaceNodeSummary(sourceNode) || "").trim();
+  if (summary && !["待补充节点内容", "待定义克隆位置"].includes(summary)) {
+    return [{ label: "配置", value: summary.length > 56 ? `${summary.slice(0, 56)}…` : summary }];
+  }
+  return [];
+}
+
+function workspaceExecutionNodeSummaryMarkup(node = null, index = 0, context = {}) {
+  if (!node) return '<div class="empty">点击画布节点查看工作任务与状态。</div>';
+  const { preview, io, workspace } = workspaceFlowNodeContext(node, index, context);
+  const sourceNode = context.sourceNode || null;
+  const phase = workspaceStarterNodePhase(node?.kind || sourceNode?.kind || "");
+  const status = String(node?.status || (preview ? "preview" : "pending"));
+  const statusClass = workspaceExecutionCanvasStatusClass(status);
+  const errorText = String(node?.error || workspace?.execution?.latest_error || "").trim();
+  const jobId = String(node?.job_id || "").trim();
+  const kindMeta = workspaceNodeMeta(node?.kind || sourceNode?.kind || "custom.step");
+  const taskDesc = String(kindMeta.description || "").trim();
+  const steps = workspaceInspectorNodeOperationSteps(node, sourceNode, io, index);
+  const configHighlights = workspaceInspectorNodeConfigHighlights(sourceNode);
+  const inputLabels = (Array.isArray(io.inputs) ? io.inputs : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const outputKey = String(io.outputKey || "").trim();
+  const toolCount = Array.isArray(io.tools) ? io.tools.filter((tool) => tool.enabled !== false).length : 0;
+  return `
+    <div class="workspace-inspector-node-detail status-${escapeHtml(statusClass)}">
+      <div class="workspace-node-summary-top">
+        <span class="workspace-node-summary-kind">${escapeHtml(phase)}</span>
+        <span class="workspace-node-summary-status">${escapeHtml(workspaceStatusLabel(status))}</span>
+      </div>
+      <p class="workspace-node-summary-title">${escapeHtml(node.title || workspaceNodeLabel(node.kind))}</p>
+      ${taskDesc ? `<p class="workspace-node-summary-task">${escapeHtml(taskDesc)}</p>` : ""}
+      ${steps.length ? `
+        <section class="workspace-inspector-node-section">
+          <h4>操作流程</h4>
+          <ol class="workspace-inspector-step-list">
+            ${steps.map((step) => `
+              <li>
+                <span>${escapeHtml(step.label)}</span>
+                <p>${escapeHtml(step.text)}</p>
+              </li>
+            `).join("")}
+          </ol>
+        </section>
+      ` : ""}
+      ${inputLabels.length || outputKey ? `
+        <section class="workspace-inspector-node-section">
+          <h4>输入输出</h4>
+          <div class="workspace-inspector-io-compact">
+            ${inputLabels.length ? `<div class="workspace-inspector-io-line"><span>读入</span><strong>${escapeHtml(inputLabels.join("、"))}</strong></div>` : ""}
+            ${outputKey ? `<div class="workspace-inspector-io-line"><span>写出</span><strong>${escapeHtml(outputKey)}</strong></div>` : ""}
+            ${toolCount ? `<div class="workspace-inspector-io-line"><span>工具</span><strong>${escapeHtml(String(toolCount))} 项绑定</strong></div>` : ""}
+          </div>
+        </section>
+      ` : ""}
+      ${configHighlights.length ? `
+        <section class="workspace-inspector-node-section">
+          <h4>配置要点</h4>
+          <div class="workspace-node-summary-facts">
+            ${configHighlights.map((item) => `
+              <div class="workspace-node-summary-fact">
+                <span>${escapeHtml(item.label)}</span>
+                <strong title="${escapeHtml(item.value)}">${escapeHtml(item.value)}</strong>
+              </div>
+            `).join("")}
+          </div>
+        </section>
+      ` : ""}
+      ${io.inputGapCount > 0 ? `<p class="workspace-node-summary-hint tone-warn">输入映射还有 ${escapeHtml(String(io.inputGapCount))} 处待补。</p>` : ""}
+      ${errorText ? `<p class="workspace-node-summary-error">${escapeHtml(errorText)}</p>` : ""}
+      ${jobId && !preview ? `
+        <div class="workspace-node-summary-actions">
+          <button class="secondary mini" type="button" data-action="open-selected-node-log" data-job-id="${escapeHtml(jobId)}" title="打开最近任务日志">打开最近日志</button>
+        </div>
+      ` : ""}
+      ${preview ? `<p class="workspace-node-summary-hint muted">模板预览：创建实例后显示真实运行状态。</p>` : ""}
+    </div>
+  `;
+}
+
+function workspaceExecutionCanvasMarkup(nodes = [], options = {}) {
+  const workspace = options.workspace || selectedWorkspace();
+  const template = options.template || selectedWorkflowTemplate();
+  if (!nodes.length) return '<div class="empty">还没有可展示的执行节点。</div>';
+  const preview = Boolean(options.preview);
+  const doneCount = nodes.filter((node) => String(node?.status || "") === "done").length;
+  const runningCount = nodes.filter((node) => ["running", "starting", "queued"].includes(String(node?.status || ""))).length;
+  const banner = options.banner && typeof options.banner === "object" ? options.banner : null;
+  const trackParts = [];
+  nodes.forEach((node, index) => {
+    trackParts.push(workspaceFlowNodeMarkup(node, index, { workspace, template, preview }));
+    if (index < nodes.length - 1) trackParts.push(workspaceFlowConnectorMarkup(node, nodes[index + 1]));
+  });
+  return `
+    <div class="workspace-execution-canvas ${preview ? "preview" : "live"}">
+      ${banner ? `
+        <div class="workspace-execution-canvas-banner">
+          <strong>${escapeHtml(banner.title || "")}</strong>
+          <span>${escapeHtml(banner.detail || "")}</span>
+        </div>
+      ` : ""}
+      <div class="workspace-execution-canvas-summary">
+        <strong>${escapeHtml(`${doneCount}/${nodes.length} 完成`)}</strong>
+        <span>${escapeHtml(`${runningCount} 运行 · 滚轮缩放 · 左键拖动画布`)}</span>
+        <div class="workspace-flow-zoom-tools">
+          <button class="secondary mini" type="button" data-action="workspace-flow-zoom-out" title="缩小画布">−</button>
+          <span class="workspace-flow-zoom-label" data-flow-zoom-label>${Math.round(workspaceFlowZoomLevel() * 100)}%</span>
+          <button class="secondary mini" type="button" data-action="workspace-flow-zoom-in" title="放大画布">+</button>
+          <button class="secondary mini" type="button" data-action="workspace-flow-zoom-fit" title="重置缩放并把流程画布居中到视口">适应</button>
+        </div>
+      </div>
+      <div class="workspace-execution-flow-viewport" tabindex="0" aria-label="执行流程画布">
+        <div class="workspace-flow-pan-layer" data-pan-x="${Number(state.ui.workspaceFlowPanX || 0)}" data-pan-y="${Number(state.ui.workspaceFlowPanY || 0)}">
+          <div class="workspace-flow-zoom-layer" data-zoom="${workspaceFlowZoomLevel()}">
+            <div class="workspace-flow-track">
+              ${trackParts.join("")}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function handleWorkspaceFlowViewportWheel(event) {
+  const viewport = event.target.closest(".workspace-execution-flow-viewport");
+  if (!viewport || !viewport.closest("#workspaceExecutionBoard")) return;
+  const step = WORKSPACE_FLOW_CANVAS.zoomStep;
+  const nextZoom = workspaceFlowZoomLevel() + (event.deltaY > 0 ? -step : step);
+  setWorkspaceFlowZoom(nextZoom);
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function handleWorkspaceFlowCanvasPointerDown(event) {
+  const viewport = event.target.closest(".workspace-execution-flow-viewport");
+  if (!viewport || !viewport.closest("#workspaceExecutionBoard")) return;
+  if (event.button !== 0) return;
+  if (event.target.closest("[data-action]")) return;
+  workspaceFlowCanvasPanState = {
+    viewport,
+    pointerId: event.pointerId,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    originPanX: Number(state.ui.workspaceFlowPanX || 0) || 0,
+    originPanY: Number(state.ui.workspaceFlowPanY || 0) || 0,
+    moved: false,
+  };
+  viewport.classList.add("panning");
+  viewport.setPointerCapture?.(event.pointerId);
+}
+
+function handleWorkspaceFlowCanvasPointerMove(event) {
+  const pan = workspaceFlowCanvasPanState;
+  if (!pan || pan.pointerId !== event.pointerId) return;
+  const dx = event.clientX - pan.startClientX;
+  const dy = event.clientY - pan.startClientY;
+  if (!pan.moved && Math.hypot(dx, dy) < 4) return;
+  pan.moved = true;
+  state.ui.workspaceFlowPanX = pan.originPanX + dx;
+  state.ui.workspaceFlowPanY = pan.originPanY + dy;
+  applyWorkspaceFlowCanvasTransform($("workspaceExecutionBoard"));
+}
+
+function handleWorkspaceFlowCanvasPointerUp(event) {
+  const pan = workspaceFlowCanvasPanState;
+  if (!pan || pan.pointerId !== event.pointerId) return;
+  pan.viewport?.classList.remove("panning");
+  pan.viewport?.releasePointerCapture?.(event.pointerId);
+  workspaceFlowCanvasPanState = null;
+}
+
+function bindWorkspaceExecutionFlowCanvas() {
+  const board = $("workspaceExecutionBoard");
+  if (!board || board.dataset.flowCanvasBound === "1") return;
+  board.dataset.flowCanvasBound = "1";
+  board.addEventListener("wheel", handleWorkspaceFlowViewportWheel, { passive: false, capture: true });
+  board.addEventListener("pointerdown", handleWorkspaceFlowCanvasPointerDown);
+  window.addEventListener("pointermove", handleWorkspaceFlowCanvasPointerMove);
+  window.addEventListener("pointerup", handleWorkspaceFlowCanvasPointerUp);
+  window.addEventListener("pointercancel", handleWorkspaceFlowCanvasPointerUp);
+}
+
 function workspaceExecutionChainSourceNodes(workspace = selectedWorkspace(), template = selectedWorkflowTemplate()) {
   if (Array.isArray(workspace?.execution?.nodes) && workspace.execution.nodes.length) {
     return workspace.execution.nodes.map((node) => {
@@ -3157,6 +3873,142 @@ function workspaceExecutionChainSourceNodes(workspace = selectedWorkspace(), tem
   if (Array.isArray(workspace?.nodes) && workspace.nodes.length) return workspace.nodes;
   if (Array.isArray(template?.nodes) && template.nodes.length) return template.nodes;
   return [];
+}
+
+function workspaceCockpitNextAction(workspace = selectedWorkspace()) {
+  const automation = workspace?.automation && typeof workspace.automation === "object" ? workspace.automation : null;
+  const cockpit = automation?.cockpit && typeof automation.cockpit === "object" ? automation.cockpit : null;
+  const next = cockpit?.next_action && typeof cockpit.next_action === "object" ? cockpit.next_action : null;
+  if (next?.primary) return next;
+  if (automation?.next_action && typeof automation.next_action === "object" && automation.next_action.primary) {
+    return automation.next_action;
+  }
+  return null;
+}
+
+function workspaceCockpitChainItems(workspace = selectedWorkspace()) {
+  const chain = workspace?.automation?.cockpit?.chain;
+  return Array.isArray(chain) && chain.length ? chain : null;
+}
+
+function workspaceNextActionUiButton(button = {}) {
+  if (!button || typeof button !== "object") return null;
+  const label = String(button.label || "").trim();
+  const action = String(button.action || button.dataAction || "").trim();
+  if (!label || !action) return null;
+  return {
+    label,
+    dataAction: action,
+    tab: String(button.tab || "").trim(),
+    nodeId: String(button.node_id || button.nodeId || "").trim(),
+    jobId: String(button.job_id || button.jobId || "").trim(),
+    serverId: String(button.server_id || button.serverId || "").trim(),
+    targetId: String(button.target_id || button.targetId || "").trim(),
+    tone: String(button.tone || "primary").trim() || "primary",
+    title: String(button.title || label).trim(),
+  };
+}
+
+function workspaceCommandCenterModelFromCockpit(nextAction = {}, workspace = selectedWorkspace(), options = {}) {
+  const resources = options.resources || workspaceUseResourceSummary();
+  const jobs = workspaceJobs();
+  const activeJobs = jobs.filter((job) => isJobActive(job));
+  const primary = workspaceNextActionUiButton(nextAction.primary);
+  const secondary = workspaceNextActionUiButton(nextAction.secondary);
+  const blockers = Array.isArray(nextAction.blocked_checks) ? nextAction.blocked_checks.slice(0, 4) : [];
+  const facts = Array.isArray(nextAction.facts) && nextAction.facts.length
+    ? nextAction.facts.slice(0, 3)
+    : [
+        { label: "阶段", value: String(nextAction.phase || "等待判断"), status: String(nextAction.status || "draft") },
+        { label: "任务", value: `${jobs.length} 个 · ${activeJobs.length} 活跃`, status: activeJobs.length ? "running" : "ready" },
+        { label: "资源", value: workspace?.automation?.resource_orchestration?.summary || resources.title || "等待资源", status: workspace?.automation?.resource_orchestration?.status || resources.state || "draft" },
+      ];
+  return {
+    status: String(nextAction.status || "draft").trim() || "draft",
+    phase: String(nextAction.phase || "等待判断").trim(),
+    title: String(nextAction.title || "等待自动推进判断").trim(),
+    reason: String(nextAction.reason || "").trim(),
+    detail: String(nextAction.detail || nextAction.reason || "").trim(),
+    primary: primary || { label: "自动推进", dataAction: "advance-workspace-automation", tone: "primary", title: "根据当前门禁自动决定下一步。" },
+    secondary,
+    blockers,
+    facts,
+    focusNodeId: String(nextAction.focus_node_id || "").trim(),
+  };
+}
+
+function workspaceCockpitChainMarkup(workspace = selectedWorkspace(), template = selectedWorkflowTemplate(), options = {}) {
+  const chain = workspaceCockpitChainItems(workspace);
+  if (!chain?.length) {
+    return workspaceExecutionChainStructureMarkup(workspace, template, options);
+  }
+  const focusNodeId = String(
+    options.focusNodeId
+    || workspaceCockpitNextAction(workspace)?.focus_node_id
+    || state.selectedWorkspaceExecutionNodeId
+    || "",
+  ).trim();
+  const doneCount = chain.filter((item) => String(item.status || "") === "done").length;
+  const runningCount = chain.filter((item) => ["running", "starting", "queued"].includes(String(item.status || ""))).length;
+  const blockedCount = chain.filter((item) => ["blocked", "failed", "stopped"].includes(String(item.status || ""))).length;
+  const summary = `${doneCount}/${chain.length} 完成 · ${runningCount} 活跃 · ${blockedCount} 阻塞`;
+  return `
+    <div class="workspace-chain-structure live cockpit-chain">
+      <div class="workspace-chain-structure-head">
+        <div>
+          <span>执行链</span>
+          <strong>节点与任务绑定</strong>
+        </div>
+        <small>${escapeHtml(summary)}</small>
+      </div>
+      <div class="workspace-cockpit-chain-nodes">
+        ${chain.map((item, index) => {
+          const selected = String(item.id || "") === focusNodeId ? " active" : "";
+          const configLabel = String(item.config_ready || "draft");
+          const jobLabel = item.job_id
+            ? `${item.job_status || "job"} · ${String(item.job_id).slice(0, 8)}`
+            : "未绑定任务";
+          const errorHint = String(item.error || "").trim();
+          const statusHint = item.job_id ? jobLabel : (item.status || "pending");
+          const title = `${item.title || workspaceNodeLabel(item.kind)} · ${item.agent_name || "未指派"} · ${statusHint}${errorHint ? ` · ${errorHint}` : ""}`;
+          return `
+            <button
+              class="workspace-cockpit-chain-node status-${escapeHtml(item.status || "pending")} config-${escapeHtml(configLabel)}${selected}"
+              type="button"
+              data-action="select-execution-node"
+              data-node-id="${escapeHtml(item.id || "")}"
+              data-target-id="workspaceExecutionDetail"
+              title="${escapeHtml(title)}"
+            >
+              <span>${escapeHtml(String(index + 1))}</span>
+              <div>
+                <strong>${escapeHtml(item.title || workspaceNodeLabel(item.kind))}</strong>
+                <em>${escapeHtml(item.agent_name || item.agent_id || "未指派")} · 配置 ${escapeHtml(configLabel)}</em>
+              </div>
+              <small>${escapeHtml(errorHint || statusHint)}</small>
+            </button>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function focusWorkspaceCockpitFromNextAction(workspace = selectedWorkspace()) {
+  const next = workspaceCockpitNextAction(workspace);
+  const focusNodeId = String(next?.focus_node_id || "").trim();
+  switchWorkspaceMode("use");
+  switchWorkspaceTab("home", { reveal: false });
+  state.ui.workspaceProjectConfigOpen = false;
+  saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "0");
+  syncWorkspaceProjectConfigDrawer({ scroll: false });
+  revealWorkspacePanelTarget("workspaceExecutionBoard", { block: "start" });
+  if (focusNodeId) {
+    state.selectedWorkspaceExecutionNodeId = focusNodeId;
+    saveStoredValue(STORAGE_KEYS.selectedWorkspaceExecutionNode, focusNodeId);
+    focusWorkspaceExecutionNode(focusNodeId, { targetId: "workspaceExecutionDetail", tab: "home", block: "center" });
+    renderWorkspaceExecutionDetail();
+  }
 }
 
 function workspaceExecutionChainNodeFacts(node = {}, index = 0, context = {}) {
@@ -3855,6 +4707,97 @@ function workspaceAgentLayerBusMarkup(workspace = selectedWorkspace(), template 
   `;
 }
 
+function workspaceCapabilityGapHint(items = [], options = {}) {
+  const limit = Number(options.limit || 1);
+  const describe = (gapItems, label, formatter) => {
+    if (!gapItems.length) return "";
+    const samples = gapItems.slice(0, limit).map(formatter).filter(Boolean);
+    const suffix = gapItems.length > limit ? ` 等 ${gapItems.length} 处` : "";
+    return `${label}：${samples.join("、")}${suffix}`;
+  };
+  const agentGapItems = items.filter((item) => item.agentState !== "ready");
+  const toolGapItems = items.filter((item) => item.toolState !== "ready");
+  const aiGapItems = items.filter((item) => item.aiState !== "ready");
+  const ioGapItems = items.filter((item) => item.ioState !== "ready");
+  const parts = [
+    describe(agentGapItems, "缺 Agent", (item) => `${item.title || workspaceNodeLabel(item.kind)} 未指派`),
+    describe(toolGapItems, "缺 Tool", (item) => `${item.title || workspaceNodeLabel(item.kind)} 无工具`),
+    describe(aiGapItems, "缺 AI", (item) => `${item.title || workspaceNodeLabel(item.kind)} 缺路由`),
+    describe(ioGapItems, "缺 I/O", (item) => `${item.title || workspaceNodeLabel(item.kind)} 未闭合`),
+  ].filter(Boolean);
+  return parts.slice(0, 2).join(" · ");
+}
+
+function workspaceCapabilityBaselineActions(agentGaps, toolGaps, aiGaps, ioGaps) {
+  const buttons = [];
+  if (agentGaps) buttons.push(workspaceManageAction("agents", { label: "补 Agent", title: "进入 Agent 层，优先补齐自动节点接管和职责分工。" }));
+  if (toolGaps) buttons.push(workspaceManageAction("tools", { label: "补 Tool", title: "进入 Tool 层，补齐 allowlist、执行边界和路径权限。" }));
+  if (aiGaps) buttons.push(workspaceManageAction("ai", { label: "补 AI", title: "进入 AI 层，补齐模型路由、Provider Profile 和聊天 Agent。" }));
+  if (ioGaps) buttons.push(workspaceManageAction("templates", { label: "补链路", title: "进入链路层，补齐 I/O 契约、安全发现链和运行入口。" }));
+  if (!buttons.length) {
+    buttons.push(workspaceManageAction("templates", { label: "配置中心", title: "进入配置中心查看 Starter Chain、Agent、工具和 AI 路由。" }));
+  }
+  return buttons;
+}
+
+function workspaceLauncherPreviewGapActionsMarkup(inputs = workspaceUseInputsPayload(), template = selectedWorkflowTemplate(), resources = null, workspace = selectedWorkspace()) {
+  const contractItems = workspaceLauncherPrecreateContractItems(inputs, template, resources);
+  const nodes = workspaceExecutionChainSourceNodes(workspace, template);
+  const busItems = nodes.length
+    ? workspaceAgentLayerBusItems(workspace, template, { limit: Math.max(nodes.length, 1) })
+    : [];
+  const model = workspace?.model || template?.model || {};
+  const hasDefaultAiRouting = Boolean(model.routing_mode || model.provider_profile_id || model.chat_agent_id);
+  const agentGaps = busItems.filter((item) => item.agentState !== "ready").length;
+  const toolGaps = busItems.filter((item) => item.toolState !== "ready").length;
+  const aiGaps = hasDefaultAiRouting ? 0 : busItems.filter((item) => item.aiState !== "ready").length;
+  const ioGaps = busItems.filter((item) => item.ioState !== "ready").length;
+  const actions = [];
+  const inputStep = contractItems.find((item) => item.label === "输入来源");
+  if (inputStep && !["ready", "done"].includes(String(inputStep.status || ""))) {
+    actions.push({
+      label: "填写目标",
+      action: "focus-workspace-goal",
+      title: "把焦点放到复现/部署目标输入框，先写清这次要自动化完成什么。",
+      tone: "primary",
+    });
+  }
+  const resourceStep = contractItems.find((item) => item.label === "资源/GPU");
+  if (resourceStep && !["ready", "done"].includes(String(resourceStep.status || ""))) {
+    actions.push({
+      label: "刷新资源",
+      action: "refresh-workspace-resources",
+      title: "刷新全部服务器、GPU、任务和资源快照；不会重置工作台选项卡与滚动位置。",
+      tone: "secondary",
+    });
+  }
+  if (agentGaps) actions.push({ ...workspaceManageAction("agents", { label: "补 Agent" }), tone: "secondary" });
+  if (toolGaps) actions.push({ ...workspaceManageAction("tools", { label: "补 Tool" }), tone: "secondary" });
+  if (aiGaps) actions.push({ ...workspaceManageAction("ai", { label: "补 AI" }), tone: "secondary" });
+  if (ioGaps) actions.push({ ...workspaceManageAction("templates", { label: "补链路" }), tone: "secondary" });
+  const chainStep = contractItems.find((item) => item.label === "Starter Chain");
+  if (chainStep && ["blocked", "failed"].includes(String(chainStep.status || ""))) {
+    actions.push({ ...workspaceManageAction("templates", { label: "选链路" }), tone: "secondary" });
+  }
+  if (!actions.length) return "";
+  return `
+    <div class="workspace-launcher-preview-gap-actions">
+      <span>补齐入口</span>
+      <div class="workspace-launcher-preview-gap-buttons">
+        ${actions.map((item) => `
+          <button
+            class="${escapeHtml(item.tone || "secondary")} mini"
+            type="button"
+            data-action="${escapeHtml(item.action || "switch-workspace-manage")}"
+            ${item.tab ? `data-tab="${escapeHtml(item.tab)}"` : ""}
+            title="${escapeHtml(item.title || item.label || "")}"
+          >${escapeHtml(item.label || "")}</button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function workspaceCapabilityBaselineMarkup(workspace = selectedWorkspace(), template = selectedWorkflowTemplate()) {
   const nodes = workspaceExecutionChainSourceNodes(workspace, template);
   if (!nodes.length) return "";
@@ -3874,39 +4817,39 @@ function workspaceCapabilityBaselineMarkup(workspace = selectedWorkspace(), temp
   const detail = gapCount
     ? "只在缺 Agent、工具、模型路由或 I/O 契约时进入配置中心。"
     : "先按当前 Starter Chain 自动推进，配置中心留给自定义角色、工具和模型路由。";
-  const action = gapCount
-    ? agentGaps
-      ? workspaceManageAction("agents", { label: "补 Agent", title: "进入 Agent 层，优先补齐自动节点接管和职责分工。" })
-      : toolGaps
-        ? workspaceManageAction("tools", { label: "补 Tool", title: "进入 Tool 层，补齐 allowlist、执行边界和路径权限。" })
-        : aiGaps
-          ? workspaceManageAction("ai", { label: "补 AI", title: "进入 AI 层，补齐模型路由、Provider Profile 和聊天 Agent。" })
-          : workspaceManageAction("templates", { label: "补链路", title: "进入链路层，补齐 I/O 契约、安全发现链和运行入口。" })
-    : workspaceManageAction("templates", { label: "配置中心", title: "进入配置中心查看 Starter Chain、Agent、工具和 AI 路由。" });
+  const gapHint = gapCount ? workspaceCapabilityGapHint(items) : "";
+  const actionButtons = workspaceCapabilityBaselineActions(agentGaps, toolGaps, aiGaps, ioGaps);
   const facts = [
     { label: "Agent", value: agentGaps ? `${agentGaps} 缺口` : `${agentReady}/${nodes.length} 接管`, status: agentGaps ? "warning" : "ready" },
     { label: "Tool", value: toolGaps ? `${toolGaps} 缺口` : "allowlist OK", status: toolGaps ? "warning" : "ready" },
     { label: "AI", value: aiGaps ? `${aiGaps} 缺口` : (model.routing_mode || "继承默认路由"), status: aiGaps ? "warning" : "ready" },
     { label: "I/O", value: ioGaps ? `${ioGaps} 缺口` : "节点交接可用", status: ioGaps ? "warning" : "ready" },
   ];
+  const help = "只有需要改 Starter Chain、Agent、工具或模型路由时才进入配置中心；普通复现/部署从驾驶舱推进。";
   return `
-    <section class="workspace-capability-baseline-card status-${escapeHtml(status)}">
+    <section class="workspace-capability-baseline-card status-${escapeHtml(status)}" title="${escapeHtml(detail)} · ${escapeHtml(help)}">
       <div class="workspace-capability-baseline-copy">
         <span>能力底座</span>
         <strong>${escapeHtml(title)}</strong>
-        <em>${escapeHtml(detail)}</em>
       </div>
       <div class="workspace-capability-baseline-facts">
         ${facts.map((item) => `
-          <article class="status-${escapeHtml(item.status)}">
+          <article class="status-${escapeHtml(item.status)}" title="${escapeHtml(item.value)}">
             <span>${escapeHtml(item.label)}</span>
-            <strong title="${escapeHtml(item.value)}">${escapeHtml(item.value)}</strong>
+            <strong>${escapeHtml(item.value)}</strong>
           </article>
         `).join("")}
       </div>
-      <button class="${gapCount ? "primary" : "secondary"} mini" type="button" data-action="${escapeHtml(action.action)}" data-tab="${escapeHtml(action.tab)}" title="${escapeHtml(action.title)}" data-workspace-help="只有需要改 Starter Chain、Agent、工具或模型路由时才进入配置中心；普通复现/部署从驾驶舱推进。">
-        ${escapeHtml(action.label)}
-      </button>
+      <div class="workspace-capability-baseline-actions">
+        ${gapHint ? `<p class="workspace-capability-baseline-hint" title="${escapeHtml(gapHint)}">${escapeHtml(gapHint)}</p>` : ""}
+        <div class="workspace-capability-baseline-action-row">
+          ${actionButtons.map((action) => `
+            <button class="secondary mini workspace-capability-baseline-action" type="button" data-action="${escapeHtml(action.action)}" data-tab="${escapeHtml(action.tab)}" title="${escapeHtml(action.title)}">
+              ${escapeHtml(action.label)}
+            </button>
+          `).join("")}
+        </div>
+      </div>
     </section>
   `;
 }
@@ -6379,17 +7322,52 @@ function workspaceCockpitActionButton(button = {}) {
   const busy = Boolean(state.ui.workspaceAutomationBusyAction) && !nonBlocking;
   const currentBusy = busy && state.ui.workspaceAutomationBusyAction === button.action;
   const help = workspaceAutomationActionHelp(button.action, button.title || button.detail || button.label || "执行操作");
+  const nodeAttr = button.node_id || button.nodeId ? ` data-node-id="${escapeHtml(String(button.node_id || button.nodeId || "").trim())}"` : "";
+  const jobAttr = button.job_id || button.jobId ? ` data-job-id="${escapeHtml(String(button.job_id || button.jobId || "").trim())}"` : "";
+  const tabAttr = button.tab ? ` data-tab="${escapeHtml(String(button.tab || "").trim())}"` : "";
+  const targetAttr = button.target_id || button.targetId ? ` data-target-id="${escapeHtml(String(button.target_id || button.targetId || "").trim())}"` : "";
   return `
     <button
       class="${tone} mini"
       type="button"
-      data-action="${escapeHtml(button.action || "")}"
+      data-action="${escapeHtml(button.action || "")}"${nodeAttr}${jobAttr}${tabAttr}${targetAttr}
       title="${escapeHtml(help)}"
       aria-label="${escapeHtml(`${button.label || "操作"}：${help}`)}"
       data-workspace-help="${escapeHtml(help)}"
       ${busy ? "disabled" : ""}
     >${escapeHtml(currentBusy ? "处理中..." : button.label || "操作")}</button>
   `;
+}
+
+function workspaceCockpitActionsFromNextAction(nextAction = {}) {
+  const actions = [];
+  const primary = workspaceNextActionUiButton(nextAction.primary);
+  const secondary = workspaceNextActionUiButton(nextAction.secondary);
+  if (primary) {
+    actions.push({
+      label: primary.label,
+      action: primary.dataAction,
+      tone: primary.tone || "primary",
+      title: primary.title,
+      node_id: primary.nodeId,
+      job_id: primary.jobId,
+      tab: primary.tab,
+      target_id: primary.targetId,
+    });
+  }
+  if (secondary) {
+    actions.push({
+      label: secondary.label,
+      action: secondary.dataAction,
+      tone: secondary.tone || "secondary",
+      title: secondary.title,
+      node_id: secondary.nodeId,
+      job_id: secondary.jobId,
+      tab: secondary.tab,
+      target_id: secondary.targetId,
+    });
+  }
+  return actions;
 }
 
 function workspaceStarterNodePhase(kind = "") {
@@ -6765,32 +7743,23 @@ function workspaceLauncherPrecreateContractMarkup(inputs = workspaceUseInputsPay
     const current = items.find((item) => ["blocked", "failed"].includes(String(item.status || "")))
       || items.find((item) => ["draft", "warning", "pending"].includes(String(item.status || "")))
       || items[items.length - 1];
+    const bandClass = options.band ? " workspace-launch-start-band" : "";
     return `
-      <div class="workspace-launch-start-summary status-${escapeHtml(status)}">
+      <div class="workspace-launch-start-summary status-${escapeHtml(status)}${bandClass}">
         <div class="workspace-launch-start-head">
           <div>
             <span>启动闭环</span>
-            <strong>${escapeHtml(`${readyCount}/${items.length} 项就绪 · ${blockedCount} 断点`)}</strong>
-            <em>${escapeHtml(summary)}</em>
+            <strong title="${escapeHtml(summary)}">${escapeHtml(`${readyCount}/${items.length} 就绪 · ${blockedCount} 断点`)}</strong>
           </div>
-          <small>输入 → 链路 → 发现 → 资源/GPU → 执行包</small>
         </div>
-        <div class="workspace-launch-start-spine">
+        <div class="workspace-launch-start-spine workspace-launch-start-spine-row">
           ${items.map((item) => `
-            <article class="workspace-launch-start-step status-${escapeHtml(item.status || "draft")}" title="${escapeHtml(item.help || item.detail || "")}">
-              <span>${escapeHtml(item.index)}</span>
-              <strong title="${escapeHtml(item.label)}">${escapeHtml(workspaceLaunchCompactStepLabel(item.label))}</strong>
-              <em title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</em>
+            <article class="workspace-launch-start-step status-${escapeHtml(item.status || "draft")}" title="${escapeHtml(`${item.label} · ${item.title || ""} · ${item.detail || item.help || ""}`)}">
+              <span class="workspace-launch-start-step-index" aria-hidden="true">${escapeHtml(String(item.index || "").replace(/^0/, "") || "?")}</span>
+              <strong>${escapeHtml(workspaceLaunchCompactStepLabel(item.label))}</strong>
+              <em>${escapeHtml(item.title || item.detail || "")}</em>
             </article>
           `).join("")}
-        </div>
-        <div class="workspace-launch-start-focus status-${escapeHtml(current?.status || "draft")}">
-          <div>
-            <span>当前启动焦点</span>
-            <strong>${escapeHtml(current?.label || "等待启动")}</strong>
-            <em title="${escapeHtml(current?.title || "")}">${escapeHtml(current?.title || "等待自动化判断")}</em>
-          </div>
-          <p title="${escapeHtml(current?.detail || "")}">${escapeHtml(current?.detail || "写目标即可启动，系统会逐步补齐仓库、数据、路径、环境和 GPU 证据。")}</p>
         </div>
       </div>
     `;
@@ -6992,23 +7961,115 @@ function workspaceLauncherPlanMarkup(inputs = workspaceUseInputsPayload(), templ
   `;
 }
 
-function workspaceLauncherDetailsMarkup(inputs = workspaceUseInputsPayload(), template = selectedWorkflowTemplate(), resources = null) {
+function workspaceLauncherPreviewBandMarkup(inputs = workspaceUseInputsPayload(), template = selectedWorkflowTemplate(), resources = null) {
+  const sourceMode = workspaceUseSourceMode(inputs);
+  const nodes = Array.isArray(template?.nodes) ? template.nodes : [];
+  const automatedNodes = nodes.filter((node) => String(node?.handler?.mode || "human") !== "human");
+  const assignedNodes = automatedNodes.filter((node) => String(node?.handler?.agent_id || "").trim()).length;
+  const safeDiscoveryKinds = ["repo.clone", "path.resolve", "repo.inspect", "dataset.find", "env.infer", "gpu.allocate", "artifact.collect"];
+  const safeNodes = nodes.filter((node) => safeDiscoveryKinds.includes(String(node?.kind || "")));
+  const sourceLabels = {
+    repo: "仓库复现",
+    paper: "论文复现",
+    idea: "目标探索",
+    mixed: "混合线索",
+  };
+  const inputFacts = [
+    `${inputs.repo_urls?.length || 0} repo`,
+    `${inputs.paper_urls?.length || 0} paper`,
+    `${inputs.references?.length || 0} 路径/参考`,
+    `${inputs.context_blocks?.length || 0} 约束`,
+  ];
+  const contractItems = workspaceLauncherContractItems(template, { limit: 8 });
+  const selectedNodeId = String(state.selectedWorkspaceExecutionNodeId || "").trim();
+  const gapActions = workspaceLauncherPreviewGapActionsMarkup(inputs, template, resources, selectedWorkspace());
   return `
-    <div class="workspace-launcher-details-shell">
-      ${workspaceLauncherPrecreateContractMarkup(inputs, template, resources)}
-      ${workspaceLauncherPreviewMarkup(inputs, template, resources, { includeDecision: false })}
-      ${workspaceLaunchModeImpactMarkup(inputs, template, resources)}
-      ${workspaceLauncherContractMatrixMarkup(template)}
+    <div class="workspace-launcher-preview-band-shell">
+      ${gapActions}
+      <div class="workspace-launcher-preview-band-metrics">
+        <article>
+          <span>输入画像</span>
+          <strong>${escapeHtml(sourceLabels[sourceMode] || sourceMode)}</strong>
+          <em>${escapeHtml(inputFacts.join(" · "))}</em>
+        </article>
+        <article>
+          <span>实例快照</span>
+          <strong>${escapeHtml(nodes.length ? `${nodes.length} 节点` : "等待模板")}</strong>
+          <em>${escapeHtml(`${assignedNodes}/${automatedNodes.length || 0} 自动节点已绑定 Agent`)}</em>
+        </article>
+        <article>
+          <span>首轮安全发现</span>
+          <strong>${escapeHtml(safeNodes.length ? `${safeNodes.length} 节点` : "等待链路")}</strong>
+          <em>只收集路径、数据、环境、GPU、产物证据</em>
+        </article>
+        <article>
+          <span>资源快照</span>
+          <strong>${escapeHtml(resources?.title || "等待资源")}</strong>
+          <em>${escapeHtml(resources?.detail || "刷新服务器后生成调度候选")}</em>
+        </article>
+      </div>
+      <div class="workspace-launcher-preview-band-intents">
+        ${workspaceLaunchIntentItems(inputs, template, resources).map((item) => `
+          <article class="workspace-launch-intent status-${escapeHtml(item.status)}" title="${escapeHtml(item.detail)}">
+            <span>${escapeHtml(item.label)}</span>
+            <strong>${escapeHtml(item.value)}</strong>
+            <em>${escapeHtml(item.detail)}</em>
+          </article>
+        `).join("")}
+      </div>
+      <div class="workspace-launcher-preview-band-contracts">
+        <div class="workspace-launcher-preview-band-contract-head">
+          <strong>${escapeHtml(template?.name || "Starter Chain")}</strong>
+          <span>${escapeHtml(nodes.length ? `${contractItems.length} 个节点契约` : "等待链路模板")}</span>
+        </div>
+        <div class="workspace-launcher-preview-band-contract-row">
+          ${contractItems.map((item) => `
+            <button
+              class="workspace-launcher-preview-contract-chip status-${escapeHtml(item.status)}${selectedNodeId === item.id ? " active" : ""}"
+              type="button"
+              data-action="select-execution-node"
+              data-node-id="${escapeHtml(item.id)}"
+              data-target-id="workspaceExecutionBoard"
+              title="${escapeHtml(`${item.title} · ${item.agent} · ${item.input || "等待 input"} → ${item.output || "等待 output"}`)}"
+            >
+              <span>${escapeHtml(`${item.index}. ${item.phase}`)}</span>
+              <strong>${escapeHtml(item.title)}</strong>
+              <em>${escapeHtml(`${item.agent} · ${item.gate}`)}</em>
+            </button>
+          `).join("") || '<div class="empty">选择 Starter Chain 后显示节点契约。</div>'}
+        </div>
+      </div>
     </div>
   `;
 }
 
+function workspaceLauncherDetailsMarkup(inputs = workspaceUseInputsPayload(), template = selectedWorkflowTemplate(), resources = null) {
+  return workspaceLauncherPreviewBandMarkup(inputs, template, resources);
+}
+
+function renderWorkspaceLauncherPreviewBand(workspace = selectedWorkspace(), inputs = workspaceUseInputsPayload(), template = selectedWorkflowTemplate(), resources = null) {
+  const band = $("workspaceLauncherPreviewBand");
+  const root = $("workspaceLauncherPreview");
+  const summary = resources || workspaceUseResourceSummary();
+  const hidden = Boolean(workspace?.id);
+  if (band) band.hidden = hidden;
+  if (!root) return;
+  if (hidden) {
+    root.innerHTML = "";
+    return;
+  }
+  if (band && !band.open) {
+    root.innerHTML = "";
+    return;
+  }
+  root.innerHTML = workspaceLauncherPreviewBandMarkup(inputs, template, summary);
+}
+
 function renderWorkspaceLauncherPlan(inputs = workspaceUseInputsPayload(), template = selectedWorkflowTemplate(), resources = null) {
   const root = $("workspaceLauncherPlan");
-  const detailsRoot = $("workspaceLauncherDetails");
   const summary = resources || workspaceUseResourceSummary();
-  if (root) root.innerHTML = workspaceLauncherPlanMarkup(inputs, template, summary, { compact: true });
-  if (detailsRoot) detailsRoot.innerHTML = workspaceLauncherDetailsMarkup(inputs, template, summary);
+  if (root) root.innerHTML = "";
+  renderWorkspaceLauncherPreviewBand(selectedWorkspace(), inputs, template, summary);
 }
 
 function workspaceResourceSnapshotMeta(candidates = {}) {
@@ -7204,8 +8265,8 @@ function selectWorkspaceSchedulerCandidate(button) {
       setProcessFocusForGpu(serverId, gpuIndex);
     }
     clearTerminalMessage();
-    render(undefined, { workspace: false });
-    renderWorkspaceResourceSurfaces();
+    renderHostStatusSurfaces();
+    renderWorkspaceResourceSurfaces({ scope: "resource-only" });
     void loadTmuxSessions();
     scrollGpuSelectionIntoView();
     scrollFocusedProcessIntoView();
@@ -7776,32 +8837,40 @@ function workspaceCockpitOperationsMarkup(workspace = selectedWorkspace(), input
 
   const readiness = automation?.executionReadiness || {};
   const gate = readiness.gate && typeof readiness.gate === "object" ? readiness.gate : {};
-  const nextAction = readiness.next_action && typeof readiness.next_action === "object"
-    ? readiness.next_action
-    : automation?.advance || {};
-  const blockers = Array.isArray(readiness.blockers) ? readiness.blockers : [];
+  const cockpitNext = workspaceCockpitNextAction(workspace);
+  const nextAction = cockpitNext?.primary
+    ? cockpitNext
+    : readiness.next_action && typeof readiness.next_action === "object"
+      ? readiness.next_action
+      : automation?.advance || {};
+  const blockers = cockpitNext?.blocked_checks?.length
+    ? cockpitNext.blocked_checks
+    : Array.isArray(readiness.blockers) ? readiness.blockers : [];
   const warnings = Array.isArray(readiness.warnings) ? readiness.warnings : [];
   const evidenceItems = workspaceEvidenceSummaryItems(workspace);
   const evidenceTotal = evidenceItems.reduce((sum, item) => sum + Number(item.count || 0), 0);
   const jobState = readiness.job_state && typeof readiness.job_state === "object" ? readiness.job_state : {};
-  const lastJobId = String(jobState.last_job_id || "").trim();
-  const actions = [
-    { label: "自动推进", action: "advance-workspace-automation", tone: "primary", title: "根据当前门禁自动决定发现、观察、复查失败、回填或完整运行" },
-    { label: "自动发现", action: "run-workspace-discovery", title: "只运行安全发现链，收集源码、路径、数据、环境、GPU 和产物证据" },
-    { label: "回填证据", action: "apply-workspace-automation", title: "把建议和发现证据回填到节点配置" },
-    { label: "运行工作流", action: "run-selected-workspace", title: "门禁通过后提交完整工作流；门禁失败时不会创建半截队列" },
-  ];
-  if (lastJobId) {
-    actions.push({ label: "打开最近输出", action: "open-last-workspace-log", title: "打开当前实例最近绑定任务的日志输出" });
+  const actions = cockpitNext?.primary
+    ? workspaceCockpitActionsFromNextAction(cockpitNext)
+    : [
+        { label: "自动推进", action: "advance-workspace-automation", tone: "primary", title: "根据当前门禁自动决定发现、观察、复查失败、回填或完整运行" },
+        { label: "自动发现", action: "run-workspace-discovery", title: "只运行安全发现链，收集源码、路径、数据、环境、GPU 和产物证据" },
+        { label: "回填证据", action: "apply-workspace-automation", title: "把建议和发现证据回填到节点配置" },
+        { label: "运行工作流", action: "run-selected-workspace", title: "门禁通过后提交完整工作流；门禁失败时不会创建半截队列" },
+      ];
+  if (!cockpitNext?.primary && String(jobState.last_job_id || "").trim()) {
+    actions.push({ label: "打开最近输出", action: "open-last-workspace-log", job_id: String(jobState.last_job_id || "").trim(), title: "打开当前实例最近绑定任务的日志输出" });
   }
   const issueItems = blockers.length ? blockers : warnings;
   const issueLabel = blockers.length ? "阻塞项" : warnings.length ? "提示项" : "没有阻塞";
+  const actionTitle = cockpitNext?.title || nextAction.title || gate.title || "等待自动推进判断";
+  const actionDetail = cockpitNext?.detail || cockpitNext?.reason || nextAction.reason || nextAction.next_action || gate.detail || "系统会按发现、回填、门禁、完整运行和报告回收顺序推进。";
   return `
-    <div class="workspace-cockpit-action-rail status-${escapeHtml(readiness.status || automation?.status || "draft")}">
+    <div class="workspace-cockpit-action-rail status-${escapeHtml(cockpitNext?.status || readiness.status || automation?.status || "draft")}">
       <div class="workspace-cockpit-action-main">
         <span>${escapeHtml(issueLabel)}</span>
-        <strong>${escapeHtml(nextAction.title || gate.title || "等待自动推进判断")}</strong>
-        <p>${escapeHtml(nextAction.reason || nextAction.next_action || gate.detail || "系统会按发现、回填、门禁、完整运行和报告回收顺序推进。")}</p>
+        <strong>${escapeHtml(actionTitle)}</strong>
+        <p>${escapeHtml(actionDetail)}</p>
       </div>
       <div class="workspace-cockpit-action-buttons">
         ${actions.map(workspaceCockpitActionButton).join("")}
@@ -8534,6 +9603,8 @@ function workspaceHomeRunDetailItemMarkup(job = {}) {
 }
 
 function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
+  const runs = workspaceExecutionRuns(workspace);
+  const latestRun = runs[0] || null;
   const jobs = [...workspaceJobs()].sort((a, b) => (
     parseDateMs(b.finished_at || b.started_at || b.created_at)
     - parseDateMs(a.finished_at || a.started_at || a.created_at)
@@ -8544,18 +9615,30 @@ function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
   const doneJobs = jobs.filter((job) => String(job.status || "") === "done");
   const failedJobs = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || "")));
   const activeCount = queuedJobs.length + blockedJobs.length + runningJobs.length;
-  const status = failedJobs.length
-    ? "failed"
-    : blockedJobs.length
-      ? "blocked"
-      : runningJobs.length
-        ? "running"
-        : queuedJobs.length
-          ? "queued"
-          : doneJobs.length
-            ? "done"
-            : "draft";
-  const currentJob = failedJobs[0] || blockedJobs[0] || runningJobs[0] || queuedJobs[0] || doneJobs[0] || jobs[0] || null;
+  const status = latestRun?.status
+    ? String(latestRun.status)
+    : failedJobs.length
+      ? "failed"
+      : blockedJobs.length
+        ? "blocked"
+        : runningJobs.length
+          ? "running"
+          : queuedJobs.length
+            ? "queued"
+            : doneJobs.length
+              ? "done"
+              : "draft";
+  const latestRunStep = latestRun && Array.isArray(latestRun.steps)
+    ? (
+        latestRun.steps.find((step) => String(step.status || "") === "failed")
+        || latestRun.steps.find((step) => String(step.status || "") === "running")
+        || latestRun.steps.find((step) => String(step.status || "") === "queued")
+        || latestRun.steps[latestRun.steps.length - 1]
+      )
+    : null;
+  const currentJob = latestRunStep?.job_id
+    ? jobs.find((job) => String(job.id || "") === String(latestRunStep.job_id || "")) || null
+    : failedJobs[0] || blockedJobs[0] || runningJobs[0] || queuedJobs[0] || doneJobs[0] || jobs[0] || null;
   const currentStatus = String(currentJob?.status || status || "draft");
   const currentNode = String(currentJob?.metadata?.node_title || currentJob?.metadata?.node_kind || currentJob?.kind || "等待任务");
   const currentServer = currentJob ? (serverById(currentJob.server_id)?.name || currentJob.server_id || "未分配服务器") : "";
@@ -8566,11 +9649,13 @@ function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
     : workspace?.id
       ? "还没有任务进入队列"
       : "创建实例后才会绑定运行记录";
-  const currentTitle = currentJob
-    ? currentJob.name || currentJob.id
-    : workspace?.id
-      ? "等待自动推进创建运行记录"
-      : "等待创建自动化实例";
+  const currentTitle = latestRun
+    ? latestRun.summary || workspaceRunKindLabel(latestRun.kind)
+    : currentJob
+      ? currentJob.name || currentJob.id
+      : workspace?.id
+        ? "等待自动推进创建运行记录"
+        : "等待创建自动化实例";
   const currentDetail = currentJob
     ? (
         failedJobs.includes(currentJob) || blockedJobs.includes(currentJob)
@@ -8661,14 +9746,19 @@ function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
       <div class="workspace-home-run-summary-head">
         <div>
           <span>运行摘要</span>
-          <strong>${escapeHtml(`${activeCount} 活跃 · ${doneJobs.length} 完成 · ${failedJobs.length} 异常 · ${jobs.length} 总计`)}</strong>
-          <em>默认只看队列、运行、复查和产物；日志与任务明细按需展开。</em>
+          <strong>${escapeHtml(latestRun
+            ? `${workspaceRunKindLabel(latestRun.kind)} · ${latestRun.progress?.done || 0}/${latestRun.progress?.total || latestRun.steps?.length || 0} 步`
+            : `${activeCount} 活跃 · ${doneJobs.length} 完成 · ${failedJobs.length} 异常 · ${jobs.length} 总计`)}</strong>
+          <em>${escapeHtml(latestRun
+            ? `最近执行记录 ${fmtDate(latestRun.created_at || "") || "等待开始"} · ${zhStatus(latestRun.status || status)}`
+            : "默认只看队列、运行、复查和产物；日志与任务明细按需展开。")}</em>
         </div>
         <div class="workspace-home-run-summary-actions">
           ${workspaceHomeActionButtonMarkup(primaryAction, currentDetail)}
           ${workspaceHomeActionButtonMarkup(secondaryAction, currentDetail)}
         </div>
       </div>
+      ${latestRun ? workspaceRunProgressMarkup(latestRun, { compact: true }) : ""}
       <div class="workspace-home-run-spine">
         ${steps.map((step) => `
           <button
@@ -8768,16 +9858,17 @@ function renderWorkspaceCockpitOverview() {
   const workspace = selectedWorkspace();
   const formData = workspaceFormPayload();
   const automation = workspaceAutomationSummary(workspace);
-  const next = workspaceUseNextAction(inputs, template, workspace);
+  const cockpitNext = workspaceCockpitNextAction(workspace);
+  const next = cockpitNext?.title
+    ? { title: cockpitNext.title, detail: cockpitNext.detail || cockpitNext.reason || "", state: cockpitNext.status || "draft" }
+    : workspaceUseNextAction(inputs, template, workspace);
   const resources = workspaceUseResourceSummary();
   renderWorkspaceLauncherPlan(inputs, template, resources);
+  renderWorkspaceUseMonitor(workspace);
+  renderWorkspaceLaunchClosure(workspace);
+  renderWorkspaceLauncherPreviewBand(workspace, inputs, template, resources);
   if (decisionRoot) {
-    const advancedDetails = `
-      ${workspaceAutomationDecisionMarkup(workspace)}
-      ${workspaceAutomationPlaybookMarkup(workspace, { compact: true })}
-      ${workspaceExecutionPackageSummaryMarkup(workspace, { compact: true })}
-    `;
-    decisionRoot.innerHTML = workspaceCommandCenterMarkup(workspace, { inputs, template, resources, details: advancedDetails });
+    decisionRoot.innerHTML = "";
   }
   const jobs = workspace ? workspaceJobs() : [];
   const activeJobs = jobs.filter((job) => isJobActive(job)).length;
@@ -8795,9 +9886,9 @@ function renderWorkspaceCockpitOverview() {
     },
     {
       label: "自动推进",
-      title: automation.advance?.title || automation.next?.title || next.title,
-      detail: automation.advance?.reason || automation.next?.action || next.detail,
-      state: automation.advance?.status || automation.next?.status || next.state,
+      title: automation.advance?.title || cockpitNext?.title || automation.next?.title || next.title,
+      detail: cockpitNext?.detail || automation.advance?.reason || automation.next?.action || next.detail,
+      state: cockpitNext?.status || automation.advance?.status || automation.next?.status || next.state,
     },
     {
       label: "资源调度",
@@ -8868,7 +9959,8 @@ function renderWorkspaceCockpitOverview() {
     schedulingRoot.innerHTML = workspaceSchedulingClosureMarkup(workspace, inputs, template, resources);
   }
   if (chainRoot) {
-    chainRoot.innerHTML = workspaceExecutionChainStructureMarkup(workspace, template);
+    const focusNodeId = workspaceCockpitNextAction(workspace)?.focus_node_id || "";
+    chainRoot.innerHTML = workspaceCockpitChainMarkup(workspace, template, { focusNodeId });
   }
   if (gapQueueRoot) {
     gapQueueRoot.innerHTML = workspaceAutomationGapQueueMarkup(workspace, formData, resources, template);
@@ -9139,9 +10231,20 @@ function formatTransferTarget(path, server = serverById(transferTargetServerId()
 }
 
 function formatTransferSource(path, server = serverById(transferSourceServerId()), isDir = false) {
-  const value = String(path || "");
-  const sourcePath = value && isDir ? ensureDirectorySlash(value) : value;
-  return `${transferTargetPrefix(server)}${sourcePath}`;
+  const value = String(path || "").trim();
+  // rsync 保留目录名时源路径不能带 trailing slash。
+  void isDir;
+  return `${transferTargetPrefix(server)}${value}`;
+}
+
+function rsyncTransferSourceValue(item = {}) {
+  const server = serverById(item.serverId || item.server_id || transferSourceServerId());
+  const path = String(item.path || parseRsyncTargetPath(item.value) || item.value || "").trim();
+  if (!path) return "";
+  if (item.isDir || item.is_dir) {
+    return formatTransferSource(path.replace(/\/+$/, ""), server, true);
+  }
+  return item.value || formatTransferSource(path, server, false);
 }
 
 function parseIgnoreText(text) {
@@ -9946,6 +11049,51 @@ function restoreScrollTop(element, previousScrollTop = 0) {
   element.scrollTop = Math.min(Math.max(0, previousScrollTop), maxScrollTop);
 }
 
+const UI_SCROLL_SELECTORS = [
+  ".workspace-scroll-shell",
+  ".workspace-launcher-preview-band-contract-row",
+  "#workspaceExecutionBoard .workspace-flow-canvas-shell",
+  "#workspaceHistoryList",
+  "#workspaceUseChatList",
+];
+
+function captureUiScrollSnapshot() {
+  const entries = [];
+  UI_SCROLL_SELECTORS.forEach((selector) => {
+    document.querySelectorAll(selector).forEach((element) => {
+      if (!element || element.hidden || element.closest("[hidden]")) return;
+      entries.push({
+        selector,
+        scrollTop: element.scrollTop || 0,
+        scrollLeft: element.scrollLeft || 0,
+      });
+    });
+  });
+  return { entries };
+}
+
+function restoreUiScrollSnapshot(snapshot = {}) {
+  const entries = Array.isArray(snapshot.entries) ? snapshot.entries : [];
+  const cursor = {};
+  entries.forEach((entry) => {
+    const key = entry.selector;
+    const index = cursor[key] || 0;
+    cursor[key] = index + 1;
+    const elements = document.querySelectorAll(entry.selector);
+    const element = elements[index];
+    if (!element || element.hidden || element.closest("[hidden]")) return;
+    restoreScrollTop(element, entry.scrollTop || 0);
+    if (entry.scrollLeft) element.scrollLeft = entry.scrollLeft;
+  });
+}
+
+function syncWorkspaceCollapsePanels(snapshot = {}) {
+  const previewBand = $("workspaceLauncherPreviewBand");
+  const supportBand = document.querySelector(".workspace-use-support-band");
+  if (previewBand && typeof snapshot.previewBandOpen === "boolean") previewBand.open = snapshot.previewBandOpen;
+  if (supportBand && typeof snapshot.supportBandOpen === "boolean") supportBand.open = snapshot.supportBandOpen;
+}
+
 function tableScrollContainerForRows(rows) {
   return rows?.closest(".table-wrap") || null;
 }
@@ -10119,6 +11267,233 @@ function workspaceJobs() {
   const workspaceId = String(state.selectedWorkspaceId || selectedWorkspace()?.id || "").trim();
   if (!workspaceId) return [];
   return state.jobs.filter((job) => String(job?.metadata?.workspace_id || "").trim() === workspaceId);
+}
+
+function workspaceExecutionRuns(workspace = selectedWorkspace()) {
+  const runs = Array.isArray(workspace?.runs) ? workspace.runs : [];
+  return [...runs].sort((a, b) => (
+    parseDateMs(b.created_at || b.updated_at || "")
+    - parseDateMs(a.created_at || a.updated_at || "")
+  ));
+}
+
+function workspaceLatestExecutionRun(workspace = selectedWorkspace()) {
+  return workspaceExecutionRuns(workspace)[0] || null;
+}
+
+function workspaceRunKindLabel(kind = "") {
+  const labels = {
+    discovery: "安全发现",
+    reproduction: "完整复现",
+    node: "单节点",
+    agent_debug: "Agent 调试",
+    advance: "自动推进",
+  };
+  return labels[String(kind || "").trim()] || String(kind || "运行");
+}
+
+function workspaceRunProgressMarkup(run, options = {}) {
+  if (!run) return "";
+  const progress = run.progress && typeof run.progress === "object" ? run.progress : {};
+  const total = Number(progress.total) || (Array.isArray(run.steps) ? run.steps.length : 0);
+  const done = Number(progress.done) || 0;
+  const percent = Number(progress.percent) || (total ? Math.round((done / total) * 100) : 0);
+  const compact = Boolean(options.compact);
+  return `
+    <div class="workspace-execution-run-progress status-${escapeHtml(run.status || "pending")}${compact ? " compact" : ""}">
+      <div class="workspace-execution-run-progress-head">
+        <span>${escapeHtml(workspaceRunKindLabel(run.kind))}</span>
+        <strong>${escapeHtml(`${done}/${total} 步 · ${percent}%`)}</strong>
+        <em>${escapeHtml(run.summary || "")}</em>
+      </div>
+      <div class="workspace-execution-run-progress-bar" role="progressbar" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100">
+        <span style="width:${Math.max(0, Math.min(100, percent))}%"></span>
+      </div>
+    </div>
+  `;
+}
+
+function workspaceRunStepItemMarkup(step = {}, run = {}) {
+  const jobId = String(step.job_id || "").trim();
+  const nodeTitle = String(step.node_title || step.node_kind || "步骤").trim();
+  const status = String(step.status || "queued");
+  const errorText = String(step.error || "").trim();
+  return `
+    <article class="workspace-execution-run-step status-${escapeHtml(status)}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}">
+      <div class="workspace-execution-run-step-head">
+        <strong>${escapeHtml(`${Number(step.index) + 1}. ${nodeTitle}`)}</strong>
+        <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+      </div>
+      <div class="workspace-execution-run-step-meta">
+        <span>${escapeHtml(step.node_kind || "")}</span>
+        ${jobId ? `<span>任务 ${escapeHtml(jobId)}</span>` : ""}
+      </div>
+      ${errorText ? `<p class="workspace-execution-run-step-error">${escapeHtml(errorText)}</p>` : ""}
+      ${jobId ? `
+        <div class="workspace-execution-run-step-actions">
+          <button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(jobId)}" title="打开这一步的任务日志">打开日志</button>
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function workspaceExecutionRunItemMarkup(run = {}) {
+  const steps = Array.isArray(run.steps) ? run.steps : [];
+  const status = String(run.status || "pending");
+  return `
+    <article class="workspace-execution-run-item status-${escapeHtml(status)}" data-run-id="${escapeHtml(run.id || "")}">
+      <div class="workspace-execution-run-item-head">
+        <div>
+          <span>${escapeHtml(workspaceRunKindLabel(run.kind))}</span>
+          <strong>${escapeHtml(run.summary || run.id || "执行记录")}</strong>
+          <em>${escapeHtml(fmtDate(run.created_at || "") || "等待开始")}</em>
+        </div>
+        <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+      </div>
+      ${workspaceRunProgressMarkup(run)}
+      <div class="workspace-execution-run-steps">
+        ${steps.map((step) => workspaceRunStepItemMarkup(step, run)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function workspaceUseMonitorMarkup(workspace = selectedWorkspace(), options = {}) {
+  const inputs = options.inputs || workspaceUseInputsPayload();
+  const template = options.template || selectedWorkflowTemplate();
+  const resources = options.resources || workspaceUseResourceSummary();
+  const cockpitNext = workspaceCockpitNextAction(workspace);
+  const model = workspaceCommandCenterModel(workspace, { inputs, template, resources });
+  const latestRun = workspaceLatestExecutionRun(workspace);
+  const jobs = workspace?.id ? workspaceJobs() : [];
+  const activeJobs = jobs.filter((job) => isJobActive(job)).length;
+  const status = String(cockpitNext?.status || latestRun?.status || model.status || "draft");
+  const title = String(cockpitNext?.title || model.title || (workspace?.id ? "自动推进" : "等待创建")).trim();
+  const detail = String(cockpitNext?.detail || cockpitNext?.reason || model.detail || "").trim()
+    || (workspace?.id
+      ? "系统会根据发现、回填、门禁和运行状态决定下一步。"
+      : "写目标并选择 Starter Chain，然后创建实例。");
+  const primary = cockpitNext?.primary
+    ? workspaceNextActionUiButton(cockpitNext.primary)
+    : (model.primary || {
+        label: workspace?.id ? "自动推进" : "创建并发现",
+        dataAction: workspace?.id ? "advance-workspace-automation" : "create-workspace-discover",
+        tone: "primary",
+      });
+  const secondary = cockpitNext?.secondary
+    ? workspaceNextActionUiButton(cockpitNext.secondary)
+    : model.secondary;
+  const progressBlock = latestRun
+    ? workspaceRunProgressMarkup(latestRun, { compact: true })
+    : workspace?.id && jobs.length
+      ? `<div class="workspace-use-monitor-jobs">${escapeHtml(`${activeJobs} 活跃 · ${jobs.length} 任务`)}</div>`
+      : "";
+  const monitorMode = Boolean(workspace?.id && state.ui.cockpitMonitorMode);
+  const monitorToggle = workspace?.id
+    ? `<button class="secondary mini" type="button" data-action="toggle-cockpit-monitor-mode" title="${monitorMode ? "显示启动器，创建新任务" : "隐藏启动器，专注监控执行"}">${monitorMode ? "开新任务" : "监控模式"}</button>`
+    : "";
+  const monitorHint = workspace?.id
+    ? "节点/Agent/门禁细节在配置中心或下方节点详情。"
+    : "配置与校验在配置中心；这里只管输入、选链路和看执行。";
+  return `
+    <div class="workspace-use-monitor-bundle">
+      <section class="workspace-use-monitor status-${escapeHtml(status)}" title="${escapeHtml(monitorHint)}">
+        <div class="workspace-use-monitor-head">
+          <div class="workspace-use-monitor-copy">
+            <span>${escapeHtml(workspace?.id ? "执行监控" : "准备启动")}</span>
+            <strong title="${escapeHtml(detail)}">${escapeHtml(title)}</strong>
+          </div>
+          <div class="workspace-use-monitor-actions">
+            ${workspaceHomeActionButtonMarkup({ ...primary, tone: "primary" }, detail)}
+            ${secondary ? workspaceHomeActionButtonMarkup({ ...secondary, tone: "secondary" }, detail) : ""}
+            ${monitorToggle}
+          </div>
+        </div>
+        ${progressBlock}
+      </section>
+    </div>
+  `;
+}
+
+function renderWorkspaceLaunchClosure(workspace = selectedWorkspace()) {
+  const root = $("workspaceLaunchClosure");
+  if (!root) return;
+  if (workspace?.id) {
+    root.innerHTML = "";
+    root.hidden = true;
+    return;
+  }
+  const inputs = workspaceUseInputsPayload();
+  const template = selectedWorkflowTemplate();
+  const resources = workspaceUseResourceSummary();
+  root.innerHTML = workspaceLauncherPrecreateContractMarkup(inputs, template, resources, { compact: true, band: true });
+  root.hidden = !root.innerHTML.trim();
+}
+
+function testWorkspaceStarterChain() {
+  const inputs = workspaceUseInputsPayload();
+  const template = selectedWorkflowTemplate();
+  const resources = workspaceUseResourceSummary();
+  const items = workspaceLauncherPrecreateContractItems(inputs, template, resources);
+  const blocked = items.filter((item) => ["blocked", "failed"].includes(String(item.status || "")));
+  const warnings = items.filter((item) => ["draft", "warning", "pending"].includes(String(item.status || "")));
+  const ready = items.filter((item) => ["ready", "done"].includes(String(item.status || "")));
+  renderWorkspaceLaunchClosure();
+  if (blocked.length) {
+    const labels = blocked.map((item) => item.label).join("、");
+    setWorkspaceUseMessage(`链路未通过：${labels} 仍有断点，请按启动闭环提示补齐。`, true);
+    revealWorkspacePanelTarget("workspaceLaunchClosure", { block: "nearest" });
+    return;
+  }
+  if (warnings.length) {
+    const labels = warnings.map((item) => item.label).join("、");
+    setWorkspaceUseMessage(`链路可建实例，但 ${labels} 仍需注意（${ready.length}/${items.length} 就绪）。`, true);
+    return;
+  }
+  setWorkspaceUseMessage(`链路检查通过（${ready.length}/${items.length} 就绪），可以创建并推进。`, false);
+}
+
+function renderWorkspaceUseMonitor(workspace = selectedWorkspace()) {
+  const root = $("workspaceUseMonitor");
+  if (!root) return;
+  if (!workspace?.id) {
+    root.innerHTML = "";
+    root.hidden = true;
+    return;
+  }
+  const inputs = workspaceUseInputsPayload();
+  const template = selectedWorkflowTemplate();
+  const resources = workspaceUseResourceSummary();
+  root.hidden = false;
+  root.innerHTML = workspaceUseMonitorMarkup(workspace, { inputs, template, resources });
+}
+
+function workspaceUseDetailCompactMarkup(workspace, node, context = {}) {
+  const execution = workspace.execution || {};
+  const selectedStatus = node?.status || execution.last_job_status || workspace.status || "ready";
+  const nodeTitle = node?.title || workspaceNodeLabel(node?.kind) || "未开始";
+  const errorText = String(node?.error || execution.latest_error || "").trim();
+  const jobId = String(node?.job_id || execution.last_job_id || "").trim();
+  const counts = execution.counts || {};
+  const totalNodes = Array.isArray(workspace.nodes) ? workspace.nodes.length : 0;
+  const latestRun = workspaceLatestExecutionRun(workspace);
+  return `
+    <div class="workspace-use-detail-compact status-${escapeHtml(selectedStatus)}">
+      <div class="workspace-use-detail-compact-head">
+        <span>当前节点</span>
+        <strong>${escapeHtml(nodeTitle)}</strong>
+        <em>${escapeHtml(`${counts.done || 0}/${totalNodes || 0} 完成 · ${zhStatus(selectedStatus)}`)}</em>
+      </div>
+      ${latestRun ? workspaceRunProgressMarkup(latestRun, { compact: true }) : ""}
+      ${errorText ? `<p class="workspace-use-detail-compact-error" title="${escapeHtml(errorText)}">${escapeHtml(errorText)}</p>` : ""}
+      <div class="workspace-use-detail-compact-actions">
+        <button class="primary mini" type="button" data-action="advance-workspace-automation" title="让系统根据当前状态自动推进">自动推进</button>
+        ${jobId ? `<button class="secondary mini" type="button" data-action="open-selected-node-log" data-job-id="${escapeHtml(jobId)}" title="打开当前节点最近任务日志">打开日志</button>` : ""}
+        ${node?.id ? `<button class="secondary mini" type="button" data-action="switch-workspace-mode" data-mode="manage" title="进入配置中心编辑节点、Agent 和门禁">配置中心</button>` : ""}
+      </div>
+    </div>
+  `;
 }
 
 function workspaceJobExecutionBundle(job = {}) {
@@ -10386,9 +11761,9 @@ function syncWorkspaceProjectConfigDrawer(options = {}) {
   const drawer = $("workspaceProjectConfigDrawer");
   if (!drawer) return;
   const mode = state.ui.workspaceMode || "use";
-  const hidden = mode !== "use";
+  const hidden = mode !== "manage";
   drawer.toggleAttribute("hidden", hidden);
-  const shouldOpen = !hidden && (Boolean(state.ui.workspaceProjectConfigOpen) || (state.ui.workspaceTab || "home") !== "home");
+  const shouldOpen = !hidden && Boolean(state.ui.workspaceProjectConfigOpen);
   if (drawer.open !== shouldOpen) drawer.open = shouldOpen;
   renderWorkspaceProjectDrawerMeta();
   if (options.scroll && shouldOpen) {
@@ -10941,26 +12316,6 @@ function workspaceCommandCenterModel(workspace = selectedWorkspace(), options = 
   const inputs = options.inputs || workspaceUseInputsPayload();
   const template = options.template || selectedWorkflowTemplate();
   const resources = options.resources || workspaceUseResourceSummary();
-  const jobs = workspaceJobs();
-  const activeJobs = jobs.filter((job) => isJobActive(job));
-  const failedJobs = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || "")));
-  const automation = workspaceAutomationSummary(workspace);
-  const readiness = workspace?.automation?.execution_readiness && typeof workspace.automation.execution_readiness === "object"
-    ? workspace.automation.execution_readiness
-    : {};
-  const gate = readiness.gate && typeof readiness.gate === "object" ? readiness.gate : {};
-  const manifest = workspace?.automation?.reproduction_manifest && typeof workspace.automation.reproduction_manifest === "object"
-    ? workspace.automation.reproduction_manifest
-    : {};
-  const bundle = manifest.execution_bundle && typeof manifest.execution_bundle === "object" ? manifest.execution_bundle : {};
-  const bundleMissing = Array.isArray(bundle.missing) ? bundle.missing : [];
-  const blockers = [
-    ...(Array.isArray(gate.blockers) ? gate.blockers : []),
-    ...(Array.isArray(readiness.blockers) ? readiness.blockers : []),
-    ...bundleMissing,
-  ]
-    .filter((item) => item && typeof item === "object")
-    .slice(0, 4);
   const stageItems = workspaceHomeExecutionRoadmapStageItems(workspace, template);
   const firstProblemStage = stageItems.find((stage) => ["blocked", "failed"].includes(String(stage.status || "")))
     || stageItems.find((stage) => ["warning", "draft", "pending"].includes(String(stage.status || "")) || !stage.nodeCount)
@@ -10998,6 +12353,30 @@ function workspaceCommandCenterModel(workspace = selectedWorkspace(), options = 
       ],
     };
   }
+  const cockpitNext = workspaceCockpitNextAction(workspace);
+  if (cockpitNext?.primary) {
+    return workspaceCommandCenterModelFromCockpit(cockpitNext, workspace, options);
+  }
+  const jobs = workspaceJobs();
+  const activeJobs = jobs.filter((job) => isJobActive(job));
+  const failedJobs = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || "")));
+  const automation = workspaceAutomationSummary(workspace);
+  const readiness = workspace?.automation?.execution_readiness && typeof workspace.automation.execution_readiness === "object"
+    ? workspace.automation.execution_readiness
+    : {};
+  const gate = readiness.gate && typeof readiness.gate === "object" ? readiness.gate : {};
+  const manifest = workspace?.automation?.reproduction_manifest && typeof workspace.automation.reproduction_manifest === "object"
+    ? workspace.automation.reproduction_manifest
+    : {};
+  const bundle = manifest.execution_bundle && typeof manifest.execution_bundle === "object" ? manifest.execution_bundle : {};
+  const bundleMissing = Array.isArray(bundle.missing) ? bundle.missing : [];
+  const blockers = [
+    ...(Array.isArray(gate.blockers) ? gate.blockers : []),
+    ...(Array.isArray(readiness.blockers) ? readiness.blockers : []),
+    ...bundleMissing,
+  ]
+    .filter((item) => item && typeof item === "object")
+    .slice(0, 4);
   if (failedJobs.length) {
     return {
       status: "failed",
@@ -11022,9 +12401,9 @@ function workspaceCommandCenterModel(workspace = selectedWorkspace(), options = 
       title: `${activeJobs.length} 个任务正在执行`,
       detail: "先观察日志、GPU 和输出，不需要继续堆配置。",
       primary: lastJobId
-        ? { label: "打开输出", dataAction: "open-last-workspace-log", tone: "primary", title: "打开当前实例最近绑定任务的日志输出。" }
+        ? { label: "打开输出", dataAction: "open-last-workspace-log", jobId: lastJobId, tone: "primary", title: "打开当前实例最近绑定任务的日志输出。" }
         : { label: "查看运行记录", dataAction: "switch-workspace-tab", tab: "runs", tone: "primary", title: "查看当前项目绑定任务。" },
-      secondary: { label: "运行记录", dataAction: "switch-workspace-tab", tab: "runs", tone: "secondary", title: "查看所有运行记录。" },
+      secondary: { label: "执行链", dataAction: "focus-workspace-execution-board", tone: "secondary", title: "查看节点链与当前阶段状态。" },
       blockers: [],
       facts: [
         { label: "活跃", value: String(activeJobs.length), status: "running" },
@@ -11049,7 +12428,7 @@ function workspaceCommandCenterModel(workspace = selectedWorkspace(), options = 
       };
   const secondary = bundle.ready_to_execute
     ? { label: "提交执行包", dataAction: "run-selected-workspace", tone: "secondary", title: "门禁通过后提交完整工作流。" }
-    : { label: "执行链", dataAction: "switch-workspace-tab", tab: "workflow", tone: "secondary", title: "查看节点链、运行入口和交接关系。" };
+    : { label: "执行链", dataAction: "focus-workspace-execution-board", tone: "secondary", title: "查看节点链、任务绑定和阶段进度。" };
   const phase = stage.label || "自动推进";
   const title = playbookItem?.title || decision.title || stage.title || "等待自动推进判断";
   const detail = blockers.length
@@ -11278,9 +12657,14 @@ function workspaceCommandCenterMarkup(workspace = selectedWorkspace(), options =
   const facts = Array.isArray(model.facts) ? model.facts : [];
   const goalItems = workspaceCommandCenterGoalItems(workspace, model, options);
   const details = String(options.details || "").trim();
-  const showDetails = options.showDetails === true;
-  const showContract = showDetails || options.showContract === true;
-  const showBlockers = blockers.length && (workspace?.id || options.showBlockers === true);
+  const layout = String(options.layout || "").trim();
+  const monitorMode = layout === "monitor";
+  const showDetails = !monitorMode && options.showDetails === true;
+  const showContract = !monitorMode && (showDetails || options.showContract === true);
+  const showBlockers = !monitorMode && blockers.length && (workspace?.id || options.showBlockers === true);
+  if (monitorMode) {
+    return workspaceUseMonitorMarkup(workspace, options);
+  }
   return `
     <section class="workspace-command-center status-${escapeHtml(model.status || "draft")}">
       <div class="workspace-command-center-main">
@@ -11340,20 +12724,34 @@ function workspaceHomeRecommendations() {
   const runNode = workspaceRunNode(state.workspaceNodesDraft);
   const runCommand = String(runNode?.config?.run_command || formData.run_command || "").trim();
   const automation = workspaceAutomationSummary(workspace);
-  const advance = automation?.advance || null;
+  const cockpitNext = workspaceCockpitNextAction(workspace);
   const items = [];
-  const playbookItem = workspaceHomeCurrentPlaybookItem(workspace, automation);
-  if (playbookItem) {
-    items.push(playbookItem);
-  } else if (workspace?.id && advance) {
+  if (cockpitNext?.primary && workspace?.id) {
+    const primary = workspaceNextActionUiButton(cockpitNext.primary);
+    const secondary = workspaceNextActionUiButton(cockpitNext.secondary);
+    const buttons = [];
+    if (primary) buttons.push({ ...primary, tone: "primary" });
+    if (secondary) buttons.push({ ...secondary, tone: "secondary" });
     items.push({
-      title: advance.title || "自动推进",
-      detail: `${advance.reason || "系统已判断下一步。"}${advance.next_action ? ` 下一步：${advance.next_action}` : ""}`,
-      buttons: [
-        { label: "自动推进", dataAction: "advance-workspace-automation", tone: "primary" },
-        { label: "看执行链", dataAction: "switch-workspace-tab", tab: "home", tone: "secondary", title: "回到驾驶舱查看执行链和当前阶段。" },
-      ],
+      title: cockpitNext.title || "下一步",
+      detail: cockpitNext.detail || cockpitNext.reason || "系统已判断当前最该做的动作。",
+      buttons: buttons.length ? buttons : [{ label: "自动推进", dataAction: "advance-workspace-automation", tone: "primary" }],
     });
+  } else {
+    const advance = automation?.advance || null;
+    const playbookItem = workspaceHomeCurrentPlaybookItem(workspace, automation);
+    if (playbookItem) {
+      items.push(playbookItem);
+    } else if (workspace?.id && advance) {
+      items.push({
+        title: advance.title || "自动推进",
+        detail: `${advance.reason || "系统已判断下一步。"}${advance.next_action ? ` 下一步：${advance.next_action}` : ""}`,
+        buttons: [
+          { label: "自动推进", dataAction: "advance-workspace-automation", tone: "primary" },
+          { label: "看执行链", dataAction: "focus-workspace-execution-board", tone: "secondary", title: "回到驾驶舱查看执行链和当前阶段。" },
+        ],
+      });
+    }
   }
   if (!workspace?.id) {
     items.push({
@@ -11664,7 +13062,6 @@ function workspaceHomeContextMarkup(workspace = selectedWorkspace(), formData = 
 
 function renderWorkspaceHome() {
   const workspace = selectedWorkspace();
-  const formData = workspaceFormPayload();
   const decision = $("workspaceHomeDecision");
   const cockpit = $("workspaceHomeCockpit");
   const preflight = $("workspaceHomePreflight");
@@ -11679,120 +13076,24 @@ function renderWorkspaceHome() {
   const runs = $("workspaceHomeRuns");
   const quick = $("workspaceHomeQuickLinks");
   if (!decision || !cockpit || !preflight || !context || !summary || !actions || !brief || !flow || !readiness || !resourcesPanel || !topology || !runs || !quick) return;
-  const jobs = workspaceJobs();
-  const activeJobs = jobs.filter((job) => isJobActive(job)).length;
-  const doneJobs = jobs.filter((job) => String(job.status || "") === "done").length;
-  const failedJobs = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || ""))).length;
-  const referenceCount = parseLineList(formData.references || "").length || (Array.isArray(workspace?.references) ? workspace.references.length : 0);
-  const sourceType = String(formData.source_type || workspace?.source?.type || "idea");
-  const sourceSummary = workspaceDraftSourceSummary(formData, workspace);
-  const statusValue = String(formData.status || workspace?.status || "draft");
-  const profile = providerProfileById(state.workspaceModelDraft.provider_profile_id);
-  const chatAgent = workspaceAgentById(state.workspaceModelDraft.chat_agent_id)?.name || "项目默认 Agent";
-  const enabledAgents = state.workspaceAgentsDraft.filter((agent) => agent.enabled !== false).length;
-  const enabledTools = state.workspaceToolsDraft.filter((tool) => tool.enabled !== false).length;
-  const recommendationItems = workspaceHomeRecommendations();
-  const quickLinks = [
-    { title: "项目设置", meta: "目标、来源、目录和环境", action: "switchWorkspaceTab('project')" },
-    { title: "工作流", meta: "节点链、交接和运行入口", action: "switchWorkspaceTab('workflow')" },
-    { title: "对话", meta: "把自然语言上下文沉淀进项目", action: "switchWorkspaceTab('chat')" },
-    { title: "Agent 管理", meta: "角色、提示词和模型覆盖", action: "switchWorkspaceTab('agents')" },
-    { title: "工具注册", meta: "工具边界和 allowlist", action: "switchWorkspaceTab('tools')" },
-    { title: "AI 配置", meta: "Provider Profile 和路由", action: "switchWorkspaceTab('model')" },
-    { title: "运行记录", meta: "输出、失败、重试和追踪", action: "switchWorkspaceTab('runs')" },
-    { title: "执行面板", meta: "单命令、批量和传输", action: "switchProductTab('exec'); switchExecTab('job')" },
-  ];
-  const advancedDetails = `
-    ${workspaceAutomationDecisionMarkup(workspace)}
-    ${workspaceAutomationPlaybookMarkup(workspace, { compact: true })}
-    ${workspaceExecutionPackageSummaryMarkup(workspace, { compact: true })}
-  `;
-  decision.innerHTML = workspaceCommandCenterMarkup(workspace, { inputs: workspaceUseInputsPayload(), template: selectedWorkflowTemplate(), resources: workspaceUseResourceSummary(), details: advancedDetails });
-  cockpit.innerHTML = workspaceHomeCockpitMarkup(workspace, formData);
-  preflight.innerHTML = workspaceHomePreflightMarkup(workspace);
-  context.innerHTML = workspaceHomeContextMarkup(workspace, formData, { referenceCount, sourceType, sourceSummary, statusValue, profile, chatAgent, enabledAgents, enabledTools, recommendations: recommendationItems });
-  summary.innerHTML = `
-    <article class="workspace-home-card">
-      <span class="workspace-home-card-label">项目状态</span>
-      <strong>${escapeHtml(workspaceStatusLabel(statusValue))}</strong>
-      <span class="workspace-home-card-meta">${workspace?.id ? `已保存为 ${escapeHtml(workspace.id)}` : "当前还是未保存草稿"}</span>
-    </article>
-    <article class="workspace-home-card">
-      <span class="workspace-home-card-label">输入来源</span>
-      <strong>${escapeHtml(workspaceSourceTypeLabel(sourceType))}</strong>
-      <span class="workspace-home-card-meta" title="${escapeHtml(sourceSummary)}">${escapeHtml(sourceSummary)}</span>
-    </article>
-    <article class="workspace-home-card">
-      <span class="workspace-home-card-label">编排规模</span>
-      <strong>${state.workspaceNodesDraft.length} / ${enabledAgents} / ${enabledTools}</strong>
-      <span class="workspace-home-card-meta">节点 / 启用 Agent / 启用工具</span>
-    </article>
-    <article class="workspace-home-card">
-      <span class="workspace-home-card-label">运行情况</span>
-      <strong>${jobs.length}</strong>
-      <span class="workspace-home-card-meta">${activeJobs} 活跃 · ${doneJobs} 完成 · ${failedJobs} 异常</span>
-    </article>
-  `;
-  actions.innerHTML = recommendationItems.map((item) => `
-    <article class="workspace-home-action-card">
-      <div class="workspace-home-action-head">
-        <div>
-          <strong>${escapeHtml(item.title)}</strong>
-          <p class="workspace-home-action-detail">${escapeHtml(item.detail)}</p>
-        </div>
-        <div class="workspace-home-action-buttons">
-          ${(item.buttons || []).map((button) => workspaceHomeActionButtonMarkup(button, item.detail || "执行建议动作")).join("")}
-        </div>
-      </div>
-    </article>
-  `).join("");
-  brief.innerHTML = `
-    <div class="workspace-home-brief-main">${escapeHtml(String(formData.brief || workspace?.brief || "还没有项目简报。先写目标、成功标准和限制条件。").trim() || "还没有项目简报。先写目标、成功标准和限制条件。")}</div>
-    <div class="workspace-home-keyfacts">
-      <article class="workspace-home-fact">
-        <span>工作目录</span>
-        <strong>${escapeHtml(String(formData.workspace_dir || workspace?.workspace_dir || "").trim() || "未设置")}</strong>
-        <em>节点默认会继承这里</em>
-      </article>
-      <article class="workspace-home-fact">
-        <span>运行环境</span>
-        <strong>${escapeHtml(String(formData.env_name || workspace?.env?.name || "").trim() || "未设置")}</strong>
-        <em>${escapeHtml(String(formData.env_manager || workspace?.env?.manager || "conda"))}</em>
-      </article>
-      <article class="workspace-home-fact">
-        <span>参考资料</span>
-        <strong>${referenceCount}</strong>
-        <em>条 URL / 路径 / 备注</em>
-      </article>
-      <article class="workspace-home-fact">
-        <span>模型路由</span>
-        <strong>${escapeHtml(profile ? providerProfileLabel(profile) : "未配置 profile")}</strong>
-        <em>聊天默认 ${escapeHtml(chatAgent)}</em>
-      </article>
-    </div>
-  `;
-  flow.innerHTML = `
-    ${workspaceHomeExecutionRoadmapMarkup(workspace, selectedWorkflowTemplate())}
-    <details class="workspace-home-collapse workspace-home-inline-collapse">
-      <summary>
-        <strong>Agent 分工矩阵</strong>
-        <span>节点、责任 Agent、工具和 AI 路由细节。</span>
-      </summary>
-      <div class="workspace-home-collapse-body">
-        ${workspaceHomeResponsibilityMatrixMarkup(workspace, selectedWorkflowTemplate(), { limit: 10 })}
-      </div>
-    </details>
-  `;
-  readiness.innerHTML = workspaceAutomationExecutionReadinessMarkup(workspace, { limit: 6 });
-  resourcesPanel.innerHTML = workspaceHomeResourceSchedulingMarkup(workspace, formData, selectedWorkflowTemplate());
-  topology.innerHTML = workspaceHomeLayeringMarkup(workspace, selectedWorkflowTemplate());
+  decision.innerHTML = workspaceCommandCenterMarkup(workspace, {
+    inputs: workspaceUseInputsPayload(),
+    template: selectedWorkflowTemplate(),
+    resources: workspaceUseResourceSummary(),
+    layout: "monitor",
+  });
+  cockpit.innerHTML = "";
+  preflight.innerHTML = "";
+  context.innerHTML = "";
+  summary.innerHTML = "";
+  actions.innerHTML = "";
+  brief.innerHTML = "";
+  flow.innerHTML = "";
+  readiness.innerHTML = "";
+  resourcesPanel.innerHTML = "";
+  topology.innerHTML = "";
   runs.innerHTML = workspaceHomeRunsMarkup(workspace);
-  quick.innerHTML = quickLinks.map((item) => `
-    <button class="workspace-home-quick-card" type="button" onclick="${escapeHtml(item.action)}" title="${escapeHtml(item.meta)}">
-      <strong>${escapeHtml(item.title)}</strong>
-      <span>${escapeHtml(item.meta)}</span>
-    </button>
-  `).join("");
+  quick.innerHTML = "";
 }
 
 function setSelectOptions(select, options, selectedValue, emptyLabel = "") {
@@ -11826,7 +13127,10 @@ function switchWorkspaceTab(tab, options = {}) {
   const changed = state.ui.workspaceTab !== next;
   state.ui.workspaceTab = next;
   if (changed && options.persist !== false) markWorkspaceUiInteraction();
-  if (next !== "home") {
+  if (next === "home") {
+    state.ui.workspaceProjectConfigOpen = false;
+    if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "0");
+  } else {
     state.ui.workspaceProjectConfigOpen = true;
     if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "1");
   }
@@ -12524,13 +13828,23 @@ function renderWorkspaceRuns() {
     list.innerHTML = '<div class="empty">先保存项目，后续节点任务和执行日志才会绑定到这里。</div>';
     return;
   }
+  const runs = workspaceExecutionRuns(workspace);
+  const latestRun = runs[0] || null;
   const jobs = workspaceJobs();
   const activeCount = jobs.filter((job) => isJobActive(job)).length;
   const doneCount = jobs.filter((job) => String(job.status || "") === "done").length;
   const failedCount = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || ""))).length;
   const latest = jobs[0] || null;
   const blockedCount = jobs.filter((job) => ["blocked", "failed", "stopped"].includes(String(job.status || ""))).length;
-  const status = failedCount ? "failed" : activeCount ? "running" : jobs.length ? "ready" : "draft";
+  const status = latestRun?.status
+    ? String(latestRun.status)
+    : failedCount
+      ? "failed"
+      : activeCount
+        ? "running"
+        : jobs.length
+          ? "ready"
+          : "draft";
   const primaryAction = latest
     ? { label: "打开最新输出", dataAction: "open-workspace-run", jobId: latest.id, tone: "primary", title: "打开最近一条运行记录的输出日志。" }
     : { label: "运行工作流", dataAction: "run-selected-workspace", tone: "primary", title: "按当前节点链提交完整工作流；门禁失败时不会创建半截队列。" };
@@ -12540,14 +13854,20 @@ function renderWorkspaceRuns() {
   const latestNodeTitle = latest ? String(latest.metadata?.node_title || latest.metadata?.node_kind || latest.kind || "任务") : "等待首次运行";
   const latestServer = latest ? serverById(latest.server_id) : null;
   const latestGpu = latest ? workspaceJobGpuLabel(latest) : "";
-  meta.textContent = `${jobs.length} 个任务`;
+  meta.textContent = runs.length ? `${runs.length} 次执行 · ${jobs.length} 个任务` : `${jobs.length} 个任务`;
   summary.innerHTML = `
     <section class="workspace-run-overview status-${escapeHtml(status)}">
       <div class="workspace-run-overview-head">
         <div>
           <span>运行闭环摘要</span>
-          <strong>${escapeHtml(`${jobs.length} 个任务 · ${activeCount} 活跃 · ${blockedCount} 阻塞`)}</strong>
-          <em>${escapeHtml(latest ? `最近一次 ${fmtDate(latest.created_at || latest.started_at || "") || "等待开始"} · ${zhStatus(latest.status || "queued")}` : "还没有运行记录，建议先从完整工作流或安全发现开始。")}</em>
+          <strong>${escapeHtml(latestRun
+            ? `${workspaceRunKindLabel(latestRun.kind)} · ${latestRun.progress?.done || 0}/${latestRun.progress?.total || latestRun.steps?.length || 0} 步`
+            : `${jobs.length} 个任务 · ${activeCount} 活跃 · ${blockedCount} 阻塞`)}</strong>
+          <em>${escapeHtml(latestRun
+            ? `最近执行 ${fmtDate(latestRun.created_at || "") || "等待开始"} · ${zhStatus(latestRun.status || status)}`
+            : latest
+              ? `最近一次 ${fmtDate(latest.created_at || latest.started_at || "") || "等待开始"} · ${zhStatus(latest.status || "queued")}`
+              : "还没有运行记录，建议先从完整工作流或安全发现开始。")}</em>
         </div>
         <div class="workspace-run-overview-actions">
           ${workspaceHomeActionButtonMarkup(primaryAction, "处理当前运行焦点。")}
@@ -12576,6 +13896,7 @@ function renderWorkspaceRuns() {
           <span class="workspace-run-summary-meta">${latest ? `最近一次 ${fmtDate(latest.created_at || latest.started_at || "")}` : "还没有执行记录"}</span>
         </article>
       </div>
+      ${latestRun ? workspaceRunProgressMarkup(latestRun) : ""}
       <div class="workspace-run-focus status-${escapeHtml(latest?.status || status)}">
         <div>
           <span>当前运行焦点</span>
@@ -12586,8 +13907,12 @@ function renderWorkspaceRuns() {
       </div>
     </section>
   `;
-  if (!jobs.length) {
+  if (!runs.length && !jobs.length) {
     list.innerHTML = '<div class="empty">当前项目还没有绑定任务。可以从工作流运行节点，或者把运行节点填入执行面板后提交。</div>';
+    return;
+  }
+  if (runs.length) {
+    list.innerHTML = runs.slice(0, 12).map((run) => workspaceExecutionRunItemMarkup(run)).join("");
     return;
   }
   list.innerHTML = jobs.slice(0, 24).map((job) => {
@@ -14296,7 +15621,6 @@ function addTransferSource(path, isDir = false, options = {}) {
   const server = options.server || serverById(transferSourceServerId());
   const serverId = server?.id || transferSourceServerId() || "local";
   const key = transferSourceKey(serverId, sourcePath, isDir);
-  const value = formatTransferSource(sourcePath, server, isDir);
   if (!state.transfer.sources.some((item) => item.key === key)) {
     state.transfer.sources.push({
       key,
@@ -14304,7 +15628,7 @@ function addTransferSource(path, isDir = false, options = {}) {
       serverName: server?.name || serverId,
       path: sourcePath,
       isDir,
-      value,
+      value: rsyncTransferSourceValue({ path: sourcePath, isDir, serverId }),
     });
   }
   renderSelectedSources();
@@ -16129,12 +17453,54 @@ function workflowTemplateSummaryMarkup(template) {
   `;
 }
 
+function workspaceInspectorChatContext(workspace = selectedWorkspace(), node = null) {
+  const execution = workspace?.execution || {};
+  const executionNodes = Array.isArray(execution.nodes) ? execution.nodes : [];
+  const runningNode = executionNodes.find((item) => ["running", "starting", "queued"].includes(String(item?.status || "")))
+    || executionNodes.find((item) => String(item?.id || "") === String(execution.current_node_id || ""))
+    || null;
+  const resolvedNode = node || selectedWorkspaceExecutionNode() || runningNode || executionNodes[0] || null;
+  const sourceNode = Array.isArray(workspace?.nodes)
+    ? workspace.nodes.find((item) => String(item?.id || "") === String(resolvedNode?.id || "")) || null
+    : null;
+  const agentId = String(sourceNode?.handler?.agent_id || resolvedNode?.agent_id || "").trim();
+  const agents = Array.isArray(workspace?.agents) ? workspace.agents : [];
+  const agent = agents.find((item) => String(item.id || "") === agentId)
+    || agents.find((item) => String(item.id || "") === String(workspace?.model?.chat_agent_id || ""))
+    || agents[0]
+    || null;
+  return { node: resolvedNode, sourceNode, agent, agentId: agent?.id || agentId || "" };
+}
+
+function syncWorkspaceInspectorChatAgent(nodeId = state.selectedWorkspaceExecutionNodeId) {
+  const workspace = selectedWorkspace();
+  if (!workspace?.id) {
+    state.ui.workspaceInspectorChatAgentId = "";
+    return;
+  }
+  const executionNodes = Array.isArray(workspace.execution?.nodes) ? workspace.execution.nodes : [];
+  const node = executionNodes.find((item) => String(item?.id || "") === String(nodeId || "")) || selectedWorkspaceExecutionNode();
+  const { agentId } = workspaceInspectorChatContext(workspace, node);
+  if (agentId) state.ui.workspaceInspectorChatAgentId = agentId;
+}
+
 function syncWorkspaceUseLayoutState(workspace = selectedWorkspace()) {
   const grid = document.querySelector("#workspaceUseModePanel .workspace-use-grid");
-  const side = grid?.querySelector(".workspace-use-side");
   const previewMode = !workspace?.id;
+  const monitorMode = Boolean(workspace?.id && state.ui.cockpitMonitorMode);
   grid?.classList.toggle("preview-mode", previewMode);
-  if (side) side.hidden = previewMode;
+  $("workspaceUseModePanel")?.classList.toggle("cockpit-monitor-mode", monitorMode);
+  document.querySelector(".workspace-use-intake")?.classList.toggle("monitor-hidden", monitorMode);
+  document.querySelector(".workspace-use-template-band")?.classList.toggle("monitor-hidden", monitorMode);
+  $("workspaceLauncherPreviewBand")?.classList.toggle("monitor-hidden", monitorMode);
+  document.querySelector(".workspace-use-support-band")?.classList.toggle("monitor-hidden", monitorMode);
+  const monitorToggle = $("workspaceCockpitMonitorToggle");
+  if (monitorToggle) {
+    monitorToggle.hidden = !workspace?.id;
+    monitorToggle.textContent = monitorMode ? "开新任务" : "监控模式";
+    monitorToggle.title = monitorMode ? "显示启动器，创建新任务" : "隐藏启动器，专注监控执行";
+    monitorToggle.classList.toggle("active", monitorMode);
+  }
 }
 
 function renderWorkspaceUseMode() {
@@ -16159,8 +17525,17 @@ function renderWorkspaceUseMode() {
     }
   }
   if (templateSummary) templateSummary.innerHTML = workflowTemplateSummaryMarkup(selectedWorkflowTemplate());
-  if (capabilityBaseline) capabilityBaseline.innerHTML = workspaceCapabilityBaselineMarkup(selectedWorkspace(), selectedWorkflowTemplate());
+  if (capabilityBaseline) {
+    const baselineMarkup = workspaceCapabilityBaselineMarkup(selectedWorkspace(), selectedWorkflowTemplate());
+    capabilityBaseline.innerHTML = baselineMarkup;
+    const hasGaps = Boolean(baselineMarkup && baselineMarkup.includes("缺口"));
+    capabilityBaseline.classList.toggle("has-gaps", hasGaps);
+    capabilityBaseline.hidden = !baselineMarkup;
+  }
   renderWorkspaceCockpitOverview();
+  renderWorkspaceUseMonitor(selectedWorkspace());
+  renderWorkspaceLaunchClosure(selectedWorkspace());
+  renderWorkspaceLauncherPreviewBand(selectedWorkspace());
   renderWorkspaceExecutionBoard();
   renderWorkspaceExecutionDetail();
   renderWorkspaceUseChat();
@@ -16188,21 +17563,17 @@ function renderWorkspaceExecutionBoard() {
     }
     const agentCount = template.agent_count || template.agent_ids?.length || 0;
     const toolCount = template.tool_count || template.tool_ids?.length || 0;
-    box.innerHTML = `
-      <article class="workspace-empty-state workspace-empty-state-compact">
-        <div class="workspace-empty-state-copy">
-          <strong>模板预览 · ${escapeHtml(template.name || template.id)}</strong>
-          <p>${escapeHtml(template.description || template.brief || "创建实例后生成真实状态、日志、证据和门禁。")}</p>
-        </div>
-        <div class="workspace-empty-chip-row">
-          <span class="workspace-empty-chip">${escapeHtml(template.source?.type || "idea")}</span>
-          <span class="workspace-empty-chip">${previewNodes.length} 个节点</span>
-          <span class="workspace-empty-chip">${agentCount} 个 Agent</span>
-          <span class="workspace-empty-chip">${toolCount} 个工具</span>
-        </div>
-      </article>
-      ${workspaceExecutionChainMarkup(previewNodes, { preview: true })}
-    `;
+    box.innerHTML = workspaceExecutionCanvasMarkup(previewNodes, {
+      preview: true,
+      workspace: null,
+      template,
+      banner: {
+        title: `模板预览 · ${template.name || template.id}`,
+        detail: `${template.description || template.brief || "创建实例后生成真实状态、日志、证据和门禁。"} · ${previewNodes.length} 节点 · ${agentCount} Agent · ${toolCount} 工具`,
+      },
+    });
+    refreshWorkspaceExecutionFlowCanvas(box);
+    renderWorkspaceExecutionInspector(previewNodes, { workspace: null, template, preview: true });
     return;
   }
   const execution = workspace.execution || {};
@@ -16220,8 +17591,11 @@ function renderWorkspaceExecutionBoard() {
         job_status: "",
       }));
   const counts = execution.counts || {};
+  const latestRun = workspaceLatestExecutionRun(workspace);
   if (meta) {
-    meta.textContent = `当前节点 ${execution.current_node_id || "未开始"} · 待执行 ${counts.pending || 0} · 排队 ${counts.queued || 0} · 运行 ${counts.running || 0} · 完成 ${counts.done || 0} · 失败 ${counts.failed || 0}`;
+    meta.textContent = latestRun
+      ? `${latestRun.progress?.done || 0}/${latestRun.progress?.total || latestRun.steps?.length || nodes.length} 步 · ${zhStatus(latestRun.status || "queued")}`
+      : `${counts.done || 0}/${nodes.length} 完成 · ${counts.running || 0} 运行`;
   }
   if (!state.selectedWorkspaceExecutionNodeId || !nodes.some((node) => node.id === state.selectedWorkspaceExecutionNodeId)) {
     const savedNodeId = savedWorkspaceExecutionNodeId(workspaceExecutionSelectionKey(workspace));
@@ -16229,7 +17603,10 @@ function renderWorkspaceExecutionBoard() {
       ? savedNodeId
       : execution.current_node_id || nodes[0]?.id || "";
   }
-  box.innerHTML = workspaceExecutionChainMarkup(nodes);
+  syncWorkspaceInspectorChatAgent(state.selectedWorkspaceExecutionNodeId);
+  box.innerHTML = workspaceExecutionCanvasMarkup(nodes, { workspace, template: selectedWorkflowTemplate() });
+  refreshWorkspaceExecutionFlowCanvas(box);
+  renderWorkspaceExecutionInspector(nodes, { workspace, template: selectedWorkflowTemplate() });
 }
 
 function workspaceDetailActionsMarkup(workspace, node) {
@@ -16363,345 +17740,93 @@ function workspaceDetailFieldFocusMarkup(node = null, sourceNode = null) {
 function renderWorkspaceExecutionDetail() {
   const box = $("workspaceExecutionDetail");
   const meta = $("workspaceSelectedInstanceMeta");
+  const colTitle = $("workspaceExecutionDetailColTitle");
+  const colLabel = $("workspaceExecutionDetailColLabel");
   const workspace = selectedWorkspace();
+  const applyInspectorHead = (title = "详情", label = "选中节点或工具", sectionMeta = "") => {
+    if (colTitle) colTitle.textContent = title;
+    if (colLabel) colLabel.textContent = label;
+    if (meta && sectionMeta) meta.textContent = sectionMeta;
+  };
+  const renderToolDetail = (tool, node, nodeIndex, context, sectionMeta = "") => {
+    applyInspectorHead("工具", "点击画布节点返回节点信息", sectionMeta);
+    box.innerHTML = workspaceInspectorToolDetailMarkup(tool, node, nodeIndex, context);
+  };
+  const renderNodeDetail = (node, nodeIndex, context, sectionMeta = "") => {
+    applyInspectorHead("节点", "工作任务与运行状态", sectionMeta);
+    box.innerHTML = workspaceExecutionNodeSummaryMarkup(node, nodeIndex, context);
+  };
   if (!box) return;
   if (!workspace) {
     const template = selectedWorkflowTemplate();
     const node = selectedExecutionPreviewNode();
     if (!template) {
-      if (meta) meta.textContent = "选择实例后显示";
-      box.innerHTML = '<div class="empty">右侧会显示当前节点、最近运行、错误和输出入口。</div>';
+      applyInspectorHead("详情", "选中节点或工具", "选择实例后显示");
+      box.innerHTML = '<div class="empty">选中节点后，左侧补充节点信息，中间查看工具状态。</div>';
       return;
     }
-    const sourceSummary = workspaceSourceSummary(template);
-    const handlerName = node?.agent_name || globalAgentById(node?.agent_id || "")?.name || "未指派 Agent";
-    const profile = providerProfileById(template.model?.provider_profile_id || "");
     const sourceNode = (template.nodes || []).find((item) => item.id === node?.id) || null;
-    const nodeConfig = sourceNode?.config || {};
-    const nodePosition = workspaceExecutionNodePosition(templatePreviewExecutionNodes(template), node);
-    if (meta) meta.textContent = "模板预览 · 创建实例后会变成运行快照";
-    box.innerHTML = `
-      <div class="workspace-detail-hero preview">
-        <div class="workspace-detail-hero-copy">
-          <span>当前模板</span>
-          <strong>${escapeHtml(template.name || template.id)}</strong>
-          <em>${escapeHtml(sourceSummary)}</em>
-        </div>
-        <div class="workspace-detail-hero-side">
-          <span class="state preview">${escapeHtml(workspaceStatusLabel("preview"))}</span>
-          <small>未创建实例</small>
-        </div>
-      </div>
-      ${workspaceDetailClosureMarkup(null, node, sourceNode, { template })}
-      ${workspaceDetailFieldFocusMarkup(node, sourceNode)}
-      <div class="workspace-detail-facts">
-        <article class="workspace-detail-fact">
-          <span>默认来源</span>
-          <strong>${escapeHtml(template.source?.type || "idea")}</strong>
-          <em>${escapeHtml((template.nodes || []).length)} 个节点</em>
-        </article>
-        <article class="workspace-detail-fact">
-          <span>预览节点</span>
-          <strong>${escapeHtml(node?.title || "未选择")}</strong>
-          <em>${escapeHtml(handlerName)}</em>
-        </article>
-        <article class="workspace-detail-fact">
-          <span>链路位置</span>
-          <strong>${escapeHtml(nodePosition.label)}</strong>
-          <em>${escapeHtml(nodePosition.detail)}</em>
-        </article>
-        <article class="workspace-detail-fact">
-          <span>默认路由</span>
-          <strong>${escapeHtml(profile ? providerProfileLabel(profile) : template.model?.routing_mode || "workspace_default")}</strong>
-          <em>${escapeHtml(globalAgentById(template.model?.chat_agent_id || "")?.name || template.model?.chat_agent_id || "未设置聊天 Agent")}</em>
-        </article>
-      </div>
-      <details class="workspace-detail-drawer">
-        <summary>
-          <strong>模板节点明细</strong>
-          <span>Agent / I-O / 节点配置和实例快照说明。</span>
-        </summary>
-        <div class="workspace-detail-drawer-body">
-      <div class="workspace-detail-block">
-        <div class="subsection-head">
-          <strong>节点接管</strong>
-          <span class="muted">Agent / Tool / AI</span>
-        </div>
-        ${workspaceNodeAgentContractMarkup(node, sourceNode, { template })}
-      </div>
-      <div class="workspace-detail-block">
-        <div class="subsection-head">
-          <strong>I/O 契约</strong>
-          <span class="muted">input_mapping / output_key / context</span>
-        </div>
-        ${workspaceNodeIoContractMarkup(node, sourceNode, { template })}
-      </div>
-      <div class="workspace-detail-block">
-        <div class="subsection-head">
-          <strong>预览节点详情</strong>
-          <span class="muted">${escapeHtml(node?.kind || "未选择")}</span>
-        </div>
-        <pre class="workspace-detail-pre">${escapeHtml(JSON.stringify(nodeConfig, null, 2) || "{}")}</pre>
-      </div>
-      <div class="workspace-detail-block">
-        <div class="subsection-head">
-          <strong>创建实例后会带上</strong>
-          <span class="muted">运行快照</span>
-        </div>
-        <div class="workspace-detail-mini-list">
-          <div class="workspace-detail-mini-item">模板节点、Agent 和工具会复制成独立快照</div>
-          <div class="workspace-detail-mini-item">任务输入会归档到 inputs，并自动推导 repo / paper / idea / mixed</div>
-          <div class="workspace-detail-mini-item">节点会显示排队、运行、完成、失败和最近日志</div>
-          <div class="workspace-detail-mini-item">右侧实例对话和历史运行会持续绑定到这份快照</div>
-        </div>
-      </div>
-        </div>
-      </details>
-    `;
+    const previewNodes = templatePreviewExecutionNodes(template);
+    const nodeIndex = Math.max(0, previewNodes.findIndex((item) => item.id === node?.id));
+    const sectionMeta = node?.title ? `${node.title} · 模板预览` : "模板预览 · 点击画布切换节点";
+    const toolSelection = parseWorkspaceFlowToolSelectionKey(state.ui.selectedWorkspaceFlowToolKey || "");
+    const { tools } = workspaceFlowNodeContext(node, nodeIndex, { template, preview: true, sourceNode });
+    const selectedTool = tools.find((item) => String(item.id || "") === toolSelection.toolId) || null;
+    if (selectedTool && toolSelection.nodeId === node?.id) {
+      renderToolDetail(selectedTool, node, nodeIndex, { template, preview: true, sourceNode }, sectionMeta);
+      return;
+    }
+    renderNodeDetail(node, nodeIndex, { template, preview: true, sourceNode }, sectionMeta);
     return;
   }
   const node = selectedWorkspaceExecutionNode();
-  const jobs = workspaceJobs();
-  const recent = jobs.slice(0, 5);
   const execution = workspace.execution || {};
-  const currentAgent = globalAgentById(execution.current_agent_id || "") || (workspace.agents || []).find((item) => item.id === execution.current_agent_id) || null;
-  const counts = execution.counts || {};
-  const inputs = workspace.inputs || {};
-  const repoCount = Array.isArray(inputs.repo_urls) ? inputs.repo_urls.length : 0;
-  const paperCount = Array.isArray(inputs.paper_urls) ? inputs.paper_urls.length : 0;
-  const referenceCount = Array.isArray(inputs.references) ? inputs.references.length : Array.isArray(workspace.references) ? workspace.references.length : 0;
-  const contextCount = Array.isArray(inputs.context_blocks) ? inputs.context_blocks.length : 0;
-  const totalNodes = Array.isArray(workspace.nodes) ? workspace.nodes.length : 0;
   const selectedStatus = node?.status || execution.last_job_status || workspace.status || "ready";
-  if (meta) {
-    meta.textContent = `${workspace.template_name || "实例"} · ${workspace.status || "ready"} · ${workspace.workspace_dir || "未设工作目录"}`;
-  }
+  const sectionMeta = node?.title
+    ? `${node.title} · ${zhStatus(selectedStatus)}`
+    : `${workspace.template_name || workspace.name || "实例"}`;
   const sourceNode = (workspace.nodes || []).find((item) => item.id === node?.id) || null;
-  const nodeConfig = sourceNode?.config || {};
-  const nodeTrace = workspaceRuntimeTrace(node);
-  const nodeArtifacts = workspaceRuntimeArtifacts(node);
-  const nodeResources = workspaceRuntimeResources(node);
   const executionNodesForPosition = Array.isArray(execution.nodes) && execution.nodes.length ? execution.nodes : (workspace.nodes || []);
-  const nodePosition = workspaceExecutionNodePosition(executionNodesForPosition, node);
-  box.innerHTML = `
-    <div class="workspace-detail-hero">
-      <div class="workspace-detail-hero-copy">
-        <span>实例快照</span>
-        <strong>${escapeHtml(workspace.template_name || workspace.name || "任务实例")}</strong>
-        <em>${escapeHtml(workspaceSourceSummary(workspace))}</em>
+  const nodeIndex = Math.max(0, executionNodesForPosition.findIndex((item) => item?.id === node?.id));
+  const toolSelection = parseWorkspaceFlowToolSelectionKey(state.ui.selectedWorkspaceFlowToolKey || "");
+  const { tools } = workspaceFlowNodeContext(node, nodeIndex, { workspace, preview: false, sourceNode });
+  const selectedTool = tools.find((item) => String(item.id || "") === toolSelection.toolId) || null;
+  if (selectedTool && toolSelection.nodeId === node?.id) {
+    renderToolDetail(selectedTool, node, nodeIndex, { workspace, preview: false, sourceNode }, sectionMeta);
+    return;
+  }
+  renderNodeDetail(node, nodeIndex, { workspace, preview: false, sourceNode }, sectionMeta);
+}
+
+
+function workspaceAgentOutputPanelMarkup(workspace = selectedWorkspace(), node = null) {
+  const { agent, node: resolvedNode } = workspaceInspectorChatContext(workspace, node);
+  const chat = Array.isArray(workspace?.chat) ? workspace.chat : [];
+  const agentName = agent?.name || agent?.id || "Agent";
+  const agentMessages = chat.filter((message) => {
+    const role = String(message.role || "").trim();
+    const messageAgentId = String(message.agent_id || "").trim();
+    const messageAgentName = String(message.agent_name || "").trim();
+    if (role !== "assistant") return false;
+    if (messageAgentId && agent?.id) return messageAgentId === agent.id;
+    if (messageAgentName && agentName) return messageAgentName === agentName;
+    return !messageAgentId && !messageAgentName;
+  });
+  const latest = agentMessages.slice(-2);
+  const jobId = String(resolvedNode?.job_id || workspace?.execution?.last_job_id || "").trim();
+  if (!latest.length && !jobId) {
+    return '<div class="workspace-agent-output-strip empty muted">等待 Agent 输出…</div>';
+  }
+  return `
+    <div class="workspace-agent-output-strip">
+      <div class="workspace-agent-output-strip-head">
+        <strong>${escapeHtml(agentName)}</strong>
+        ${jobId ? `<button class="secondary mini" type="button" data-action="open-selected-node-log" data-job-id="${escapeHtml(jobId)}" title="打开最近任务日志">日志</button>` : ""}
       </div>
-      <div class="workspace-detail-hero-side">
-        <span class="state ${escapeHtml(selectedStatus)}">${escapeHtml(workspaceStatusLabel(selectedStatus))}</span>
-        <small>${escapeHtml(workspace.workspace_dir || "未设工作目录")}</small>
-      </div>
+      ${latest.length ? latest.map((message) => `
+        <p class="workspace-agent-output-strip-text">${escapeHtml(message.text || "")}</p>
+      `).join("") : `<p class="muted">任务 ${escapeHtml(jobId.slice(0, 8))}… 运行中</p>`}
     </div>
-    ${workspaceDetailClosureMarkup(workspace, node, sourceNode)}
-    ${workspaceDetailFieldFocusMarkup(node, sourceNode)}
-    <div class="workspace-detail-summary">
-      <article class="workspace-detail-card">
-        <span>模板快照</span>
-        <strong>${escapeHtml(workspace.template_name || "未关联模板")}</strong>
-        <em>${escapeHtml(workspaceSourceSummary(workspace))}</em>
-      </article>
-      <article class="workspace-detail-card">
-        <span>当前节点</span>
-        <strong>${escapeHtml(node?.title || "未开始")}</strong>
-        <em>${escapeHtml(node?.agent_name || currentAgent?.name || "未分配 Agent")}</em>
-      </article>
-      <article class="workspace-detail-card">
-        <span>链路位置</span>
-        <strong>${escapeHtml(nodePosition.label)}</strong>
-        <em>${escapeHtml(nodePosition.detail)}</em>
-      </article>
-      <article class="workspace-detail-card">
-        <span>最近状态</span>
-        <strong>${escapeHtml(workspaceStatusLabel(node?.status || execution.last_job_status || "ready"))}</strong>
-        <em>${escapeHtml(execution.latest_error || "没有最近错误")}</em>
-      </article>
-      <article class="workspace-detail-card">
-        <span>执行概况</span>
-        <strong>${escapeHtml(`${counts.done || 0}/${totalNodes || 0}`)}</strong>
-        <em>${escapeHtml(`排队 ${counts.queued || 0} · 运行 ${counts.running || 0} · 失败 ${counts.failed || 0}`)}</em>
-      </article>
-    </div>
-    <div class="workspace-detail-facts">
-      <article class="workspace-detail-fact">
-        <span>任务输入</span>
-        <strong>${escapeHtml(`${repoCount} repo · ${paperCount} paper`)}</strong>
-        <em>${escapeHtml(`${referenceCount} 条参考 · ${contextCount} 条上下文`)}</em>
-      </article>
-      <article class="workspace-detail-fact">
-        <span>当前 Agent</span>
-        <strong>${escapeHtml(node?.agent_name || currentAgent?.name || "未分配 Agent")}</strong>
-        <em>${escapeHtml(currentAgent?.role || node?.kind || "等待开始")}</em>
-      </article>
-      <article class="workspace-detail-fact">
-        <span>最近任务</span>
-        <strong>${escapeHtml(execution.last_job_id || "还没有")}</strong>
-        <em>${escapeHtml(execution.latest_error || "没有最近错误")}</em>
-      </article>
-    </div>
-    ${workspaceDetailActionsMarkup(workspace, node)}
-    <details class="workspace-detail-drawer">
-      <summary>
-        <strong>节点明细与诊断</strong>
-        <span>接管、I/O、清单、证据、资源、Trace、配置和运行历史。</span>
-      </summary>
-      <div class="workspace-detail-drawer-body">
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>节点接管</strong>
-        <span class="muted">Agent / Tool / AI</span>
-      </div>
-      ${workspaceNodeAgentContractMarkup(node, sourceNode, { workspace })}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>I/O 契约</strong>
-        <span class="muted">workflow_contract_node</span>
-      </div>
-      ${workspaceNodeIoContractMarkup(node, sourceNode, { workspace })}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>执行上下文</strong>
-        <span class="muted">input_data / context.outputs / step_results</span>
-      </div>
-      ${workspaceExecutionContextBusMarkup(workspace, { limit: 10 })}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>复现/部署清单</strong>
-        <span class="muted">source / data / env / gpu / run / artifact</span>
-      </div>
-      ${workspaceReproductionManifestMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>节点态势</strong>
-        <span class="muted">${escapeHtml(node?.kind || "未开始")}</span>
-      </div>
-      ${workspaceNodeAutomationScopeMarkup(workspace, node, sourceNode)}
-    </div>
-    ${workspaceNodeExecutionPlanMarkup(workspace, node, sourceNode)}
-    ${workspaceNodeNextActionMarkup(workspace, node, sourceNode)}
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>执行包归档</strong>
-        <span class="muted">step / target / script</span>
-      </div>
-      ${workspaceNodeExecutionBundleMarkup(node, jobs)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>执行准备清单</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.execution_readiness?.summary || "等待准备")}</span>
-      </div>
-      ${workspaceAutomationExecutionReadinessMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>自动推进建议</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.advance?.next_action || "等待判断")}</span>
-      </div>
-      ${workspaceAutomationAdvanceMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>自动化体检</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.summary || "等待检查")}</span>
-      </div>
-      ${workspaceAutomationCheckMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>发现证据</strong>
-        <span class="muted">路径、数据、环境、GPU、产物、指标</span>
-      </div>
-      ${workspaceAutomationEvidenceMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>证据回填解释</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.evidence_backfill?.summary || "等待发现证据")}</span>
-      </div>
-      ${workspaceEvidenceBackfillMarkup(workspace, { limit: 12 })}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>资源/数据/环境/GPU 调度</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.resource_orchestration?.summary || "等待调度")}</span>
-      </div>
-      ${workspaceAutomationResourceMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>报告草稿</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.report?.headline || "等待证据")}</span>
-      </div>
-      ${workspaceAutomationReportMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>运行预案</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.run_plan?.summary || "等待生成")}</span>
-      </div>
-      ${workspaceAutomationRunPlanMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>Agent / Tool / AI 分层</strong>
-        <span class="muted">${escapeHtml(workspace.automation?.agent_topology?.summary || "等待拓扑")}</span>
-      </div>
-      ${workspaceAutomationAgentTopologyMarkup(workspace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>资源计划</strong>
-        <span class="muted">${escapeHtml(node?.kind || "未开始")}</span>
-      </div>
-      ${workspaceDetailResourceMarkup(nodeResources)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>节点 Trace</strong>
-        <span class="muted">${nodeTrace.length} 条</span>
-      </div>
-      ${workspaceDetailTraceMarkup(nodeTrace)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>产物与路径</strong>
-        <span class="muted">${nodeArtifacts.length} 项</span>
-      </div>
-      ${workspaceDetailArtifactsMarkup(nodeArtifacts)}
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>节点配置</strong>
-        <span class="muted">${escapeHtml(node?.kind || "未开始")}</span>
-      </div>
-      <pre class="workspace-detail-pre">${escapeHtml(JSON.stringify(nodeConfig, null, 2) || "{}")}</pre>
-    </div>
-    <div class="workspace-detail-block">
-      <div class="subsection-head">
-        <strong>最近运行</strong>
-        <span class="muted">${recent.length} 条</span>
-      </div>
-      ${recent.length ? `
-        <div class="workspace-detail-run-list">
-          ${recent.map((job) => `
-            <button class="workspace-detail-run" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(job.id)}" title="打开这条节点运行记录的输出日志">
-              <strong>${escapeHtml(job.name || job.id)}</strong>
-              <span>${escapeHtml(zhStatus(job.status || "queued"))}</span>
-              <em>${escapeHtml(job.metadata?.node_title || job.kind || "任务")} · ${escapeHtml(fmtDate(job.started_at || job.created_at || ""))}</em>
-            </button>
-          `).join("")}
-        </div>
-      ` : '<div class="empty">还没有运行记录。</div>'}
-    </div>
-      </div>
-    </details>
   `;
 }
 
@@ -16710,31 +17835,61 @@ function renderWorkspaceUseChat() {
   const list = $("workspaceUseChatList");
   const select = $("workspaceUseChatAgentSelect");
   const hint = $("workspaceUseChatHint");
+  const outputPanel = $("workspaceAgentOutputPanel");
+  const node = selectedWorkspaceExecutionNode();
+  const { agent, agentId, node: resolvedNode } = workspaceInspectorChatContext(workspace, node);
   if (select) {
     const agents = Array.isArray(workspace?.agents) ? workspace.agents : [];
     select.innerHTML = agents.length
-      ? agents.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name || agent.id)}</option>`).join("")
+      ? agents.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name || item.id)}</option>`).join("")
       : '<option value="">暂无 Agent</option>';
-    const defaultAgentId = workspace?.model?.chat_agent_id || agents[0]?.id || "";
-    select.value = agents.some((agent) => agent.id === defaultAgentId) ? defaultAgentId : agents[0]?.id || "";
+    const preferredAgentId = state.ui.workspaceInspectorChatAgentId || agentId || workspace?.model?.chat_agent_id || agents[0]?.id || "";
+    select.value = agents.some((item) => item.id === preferredAgentId) ? preferredAgentId : agents[0]?.id || "";
     select.disabled = !agents.length;
   }
-  if (hint) hint.textContent = workspace?.template_name ? `实例来自 ${workspace.template_name}` : "";
+  if (hint) {
+    const hintText = resolvedNode?.title
+      ? `跟随节点「${resolvedNode.title}」· ${agent?.name || "未指派 Agent"}`
+      : workspace?.template_name
+        ? `实例来自 ${workspace.template_name}`
+        : "创建实例后默认跟随运行中节点 Agent";
+    hint.textContent = hintText;
+    const chatHead = document.querySelector(".workspace-cockpit-chat-head strong");
+    if (chatHead) chatHead.title = hintText;
+  }
+  if (outputPanel) {
+    outputPanel.innerHTML = workspace
+      ? workspaceAgentOutputPanelMarkup(workspace, node)
+      : '<div class="workspace-agent-output-strip empty muted">创建实例后显示 Agent 输出。</div>';
+  }
   if (!list) return;
   if (!workspace) {
-    list.innerHTML = '<div class="empty">选择实例后，在这里继续对话。</div>';
+    list.innerHTML = '<div class="empty">创建实例后，输出会显示在上方区域。</div>';
     return;
   }
   const chat = Array.isArray(workspace.chat) ? workspace.chat : [];
-  if (!chat.length) {
-    list.innerHTML = '<div class="empty">当前实例还没有消息。</div>';
+  const activeAgentId = select?.value || state.ui.workspaceInspectorChatAgentId || agentId || "";
+  const activeAgent = (workspace.agents || []).find((item) => item.id === activeAgentId) || agent;
+  const filtered = activeAgentId
+    ? chat.filter((message) => {
+      const role = String(message.role || "").trim();
+      if (role === "user") return false;
+      const messageAgentId = String(message.agent_id || "").trim();
+      if (messageAgentId) return messageAgentId === activeAgentId;
+      const messageAgentName = String(message.agent_name || "").trim();
+      return !messageAgentName || messageAgentName === (activeAgent?.name || "");
+    })
+    : chat.filter((message) => String(message.role || "").trim() !== "user");
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty">当前 Agent 还没有回复。</div>';
     return;
   }
-  list.innerHTML = chat.slice(-24).map((message) => `
-    <article class="workspace-chat-message ${escapeHtml(message.role || "user")}">
+  list.innerHTML = filtered.slice(-12).map((message) => `
+    <article class="workspace-chat-message assistant workspace-chat-message-output">
       <div class="workspace-chat-message-head">
-        <strong>${escapeHtml(message.agent_name || message.role || "user")}</strong>
-        <span>${escapeHtml(fmtDate(message.created_at || ""))}</span>
+        <span class="workspace-chat-message-role">输出</span>
+        <strong>${escapeHtml(message.agent_name || activeAgent?.name || "Agent")}</strong>
+        <em>${escapeHtml(fmtDate(message.created_at || ""))}</em>
       </div>
       <div class="workspace-chat-message-body">${escapeHtml(message.text || "")}</div>
     </article>
@@ -16750,9 +17905,13 @@ function renderWorkspaceModeSwitch() {
   document.querySelectorAll("#workspaceModeSwitch [data-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
-  document.querySelectorAll("#workspaceManageTabs [data-tab]").forEach((button) => {
+  document.querySelectorAll("#workspaceManageTabs [data-tab], .workspace-manage-tabs-secondary [data-tab]").forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === state.ui.workspaceManageTab);
   });
+  const advancedTabs = document.querySelector(".workspace-manage-advanced-tabs");
+  if (advancedTabs && ["agents", "tools", "ai"].includes(state.ui.workspaceManageTab)) {
+    advancedTabs.open = true;
+  }
   ["templates", "agents", "tools", "ai"].forEach((tab) => {
     $(`workspaceManage${tab.charAt(0).toUpperCase() + tab.slice(1)}Panel`)?.toggleAttribute("hidden", state.ui.workspaceManageTab !== tab);
   });
@@ -17392,6 +18551,8 @@ async function createWorkspaceTask(mode = "create") {
       saveStoredValue(STORAGE_KEYS.selectedWorkspace, workspace.id);
       hydrateWorkspaceUseInputsFromWorkspace(workspace);
       selectWorkspace(workspace.id, { persist: false });
+      toggleCockpitMonitorMode(true);
+      focusWorkspaceCockpitFromNextAction(workspace);
     }
     if (actionMode === "discover" && workspace?.id) {
       const result = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/discovery/run`, {
@@ -17408,6 +18569,7 @@ async function createWorkspaceTask(mode = "create") {
       const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
       setWorkspaceUseMessage(`实例已创建并提交源码/发现链：${createdJobs} 个节点 · 应用 ${applied} 项建议${skipped ? ` · 跳过 ${skipped} 项` : ""}。`);
       await loadStatus(true, { renderWorkspace: true });
+      focusWorkspaceCockpitFromNextAction(selectedWorkspace());
       if (result.jobs?.[0]?.id) await showLog(result.jobs[0].id);
       return;
     }
@@ -17423,11 +18585,13 @@ async function createWorkspaceTask(mode = "create") {
       }
       setWorkspaceUseMessage(`实例已创建。${workspaceAdvanceMessage(result)}`);
       await loadStatus(true, { renderWorkspace: true });
+      focusWorkspaceCockpitFromNextAction(selectedWorkspace());
       if (result.jobs?.[0]?.id) await showLog(result.jobs[0].id);
       return;
     }
     setWorkspaceUseMessage("实例已创建。");
     await loadStatus(true, { renderWorkspace: true });
+    focusWorkspaceCockpitFromNextAction(selectedWorkspace());
   } catch (error) {
     if (error?.payload?.workspace) {
       upsertWorkspaceInState(error.payload.workspace);
@@ -18001,9 +19165,10 @@ const WORKSPACE_AUTOMATION_ACTION_LABELS = {
   "focus-workspace-goal": "填写目标",
   "focus-workspace-node-kind": "聚焦节点类型",
   "focus-workspace-backfill-target": "定位回填字段",
-  "create-workspace": "创建任务",
-  "create-workspace-discover": "创建并自动发现",
-  "create-workspace-run": "创建并自动推进",
+  "create-workspace": "仅建实例",
+  "create-workspace-discover": "建实例 + 发现",
+  "create-workspace-run": "建实例 + 推进",
+  "test-workspace-chain": "测试链路",
   "run-workspace-node": "运行节点",
   "run-selected-node": "运行当前节点",
   "run-workspace-to-selected-node": "运行到当前节点",
@@ -18043,6 +19208,7 @@ const WORKSPACE_NON_BLOCKING_ACTIONS = new Set([
   "refresh-workspace-resources",
   "refresh-workspace-resource-server",
   "refresh-workspace-resource-selected-server",
+  "test-workspace-chain",
   "copy-execution-bundle-script",
   "copy-execution-bundle-json",
   "copy-node-execution-bundle-script",
@@ -18060,9 +19226,10 @@ const WORKSPACE_AUTOMATION_ACTION_HELP = {
   "focus-workspace-goal": "把焦点放到复现/部署目标输入框；先写清目标，系统再自动整理 repo、论文、数据路径、环境和 GPU 调度线索。",
   "focus-workspace-node-kind": "把焦点放到节点类型选择器，准备插入新的工作流节点。",
   "focus-workspace-backfill-target": "定位到证据或回填建议对应的执行节点，并在右侧查看字段、门禁、资源和上下文。",
-  "create-workspace": "只创建任务实例快照，不提交自动发现或运行队列。",
-  "create-workspace-discover": "创建实例后只提交安全发现链，先收集源码、路径、数据、环境、GPU 和产物证据。",
-  "create-workspace-run": "创建实例后交给自动推进；首次通常先跑安全发现，门禁通过后再完整运行。",
+  "create-workspace": "只建实例快照，不提交发现链或运行队列。",
+  "create-workspace-discover": "建实例后只跑安全发现链，先收集源码、路径、数据、环境、GPU 和产物证据。",
+  "create-workspace-run": "建实例后交给自动推进；首次通常先跑安全发现，门禁通过后再完整运行。",
+  "test-workspace-chain": "检查当前输入、链路模板、发现链、资源和执行包是否就绪，不创建实例。",
   "run-workspace-node": "只提交当前节点，用于单点调试；不会运行整条链。",
   "run-selected-node": "只提交当前节点，用于单点调试；不会运行整条链。",
   "run-workspace-to-selected-node": "从起点运行到当前选中节点，用于验证前置 source/data/env/GPU 链路；不会提交后续节点。",
@@ -18106,6 +19273,7 @@ function updateWorkspaceAutomationBusyControls() {
     ["workspaceCreateTaskBtn", "create-workspace"],
     ["workspaceCreateDiscoverTaskBtn", "create-workspace-discover"],
     ["workspaceCreateRunTaskBtn", "create-workspace-run"],
+    ["workspaceTestChainBtn", "test-workspace-chain"],
     ["workspaceRunFlowBtn", "run-selected-workspace"],
   ].forEach(([id, action]) => {
     const button = $(id);
@@ -18685,6 +19853,8 @@ function restoreStoredUiState() {
   state.ui.workspaceMode = loadStoredValue(STORAGE_KEYS.workspaceMode, state.ui.workspaceMode || "use");
   state.ui.workspaceManageTab = loadStoredValue(STORAGE_KEYS.workspaceManageTab, state.ui.workspaceManageTab || "templates");
   state.ui.workspaceProjectConfigOpen = loadStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, state.ui.workspaceProjectConfigOpen ? "1" : "0") === "1";
+  state.ui.cockpitMonitorMode = loadStoredValue(STORAGE_KEYS.cockpitMonitorMode, state.ui.cockpitMonitorMode === false ? "0" : "1") !== "0";
+  state.ui.workspaceFlowZoom = Number(loadStoredValue(STORAGE_KEYS.workspaceFlowZoom, String(state.ui.workspaceFlowZoom || 1))) || 1;
   state.ui.serverSort = loadStoredValue(STORAGE_KEYS.serverSort, state.ui.serverSort || "default");
   state.ui.serverOrder = loadStoredArray(STORAGE_KEYS.serverOrder);
   state.ui.serverPins = loadStoredArray(STORAGE_KEYS.serverPins);
@@ -18745,6 +19915,9 @@ function captureWorkspaceUiSnapshot() {
     workspaceMode: state.ui.workspaceMode,
     workspaceManageTab: state.ui.workspaceManageTab,
     workspaceProjectConfigOpen: Boolean(state.ui.workspaceProjectConfigOpen),
+    cockpitMonitorMode: Boolean(state.ui.cockpitMonitorMode),
+    previewBandOpen: Boolean($("workspaceLauncherPreviewBand")?.open),
+    supportBandOpen: Boolean(document.querySelector(".workspace-use-support-band")?.open),
     selectedWorkspaceId: state.selectedWorkspaceId,
     selectedWorkspaceNodeId: state.selectedWorkspaceNodeId,
     selectedWorkspaceExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
@@ -18781,6 +19954,10 @@ function restoreWorkspaceUiSnapshot(snapshot = {}, options = {}) {
   if (typeof snapshot.workspaceProjectConfigOpen === "boolean") {
     state.ui.workspaceProjectConfigOpen = Boolean(snapshot.workspaceProjectConfigOpen);
   }
+  if (typeof snapshot.cockpitMonitorMode === "boolean") {
+    state.ui.cockpitMonitorMode = Boolean(snapshot.cockpitMonitorMode);
+  }
+  syncWorkspaceCollapsePanels(snapshot);
 
   const workspaceId = String(snapshot.selectedWorkspaceId || "").trim();
   const currentWorkspaceValid = state.selectedWorkspaceId && state.workspaces.some((item) => String(item?.id || "") === state.selectedWorkspaceId);
@@ -18951,10 +20128,6 @@ function applyServerRefreshPayload(payload = {}, serverId = "") {
     updateServerHistory(state.servers);
   }
   if (Array.isArray(payload.jobs)) state.jobs = payload.jobs;
-  if (Array.isArray(payload.workspaces)) state.workspaces = payload.workspaces;
-  if (Array.isArray(payload.workflow_templates)) state.workflowTemplates = payload.workflow_templates;
-  if (Array.isArray(payload.agent_definitions)) state.agentDefinitions = payload.agent_definitions;
-  if (Array.isArray(payload.tool_definitions)) state.toolDefinitions = payload.tool_definitions;
   updatePollTimer(payload.config?.poll_interval_seconds);
   const knownServerIds = new Set(state.servers.map((server) => server.id));
   if (!state.selectedServer || !knownServerIds.has(state.selectedServer)) {
@@ -18968,6 +20141,7 @@ async function loadStatus(force = false, options = {}) {
   const endpoint = force ? "/api/refresh" : "/api/status";
   const renderWorkspace = options.renderWorkspace ?? !state.ui.formsRestored;
   const workspaceSnapshot = renderWorkspace ? null : captureWorkspaceUiSnapshot();
+  const scrollSnapshot = renderWorkspace ? null : captureUiScrollSnapshot();
   const requestId = state.ui.statusRequestSeq + 1;
   state.ui.statusRequestSeq = requestId;
   state.ui.statusBusyCount += 1;
@@ -19012,8 +20186,10 @@ async function loadStatus(force = false, options = {}) {
       }
       renderWorkspaceWorkbench();
     } else if (state.ui.productTab === "workspace") {
-      renderWorkspaceResourceSurfaces();
+      renderWorkspaceResourceSurfaces({ scope: "resource-only" });
     }
+    if (scrollSnapshot) restoreUiScrollSnapshot(scrollSnapshot);
+    if (workspaceSnapshot) syncWorkspaceCollapsePanels(workspaceSnapshot);
     void updateTransferProgress();
     await loadTmuxSessions();
   } catch (error) {
@@ -19065,6 +20241,7 @@ async function refreshServerStatus(serverId) {
   const id = String(serverId || "").trim();
   if (!id || state.ui.serverRefreshBusy[id]) return;
   const workspaceSnapshot = captureWorkspaceUiSnapshot();
+  const scrollSnapshot = captureUiScrollSnapshot();
   const requestId = Number(state.ui.serverRefreshSeq[id] || 0) + 1;
   state.ui.serverRefreshSeq[id] = requestId;
   state.ui.serverRefreshBusy[id] = true;
@@ -19075,8 +20252,12 @@ async function refreshServerStatus(serverId) {
     if (state.ui.serverRefreshSeq[id] !== requestId) return;
     applyServerRefreshPayload(payload, id);
     restoreWorkspaceUiSnapshot(workspaceSnapshot, { force: true });
-    render(payload, { workspace: false });
-    if (state.ui.productTab === "workspace") renderWorkspaceResourceSurfaces();
+    renderHostStatusSurfaces(payload);
+    if (state.ui.productTab === "workspace") {
+      renderWorkspaceResourceSurfaces({ scope: "resource-only" });
+    }
+    restoreUiScrollSnapshot(scrollSnapshot);
+    syncWorkspaceCollapsePanels(workspaceSnapshot);
     await loadTmuxSessions();
     return payload;
   } catch (error) {
@@ -19091,37 +20272,78 @@ async function refreshServerStatus(serverId) {
   }
 }
 
-function renderWorkspaceResourceSurfaces() {
-  renderWorkspaceCockpitOverview();
-  renderWorkspaceExecutionBoard();
-  renderWorkspaceExecutionDetail();
-  updateWorkspaceAutomationBusyControls();
+function renderHostStatusSurfaces(payload = {}) {
+  renderHeader(payload);
+  renderServers();
+  renderGpuRows();
+  renderProcesses();
+  renderFormOptions();
+  renderTaskPlanOptions();
+  updateSelectedServerRefreshButton();
+}
+
+function renderWorkspaceCapabilityBaselineOnly(workspace = selectedWorkspace(), template = selectedWorkflowTemplate()) {
+  const capabilityBaseline = $("workspaceCapabilityBaseline");
+  if (!capabilityBaseline) return;
+  const baselineMarkup = workspaceCapabilityBaselineMarkup(workspace, template);
+  capabilityBaseline.innerHTML = baselineMarkup;
+  const hasGaps = Boolean(baselineMarkup && baselineMarkup.includes("缺口"));
+  capabilityBaseline.classList.toggle("has-gaps", hasGaps);
+  capabilityBaseline.hidden = !baselineMarkup;
+}
+
+function renderWorkspaceResourceSurfaces(options = {}) {
+  const scrollSnapshot = captureUiScrollSnapshot();
+  const collapseSnapshot = captureWorkspaceUiSnapshot();
+  const scope = String(options.scope || "full");
+  if (scope === "resource-only") {
+    const workspace = selectedWorkspace();
+    const inputs = workspaceUseInputsPayload();
+    const template = selectedWorkflowTemplate();
+    const resources = workspaceUseResourceSummary();
+    renderWorkspaceLaunchClosure(workspace);
+    renderWorkspaceCapabilityBaselineOnly(workspace, template);
+    renderWorkspaceLauncherPreviewBand(workspace, inputs, template, resources);
+    updateWorkspaceAutomationBusyControls();
+  } else {
+    renderWorkspaceCockpitOverview();
+    renderWorkspaceExecutionBoard();
+    renderWorkspaceExecutionDetail();
+    updateWorkspaceAutomationBusyControls();
+  }
+  restoreUiScrollSnapshot(scrollSnapshot);
+  syncWorkspaceCollapsePanels(collapseSnapshot);
 }
 
 async function refreshWorkspaceResourceSnapshot(serverId = "") {
   const id = String(serverId || "").trim();
   if (id) {
     await refreshServerStatus(id);
-    renderWorkspaceResourceSurfaces();
     return;
   }
   if (state.ui.workspaceResourceRefreshBusy) return;
   const workspaceSnapshot = captureWorkspaceUiSnapshot();
+  const scrollSnapshot = captureUiScrollSnapshot();
   state.ui.workspaceResourceRefreshBusy = true;
-  renderWorkspaceCockpitOverview();
+  renderWorkspaceResourceSurfaces({ scope: "resource-only" });
   try {
     const payload = await fetchJson("/api/refresh");
     applyStatusPayload(payload, { preserveWorkspaceUi: true });
     restoreWorkspaceUiSnapshot(workspaceSnapshot, { force: true });
-    render(payload, { workspace: false });
-    renderWorkspaceResourceSurfaces();
+    renderHostStatusSurfaces(payload);
+    renderJobs();
+    renderWorkspaceResourceSurfaces({ scope: "resource-only" });
+    restoreUiScrollSnapshot(scrollSnapshot);
+    syncWorkspaceCollapsePanels(workspaceSnapshot);
     void updateTransferProgress();
     await loadTmuxSessions();
   } catch (error) {
     $("refreshMeta").textContent = `资源刷新失败：${error.message}`;
   } finally {
     state.ui.workspaceResourceRefreshBusy = false;
-    renderWorkspaceCockpitOverview();
+    renderWorkspaceResourceSurfaces({ scope: "resource-only" });
+    restoreUiScrollSnapshot(scrollSnapshot);
+    syncWorkspaceCollapsePanels(workspaceSnapshot);
   }
 }
 
@@ -19177,6 +20399,190 @@ function normalizeTransferEndpoint(value, serverId) {
   return `${transferTargetPrefix(server)}${text}`;
 }
 
+function toggleCockpitMonitorMode(force) {
+  const workspace = selectedWorkspace();
+  const next = typeof force === "boolean" ? force : !state.ui.cockpitMonitorMode;
+  const changed = state.ui.cockpitMonitorMode !== next;
+  state.ui.cockpitMonitorMode = next;
+  if (changed) {
+    markWorkspaceUiInteraction();
+    saveStoredValue(STORAGE_KEYS.cockpitMonitorMode, next ? "1" : "0");
+  }
+  if (!workspace?.id) return;
+  syncWorkspaceUseLayoutState(workspace);
+  renderWorkspaceUseMonitor(workspace);
+  if (changed || typeof force === "boolean") renderWorkspaceWorkbench();
+}
+
+const transferConflictState = {
+  pending: null,
+  queue: [],
+  decisions: {},
+};
+
+function hideTransferConflictModal() {
+  $("transferConflictModal")?.setAttribute("hidden", "");
+  transferConflictState.pending = null;
+  transferConflictState.queue = [];
+  transferConflictState.decisions = {};
+}
+
+function renderTransferConflictModal(conflicts = []) {
+  const modal = $("transferConflictModal");
+  const list = $("transferConflictList");
+  const subtitle = $("transferConflictSubtitle");
+  if (!modal || !list) return;
+  list.innerHTML = conflicts.map((item) => `
+    <li>
+      <strong>${escapeHtml(item.name || pathBaseName(item.source_path || item.destination || ""))}</strong>
+      <span>${escapeHtml(item.is_dir ? "目录" : "文件")}</span>
+      <em title="${escapeHtml(item.destination || "")}">${escapeHtml(item.destination || "")}</em>
+    </li>
+  `).join("");
+  if (subtitle) {
+    subtitle.textContent = conflicts.length === 1
+      ? "目标位置已存在 1 个同名项，请选择如何处理。"
+      : `目标位置已存在 ${conflicts.length} 个同名项，请选择如何处理。`;
+  }
+  modal.removeAttribute("hidden");
+}
+
+async function checkTransferConflicts(sourceItems, target, excludes, options) {
+  return fetchJson("/api/files/transfer-conflicts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sources: sourceItems,
+      target,
+      excludes,
+      options,
+    }),
+  });
+}
+
+function buildTransferCommandParts(form, sourceItems, target, excludes, transferOptions = {}) {
+  const baseParts = ["rsync", "-avPh", "--info=progress2"];
+  if (form.checksum?.checked) {
+    baseParts.push("--checksum");
+  } else if (form.size_only?.checked) {
+    baseParts.push("--size-only");
+  }
+  if (form.resume_partial?.checked) baseParts.push("--partial", "--append-verify");
+  if (transferOptions.ignore_existing) baseParts.push("--ignore-existing");
+  excludes.forEach((item) => {
+    baseParts.push("--exclude", shellQuote(item));
+  });
+  const filteredItems = sourceItems.filter((item) => !transferOptions.skip_sources?.includes(item.path));
+  const sources = filteredItems.map((item) => rsyncTransferSourceValue(item)).filter(Boolean);
+  const commandForSource = (source) => [...baseParts, shellQuote(source), shellQuote(target)].join(" ");
+  const command = sources.length === 1
+    ? commandForSource(sources[0])
+    : sources.length ? ["set -e", ...sources.map((source) => commandForSource(source))].join("\n") : "";
+  return { command, sources, filteredItems };
+}
+
+async function submitTransferJob(form, sourceItems, target, excludes, transferOptions = {}) {
+  const message = $("transferMessage");
+  const { command, sources } = buildTransferCommandParts(form, sourceItems, target, excludes, transferOptions);
+  if (!command) {
+    message.textContent = "没有可传输的源项。";
+    message.classList.add("error");
+    return;
+  }
+  const localServer = state.servers.find((server) => server.mode === "local") || serverById("local");
+  if (!localServer) {
+    message.textContent = "没有找到本机服务器配置，无法从本机启动 rsync。";
+    message.classList.add("error");
+    return;
+  }
+  message.textContent = "正在加入文件传输任务...";
+  message.classList.remove("error");
+  const payload = await fetchJson("/api/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: sources.length === 1 ? `文件传输 ${pathBaseName(sources[0])}` : `文件传输 ${sources.length} 项`,
+      server_id: localServer.id,
+      gpu_index: "none",
+      wait_for_idle: false,
+      kind: "transfer",
+      command,
+      command_display: command,
+      metadata: {
+        transfer_spec: {
+          sources: sourceItems,
+          target,
+          target_server_id: transferTargetServerId(),
+          excludes,
+          skip_sources: transferOptions.skip_sources || [],
+          options: {
+            checksum: Boolean(form.checksum?.checked),
+            size_only: Boolean(form.size_only?.checked),
+            resume_partial: Boolean(form.resume_partial?.checked),
+            ignore_existing: Boolean(transferOptions.ignore_existing),
+          },
+        },
+      },
+      cwd: "",
+      env_name: "",
+      min_free_mib: 0,
+      max_gpu_util: 100,
+    }),
+  });
+  message.textContent = `已加入任务中心：${payload.job.id}`;
+  persistFormState("transferForm");
+  await loadStatus(true);
+  await updateTransferProgress();
+  await showLog(payload.job.id);
+}
+
+async function promptNextTransferConflict(conflict) {
+  const name = conflict?.name || pathBaseName(conflict?.source_path || conflict?.destination || "文件");
+  const label = conflict?.is_dir ? "目录" : "文件";
+  const destination = conflict?.destination || "";
+  const choice = window.confirm(`目标已存在同名${label}：${name}\n${destination}\n\n确定覆盖吗？`);
+  return choice ? "overwrite" : "skip";
+}
+
+async function resolveTransferConflicts(mode, conflicts, sourceItems, target, excludes, options, form) {
+  const message = $("transferMessage");
+  try {
+    if (mode === "overwrite_all") {
+      await submitTransferJob(form, sourceItems, target, excludes, options);
+      hideTransferConflictModal();
+      return;
+    }
+    if (mode === "skip_all") {
+      await submitTransferJob(form, sourceItems, target, excludes, { ...options, skip_sources: conflicts.map((item) => item.source_path) });
+      hideTransferConflictModal();
+      return;
+    }
+    transferConflictState.queue = [...conflicts];
+    transferConflictState.decisions = {};
+    transferConflictState.pending = { sourceItems, target, excludes, options, form, conflicts };
+    while (transferConflictState.queue.length) {
+      const conflict = transferConflictState.queue.shift();
+      const decision = await promptNextTransferConflict(conflict);
+      transferConflictState.decisions[conflict.source_path] = decision;
+      if (message) {
+        message.textContent = decision === "overwrite"
+          ? `将覆盖：${conflict.name || conflict.source_path}`
+          : `将跳过：${conflict.name || conflict.source_path}`;
+      }
+    }
+    const skipSources = Object.entries(transferConflictState.decisions)
+      .filter(([, decision]) => decision === "skip")
+      .map(([path]) => path);
+    await submitTransferJob(form, sourceItems, target, excludes, { ...options, skip_sources: skipSources });
+    hideTransferConflictModal();
+  } catch (error) {
+    if (message) {
+      message.textContent = error.message;
+      message.classList.add("error");
+    }
+  }
+}
+
 async function submitTransfer(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -19186,7 +20592,7 @@ async function submitTransfer(event) {
   const sourceItems = state.transfer.sources.length
     ? state.transfer.sources
         .map((item) => ({
-          value: item.value,
+          value: rsyncTransferSourceValue(item),
           server_id: item.serverId,
           path: item.path,
           is_dir: item.isDir,
@@ -19196,81 +20602,40 @@ async function submitTransfer(event) {
         value: normalizeTransferEndpoint(data.source, transferSourceServerId()),
         server_id: transferSourceServerId(),
         path: parseRsyncTargetPath(data.source) || String(data.source || "").trim(),
-        is_dir: String(data.source || "").trim().endsWith("/"),
+        is_dir: Boolean(String(data.source || "").trim().endsWith("/")),
       }].filter((item) => item.value);
-  const sources = sourceItems.map((item) => item.value);
   const target = normalizeTransferEndpoint(data.target, transferTargetServerId());
   const excludes = state.transfer.ignores.length
     ? state.transfer.ignores
     : parseIgnoreText(data.exclude || "");
-  if (!sources.length || !target) {
+  if (!sourceItems.length || !target) {
     message.textContent = "至少要加入一个源路径，并填写目标路径。";
     message.classList.add("error");
     return;
   }
-  if (parseRsyncTargetPrefix(target) && sources.some((source) => parseRsyncTargetPrefix(source))) {
+  const rsyncSources = sourceItems.map((item) => item.value);
+  if (parseRsyncTargetPrefix(target) && rsyncSources.some((source) => parseRsyncTargetPrefix(source))) {
     message.textContent = "当前传输任务从本机启动 rsync，暂不支持远程服务器到远程服务器。请让源或目标至少一个是本机。";
     message.classList.add("error");
     return;
   }
-  const baseParts = ["rsync", "-avPh", "--info=progress2"];
-  if (form.checksum?.checked) {
-    baseParts.push("--checksum");
-  } else if (form.size_only?.checked) {
-    baseParts.push("--size-only");
-  }
-  if (form.resume_partial?.checked) baseParts.push("--partial", "--append-verify");
-  excludes.forEach((item) => {
-    baseParts.push("--exclude", shellQuote(item));
-  });
-  const commandForSource = (source) => [...baseParts, shellQuote(source), shellQuote(target)].join(" ");
-  const command = sources.length === 1
-    ? commandForSource(sources[0])
-    : ["set -e", ...sources.map((source) => commandForSource(source))].join("\n");
-  const localServer = state.servers.find((server) => server.mode === "local") || serverById("local");
-  if (!localServer) {
-    message.textContent = "没有找到本机服务器配置，无法从本机启动 rsync。";
-    message.classList.add("error");
-    return;
-  }
-  message.textContent = "正在加入文件传输任务...";
+  const transferOptions = {
+    checksum: Boolean(form.checksum?.checked),
+    size_only: Boolean(form.size_only?.checked),
+    resume_partial: Boolean(form.resume_partial?.checked),
+  };
+  message.textContent = "正在检查重复项...";
   message.classList.remove("error");
   try {
-    const payload = await fetchJson("/api/jobs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: sources.length === 1 ? `文件传输 ${pathBaseName(sources[0])}` : `文件传输 ${sources.length} 项`,
-        server_id: localServer.id,
-        gpu_index: "none",
-        wait_for_idle: false,
-        kind: "transfer",
-        command,
-        command_display: command,
-        metadata: {
-          transfer_spec: {
-            sources: sourceItems,
-            target,
-            target_server_id: transferTargetServerId(),
-            excludes,
-            options: {
-              checksum: Boolean(form.checksum?.checked),
-              size_only: Boolean(form.size_only?.checked),
-              resume_partial: Boolean(form.resume_partial?.checked),
-            },
-          },
-        },
-        cwd: "",
-        env_name: "",
-        min_free_mib: 0,
-        max_gpu_util: 100,
-      }),
-    });
-    message.textContent = `已加入任务中心：${payload.job.id}`;
-    persistFormState("transferForm");
-    await loadStatus(true);
-    await updateTransferProgress();
-    await showLog(payload.job.id);
+    const conflictPayload = await checkTransferConflicts(sourceItems, target, excludes, transferOptions);
+    const conflicts = Array.isArray(conflictPayload?.conflicts) ? conflictPayload.conflicts : [];
+    if (conflicts.length) {
+      transferConflictState.pending = { sourceItems, target, excludes, options: transferOptions, form, conflicts };
+      renderTransferConflictModal(conflicts);
+      message.textContent = `发现 ${conflicts.length} 个重复项，请选择覆盖策略。`;
+      return;
+    }
+    await submitTransferJob(form, sourceItems, target, excludes, transferOptions);
   } catch (error) {
     message.textContent = error.message;
     message.classList.add("error");
@@ -20313,8 +21678,51 @@ function handleWorkspaceAutomationAction(button) {
     switchWorkspaceTab(button.dataset.tab || "home");
     return true;
   }
+  if (action === "select-flow-node" && button.dataset.nodeId) {
+    focusWorkspaceFlowCanvasNode(button.dataset.nodeId);
+    return true;
+  }
+  if (action === "select-flow-tool" && button.dataset.nodeId) {
+    selectWorkspaceFlowTool(button.dataset.nodeId, button.dataset.toolId || "");
+    return true;
+  }
+  if (action === "workspace-flow-zoom-in") {
+    setWorkspaceFlowZoom(workspaceFlowZoomLevel() + WORKSPACE_FLOW_CANVAS.zoomStep);
+    return true;
+  }
+  if (action === "workspace-flow-zoom-out") {
+    setWorkspaceFlowZoom(workspaceFlowZoomLevel() - WORKSPACE_FLOW_CANVAS.zoomStep);
+    return true;
+  }
+  if (action === "workspace-flow-zoom-fit") {
+    resetWorkspaceFlowCanvasView({ center: true });
+    return true;
+  }
+  if (action === "test-workspace-chain") {
+    testWorkspaceStarterChain();
+    return true;
+  }
+  if (action === "toggle-cockpit-monitor-mode") {
+    toggleCockpitMonitorMode();
+    renderWorkspaceWorkbench();
+    return true;
+  }
   if (action === "switch-workspace-mode") {
     switchWorkspaceMode(button.dataset.mode || "use");
+    return true;
+  }
+  if (action === "focus-workspace-execution-board") {
+    const workspace = selectedWorkspace();
+    const nodeId = String(button.dataset.nodeId || workspaceCockpitNextAction(workspace)?.focus_node_id || "").trim();
+    switchWorkspaceMode("use");
+    switchWorkspaceTab("home", { reveal: false });
+    revealWorkspacePanelTarget("workspaceExecutionBoard", { block: "start" });
+    if (nodeId) {
+      state.selectedWorkspaceExecutionNodeId = nodeId;
+      saveStoredValue(STORAGE_KEYS.selectedWorkspaceExecutionNode, nodeId);
+      focusWorkspaceExecutionNode(nodeId, { targetId: "workspaceExecutionDetail", tab: "home", block: "center" });
+      renderWorkspaceExecutionDetail();
+    }
     return true;
   }
   if (action === "advance-workspace-automation") {
@@ -20359,7 +21767,7 @@ function handleWorkspaceAutomationAction(button) {
   }
   if (action === "open-last-workspace-log") {
     const workspace = selectedWorkspace();
-    const jobId = String(workspace?.execution?.last_job_id || "").trim();
+    const jobId = String(button.dataset.jobId || workspace?.execution?.last_job_id || "").trim();
     if (jobId) void showLog(jobId);
     else setWorkspaceUseMessage("当前实例还没有最近任务输出。", true);
     return true;
@@ -20573,7 +21981,16 @@ function bindEvents() {
     saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, open ? "1" : "0");
     renderWorkspaceProjectDrawerMeta();
   });
+  $("workspaceLauncherPreviewBand")?.addEventListener("toggle", (event) => {
+    if (event.currentTarget?.open) {
+      renderWorkspaceLauncherPreviewBand(selectedWorkspace());
+    }
+  });
   $("workspaceManageTabs")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-tab]");
+    if (button) switchWorkspaceManageTab(button.dataset.tab);
+  });
+  document.querySelector(".workspace-manage-tabs-secondary")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-tab]");
     if (button) switchWorkspaceManageTab(button.dataset.tab);
   });
@@ -20606,6 +22023,9 @@ function bindEvents() {
   });
   $("workspaceCreateRunTaskBtn")?.addEventListener("click", () => {
     void createWorkspaceTask("run");
+  });
+  $("workspaceTestChainBtn")?.addEventListener("click", () => {
+    testWorkspaceStarterChain();
   });
   $("workspaceUseChatSendBtn")?.addEventListener("click", () => {
     void submitWorkspaceUseChat();
@@ -20707,12 +22127,20 @@ function bindEvents() {
     updateWorkspaceModelDraft({ notes: event.target.value || "" });
   });
   $("workspaceExecutionBoard")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-execution-node']");
-    if (button?.dataset.nodeId) selectWorkspaceExecutionNode(button.dataset.nodeId);
+    const button = event.target.closest("[data-action]");
+    if (button) handleWorkspaceAutomationAction(button);
+  });
+  document.querySelector(".workspace-execution-inspector")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (button) handleWorkspaceAutomationAction(button);
   });
   $("workspaceExecutionDetail")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
     if (button) handleWorkspaceAutomationAction(button);
+  });
+  $("workspaceUseChatAgentSelect")?.addEventListener("change", (event) => {
+    state.ui.workspaceInspectorChatAgentId = String(event.target.value || "").trim();
+    renderWorkspaceUseChat();
   });
   [
     "workspaceLauncherPlan",
@@ -21277,6 +22705,22 @@ function bindEvents() {
   $("workspaceNodeEditor")?.addEventListener("change", handleNodeEditorField);
   $("jobForm").addEventListener("submit", submitJob);
   $("transferForm")?.addEventListener("submit", submitTransfer);
+  $("transferConflictCloseBtn")?.addEventListener("click", hideTransferConflictModal);
+  $("transferConflictOverwriteAllBtn")?.addEventListener("click", () => {
+    const pending = transferConflictState.pending;
+    if (!pending) return;
+    void resolveTransferConflicts("overwrite_all", [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
+  });
+  $("transferConflictSkipAllBtn")?.addEventListener("click", () => {
+    const pending = transferConflictState.pending;
+    if (!pending) return;
+    void resolveTransferConflicts("skip_all", pending.conflicts || [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
+  });
+  $("transferConflictPromptEachBtn")?.addEventListener("click", () => {
+    const pending = transferConflictState.pending;
+    if (!pending) return;
+    void resolveTransferConflicts("prompt_each", pending.conflicts || [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
+  });
   $("transferForm")?.addEventListener("click", (event) => {
     const openBtn = event.target.closest("[data-action='open-transfer-favorite']");
     if (openBtn?.dataset.path) {
@@ -21609,6 +23053,7 @@ function bindEvents() {
   renderTransferProgress();
   toggleWorkspaceSourceFields();
   toggleTaskTemplateFields();
+  bindWorkspaceExecutionFlowCanvas();
 }
 
 let editingServerId = null; // null = add mode, string = edit mode
