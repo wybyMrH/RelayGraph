@@ -8090,74 +8090,51 @@ def derive_workspace_automation_report(
     }
 
 
-def derive_workspace_automation_advance_hint(
-    execution: dict[str, Any],
-    checks: list[dict[str, Any]],
-) -> dict[str, str]:
-    counts = execution.get("counts") if isinstance(execution.get("counts"), dict) else {}
-    queued = safe_int(counts.get("queued"), 0)
-    running = safe_int(counts.get("running"), 0)
-    failed = safe_int(counts.get("failed"), 0)
-    if queued or running:
-        return workspace_advance_decision(
-            "watch",
-            "观察当前任务",
-            f"{queued} 个排队 · {running} 个运行，继续提交前先看当前输出。",
-            "打开运行记录或日志面板，等任务完成后再自动推进。",
-            status="running",
-        )
-    if failed:
-        return workspace_advance_decision(
-            "review_failed",
-            "复查失败任务",
-            f"{failed} 个任务失败或停止，继续前需要确认失败原因。",
-            "查看失败任务日志，修正配置后再次自动推进。",
-            status="failed",
-        )
-
-    nodes = execution.get("nodes") if isinstance(execution.get("nodes"), list) else []
-    discovery_runs = sum(
-        safe_int(node.get("run_count"), 0)
-        for node in nodes
-        if isinstance(node, dict) and str(node.get("kind") or "").strip() in WORKSPACE_DISCOVERY_NODE_KINDS
-    )
-    if not discovery_runs:
-        return workspace_advance_decision(
-            "discover",
-            "提交安全发现",
-            "还没有发现链证据，先探测源码、路径、数据、环境、GPU 和产物入口。",
-            "点击自动推进提交发现链，完成后再次自动推进。",
-            status="ready",
-        )
-
-    hard_gate_ids = {"starter_chain", "agents", "run"}
-    blocked = [
-        check for check in checks
-        if isinstance(check, dict)
-        and str(check.get("id") or "") in hard_gate_ids
-        and str(check.get("status") or "") in {"blocked", "failed"}
-    ]
-    if blocked:
-        labels = [
-            str(item.get("label") or item.get("title") or item.get("id") or "").strip()
-            for item in blocked
-            if isinstance(item, dict)
-        ]
-        return workspace_advance_decision(
-            "blocked",
-            "处理运行阻塞",
-            "硬门禁未通过：" + "、".join([item for item in labels if item][:5]),
-            "补齐阻塞项后再次自动推进。",
-            status="blocked",
-        )
-
+def workspace_advance_from_fsm(fsm: dict[str, Any]) -> dict[str, str]:
+    """Map unified FSM snapshot to automation.advance."""
     return workspace_advance_decision(
-        "run",
-        "整理并提交运行",
-        "已有发现记录且硬门禁没有阻塞，自动推进会先回填证据再提交完整执行链。",
-        "点击自动推进后跟踪第一个运行任务输出。",
-        status="ready",
+        str(fsm.get("action") or "").strip(),
+        str(fsm.get("title") or "").strip(),
+        str(fsm.get("reason") or "").strip(),
+        str(fsm.get("next_action") or "").strip(),
+        status=str(fsm.get("status") or "ready").strip() or "ready",
     )
+
+
+def resolve_workspace_advance_bundle(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any] | None = None,
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Single FSM entry: advance dict, cockpit buttons, and chain snapshot."""
+    automation = automation if isinstance(automation, dict) else {}
+    fsm = resolve_workspace_advance_fsm(workspace, execution, automation, jobs=jobs)
+    return {
+        "fsm": fsm,
+        "advance": workspace_advance_from_fsm(fsm),
+        "next_action": workspace_next_action_from_fsm(fsm, workspace, execution, automation),
+        "chain": derive_workspace_cockpit_chain(workspace, execution),
+    }
+
+
+def derive_workspace_advance_state(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any] | None = None,
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
+    """Advance decision slice from the unified workspace FSM."""
+    return resolve_workspace_advance_bundle(workspace, execution, automation, jobs=jobs)["advance"]
+
+
+def derive_workspace_automation_advance_hint(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any] | None = None,
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, str]:
+    return derive_workspace_advance_state(workspace, execution, automation, jobs=jobs)
 
 
 def derive_workspace_execution_readiness(
@@ -8653,6 +8630,7 @@ def derive_workspace_automation_state(
     workspace: dict[str, Any],
     execution: dict[str, Any],
     statuses: list[dict[str, Any]],
+    jobs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     source = workspace.get("source") if isinstance(workspace.get("source"), dict) else {}
     inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
@@ -8881,22 +8859,27 @@ def derive_workspace_automation_state(
         execution_context,
     )
     report = derive_workspace_automation_report(workspace, execution, checks, evidence, run_plan, status_counts)
-    advance = derive_workspace_automation_advance_hint(execution, checks)
     evidence_backfill = derive_workspace_evidence_backfill_plan(workspace, execution, resource_orchestration)
+    placeholder_advance = workspace_advance_decision(
+        "run",
+        "自动推进",
+        "等待系统判断下一步。",
+        "点击自动推进。",
+    )
     execution_readiness = derive_workspace_execution_readiness(
         workspace,
         execution,
         checks,
         evidence,
         run_plan,
-        advance,
+        placeholder_advance,
         agent_topology,
         resource_orchestration,
     )
     playbook = derive_workspace_automation_playbook(
         workspace,
         execution,
-        advance,
+        placeholder_advance,
         execution_readiness,
         resource_orchestration,
         reproduction_manifest,
@@ -8914,14 +8897,7 @@ def derive_workspace_automation_state(
         execution_readiness,
         report,
     )
-    next_check = next(
-        (
-            check for check in checks
-            if str(check.get("status") or "") in {"failed", "blocked", "warning", "draft"}
-        ),
-        checks[-1] if checks else {},
-    )
-    return {
+    automation_body: dict[str, Any] = {
         "status": overall,
         "score": max(0, min(score, 100)),
         "counts": status_counts,
@@ -8940,10 +8916,37 @@ def derive_workspace_automation_state(
         "playbook": playbook,
         "preflight": preflight,
         "report": report,
-        "advance": advance,
         "missing": [check for check in checks if str(check.get("status") or "") in {"blocked", "warning", "draft"}],
-        "next_check": next_check,
         "summary": f"{status_counts.get('ready', 0) + status_counts.get('done', 0)} 项就绪 · {status_counts.get('warning', 0)} 项提示 · {status_counts.get('blocked', 0)} 项阻塞",
+    }
+    advance_bundle = resolve_workspace_advance_bundle(workspace, execution, automation_body, jobs=jobs)
+    advance = advance_bundle["advance"]
+    execution_readiness["next_action"] = advance
+    playbook = derive_workspace_automation_playbook(
+        workspace,
+        execution,
+        advance,
+        execution_readiness,
+        resource_orchestration,
+        reproduction_manifest,
+        report,
+    )
+    automation_body["playbook"] = playbook
+    automation_body["execution_readiness"] = execution_readiness
+    advance_bundle = resolve_workspace_advance_bundle(workspace, execution, automation_body, jobs=jobs)
+    advance = advance_bundle["advance"]
+    execution_readiness["next_action"] = advance
+    next_check = next(
+        (
+            check for check in checks
+            if str(check.get("status") or "") in {"failed", "blocked", "warning", "draft"}
+        ),
+        checks[-1] if checks else {},
+    )
+    return {
+        **automation_body,
+        "advance": advance,
+        "next_check": next_check,
     }
 
 
@@ -8953,9 +8956,16 @@ def attach_workspace_cockpit(
     automation: dict[str, Any],
     jobs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    cockpit = derive_workspace_cockpit(workspace, execution, automation, jobs=jobs)
-    automation["cockpit"] = cockpit
-    automation["next_action"] = cockpit.get("next_action")
+    bundle = resolve_workspace_advance_bundle(workspace, execution, automation, jobs=jobs)
+    next_action = bundle["next_action"]
+    automation["advance"] = bundle["advance"]
+    automation["cockpit"] = {
+        "next_action": next_action,
+        "chain": bundle["chain"],
+        "summary": str(automation.get("summary") or "").strip(),
+        "status": str(next_action.get("status") or automation.get("status") or "draft").strip() or "draft",
+    }
+    automation["next_action"] = next_action
     return automation
 
 
@@ -8982,6 +8992,205 @@ def workspace_readiness_message(blocked_checks: list[dict[str, Any]]) -> str:
     return "工作流运行前检查未通过：" + "、".join(labels[:6])
 
 
+def _workspace_cockpit_facts(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any],
+    bound_jobs: list[dict[str, Any]],
+    active_jobs: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    counts = execution.get("counts") if isinstance(execution.get("counts"), dict) else {}
+    playbook = automation.get("playbook") if isinstance(automation.get("playbook"), dict) else {}
+    current = playbook.get("current_action") if isinstance(playbook.get("current_action"), dict) else {}
+    advance = automation.get("advance") if isinstance(automation.get("advance"), dict) else {}
+    nodes = execution.get("nodes") if isinstance(execution.get("nodes"), list) else []
+    return [
+        {
+            "label": "阶段",
+            "value": str(current.get("title") or advance.get("title") or "自动推进").strip(),
+            "status": str(current.get("status") or advance.get("status") or automation.get("status") or "draft").strip(),
+        },
+        {
+            "label": "任务",
+            "value": f"{len(bound_jobs)} 个 · {len(active_jobs)} 活跃",
+            "status": "running" if active_jobs else "ready",
+        },
+        {
+            "label": "节点",
+            "value": (
+                f"{safe_int(counts.get('done'), 0)}/"
+                f"{len(nodes)} 完成"
+            ),
+            "status": "failed" if safe_int(counts.get("failed"), 0) else ("running" if active_jobs else "ready"),
+        },
+    ]
+
+
+def resolve_workspace_advance_fsm(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any] | None = None,
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Unified FSM for automation.advance and cockpit.next_action."""
+    automation = automation if isinstance(automation, dict) else {}
+    workspace_id = str(workspace.get("id") or "").strip()
+    checks = automation.get("checks") if isinstance(automation.get("checks"), list) else []
+    manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
+    bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}
+    evidence_backfill = automation.get("evidence_backfill") if isinstance(automation.get("evidence_backfill"), dict) else {}
+    playbook = automation.get("playbook") if isinstance(automation.get("playbook"), dict) else {}
+    current = playbook.get("current_action") if isinstance(playbook.get("current_action"), dict) else {}
+    readiness = automation.get("execution_readiness") if isinstance(automation.get("execution_readiness"), dict) else {}
+    gate = readiness.get("gate") if isinstance(readiness.get("gate"), dict) else {}
+    focus_node_id = str(execution.get("current_node_id") or "").strip()
+    last_job_id = str(execution.get("last_job_id") or "").strip()
+
+    bound_jobs = workspace_jobs_for_workspace(workspace_id, jobs)
+    active_jobs = [
+        job for job in bound_jobs
+        if str(job.get("status") or "") in {"queued", "blocked", "starting", "running"}
+    ]
+    failed_jobs = [
+        job for job in bound_jobs
+        if str(job.get("status") or "") in {"failed", "stopped"}
+    ]
+    blocked_checks = workspace_workflow_blocking_checks(automation) if checks else []
+    gate_blockers = [
+        item for item in (
+            *(gate.get("blockers") if isinstance(gate.get("blockers"), list) else []),
+            *(readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []),
+            *blocked_checks,
+        )
+        if isinstance(item, dict)
+    ]
+    facts = _workspace_cockpit_facts(workspace, execution, automation, bound_jobs, active_jobs)
+    base: dict[str, Any] = {
+        "focus_node_id": focus_node_id,
+        "blocked_checks": blocked_checks[:6],
+        "gate_blockers": gate_blockers[:4],
+        "facts": facts,
+        "active_jobs": active_jobs,
+        "failed_jobs": failed_jobs,
+    }
+
+    if active_jobs:
+        primary_job_id = str(active_jobs[0].get("id") or last_job_id or "").strip()
+        return {
+            **base,
+            "action": "watch",
+            "status": "running",
+            "phase": "运行中",
+            "title": f"{len(active_jobs)} 个任务正在执行",
+            "reason": "当前有任务在队列或运行，先观察输出再继续推进。",
+            "next_action": "打开最近任务日志，等当前步骤完成后再自动推进。",
+            "primary_job_id": primary_job_id,
+        }
+
+    if failed_jobs:
+        failed_job_id = str(failed_jobs[0].get("id") or "").strip()
+        return {
+            **base,
+            "action": "review_failed",
+            "status": "failed",
+            "phase": "失败复查",
+            "title": f"{len(failed_jobs)} 个任务异常",
+            "reason": "存在失败或停止的任务，继续前需要确认日志和节点配置。",
+            "next_action": str(
+                failed_jobs[0].get("error")
+                or execution.get("latest_error")
+                or "查看失败任务日志，修正配置后再次自动推进。"
+            ).strip(),
+            "failed_job_id": failed_job_id,
+        }
+
+    nodes = execution.get("nodes") if isinstance(execution.get("nodes"), list) else []
+    discovery_runs = sum(
+        safe_int(node.get("run_count"), 0)
+        for node in nodes
+        if isinstance(node, dict) and str(node.get("kind") or "").strip() in WORKSPACE_DISCOVERY_NODE_KINDS
+    )
+    if not discovery_runs:
+        return {
+            **base,
+            "action": "discover",
+            "status": "ready",
+            "phase": "发现",
+            "title": "提交安全发现",
+            "reason": "还没有发现链证据，先探测源码、路径、数据、环境、GPU 和产物入口。",
+            "next_action": "点击自动推进提交发现链，完成后再次自动推进。",
+        }
+
+    if blocked_checks:
+        blocker = blocked_checks[0]
+        blocker_node_kind = str(blocker.get("node_kind") or "").strip()
+        focus_from_blocker = ""
+        for chain_node in derive_workspace_cockpit_chain(workspace, execution):
+            if blocker_node_kind and chain_node.get("kind") == blocker_node_kind:
+                focus_from_blocker = str(chain_node.get("id") or "").strip()
+                break
+        return {
+            **base,
+            "action": "blocked",
+            "status": "blocked",
+            "phase": "门禁",
+            "title": str(blocker.get("label") or blocker.get("title") or "运行门禁阻塞").strip(),
+            "reason": workspace_readiness_message(blocked_checks),
+            "next_action": str(blocker.get("action") or "补齐节点链、Agent 归属或运行命令。").strip(),
+            "focus_node_id": focus_from_blocker or focus_node_id,
+            "blocker": blocker,
+        }
+
+    backfill_ready = safe_int(evidence_backfill.get("ready_count"), 0) > 0
+    if backfill_ready and str(evidence_backfill.get("status") or "") in {"ready", "warning"}:
+        return {
+            **base,
+            "action": "backfill",
+            "status": "ready",
+            "phase": "回填",
+            "title": "应用发现证据",
+            "reason": str(evidence_backfill.get("summary") or "发现证据已就绪，可写回节点配置。").strip(),
+            "next_action": "回填路径、环境、GPU 和运行入口后再提交完整链。",
+        }
+
+    if bundle.get("ready_to_execute"):
+        bundle_detail = bundle.get("next_action") if isinstance(bundle.get("next_action"), dict) else {}
+        return {
+            **base,
+            "action": "execute_bundle",
+            "status": "ready",
+            "phase": "执行",
+            "title": "提交完整运行",
+            "reason": str(bundle_detail.get("detail") or "执行包已就绪。").strip(),
+            "next_action": "门禁已通过，可以提交完整工作流。",
+        }
+
+    playbook_label = str(current.get("label") or "").strip()
+    playbook_action = str(current.get("action") or "").strip()
+    if playbook_label and playbook_action:
+        return {
+            **base,
+            "action": "playbook",
+            "status": str(current.get("status") or playbook.get("status") or automation.get("status") or "draft").strip(),
+            "phase": str(current.get("phase") or playbook_label).strip(),
+            "title": str(current.get("title") or playbook_label).strip(),
+            "reason": str(current.get("detail") or playbook.get("summary") or "").strip(),
+            "next_action": str(current.get("detail") or "按当前 playbook 步骤推进。").strip(),
+            "focus_node_id": str(current.get("node_id") or focus_node_id).strip(),
+            "playbook_current": current,
+        }
+
+    return {
+        **base,
+        "action": "run",
+        "status": "ready",
+        "phase": "执行",
+        "title": "整理并提交运行",
+        "reason": "已有发现记录且门禁没有阻塞，自动推进会先回填证据再提交完整执行链。",
+        "next_action": "点击自动推进后跟踪第一个运行任务输出。",
+    }
+
+
 def workspace_advance_decision(
     action: str,
     title: str,
@@ -8997,6 +9206,14 @@ def workspace_advance_decision(
         "reason": str(reason or "").strip(),
         "next_action": str(next_action or "").strip(),
     }
+
+
+def workspace_cockpit_decision_from_public_workspace(public_workspace: dict[str, Any]) -> dict[str, str]:
+    automation = public_workspace.get("automation") if isinstance(public_workspace.get("automation"), dict) else {}
+    advance = automation.get("advance") if isinstance(automation.get("advance"), dict) else {}
+    if advance:
+        return advance
+    return workspace_advance_decision("run", "自动推进", "等待系统判断下一步。", "点击自动推进。")
 
 
 def workspace_next_action_button(
@@ -9100,75 +9317,28 @@ def derive_workspace_cockpit_chain(
     return chain
 
 
-def workspace_next_action(
+def workspace_next_action_from_fsm(
+    fsm: dict[str, Any],
     workspace: dict[str, Any],
     execution: dict[str, Any],
     automation: dict[str, Any],
-    jobs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Single source of truth for cockpit primary/secondary actions."""
-    workspace_id = str(workspace.get("id") or "").strip()
-    counts = execution.get("counts") if isinstance(execution.get("counts"), dict) else {}
-    advance = automation.get("advance") if isinstance(automation.get("advance"), dict) else {}
-    playbook = automation.get("playbook") if isinstance(automation.get("playbook"), dict) else {}
-    current = playbook.get("current_action") if isinstance(playbook.get("current_action"), dict) else {}
-    readiness = automation.get("execution_readiness") if isinstance(automation.get("execution_readiness"), dict) else {}
-    gate = readiness.get("gate") if isinstance(readiness.get("gate"), dict) else {}
-    manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
-    bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}
-    evidence_backfill = automation.get("evidence_backfill") if isinstance(automation.get("evidence_backfill"), dict) else {}
-    blocked_checks = workspace_workflow_blocking_checks(automation)
-    gate_blockers = [
-        item for item in (
-            *(gate.get("blockers") if isinstance(gate.get("blockers"), list) else []),
-            *(readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []),
-            *blocked_checks,
-        )
-        if isinstance(item, dict)
-    ]
-    focus_node_id = str(execution.get("current_node_id") or "").strip()
-    last_job_id = str(execution.get("last_job_id") or "").strip()
+    """Map unified FSM state to cockpit primary/secondary buttons."""
+    action = str(fsm.get("action") or "").strip()
+    focus_node_id = str(fsm.get("focus_node_id") or "").strip()
+    gate_blockers = fsm.get("gate_blockers") if isinstance(fsm.get("gate_blockers"), list) else []
+    facts = fsm.get("facts") if isinstance(fsm.get("facts"), list) else []
+    blocked_checks = fsm.get("blocked_checks") if isinstance(fsm.get("blocked_checks"), list) else []
+    playbook_current = fsm.get("playbook_current") if isinstance(fsm.get("playbook_current"), dict) else {}
 
-    bound_jobs = workspace_jobs_for_workspace(workspace_id, jobs)
-    active_jobs = [
-        job for job in bound_jobs
-        if str(job.get("status") or "") in {"queued", "blocked", "starting", "running"}
-    ]
-    failed_jobs = [
-        job for job in bound_jobs
-        if str(job.get("status") or "") in {"failed", "stopped"}
-    ]
-
-    phase = str(current.get("phase") or advance.get("action") or "推进").strip()
-    facts = [
-        {
-            "label": "阶段",
-            "value": str(current.get("title") or advance.get("title") or "自动推进").strip(),
-            "status": str(current.get("status") or advance.get("status") or automation.get("status") or "draft").strip(),
-        },
-        {
-            "label": "任务",
-            "value": f"{len(bound_jobs)} 个 · {len(active_jobs)} 活跃",
-            "status": "running" if active_jobs else "ready",
-        },
-        {
-            "label": "节点",
-            "value": (
-                f"{safe_int(counts.get('done'), 0)}/"
-                f"{len(execution.get('nodes') if isinstance(execution.get('nodes'), list) else [])} 完成"
-            ),
-            "status": "failed" if safe_int(counts.get("failed"), 0) else ("running" if active_jobs else "ready"),
-        },
-    ]
-
-    if active_jobs:
-        primary_job_id = str(active_jobs[0].get("id") or last_job_id or "").strip()
+    if action == "watch":
+        primary_job_id = str(fsm.get("primary_job_id") or "").strip()
         return {
             "status": "running",
-            "phase": "运行中",
-            "title": f"{len(active_jobs)} 个任务正在执行",
-            "reason": "当前有任务在队列或运行，先观察输出再继续推进。",
-            "detail": advance.get("next_action") or "打开最近任务日志，等当前步骤完成后再自动推进。",
+            "phase": fsm.get("phase") or "运行中",
+            "title": fsm.get("title") or "",
+            "reason": fsm.get("reason") or "",
+            "detail": fsm.get("next_action") or "",
             "focus_node_id": focus_node_id,
             "blocked_checks": [],
             "primary": workspace_next_action_button(
@@ -9186,14 +9356,14 @@ def workspace_next_action(
             "facts": facts,
         }
 
-    if failed_jobs:
-        failed_job_id = str(failed_jobs[0].get("id") or "").strip()
+    if action == "review_failed":
+        failed_job_id = str(fsm.get("failed_job_id") or "").strip()
         return {
             "status": "failed",
-            "phase": "失败复查",
-            "title": f"{len(failed_jobs)} 个任务异常",
-            "reason": "存在失败或停止的任务，继续前需要确认日志和节点配置。",
-            "detail": str(failed_jobs[0].get("error") or execution.get("latest_error") or advance.get("next_action") or "").strip(),
+            "phase": fsm.get("phase") or "失败复查",
+            "title": fsm.get("title") or "",
+            "reason": fsm.get("reason") or "",
+            "detail": fsm.get("next_action") or "",
             "focus_node_id": focus_node_id,
             "blocked_checks": gate_blockers[:4],
             "primary": workspace_next_action_button(
@@ -9212,14 +9382,13 @@ def workspace_next_action(
             "facts": facts,
         }
 
-    advance_action = str(advance.get("action") or "").strip()
-    if advance_action == "discover":
+    if action == "discover":
         return {
-            "status": str(advance.get("status") or "ready").strip() or "ready",
-            "phase": "发现",
-            "title": str(advance.get("title") or "提交安全发现").strip(),
-            "reason": str(advance.get("reason") or "").strip(),
-            "detail": str(advance.get("next_action") or "先跑 repo/path/data/env/GPU/artifact 安全节点收集证据。").strip(),
+            "status": str(fsm.get("status") or "ready").strip() or "ready",
+            "phase": fsm.get("phase") or "发现",
+            "title": fsm.get("title") or "",
+            "reason": fsm.get("reason") or "",
+            "detail": fsm.get("next_action") or "",
             "focus_node_id": focus_node_id,
             "blocked_checks": gate_blockers[:4],
             "primary": workspace_next_action_button(
@@ -9236,26 +9405,20 @@ def workspace_next_action(
             "facts": facts,
         }
 
-    if blocked_checks:
-        blocker = blocked_checks[0]
-        blocker_node_kind = str(blocker.get("node_kind") or "").strip()
-        focus_from_blocker = ""
-        for chain_node in derive_workspace_cockpit_chain(workspace, execution):
-            if blocker_node_kind and chain_node.get("kind") == blocker_node_kind:
-                focus_from_blocker = str(chain_node.get("id") or "").strip()
-                break
+    if action == "blocked":
+        blocker = fsm.get("blocker") if isinstance(fsm.get("blocker"), dict) else (blocked_checks[0] if blocked_checks else {})
         return {
             "status": "blocked",
-            "phase": "门禁",
-            "title": str(blocker.get("label") or blocker.get("title") or "运行门禁阻塞").strip(),
-            "reason": workspace_readiness_message(blocked_checks),
-            "detail": str(blocker.get("action") or advance.get("next_action") or "补齐节点链、Agent 归属或运行命令。").strip(),
-            "focus_node_id": focus_from_blocker or focus_node_id,
+            "phase": fsm.get("phase") or "门禁",
+            "title": fsm.get("title") or "",
+            "reason": fsm.get("reason") or "",
+            "detail": fsm.get("next_action") or "",
+            "focus_node_id": focus_node_id,
             "blocked_checks": blocked_checks[:6],
             "primary": workspace_next_action_button(
                 "处理阻塞项",
                 "focus-workspace-execution-board",
-                node_id=focus_from_blocker or focus_node_id,
+                node_id=focus_node_id,
                 title="定位到阻塞节点并查看配置与证据。",
             ),
             "secondary": workspace_next_action_button(
@@ -9268,14 +9431,13 @@ def workspace_next_action(
             "facts": facts,
         }
 
-    backfill_ready = safe_int(evidence_backfill.get("ready_count"), 0) > 0
-    if backfill_ready and str(evidence_backfill.get("status") or "") in {"ready", "warning"}:
+    if action == "backfill":
         return {
             "status": "ready",
-            "phase": "回填",
-            "title": "应用发现证据",
-            "reason": str(evidence_backfill.get("summary") or "发现证据已就绪，可写回节点配置。").strip(),
-            "detail": str(advance.get("next_action") or "回填路径、环境、GPU 和运行入口后再提交完整链。").strip(),
+            "phase": fsm.get("phase") or "回填",
+            "title": fsm.get("title") or "",
+            "reason": fsm.get("reason") or "",
+            "detail": fsm.get("next_action") or "",
             "focus_node_id": focus_node_id,
             "blocked_checks": gate_blockers[:4],
             "primary": workspace_next_action_button(
@@ -9292,13 +9454,13 @@ def workspace_next_action(
             "facts": facts,
         }
 
-    if bundle.get("ready_to_execute"):
+    if action == "execute_bundle":
         return {
             "status": "ready",
-            "phase": "执行",
-            "title": "提交完整运行",
-            "reason": str(bundle.get("next_action", {}).get("detail") if isinstance(bundle.get("next_action"), dict) else "执行包已就绪。").strip(),
-            "detail": str(advance.get("next_action") or "门禁已通过，可以提交完整工作流。").strip(),
+            "phase": fsm.get("phase") or "执行",
+            "title": fsm.get("title") or "",
+            "reason": fsm.get("reason") or "",
+            "detail": fsm.get("next_action") or "",
             "focus_node_id": focus_node_id,
             "blocked_checks": gate_blockers[:4],
             "primary": workspace_next_action_button(
@@ -9315,46 +9477,21 @@ def workspace_next_action(
             "facts": facts,
         }
 
-    if advance_action == "run":
+    if action == "playbook" and playbook_current:
         return {
-            "status": str(advance.get("status") or "ready").strip() or "ready",
-            "phase": "执行",
-            "title": str(advance.get("title") or "整理并提交运行").strip(),
-            "reason": str(advance.get("reason") or "").strip(),
-            "detail": str(advance.get("next_action") or "点击自动推进提交完整执行链。").strip(),
+            "status": str(fsm.get("status") or automation.get("status") or "draft").strip(),
+            "phase": str(fsm.get("phase") or "").strip(),
+            "title": fsm.get("title") or "",
+            "reason": fsm.get("reason") or "",
+            "detail": fsm.get("next_action") or "",
             "focus_node_id": focus_node_id,
             "blocked_checks": gate_blockers[:4],
             "primary": workspace_next_action_button(
-                "自动推进",
-                "advance-workspace-automation",
-                title="自动回填证据并提交完整工作流。",
-            ),
-            "secondary": workspace_next_action_button(
-                "运行工作流",
-                "run-selected-workspace",
-                tone="secondary",
-                title="直接提交完整执行链（需门禁通过）。",
-            ),
-            "facts": facts,
-        }
-
-    playbook_label = str(current.get("label") or "").strip()
-    playbook_action = str(current.get("action") or "").strip()
-    if playbook_label and playbook_action:
-        return {
-            "status": str(current.get("status") or playbook.get("status") or automation.get("status") or "draft").strip(),
-            "phase": phase,
-            "title": str(current.get("title") or playbook_label).strip(),
-            "reason": str(current.get("detail") or playbook.get("summary") or "").strip(),
-            "detail": str(current.get("detail") or advance.get("next_action") or "").strip(),
-            "focus_node_id": str(current.get("node_id") or focus_node_id).strip(),
-            "blocked_checks": gate_blockers[:4],
-            "primary": workspace_next_action_button(
-                playbook_label,
-                playbook_action,
-                node_id=str(current.get("node_id") or "").strip(),
-                server_id=str(current.get("server_id") or "").strip(),
-                title=str(current.get("detail") or playbook_label).strip(),
+                str(playbook_current.get("label") or "继续").strip(),
+                str(playbook_current.get("action") or "advance-workspace-automation").strip(),
+                node_id=str(playbook_current.get("node_id") or "").strip(),
+                server_id=str(playbook_current.get("server_id") or "").strip(),
+                title=str(playbook_current.get("detail") or playbook_current.get("label") or "").strip(),
             ),
             "secondary": workspace_next_action_button(
                 "自动推进",
@@ -9366,26 +9503,36 @@ def workspace_next_action(
         }
 
     return {
-        "status": str(advance.get("status") or automation.get("status") or "draft").strip() or "draft",
-        "phase": phase,
-        "title": str(advance.get("title") or "等待自动推进判断").strip(),
-        "reason": str(advance.get("reason") or automation.get("summary") or "").strip(),
-        "detail": str(advance.get("next_action") or "按发现、回填、调度、门禁、执行、回收顺序推进。").strip(),
+        "status": str(fsm.get("status") or automation.get("status") or "draft").strip() or "draft",
+        "phase": fsm.get("phase") or "执行",
+        "title": fsm.get("title") or "",
+        "reason": fsm.get("reason") or "",
+        "detail": fsm.get("next_action") or "",
         "focus_node_id": focus_node_id,
         "blocked_checks": gate_blockers[:4],
         "primary": workspace_next_action_button(
             "自动推进",
             "advance-workspace-automation",
-            title=str(advance.get("next_action") or "根据当前门禁自动决定下一步。").strip(),
+            title=str(fsm.get("next_action") or "根据当前门禁自动决定下一步。").strip(),
         ),
         "secondary": workspace_next_action_button(
-            "执行链",
-            "focus-workspace-execution-board",
+            "运行工作流",
+            "run-selected-workspace",
             tone="secondary",
-            title="查看节点链、任务绑定和阶段进度。",
+            title="直接提交完整执行链（需门禁通过）。",
         ),
         "facts": facts,
     }
+
+
+def workspace_next_action(
+    workspace: dict[str, Any],
+    execution: dict[str, Any],
+    automation: dict[str, Any],
+    jobs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Single source of truth for cockpit primary/secondary actions."""
+    return resolve_workspace_advance_bundle(workspace, execution, automation, jobs=jobs)["next_action"]
 
 
 def derive_workspace_cockpit(
@@ -13579,6 +13726,7 @@ class TotalControlState:
             payload,
             payload["execution"],
             getattr(self, "statuses", []),
+            jobs=jobs,
         )
         payload["automation"] = attach_workspace_cockpit(payload, payload["execution"], automation, jobs=jobs)
         return payload
@@ -14407,32 +14555,22 @@ class TotalControlState:
             public_workspace = self.workspace_public_payload(current)
 
         if active_jobs:
+            decision = workspace_cockpit_decision_from_public_workspace(public_workspace)
             return {
                 "action": "watch",
                 "message": "已有任务在队列或运行中，先观察当前执行。",
-                "decision": workspace_advance_decision(
-                    "watch",
-                    "观察当前任务",
-                    f"{len(active_jobs)} 个任务仍在等待、启动或运行，继续提交会让状态变乱。",
-                    "打开第一个活跃任务日志，等它完成后再自动推进。",
-                    status="running",
-                ),
+                "decision": decision,
                 "workspace": public_workspace,
                 "jobs": [],
                 "active_job_ids": [str(job.get("id") or "").strip() for job in active_jobs if str(job.get("id") or "").strip()],
             }
 
         if failed_jobs and not force_run:
+            decision = workspace_cockpit_decision_from_public_workspace(public_workspace)
             return {
                 "action": "review_failed",
                 "message": "存在失败或停止的任务，先查看输出再继续自动推进。",
-                "decision": workspace_advance_decision(
-                    "review_failed",
-                    "复查失败任务",
-                    f"{len(failed_jobs)} 个任务失败或停止，继续自动运行前需要确认失败原因。",
-                    "打开失败任务日志，修正节点配置或使用 force_run 明确继续。",
-                    status="failed",
-                ),
+                "decision": decision,
                 "workspace": public_workspace,
                 "jobs": [],
                 "failed_job_ids": [str(job.get("id") or "").strip() for job in failed_jobs[:8] if str(job.get("id") or "").strip()],
@@ -14446,15 +14584,10 @@ class TotalControlState:
                     "include_source": True,
                 },
             )
+            result_workspace = result.get("workspace") if isinstance(result.get("workspace"), dict) else public_workspace
             result["action"] = "discover"
             result["message"] = "已提交安全自动发现链。"
-            result["decision"] = workspace_advance_decision(
-                "discover",
-                "提交安全发现",
-                "当前实例还没有可用的 discovery 记录，先收集路径、数据、环境、GPU 和产物入口。",
-                "等待发现链完成后再次点击自动推进，系统会回填证据并尝试完整运行。",
-                status="running",
-            )
+            result["decision"] = workspace_cockpit_decision_from_public_workspace(result_workspace)
             return result
 
         apply_result = self.apply_workspace_automation_defaults(
@@ -14470,21 +14603,10 @@ class TotalControlState:
         automation = workspace_after_apply.get("automation") if isinstance(workspace_after_apply.get("automation"), dict) else {}
         blocked_checks = workspace_workflow_blocking_checks(automation)
         if blocked_checks and not force_run:
-            blocked_labels = [
-                str(item.get("label") or item.get("title") or item.get("id") or "").strip()
-                for item in blocked_checks
-                if isinstance(item, dict)
-            ]
             return {
                 "action": "blocked",
                 "message": workspace_readiness_message(blocked_checks),
-                "decision": workspace_advance_decision(
-                    "blocked",
-                    "运行门禁阻塞",
-                    "已回填建议和发现证据，但仍有硬阻塞：" + "、".join([item for item in blocked_labels if item][:5]),
-                    "按阻塞项补齐节点链、Agent 归属或运行命令后再次自动推进。",
-                    status="blocked",
-                ),
+                "decision": workspace_cockpit_decision_from_public_workspace(workspace_after_apply),
                 "workspace": workspace_after_apply,
                 "jobs": [],
                 "applied": applied,
@@ -14502,22 +14624,12 @@ class TotalControlState:
                 },
             )
         except WorkspaceWorkflowReadinessError as exc:
-            blocked_labels = [
-                str(item.get("label") or item.get("title") or item.get("id") or "").strip()
-                for item in exc.blocked_checks
-                if isinstance(item, dict)
-            ]
+            error_workspace = exc.workspace or workspace_after_apply
             return {
                 "action": "blocked",
                 "message": str(exc),
-                "decision": workspace_advance_decision(
-                    "blocked",
-                    "运行门禁阻塞",
-                    "提交前最终检查未通过：" + "、".join([item for item in blocked_labels if item][:5]),
-                    "按阻塞项修正配置，再次点击自动推进。",
-                    status="blocked",
-                ),
-                "workspace": exc.workspace or workspace_after_apply,
+                "decision": workspace_cockpit_decision_from_public_workspace(error_workspace),
+                "workspace": error_workspace,
                 "jobs": [],
                 "applied": exc.applied or applied,
                 "evidence_applied": exc.evidence_applied or evidence_applied,
@@ -14530,13 +14642,8 @@ class TotalControlState:
         run_evidence_applied = run_result.get("evidence_applied") if isinstance(run_result.get("evidence_applied"), list) else []
         run_result["applied"] = applied + run_applied
         run_result["evidence_applied"] = evidence_applied + run_evidence_applied
-        run_result["decision"] = workspace_advance_decision(
-            "run",
-            "提交完整运行",
-            f"门禁已通过，已整理 {len(run_result['applied'])} 项建议/发现，可以进入完整执行链。",
-            "跟踪第一个运行任务输出，后续产物和指标会继续回到驾驶舱。",
-            status="running",
-        )
+        run_workspace = run_result.get("workspace") if isinstance(run_result.get("workspace"), dict) else workspace_after_apply
+        run_result["decision"] = workspace_cockpit_decision_from_public_workspace(run_workspace)
         return run_result
 
     def debug_agent_definition(self, agent_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -3167,9 +3167,8 @@ exclude = []
             job_kinds = [job["metadata"]["node_kind"] for job in result["jobs"]]
 
             self.assertEqual(result["action"], "discover")
-            self.assertEqual(result["decision"]["action"], "discover")
-            self.assertIn("discovery", result["decision"]["reason"])
-            self.assertIn("再次点击自动推进", result["decision"]["next_action"])
+            self.assertEqual(result["decision"]["action"], "watch")
+            self.assertIn("观察", result["decision"]["reason"])
             self.assertIn("path.resolve", job_kinds)
             self.assertIn("dataset.find", job_kinds)
             self.assertNotIn("env.prepare", job_kinds)
@@ -3204,7 +3203,7 @@ exclude = []
 
         self.assertEqual(result["action"], "watch")
         self.assertEqual(result["decision"]["action"], "watch")
-        self.assertIn("任务仍在", result["decision"]["reason"])
+        self.assertIn("当前有任务", result["decision"]["reason"])
         self.assertFalse(result["jobs"])
         self.assertEqual(result["active_job_ids"], ["job-active"])
 
@@ -3257,8 +3256,8 @@ exclude = []
             job_kinds = [job["metadata"]["node_kind"] for job in result["jobs"]]
 
             self.assertEqual(result["action"], "run")
-            self.assertEqual(result["decision"]["action"], "run")
-            self.assertIn("门禁已通过", result["decision"]["reason"])
+            self.assertEqual(result["decision"]["action"], "watch")
+            self.assertIn("观察", result["decision"]["reason"])
             self.assertIn("env.prepare", job_kinds)
             self.assertIn("setup_command", [item["field"] for item in result["evidence_applied"]])
             updated_nodes = {node["kind"]: node for node in result["workspace"]["nodes"]}

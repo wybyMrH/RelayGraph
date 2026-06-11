@@ -387,8 +387,35 @@ function workspaceFlowToolChipMarkup(tool = {}, status = "pending", nodeId = "",
   `;
 }
 
+function workspaceCockpitChainMap(workspace = selectedWorkspace()) {
+  const chain = workspaceCockpitChainItems(workspace);
+  if (!chain?.length) return null;
+  return Object.fromEntries(chain.map((item) => [String(item.id || ""), item]));
+}
+
+function workspaceFlowNodeChainBadgesMarkup(chainItem = null) {
+  if (!chainItem || typeof chainItem !== "object") return "";
+  const configReady = String(chainItem.config_ready || "").trim();
+  const jobId = String(chainItem.job_id || "").trim();
+  const errorText = String(chainItem.error || "").trim();
+  const badges = [];
+  if (configReady && configReady !== "ready") {
+    badges.push(`<span class="workspace-flow-node-badge config-${escapeHtml(configReady)}" title="配置就绪度">配置 ${escapeHtml(configReady)}</span>`);
+  }
+  if (jobId) {
+    const jobHint = `${chainItem.job_status || "job"} · ${jobId.slice(0, 8)}`;
+    badges.push(`<span class="workspace-flow-node-badge job" title="绑定任务 ${escapeHtml(jobId)}">${escapeHtml(jobHint)}</span>`);
+  }
+  if (errorText) {
+    badges.push(`<span class="workspace-flow-node-badge error" title="${escapeHtml(errorText)}">${escapeHtml(errorText.slice(0, 28))}${errorText.length > 28 ? "…" : ""}</span>`);
+  }
+  if (!badges.length) return "";
+  return `<div class="workspace-flow-node-badges">${badges.join("")}</div>`;
+}
+
 function workspaceFlowNodeMarkup(node, index, options = {}) {
   const { preview, facts, tools, sourceNode } = workspaceFlowNodeContext(node, index, options);
+  const chainItem = options.chainMap?.[String(node?.id || "")] || null;
   const statusClass = workspaceExecutionCanvasStatusClass(node?.status || (preview ? "preview" : "pending"));
   const phase = workspaceStarterNodePhase(node?.kind || "");
   const phaseTone = WORKSPACE_FLOW_PHASE_TONES[phase] || "other";
@@ -396,9 +423,10 @@ function workspaceFlowNodeMarkup(node, index, options = {}) {
   const active = nodeSelected && !state.ui.selectedWorkspaceFlowToolKey ? " active" : "";
   const running = ["running", "starting", "queued"].includes(String(node?.status || "")) ? " pulsing" : "";
   const kindMeta = workspaceNodeMeta(node?.kind || "custom.step");
+  const configClass = chainItem?.config_ready ? ` config-${escapeHtml(chainItem.config_ready)}` : "";
   return `
     <article
-      class="workspace-flow-node status-${escapeHtml(statusClass)} tone-${escapeHtml(phaseTone)}${active}${running}"
+      class="workspace-flow-node status-${escapeHtml(statusClass)} tone-${escapeHtml(phaseTone)}${active}${running}${configClass}"
       data-node-id="${escapeHtml(node.id || "")}"
       data-index="${index}"
       data-status="${escapeHtml(node?.status || (preview ? "preview" : "pending"))}"
@@ -419,6 +447,7 @@ function workspaceFlowNodeMarkup(node, index, options = {}) {
           <span class="workspace-flow-node-state">${escapeHtml(workspaceStatusLabel(node.status || (preview ? "preview" : "pending")))}</span>
         </div>
         <p class="workspace-flow-node-desc">${escapeHtml(kindMeta.description || facts.agentName || "")}</p>
+        ${workspaceFlowNodeChainBadgesMarkup(chainItem)}
         <div class="workspace-flow-node-meta-row">
           <span>${escapeHtml(facts.agentName || "未指派")}</span>
           <em>${escapeHtml(facts.output ? `输出 ${facts.output}` : `${facts.inputCount} 输入`)}</em>
@@ -3752,12 +3781,13 @@ function workspaceExecutionCanvasMarkup(nodes = [], options = {}) {
   const template = options.template || selectedWorkflowTemplate();
   if (!nodes.length) return '<div class="empty">还没有可展示的执行节点。</div>';
   const preview = Boolean(options.preview);
+  const chainMap = options.chainMap || (!preview ? workspaceCockpitChainMap(workspace) : null);
   const doneCount = nodes.filter((node) => String(node?.status || "") === "done").length;
   const runningCount = nodes.filter((node) => ["running", "starting", "queued"].includes(String(node?.status || ""))).length;
   const banner = options.banner && typeof options.banner === "object" ? options.banner : null;
   const trackParts = [];
   nodes.forEach((node, index) => {
-    trackParts.push(workspaceFlowNodeMarkup(node, index, { workspace, template, preview }));
+    trackParts.push(workspaceFlowNodeMarkup(node, index, { workspace, template, preview, chainMap }));
     if (index < nodes.length - 1) trackParts.push(workspaceFlowConnectorMarkup(node, nodes[index + 1]));
   });
   return `
@@ -4728,19 +4758,12 @@ function workspaceCapabilityGapHint(items = [], options = {}) {
   return parts.slice(0, 2).join(" · ");
 }
 
-function workspaceCapabilityBaselineActions(agentGaps, toolGaps, aiGaps, ioGaps) {
-  const buttons = [];
-  if (agentGaps) buttons.push(workspaceManageAction("agents", { label: "补 Agent", title: "进入 Agent 层，优先补齐自动节点接管和职责分工。" }));
-  if (toolGaps) buttons.push(workspaceManageAction("tools", { label: "补 Tool", title: "进入 Tool 层，补齐 allowlist、执行边界和路径权限。" }));
-  if (aiGaps) buttons.push(workspaceManageAction("ai", { label: "补 AI", title: "进入 AI 层，补齐模型路由、Provider Profile 和聊天 Agent。" }));
-  if (ioGaps) buttons.push(workspaceManageAction("templates", { label: "补链路", title: "进入链路层，补齐 I/O 契约、安全发现链和运行入口。" }));
-  if (!buttons.length) {
-    buttons.push(workspaceManageAction("templates", { label: "配置中心", title: "进入配置中心查看 Starter Chain、Agent、工具和 AI 路由。" }));
-  }
-  return buttons;
-}
-
-function workspaceLauncherPreviewGapActionsMarkup(inputs = workspaceUseInputsPayload(), template = selectedWorkflowTemplate(), resources = null, workspace = selectedWorkspace()) {
+function workspaceCapabilityRemediationActions(
+  inputs = workspaceUseInputsPayload(),
+  template = selectedWorkflowTemplate(),
+  resources = null,
+  workspace = selectedWorkspace(),
+) {
   const contractItems = workspaceLauncherPrecreateContractItems(inputs, template, resources);
   const nodes = workspaceExecutionChainSourceNodes(workspace, template);
   const busItems = nodes.length
@@ -4779,14 +4802,22 @@ function workspaceLauncherPreviewGapActionsMarkup(inputs = workspaceUseInputsPay
   if (chainStep && ["blocked", "failed"].includes(String(chainStep.status || ""))) {
     actions.push({ ...workspaceManageAction("templates", { label: "选链路" }), tone: "secondary" });
   }
+  if (!actions.length) {
+    actions.push({ ...workspaceManageAction("templates", { label: "配置中心" }), tone: "secondary" });
+  }
+  return actions;
+}
+
+function workspaceCapabilityRemediationMarkup(actions = [], gapHint = "") {
   if (!actions.length) return "";
   return `
-    <div class="workspace-launcher-preview-gap-actions">
-      <span>补齐入口</span>
-      <div class="workspace-launcher-preview-gap-buttons">
+    <div class="workspace-capability-baseline-remediation">
+      <span class="workspace-capability-baseline-remediation-label">补齐入口</span>
+      ${gapHint ? `<em class="workspace-capability-baseline-remediation-hint has-gaps" title="${escapeHtml(gapHint)}">${escapeHtml(gapHint)}</em>` : ""}
+      <div class="workspace-capability-baseline-action-row">
         ${actions.map((item) => `
           <button
-            class="${escapeHtml(item.tone || "secondary")} mini"
+            class="${escapeHtml(item.tone || "secondary")} mini workspace-capability-baseline-action"
             type="button"
             data-action="${escapeHtml(item.action || "switch-workspace-manage")}"
             ${item.tab ? `data-tab="${escapeHtml(item.tab)}"` : ""}
@@ -4810,7 +4841,7 @@ function workspaceCapabilityBaselineMarkup(workspace = selectedWorkspace(), temp
   const ioGaps = items.filter((item) => item.ioState !== "ready").length;
   const gapCount = agentGaps + toolGaps + aiGaps + ioGaps;
   const agentReady = Math.max(0, nodes.length - agentGaps);
-  const status = gapCount ? "warning" : "ready";
+  const status = gapCount ? "blocked" : "ready";
   const title = gapCount
     ? `${gapCount} 个能力缺口`
     : "默认能力已够用";
@@ -4818,37 +4849,35 @@ function workspaceCapabilityBaselineMarkup(workspace = selectedWorkspace(), temp
     ? "只在缺 Agent、工具、模型路由或 I/O 契约时进入配置中心。"
     : "先按当前 Starter Chain 自动推进，配置中心留给自定义角色、工具和模型路由。";
   const gapHint = gapCount ? workspaceCapabilityGapHint(items) : "";
-  const actionButtons = workspaceCapabilityBaselineActions(agentGaps, toolGaps, aiGaps, ioGaps);
+  const inputs = workspaceUseInputsPayload();
+  const resources = workspaceUseResourceSummary();
+  const remediationActions = workspaceCapabilityRemediationActions(inputs, template, resources, workspace);
+  const factStatus = (hasGap) => (hasGap ? "blocked" : "ready");
   const facts = [
-    { label: "Agent", value: agentGaps ? `${agentGaps} 缺口` : `${agentReady}/${nodes.length} 接管`, status: agentGaps ? "warning" : "ready" },
-    { label: "Tool", value: toolGaps ? `${toolGaps} 缺口` : "allowlist OK", status: toolGaps ? "warning" : "ready" },
-    { label: "AI", value: aiGaps ? `${aiGaps} 缺口` : (model.routing_mode || "继承默认路由"), status: aiGaps ? "warning" : "ready" },
-    { label: "I/O", value: ioGaps ? `${ioGaps} 缺口` : "节点交接可用", status: ioGaps ? "warning" : "ready" },
+    { label: "Agent", value: agentGaps ? `${agentGaps} 缺口` : `${agentReady}/${nodes.length} 接管`, status: factStatus(agentGaps) },
+    { label: "Tool", value: toolGaps ? `${toolGaps} 缺口` : "allowlist OK", status: factStatus(toolGaps) },
+    { label: "AI", value: aiGaps ? `${aiGaps} 缺口` : (model.routing_mode || "继承默认路由"), status: factStatus(aiGaps) },
+    { label: "I/O", value: ioGaps ? `${ioGaps} 缺口` : "节点交接可用", status: factStatus(ioGaps) },
   ];
   const help = "只有需要改 Starter Chain、Agent、工具或模型路由时才进入配置中心；普通复现/部署从驾驶舱推进。";
   return `
-    <section class="workspace-capability-baseline-card status-${escapeHtml(status)}" title="${escapeHtml(detail)} · ${escapeHtml(help)}">
-      <div class="workspace-capability-baseline-copy">
-        <span>能力底座</span>
-        <strong>${escapeHtml(title)}</strong>
-      </div>
-      <div class="workspace-capability-baseline-facts">
-        ${facts.map((item) => `
-          <article class="status-${escapeHtml(item.status)}" title="${escapeHtml(item.value)}">
-            <span>${escapeHtml(item.label)}</span>
-            <strong>${escapeHtml(item.value)}</strong>
-          </article>
-        `).join("")}
-      </div>
-      <div class="workspace-capability-baseline-actions">
-        ${gapHint ? `<p class="workspace-capability-baseline-hint" title="${escapeHtml(gapHint)}">${escapeHtml(gapHint)}</p>` : ""}
-        <div class="workspace-capability-baseline-action-row">
-          ${actionButtons.map((action) => `
-            <button class="secondary mini workspace-capability-baseline-action" type="button" data-action="${escapeHtml(action.action)}" data-tab="${escapeHtml(action.tab)}" title="${escapeHtml(action.title)}">
-              ${escapeHtml(action.label)}
-            </button>
-          `).join("")}
+    <section class="workspace-capability-baseline-card status-${escapeHtml(status)}${gapCount ? " has-gaps" : ""}" title="${escapeHtml(detail)} · ${escapeHtml(help)}">
+      <div class="workspace-capability-baseline-strip">
+        <div class="workspace-capability-baseline-head">
+          <div class="workspace-capability-baseline-copy">
+            <span>能力底座</span>
+            <strong class="${gapCount ? "has-gaps" : ""}">${escapeHtml(title)}</strong>
+          </div>
+          <div class="workspace-capability-baseline-facts">
+            ${facts.map((item) => `
+              <article class="status-${escapeHtml(item.status)}${item.status === "blocked" ? " has-gap" : ""}" title="${escapeHtml(item.value)}">
+                <span>${escapeHtml(item.label)}</span>
+                <strong>${escapeHtml(item.value)}</strong>
+              </article>
+            `).join("")}
+          </div>
         </div>
+        ${workspaceCapabilityRemediationMarkup(remediationActions, gapHint)}
       </div>
     </section>
   `;
@@ -7982,10 +8011,8 @@ function workspaceLauncherPreviewBandMarkup(inputs = workspaceUseInputsPayload()
   ];
   const contractItems = workspaceLauncherContractItems(template, { limit: 8 });
   const selectedNodeId = String(state.selectedWorkspaceExecutionNodeId || "").trim();
-  const gapActions = workspaceLauncherPreviewGapActionsMarkup(inputs, template, resources, selectedWorkspace());
   return `
     <div class="workspace-launcher-preview-band-shell">
-      ${gapActions}
       <div class="workspace-launcher-preview-band-metrics">
         <article>
           <span>输入画像</span>
@@ -17541,11 +17568,57 @@ function renderWorkspaceUseMode() {
   renderWorkspaceUseChat();
 }
 
+function workspaceExecutionCommandStripMarkup(workspace = selectedWorkspace()) {
+  if (!workspace?.id) return "";
+  const cockpitNext = workspaceCockpitNextAction(workspace);
+  const latestRun = workspaceLatestExecutionRun(workspace);
+  const model = workspaceCommandCenterModelFromCockpit(cockpitNext || {}, workspace);
+  const status = String(cockpitNext?.status || latestRun?.status || model.status || "draft");
+  const title = String(cockpitNext?.title || model.title || "自动推进").trim();
+  const detail = String(cockpitNext?.detail || cockpitNext?.reason || model.detail || "").trim();
+  const primary = cockpitNext?.primary
+    ? workspaceNextActionUiButton(cockpitNext.primary)
+    : model.primary;
+  const secondary = cockpitNext?.secondary
+    ? workspaceNextActionUiButton(cockpitNext.secondary)
+    : model.secondary;
+  const progressBlock = latestRun ? workspaceRunProgressMarkup(latestRun, { compact: true }) : "";
+  const phase = String(cockpitNext?.phase || model.phase || "").trim();
+  return `
+    <section class="workspace-execution-command-strip status-${escapeHtml(status)}">
+      <div class="workspace-execution-command-copy">
+        <span>${escapeHtml(phase || "下一步")}</span>
+        <strong title="${escapeHtml(detail)}">${escapeHtml(title)}</strong>
+        ${detail ? `<em title="${escapeHtml(detail)}">${escapeHtml(detail)}</em>` : ""}
+      </div>
+      <div class="workspace-execution-command-actions">
+        ${workspaceHomeActionButtonMarkup({ ...primary, tone: "primary" }, detail)}
+        ${secondary ? workspaceHomeActionButtonMarkup({ ...secondary, tone: "secondary" }, detail) : ""}
+        ${latestRun ? `<button class="secondary mini" type="button" data-action="switch-workspace-tab" data-tab="runs" title="查看完整运行记录与逐步输出">运行记录</button>` : ""}
+      </div>
+      ${progressBlock}
+    </section>
+  `;
+}
+
+function renderWorkspaceExecutionCommandStrip(workspace = selectedWorkspace()) {
+  const root = $("workspaceExecutionCommandStrip");
+  if (!root) return;
+  if (!workspace?.id) {
+    root.innerHTML = "";
+    root.hidden = true;
+    return;
+  }
+  root.innerHTML = workspaceExecutionCommandStripMarkup(workspace);
+  root.hidden = !root.innerHTML.trim();
+}
+
 function renderWorkspaceExecutionBoard() {
   const workspace = selectedWorkspace();
   const box = $("workspaceExecutionBoard");
   const meta = $("workspaceExecutionMeta");
   if (!box) return;
+  renderWorkspaceExecutionCommandStrip(workspace);
   if (!workspace) {
     const template = selectedWorkflowTemplate();
     const previewNodes = templatePreviewExecutionNodes(template);
