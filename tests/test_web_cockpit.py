@@ -166,7 +166,7 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
         self.assertIn("return tableWrap;", self.app)
         self.assertIn('workspacePanel.id === "workspaceHubPanel"', self.app)
         self.assertIn("#workspaceModeSwitch, #workspaceManageTabs, #workspaceTabs, .workspace-project-drawer-summary", self.app)
-        self.assertIn('target.closest(".workspace-use-board > .subsection-head")', self.app)
+        self.assertIn('target.closest(".workspace-execution-workspace-head")', self.app)
         self.assertIn('visibleScrollTarget("#workspaceExecutionBoard")', self.app)
         self.assertIn('target.closest(".panel-head-tabs")', self.app)
         self.assertIn('workspacePanel.id === "consoleExecPanel"', self.app)
@@ -204,7 +204,8 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
         self.assertIn("function workspaceLauncherInputsFromWorkspace", self.app)
         self.assertIn("repo_urls: listOrFallback(inputs.repo_urls, source.repo_url),", self.app)
         self.assertIn("paper_urls: listOrFallback(inputs.paper_urls, source.paper_url),", self.app)
-        self.assertIn("setWorkspaceLauncherInputs(workspaceLauncherInputsFromWorkspace(workspace));", self.app)
+        self.assertIn("goal_text: \"\"", self.app)
+        self.assertIn("hydrateWorkspaceUseInputsFromWorkspace", self.app)
         self.assertIn("normalized.input_mapping", self.app)
         self.assertIn("normalized.output_key", self.app)
         self.assertIn("nodes: deepClone(draft.nodes || [], []),", self.app)
@@ -326,7 +327,7 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
         self.assertIn("@media (max-width: 1179px)", self.css)
         self.assertIn(".workspace-panel > .tab-panel {\n  min-height: 0;\n  overflow: auto;", self.css)
         self.assertIn("position: sticky;\n  top: 0;", self.css)
-        self.assertIn(".workspace-use-board > .subsection-head", self.css)
+        self.assertIn(".workspace-execution-workspace-canvas", self.css)
         self.assertIn(".workspace-use-detail > .subsection-head", self.css)
         self.assertIn(".workspace-use-history > .subsection-head", self.css)
         self.assertIn("top: var(--workspace-mode-tabs-height);", self.css)
@@ -489,6 +490,12 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
             "workspaceNextActionUiButton",
             "workspaceCommandCenterModelFromCockpit",
             "openWorkspaceChainInspect",
+            "workspaceNodeRunActionsMarkup",
+            "workspaceLatestRunStepForNode",
+            "workspaceAgentRunCompactMarkup",
+            "workspaceMappedInputsCompactLine",
+            "workspaceNodeSupportsAgentRun",
+            "workspaceNodeSupportsJobRun",
             "focusWorkspaceCockpitFromNextAction",
             "workspaceCommandCenterGoalItems",
             "workspaceCommandCenterBlockerSummary",
@@ -533,15 +540,12 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
         self.assertIn('class="workspace-use-cockpit-shell"', self.html)
         self.assertIn('class="workspace-use-launcher-panel"', self.html)
         self.assertIn('class="workspace-use-status-panel"', self.html)
-        self.assertIn('id="workspaceUseMonitor" class="workspace-use-monitor-shell"', self.html)
+        self.assertIn('class="workspace-execution-workspace workspace-cockpit-inspector"', self.html)
         self.assertIn('id="workspaceLauncherPlan" class="workspace-launcher-plan"', self.html)
         self.assertIn('id="workspaceCapabilityBaseline" class="workspace-capability-baseline"', self.html)
         self.assertIn('class="workspace-use-support-band workspace-home-collapse workspace-use-support-collapse"', self.html)
-        self.assertIn("renderWorkspaceUseMonitor(", self.app)
-        self.assertIn("root.innerHTML = workspaceUseMonitorMarkup", self.app)
         self.assertIn("capabilityBaseline.innerHTML = baselineMarkup", self.app)
         self.assertIn("renderWorkspaceLauncherPlan(inputs, template, resources);", self.app)
-        self.assertIn('"workspaceUseMonitor"', self.app)
         self.assertIn('"workspaceLauncherPlan"', self.app)
         self.assertIn('"workspaceCapabilityBaseline"', self.app)
         self.assertIn(".workspace-use-cockpit-shell {\n  display: grid;", self.css)
@@ -563,9 +567,9 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
         self.assertIn("select-flow-tool", self.app)
         self.assertIn("refreshWorkspaceExecutionFlowCanvas", self.app)
         self.assertIn("bindWorkspaceExecutionFlowCanvas", self.app)
-        self.assertIn("toggleCockpitMonitorMode(true)", self.app)
-        self.assertIn('id="workspaceCockpitMonitorToggle"', self.html)
-        self.assertIn('data-action="toggle-cockpit-monitor-mode"', self.html)
+        self.assertIn('id="workspaceUseGoalField" class="workspace-use-goal"', self.html)
+        self.assertIn("workspace-execution-workspace-canvas", self.html)
+        self.assertIn("workspace-launch-closure-strip", self.app)
         self.assertIn('id="transferConflictModal"', self.html)
         self.assertIn(".workspace-execution-flow-viewport {", self.css)
         self.assertIn(".workspace-flow-track {", self.css)
@@ -650,7 +654,10 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
         self.assertIn("renderWorkspaceChainInspectPanel()", self.app)
         self.assertIn("renderWorkspaceUseLauncherSurfaces();", self.app)
         self.assertIn("open-workspace-chain-inspect", self.app)
+        self.assertIn("run-workspace-node-agent", self.app)
+        self.assertIn("run-workspace-node-job", self.app)
         self.assertIn("function openWorkspaceChainInspect", self.app)
+        self.assertIn("function workspaceNodeRunActionsMarkup", self.app)
 
     def test_cockpit_sections_have_styles(self) -> None:
         required_classes = [
@@ -911,8 +918,8 @@ class WorkbenchCockpitSmokeTests(unittest.TestCase):
         self.assertIn("PRODUCT_HEADER_TITLES", self.app)
         self.assertIn("function updateProductHeaderTitle", self.app)
         self.assertIn("工作台驾驶舱", self.app)
-        self.assertIn("/styles.css?v=20260611cockpit11", self.html)
-        self.assertIn("/app.js?v=20260611cockpit11", self.html)
+        self.assertIn("/styles.css?v=20260611cockpit13", self.html)
+        self.assertIn("/app.js?v=20260611cockpit13", self.html)
         self.assertIn(".workspace-home-decision .workspace-command-center-facts", self.css)
         self.assertIn(".workspace-command-center-contract", self.css)
         self.assertIn(".workspace-use-intake .workspace-use-template-band", self.css)

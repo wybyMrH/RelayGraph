@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles.css?v=20260611cockpit11" />
+    <link rel="stylesheet" href="/styles.css?v=20260611cockpit13" />
   </head>
   <body>
     <div class="shell">
@@ -332,14 +332,15 @@
                   <span class="muted">写目标即可启动；仓库、论文、路径和上下文会被整理成项目输入与 starter chain。</span>
                 </div>
                 <div class="workspace-use-cockpit-shell">
-                  <section class="workspace-use-launcher-panel">
-                    <label class="workspace-use-goal" title="描述这次要自动化完成的复现或部署目标；仓库、论文、路径可后续补充">
-                      <span class="workspace-cockpit-field-label">复现 / 部署目标</span>
-                      <textarea id="workspaceTaskGoalInput" rows="3" class="workspace-cockpit-fixed-input" placeholder="例如：复现这篇论文，自动找实现和数据集，准备环境，选择空闲 GPU 跑 baseline，并汇总指标"></textarea>
-                    </label>
-                  </section>
+                  <div class="workspace-use-primary-stack">
+                    <section class="workspace-use-launcher-panel">
+                      <label id="workspaceUseGoalField" class="workspace-use-goal" title="描述这次要自动化完成的复现或部署目标；仓库、论文、路径可后续补充">
+                        <span class="workspace-cockpit-field-label">复现 / 部署目标</span>
+                        <textarea id="workspaceTaskGoalInput" rows="3" class="workspace-cockpit-fixed-input" placeholder="例如：复现这篇论文，自动找实现和数据集，准备环境，选择空闲 GPU 跑 baseline，并汇总指标"></textarea>
+                      </label>
+                    </section>
+                  </div>
                   <aside class="workspace-use-status-panel">
-                    <div id="workspaceUseMonitor" class="workspace-use-monitor-shell" hidden></div>
                     <div id="workspaceLauncherPlan" class="workspace-launcher-plan" hidden></div>
                     <div id="workspaceCapabilityBaseline" class="workspace-capability-baseline"></div>
                   </aside>
@@ -399,22 +400,15 @@
               </section>
 
               <div class="workspace-use-grid workspace-use-stack">
-                <section class="workspace-use-board workspace-use-canvas-panel">
-                  <div class="subsection-head workspace-execution-board-head">
+                <section class="workspace-execution-workspace workspace-cockpit-inspector">
+                  <header class="workspace-cockpit-inspector-head workspace-execution-workspace-head">
                     <div>
                       <strong>执行看板</strong>
                       <span id="workspaceExecutionMeta" class="muted">节点进度与当前状态；滚轮缩放，左键拖动画布。</span>
                     </div>
-                    <div class="workspace-execution-board-tools">
-                      <button id="workspaceCockpitMonitorToggle" class="secondary mini" type="button" data-action="toggle-cockpit-monitor-mode" hidden title="切换监控专用模式：隐藏启动器，专注执行看板">监控模式</button>
-                    </div>
-                  </div>
-                  <div id="workspaceExecutionCommandStrip" class="workspace-execution-command-strip" hidden></div>
-                  <div id="workspaceExecutionBoard" class="workspace-execution-board workspace-execution-board-compact workspace-execution-canvas-shell"></div>
-                </section>
-
-                <section class="workspace-execution-inspector workspace-cockpit-inspector">
-                  <header class="workspace-cockpit-inspector-head">
+                  </header>
+                  <div id="workspaceExecutionBoard" class="workspace-execution-board workspace-execution-board-compact workspace-execution-canvas-shell workspace-execution-workspace-canvas"></div>
+                  <header class="workspace-cockpit-inspector-head workspace-execution-inspector-divider">
                     <strong>节点详情</strong>
                     <span id="workspaceSelectedInstanceMeta" class="muted" title="选中画布节点看流程与状态；点中间工具看详情；右侧与 Agent 对话">选中节点查看详情</span>
                   </header>
@@ -1670,6 +1664,6 @@
         </div>
       </main>
     </div>
-    <script src="/app.js?v=20260611cockpit11"></script>
+    <script src="/app.js?v=20260611cockpit13"></script>
   </body>
 </html>

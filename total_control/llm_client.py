@@ -305,6 +305,37 @@ def tool_definition_for_llm(tool: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_agent_node_system_prompt(
+    agent: dict[str, Any],
+    tools: list[dict[str, Any]],
+    *,
+    node_kind: str = "",
+    output_key: str = "",
+    output_format: str = "",
+    node_goal: str = "",
+) -> str:
+    """Build a node-scoped system prompt without dumping full repository trees."""
+    base = build_agent_system_prompt(agent, tools)
+    sections: list[str] = [base.rstrip()]
+    kind = str(node_kind or "").strip()
+    if kind:
+        sections.append(f"\nCurrent workflow node kind: {kind}")
+    goal = str(node_goal or "").strip()
+    if goal:
+        sections.append(f"Node goal: {goal}")
+    key = str(output_key or "").strip()
+    if key:
+        sections.append(f"Required output_key: {key}")
+    fmt = str(output_format or "").strip()
+    if fmt:
+        sections.append(f"Expected output_format: {fmt}")
+    sections.append(
+        "\nRespond using Thought / Action / Action Input / Final Answer when helpful. "
+        "Prefer artifact.write or workflow.edit to persist structured outputs."
+    )
+    return "\n".join(sections)
+
+
 def build_agent_system_prompt(agent: dict[str, Any], tools: list[dict[str, Any]]) -> str:
     """Build system prompt for an agent with tool descriptions.
 

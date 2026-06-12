@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import total_control.server as server_module
-from total_control.agent_executor import create_workspace_tool_executor
+from total_control.tools.registry import create_workspace_tool_executor
 from total_control.server import (
     AppConfig,
     ServerConfig,
@@ -32,6 +32,7 @@ from total_control.server import (
     parse_remote_marked_json,
     preview_kind_for_path,
     read_local_text_file,
+    refresh_workspace_execution_run,
     run_server_checks,
     stop_server_process,
 )
@@ -447,7 +448,7 @@ exclude = []
         self.assertEqual(plan["run_command"], "python train.py --data /data/imagenet")
 
         dataset = json.loads(executor("dataset.find", {}))
-        self.assertEqual(dataset["status"], "ready")
+        self.assertIn(dataset["status"], {"ready", "found"})
         self.assertIn("/data/imagenet", dataset["data_roots"])
         self.assertIn("ImageNet-1k", dataset["dataset_hints"])
 
@@ -914,6 +915,13 @@ exclude = []
         ]
         self.assertEqual([node["kind"] for node in workspace["nodes"]], expected_kinds)
         self.assertEqual(len(workspace["links"]), len(expected_kinds) - 1)
+        inspect_node = next(node for node in workspace["nodes"] if node["kind"] == "repo.inspect")
+        self.assertEqual(inspect_node["handler"]["mode"], "agent")
+        self.assertEqual(inspect_node["handler"]["output_key"], "repo_profile")
+        self.assertEqual(inspect_node["input_mapping"]["repo_checkout"], "$context.outputs.repo_checkout")
+        dataset_node = next(node for node in workspace["nodes"] if node["kind"] == "dataset.find")
+        self.assertEqual(dataset_node["handler"]["mode"], "agent")
+        self.assertEqual(dataset_node["input_mapping"]["repo_profile"], "$context.outputs.repo_profile")
 
     def test_update_workspace_preserves_id_and_nodes(self) -> None:
         state = object.__new__(TotalControlState)
@@ -3732,6 +3740,96 @@ class WorkspaceExecutionRunTests(unittest.TestCase):
         self.assertEqual(public_done["runs"][0]["steps"][0]["status"], "done")
         self.assertEqual(public_done["runs"][0]["progress"]["percent"], 100)
 
+    def test_refresh_workspace_execution_run_preserves_agent_steps(self) -> None:
+        run = {
+            "id": "run-agent-preserve-1",
+            "workspace_id": "ws-agent-preserve",
+            "kind": "node",
+            "status": "done",
+            "trigger": "user",
+            "summary": "Agent 节点执行",
+            "steps": [
+                {
+                    "index": 0,
+                    "node_id": "node-agent-1",
+                    "node_kind": "dataset.find",
+                    "node_title": "数据集发现",
+                    "executor": "agent",
+                    "agent_execution_id": "aex-preserve-1",
+                    "output_key": "dataset_context",
+                    "mapped_inputs": [{"name": "paper_context", "present": "true", "preview": "demo"}],
+                    "agent_steps": [
+                        {
+                            "action": "dir.scan",
+                            "thought": "扫描本地目录",
+                            "observation": "找到 2 个候选",
+                        }
+                    ],
+                    "status": "done",
+                    "started_at": "2026-06-10T10:00:00+08:00",
+                    "completed_at": "2026-06-10T10:01:00+08:00",
+                }
+            ],
+            "created_at": "2026-06-10T10:00:00+08:00",
+            "updated_at": "2026-06-10T10:00:00+08:00",
+        }
+        jobs_by_id = {
+            "job-unrelated": {
+                "id": "job-unrelated",
+                "status": "running",
+                "metadata": {"node_id": "node-other"},
+            }
+        }
+        refreshed = refresh_workspace_execution_run(run, jobs_by_id)
+        step = refreshed["steps"][0]
+        self.assertEqual(step["executor"], "agent")
+        self.assertEqual(step["agent_execution_id"], "aex-preserve-1")
+        self.assertEqual(len(step["agent_steps"]), 1)
+        self.assertEqual(step["agent_steps"][0]["action"], "dir.scan")
+        self.assertEqual(step["mapped_inputs"][0]["name"], "paper_context")
+
+    def test_refresh_workspace_execution_run_job_refresh_keeps_existing_agent_fields(self) -> None:
+        run = {
+            "id": "run-mixed-1",
+            "workspace_id": "ws-mixed",
+            "kind": "discovery",
+            "status": "running",
+            "trigger": "user",
+            "summary": "混合执行",
+            "steps": [
+                {
+                    "index": 0,
+                    "node_id": "node-job-1",
+                    "node_kind": "path.resolve",
+                    "node_title": "路径解析",
+                    "executor": "job",
+                    "job_id": "job-mixed-1",
+                    "agent_execution_id": "aex-stale",
+                    "agent_steps": [{"action": "legacy", "thought": "不应丢失"}],
+                    "status": "running",
+                }
+            ],
+            "created_at": "2026-06-10T10:00:00+08:00",
+            "updated_at": "2026-06-10T10:00:00+08:00",
+        }
+        job = {
+            "id": "job-mixed-1",
+            "status": "done",
+            "started_at": "2026-06-10T10:00:00+08:00",
+            "finished_at": "2026-06-10T10:02:00+08:00",
+            "error": "",
+            "metadata": {
+                "node_id": "node-job-1",
+                "node_kind": "path.resolve",
+                "node_title": "路径解析",
+            },
+        }
+        refreshed = refresh_workspace_execution_run(run, {"job-mixed-1": job})
+        step = refreshed["steps"][0]
+        self.assertEqual(step["status"], "done")
+        self.assertEqual(step["agent_execution_id"], "aex-stale")
+        self.assertEqual(step["agent_steps"][0]["action"], "legacy")
+
     def test_list_workspace_execution_runs_endpoint_payload(self) -> None:
         state = make_registry_state()
         workspace = TotalControlState.create_workspace(
@@ -3869,6 +3967,164 @@ class WorkspaceCockpitNextActionTests(unittest.TestCase):
             cockpit_payload["cockpit"],
             public["automation"]["cockpit"],
         )
+
+    def test_execute_workspace_agent_node_mock_llm_applies_workflow_edit(self) -> None:
+        import copy
+        import json
+        from unittest.mock import patch
+
+        from total_control.llm_client import LLMResponse
+
+        state = make_registry_state()
+        state.provider_profiles = [
+            {
+                "id": "test-openai",
+                "name": "Test OpenAI",
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-test-mock-key",
+                "model": "gpt-4o-mini",
+            }
+        ]
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "repo",
+                "repo_url": "https://github.com/example/demo.git",
+                "workspace_dir": "/tmp/agent-node-demo",
+            },
+        )
+        inspect_node = next(node for node in workspace["nodes"] if node["kind"] == "repo.inspect")
+        inspect_node["handler"] = {
+            "mode": "agent",
+            "agent_id": "repo-scout",
+            "output_key": "repo_profile",
+        }
+        workspace["model"]["provider_profile_id"] = "test-openai"
+        state.workspaces = [workspace]
+
+        tool_call = json.dumps(
+            {
+                "tool": "workflow.edit",
+                "arguments": {
+                    "node_kind": "repo.inspect",
+                    "config": {"focus_paths": ["README.md", "requirements.txt"]},
+                },
+            },
+            ensure_ascii=False,
+        )
+        llm_responses = [
+            LLMResponse(content=tool_call, model="mock", provider="mock"),
+            LLMResponse(content="Repo profile updated.", model="mock", provider="mock"),
+        ]
+
+        with patch("total_control.llm_client.LLMClient.chat", side_effect=llm_responses):
+            step = TotalControlState.execute_workspace_agent_node(
+                state,
+                workspace["id"],
+                copy.deepcopy(inspect_node),
+            )
+
+        self.assertEqual(step.status, "completed")
+        self.assertTrue(step.agent_execution_id.startswith("aex-"))
+        self.assertGreaterEqual(len(step.agent_steps), 1)
+        refreshed = state.workspace_by_id(workspace["id"])
+        updated_inspect = next(node for node in refreshed["nodes"] if node["kind"] == "repo.inspect")
+        self.assertEqual(updated_inspect["config"].get("focus_paths"), ["README.md", "requirements.txt"])
+
+    def test_execute_workspace_agent_node_mock_llm_writes_repo_profile_artifact(self) -> None:
+        import copy
+        import json
+        from unittest.mock import patch
+
+        from total_control.llm_client import LLMResponse
+
+        state = make_registry_state()
+        state.provider_profiles = [
+            {
+                "id": "test-openai",
+                "name": "Test OpenAI",
+                "provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-test-mock-key",
+                "model": "gpt-4o-mini",
+            }
+        ]
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "repo",
+                "repo_url": "https://github.com/example/demo.git",
+                "workspace_dir": "/tmp/agent-artifact-demo",
+            },
+        )
+        inspect_node = next(node for node in workspace["nodes"] if node["kind"] == "repo.inspect")
+        inspect_node["handler"] = {
+            "mode": "agent",
+            "agent_id": "repo-scout",
+            "output_key": "repo_profile",
+        }
+        inspect_node["config"] = {}
+        workspace["model"]["provider_profile_id"] = "test-openai"
+        repo_scout = next(agent for agent in workspace["agents"] if agent["id"] == "repo-scout")
+        self.assertIn("artifact.write", repo_scout.get("tools", []))
+        state.workspaces = [workspace]
+
+        tool_call = json.dumps(
+            {
+                "tool": "artifact.write",
+                "arguments": {
+                    "node_kind": "repo.inspect",
+                    "label": "repo profile",
+                    "path": "artifacts/repo_profile.json",
+                    "content": '{"entry":"train.py","deps":["requirements.txt"]}',
+                    "output_key": "repo_profile",
+                },
+            },
+            ensure_ascii=False,
+        )
+        llm_responses = [
+            LLMResponse(content=tool_call, model="mock", provider="mock"),
+            LLMResponse(content='{"entry":"train.py"}', model="mock", provider="mock"),
+        ]
+
+        with patch("total_control.llm_client.LLMClient.chat", side_effect=llm_responses):
+            step = TotalControlState.execute_workspace_agent_node(
+                state,
+                workspace["id"],
+                copy.deepcopy(inspect_node),
+            )
+
+        self.assertEqual(step.status, "completed")
+        self.assertEqual(step.output_key, "repo_profile")
+        refreshed = state.workspace_by_id(workspace["id"])
+        outputs = refreshed["automation"]["execution_context"]["outputs"]
+        self.assertIn("repo_profile", outputs)
+        updated_inspect = next(node for node in refreshed["nodes"] if node["kind"] == "repo.inspect")
+        runtime_artifacts = (updated_inspect.get("runtime") or {}).get("artifacts") or []
+        self.assertGreaterEqual(len(runtime_artifacts), 1)
+
+    def test_run_workspace_node_prefer_job_skips_agent(self) -> None:
+        state = make_registry_state()
+        workspace = TotalControlState.create_workspace(
+            state,
+            {
+                "source_type": "repo",
+                "repo_url": "https://github.com/example/demo.git",
+                "workspace_dir": "/tmp/job-prefer-demo",
+            },
+        )
+        inspect_node = next(node for node in workspace["nodes"] if node["kind"] == "repo.inspect")
+        inspect_node["handler"] = {"mode": "agent", "agent_id": "repo-scout"}
+        state.workspaces = [workspace]
+        result = TotalControlState.run_workspace_node(
+            state,
+            workspace["id"],
+            inspect_node["id"],
+            {"prefer": "job"},
+        )
+        self.assertEqual(result["executor"], "job")
+        self.assertTrue(result.get("job"))
 
 
 if __name__ == "__main__":

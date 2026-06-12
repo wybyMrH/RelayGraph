@@ -10,8 +10,10 @@ class StepResult:
     executor: str = "none"
     output_key: str = ""
     artifacts: list[dict[str, Any]] = field(default_factory=list)
+    mapped_inputs: list[dict[str, str]] = field(default_factory=list)
     job_id: str = ""
     agent_execution_id: str = ""
+    agent_steps: list[dict[str, Any]] = field(default_factory=list)
     detail: str = ""
     skipped: bool = False
     reason: str = ""
@@ -25,10 +27,14 @@ class StepResult:
             "detail": self.detail,
             "skipped": self.skipped,
         }
+        if self.mapped_inputs:
+            payload["mapped_inputs"] = list(self.mapped_inputs)
         if self.job_id:
             payload["job_id"] = self.job_id
         if self.agent_execution_id:
             payload["agent_execution_id"] = self.agent_execution_id
+        if self.agent_steps:
+            payload["agent_steps"] = list(self.agent_steps)
         if self.reason:
             payload["reason"] = self.reason
         return payload
@@ -41,6 +47,7 @@ class ExecutionRunContext:
     kind: str = "node"
     trigger: str = "user"
     outputs: dict[str, Any] = field(default_factory=dict)
+    previous_output: dict[str, Any] | None = None
     step_index: int = 0
 
     def with_output(self, key: str, value: Any) -> None:

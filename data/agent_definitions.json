@@ -27,7 +27,8 @@
       "repo.search",
       "artifact.read",
       "artifact.write",
-      "dataset.find"
+      "dataset.find",
+      "dir.scan"
     ],
     "provider_profile_id": "",
     "enabled": true,
@@ -45,7 +46,9 @@
       "repo.read",
       "repo.inspect",
       "file.read",
-      "path.resolve"
+      "path.resolve",
+      "artifact.write",
+      "workflow.edit"
     ],
     "provider_profile_id": "",
     "enabled": true,
@@ -77,10 +80,13 @@
     "prompt": "准备环境、检查依赖并整理安装步骤。",
     "tools": [
       "env.inspect",
+      "env.infer",
       "env.prepare",
       "env.create",
       "host.exec",
-      "env.infer"
+      "file.read",
+      "workflow.edit",
+      "artifact.write"
     ],
     "provider_profile_id": "",
     "enabled": true,

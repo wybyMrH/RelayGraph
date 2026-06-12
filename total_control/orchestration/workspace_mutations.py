@@ -94,7 +94,6 @@ def apply_artifact_write(
     artifact_content = str(content or "").strip()
     if not artifact_path and not artifact_content:
         raise ValueError("artifact.write requires path and/or content")
-    artifacts = node.get("artifacts") if isinstance(node.get("artifacts"), list) else []
     entry = {
         "label": artifact_label,
         "path": artifact_path,
@@ -103,7 +102,13 @@ def apply_artifact_write(
     }
     if artifact_content and len(artifact_content) <= 4000:
         entry["content"] = artifact_content
+    runtime = node.get("runtime") if isinstance(node.get("runtime"), dict) else {}
+    artifacts = runtime.get("artifacts") if isinstance(runtime.get("artifacts"), list) else []
+    if not artifacts and isinstance(node.get("artifacts"), list):
+        artifacts = [item for item in node.get("artifacts") if isinstance(item, dict)]
     artifacts.append(entry)
+    runtime["artifacts"] = artifacts
+    node["runtime"] = runtime
     node["artifacts"] = artifacts
 
     normalized_output_key = str(output_key or "").strip()
