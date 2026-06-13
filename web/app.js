@@ -169,6 +169,7 @@ const state = {
     workspaceEventWorkspaceId: "",
     workspaceEventConnected: false,
     workspaceEventLastIds: {},
+    workspaceAgentEvents: {},
     workspaceUiRevision: 0,
     offlineServersOpen: true,
     workspaceToolSearch: "",
@@ -1444,6 +1445,7 @@ const statusText = {
   starting: "启动中",
   running: "运行中",
   done: "已完成",
+  completed: "已完成",
   failed: "失败",
   stopped: "已停止",
   offline: "离线",
@@ -11359,6 +11361,39 @@ function workspaceAgentStepTraceMarkup(agentSteps = [], options = {}) {
   return `<ol class="workspace-agent-step-trace${compact ? " compact" : ""}">${items}${more}</ol>`;
 }
 
+function workspaceAgentStreamTraceMarkup(records = []) {
+  const items = (Array.isArray(records) ? records : []).filter((item) => item && typeof item === "object");
+  if (!items.length) return "";
+  return `
+    <div class="workspace-agent-live-trace">
+      ${items.slice(0, 2).map((record) => {
+        const steps = Array.isArray(record.steps) ? record.steps : [];
+        const recentSteps = steps.slice(-3);
+        const status = String(record.status || "running").trim();
+        const summary = String(record.error || record.final_answer || "").trim();
+        const stepCount = Number(record.total_steps) || steps.length;
+        const title = record.chat ? "对话执行" : record.node_kind ? workspaceCockpitStageLabel(record.node_kind) : "Agent 执行";
+        const meta = [
+          zhStatus(status),
+          stepCount ? `${stepCount} step` : "",
+          fmtDate(record.updated_at || ""),
+        ].filter(Boolean).join(" · ");
+        return `
+          <div class="workspace-agent-live-trace-item status-${escapeHtml(status)}">
+            <div class="workspace-agent-live-trace-head">
+              <strong>${escapeHtml(title)}</strong>
+              <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+            </div>
+            ${meta ? `<em>${escapeHtml(meta)}</em>` : ""}
+            ${workspaceAgentStepTraceMarkup(recentSteps, { compact: true, limit: 3 })}
+            ${summary ? `<p title="${escapeHtml(summary)}">${escapeHtml(compactText(summary, 120))}</p>` : ""}
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function workspaceRunStepItemMarkup(step = {}, run = {}) {
   const jobId = String(step.job_id || "").trim();
   const nodeTitle = String(step.node_title || step.node_kind || "步骤").trim();
@@ -18010,6 +18045,7 @@ function workspaceAgentOutputPanelMarkup(workspace = selectedWorkspace(), node =
   const { agent, node: resolvedNode } = workspaceInspectorChatContext(workspace, node);
   const chat = Array.isArray(workspace?.chat) ? workspace.chat : [];
   const agentName = agent?.name || agent?.id || "Agent";
+  const liveTrace = workspaceAgentStreamTraceMarkup(workspaceAgentStreamRecords(workspace?.id || "", agent?.id || ""));
   const agentMessages = chat.filter((message) => {
     const role = String(message.role || "").trim();
     const messageAgentId = String(message.agent_id || "").trim();
@@ -18021,7 +18057,7 @@ function workspaceAgentOutputPanelMarkup(workspace = selectedWorkspace(), node =
   });
   const latest = agentMessages.slice(-2);
   const jobId = String(resolvedNode?.job_id || workspace?.execution?.last_job_id || "").trim();
-  if (!latest.length && !jobId) {
+  if (!latest.length && !jobId && !liveTrace) {
     return '<div class="workspace-agent-output-strip empty muted">等待 Agent 输出…</div>';
   }
   return `
@@ -18032,7 +18068,8 @@ function workspaceAgentOutputPanelMarkup(workspace = selectedWorkspace(), node =
       </div>
       ${latest.length ? latest.map((message) => `
         <p class="workspace-agent-output-strip-text">${escapeHtml(message.text || "")}</p>
-      `).join("") : `<p class="muted">任务 ${escapeHtml(jobId.slice(0, 8))}… 运行中</p>`}
+      `).join("") : jobId ? `<p class="muted">任务 ${escapeHtml(jobId.slice(0, 8))}… 运行中</p>` : ""}
+      ${liveTrace}
     </div>
   `;
 }
@@ -19192,6 +19229,78 @@ function mergeWorkspaceCockpitPayload(workspaceId, payload = {}) {
   return next;
 }
 
+function workspaceAgentEventStore(workspaceId) {
+  const id = String(workspaceId || "").trim();
+  if (!id) return [];
+  if (!state.ui.workspaceAgentEvents || typeof state.ui.workspaceAgentEvents !== "object") {
+    state.ui.workspaceAgentEvents = {};
+  }
+  if (!Array.isArray(state.ui.workspaceAgentEvents[id])) {
+    state.ui.workspaceAgentEvents[id] = [];
+  }
+  return state.ui.workspaceAgentEvents[id];
+}
+
+function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
+  const id = String(workspaceId || "").trim();
+  const eventType = String(event.type || "").trim();
+  if (!id || !eventType.startsWith("agent.")) return null;
+  const execution = payload.execution && typeof payload.execution === "object" ? payload.execution : {};
+  const step = payload.step && typeof payload.step === "object" ? payload.step : null;
+  const executionId = String(event.agent_execution_id || execution.id || payload.agent_execution_id || "").trim();
+  const recordId = executionId || `agent-${Date.now()}`;
+  const store = workspaceAgentEventStore(id);
+  const existingIndex = store.findIndex((item) => String(item?.id || "") === recordId);
+  const previous = existingIndex >= 0 ? store[existingIndex] : {};
+  const steps = Array.isArray(previous.steps) ? previous.steps.slice() : [];
+  const upsertStep = (nextStep) => {
+    if (!nextStep || typeof nextStep !== "object") return;
+    const stepNumber = String(nextStep.step_number || nextStep.index || "").trim();
+    const stepIndex = steps.findIndex((item) => (
+      stepNumber && String(item?.step_number || item?.index || "").trim() === stepNumber
+    ) || (
+      String(item?.timestamp || "") && String(item.timestamp || "") === String(nextStep.timestamp || "")
+    ));
+    if (stepIndex >= 0) steps.splice(stepIndex, 1, { ...steps[stepIndex], ...nextStep });
+    else steps.push(nextStep);
+  };
+  if (Array.isArray(execution.steps)) {
+    execution.steps.forEach((item) => upsertStep(item));
+  }
+  if (step) upsertStep(step);
+  const status = eventType === "agent.failed"
+    ? "failed"
+    : eventType === "agent.completed"
+      ? "completed"
+      : previous.status || "running";
+  const record = {
+    ...previous,
+    id: recordId,
+    agent_id: String(payload.agent_id || execution.agent_id || previous.agent_id || "").trim(),
+    node_id: String(payload.node_id || previous.node_id || "").trim(),
+    node_kind: String(payload.node_kind || previous.node_kind || "").trim(),
+    chat: Boolean(payload.chat || previous.chat),
+    status,
+    final_answer: String(execution.final_answer || previous.final_answer || "").trim(),
+    error: String(execution.error || previous.error || "").trim(),
+    total_steps: Number(execution.total_steps ?? previous.total_steps ?? steps.length) || steps.length,
+    steps: steps.slice(-24),
+    updated_at: String(event.created_at || new Date().toISOString()),
+  };
+  if (existingIndex >= 0) store.splice(existingIndex, 1, record);
+  else store.push(record);
+  store.sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  state.ui.workspaceAgentEvents[id] = store.slice(0, 20);
+  return record;
+}
+
+function workspaceAgentStreamRecords(workspaceId, agentId = "") {
+  const targetAgentId = String(agentId || "").trim();
+  return workspaceAgentEventStore(workspaceId)
+    .filter((item) => !targetAgentId || String(item?.agent_id || "").trim() === targetAgentId)
+    .slice(0, 6);
+}
+
 function applyWorkspaceStreamEvent(rawEvent = {}) {
   const event = rawEvent && typeof rawEvent === "object" ? rawEvent : {};
   const eventType = String(event.type || "").trim();
@@ -19216,6 +19325,9 @@ function applyWorkspaceStreamEvent(rawEvent = {}) {
     });
   }
   if (chatMessages.length) mergeWorkspaceChatMessages(workspaceId, chatMessages);
+  if (eventType.startsWith("agent.")) {
+    mergeWorkspaceAgentStreamEvent(workspaceId, event, payload);
+  }
   if (payload.cockpit || payload.automation || payload.execution) {
     mergeWorkspaceCockpitPayload(workspaceId, payload);
   }

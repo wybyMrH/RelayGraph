@@ -1427,6 +1427,12 @@ tr.selected td:first-child {
   color: var(--busy);
 }
 
+.state.completed,
+.state.done {
+  background: #e7f3eb;
+  color: var(--ok);
+}
+
 .state.queued,
 .state.starting,
 .state.blocked {
@@ -20110,6 +20116,57 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   font-size: 11px;
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.workspace-agent-live-trace {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workspace-agent-live-trace-item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 2px solid #7aa7ff;
+}
+
+.workspace-agent-live-trace-item.status-failed {
+  border-left-color: var(--bad);
+}
+
+.workspace-agent-live-trace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workspace-agent-live-trace-head strong {
+  min-width: 0;
+  color: #243044;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-agent-live-trace-head .state {
+  height: 18px;
+  padding: 0 6px;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.workspace-agent-live-trace-item > em,
+.workspace-agent-live-trace-item > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
 }
 
 .workspace-chat-message-output .workspace-chat-message-role {
