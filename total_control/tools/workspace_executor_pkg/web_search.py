@@ -41,6 +41,8 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
         "query": query,
         "provider": provider or "",
         "provider_configured": False,
+        "provider_status": "unconfigured",
+        "fallback_used": bool(seeds),
         "results": seeds[:limit],
         "message": (
             "返回工作台已有搜索种子；设置 TOTAL_CONTROL_WEB_SEARCH_PROVIDER=duckduckgo "
@@ -51,7 +53,17 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
 
 def _execute_endpoint_search(endpoint: str, query: str, limit: int, seeds: list[dict[str, str]]) -> dict[str, Any]:
     if not query:
-        return {"status": "blocked", "query": query, "results": seeds[:limit], "error": "query is required"}
+        return {
+            "status": "seeded" if seeds else "blocked",
+            "query": query,
+            "provider": "endpoint",
+            "provider_configured": True,
+            "provider_status": "blocked",
+            "fallback_used": bool(seeds),
+            "results": seeds[:limit],
+            "error": "query is required",
+            "message": "缺少检索词，已返回 workspace 种子。" if seeds else "query is required",
+        }
     api_key = os.environ.get("TOTAL_CONTROL_WEB_SEARCH_API_KEY", "")
     url = endpoint
     data: bytes | None = None
@@ -68,27 +80,45 @@ def _execute_endpoint_search(endpoint: str, query: str, limit: int, seeds: list[
         with urllib.request.urlopen(request, timeout=12) as response:
             payload = json.loads(response.read().decode("utf-8", errors="replace"))
         results = _normalize_endpoint_results(payload, limit)
+        fallback_used = not results and bool(seeds)
         return {
-            "status": "found" if results else "empty",
+            "status": "found" if results else "seeded" if fallback_used else "empty",
             "query": query,
             "provider": "endpoint",
             "provider_configured": True,
+            "provider_status": "found" if results else "empty",
+            "fallback_used": fallback_used,
             "results": (results or seeds)[:limit],
+            "message": "" if results else "搜索 provider 未返回结果，已返回 workspace 种子。" if fallback_used else "搜索 provider 未返回结果。",
         }
     except Exception as exc:  # noqa: BLE001 - provider failures should degrade inside the tool.
+        fallback_used = bool(seeds)
         return {
-            "status": "error" if not seeds else "seeded",
+            "status": "seeded" if fallback_used else "error",
             "query": query,
             "provider": "endpoint",
             "provider_configured": True,
+            "provider_status": "error",
+            "fallback_used": fallback_used,
             "results": seeds[:limit],
             "error": str(exc),
+            "message": "搜索 provider 失败，已返回 workspace 种子。" if fallback_used else "搜索 provider 失败。",
         }
 
 
 def _execute_duckduckgo_search(query: str, limit: int, seeds: list[dict[str, str]]) -> dict[str, Any]:
     if not query:
-        return {"status": "blocked", "query": query, "results": seeds[:limit], "error": "query is required"}
+        return {
+            "status": "seeded" if seeds else "blocked",
+            "query": query,
+            "provider": "duckduckgo",
+            "provider_configured": True,
+            "provider_status": "blocked",
+            "fallback_used": bool(seeds),
+            "results": seeds[:limit],
+            "error": "query is required",
+            "message": "缺少检索词，已返回 workspace 种子。" if seeds else "query is required",
+        }
     try:
         url = "https://duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
         request = urllib.request.Request(
@@ -102,21 +132,29 @@ def _execute_duckduckgo_search(query: str, limit: int, seeds: list[dict[str, str
         with urllib.request.urlopen(request, timeout=12) as response:
             body = response.read().decode("utf-8", errors="replace")
         results = _parse_duckduckgo_html(body, limit)
+        fallback_used = not results and bool(seeds)
         return {
-            "status": "found" if results else "empty",
+            "status": "found" if results else "seeded" if fallback_used else "empty",
             "query": query,
             "provider": "duckduckgo",
             "provider_configured": True,
+            "provider_status": "found" if results else "empty",
+            "fallback_used": fallback_used,
             "results": (results or seeds)[:limit],
+            "message": "" if results else "DuckDuckGo 未返回结果，已返回 workspace 种子。" if fallback_used else "DuckDuckGo 未返回结果。",
         }
     except Exception as exc:  # noqa: BLE001 - search should not break the agent loop.
+        fallback_used = bool(seeds)
         return {
-            "status": "error" if not seeds else "seeded",
+            "status": "seeded" if fallback_used else "error",
             "query": query,
             "provider": "duckduckgo",
             "provider_configured": True,
+            "provider_status": "error",
+            "fallback_used": fallback_used,
             "results": seeds[:limit],
             "error": str(exc),
+            "message": "DuckDuckGo 搜索失败，已返回 workspace 种子。" if fallback_used else "DuckDuckGo 搜索失败。",
         }
 
 
