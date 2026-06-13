@@ -9,7 +9,7 @@ import json
 import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable, Iterator
 from datetime import datetime
 
 
@@ -262,6 +262,166 @@ class LLMClient:
                 provider=self.provider,
                 error=f"Error: {str(e)}",
             )
+
+    def chat_stream(
+        self,
+        messages: list[ChatMessage],
+        model: str | None = None,
+        *,
+        on_delta: Callable[[str, str, dict[str, Any]], None] | None = None,
+        **kwargs,
+    ) -> LLMResponse:
+        """Send a streaming chat request and return the accumulated response."""
+        if not self.api_key:
+            return LLMResponse(
+                content="",
+                model="",
+                provider=self.provider,
+                error="API key not configured",
+            )
+
+        if not model:
+            model = self.models[0] if self.models else "gpt-3.5-turbo"
+
+        url = f"{self.base_url}/chat/completions"
+        if self.provider == "anthropic":
+            url = f"{self.base_url}/messages"
+
+        body = self._build_request_body(messages, model, **kwargs)
+        body["stream"] = True
+        if self.provider != "anthropic":
+            body.setdefault("stream_options", {"include_usage": True})
+        headers = self._headers()
+        start_time = datetime.now()
+        content = ""
+        finish_reason = ""
+        usage: dict[str, Any] = {}
+        raw_events: list[dict[str, Any]] = []
+
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(body).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=kwargs.get("timeout", 60)) as response:
+                for event_data in self._iter_sse_data(response):
+                    if event_data == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(event_data)
+                    except json.JSONDecodeError:
+                        continue
+                    raw_events.append(chunk)
+                    if self.provider == "anthropic":
+                        piece, finish, chunk_usage = self._parse_anthropic_stream_chunk(chunk)
+                    else:
+                        piece, finish, chunk_usage = self._parse_openai_stream_chunk(chunk)
+                    if chunk_usage:
+                        usage.update(chunk_usage)
+                    if finish:
+                        finish_reason = finish
+                    if not piece:
+                        continue
+                    content += piece
+                    if on_delta:
+                        on_delta(piece, content, chunk)
+
+            latency_ms = (datetime.now() - start_time).total_seconds() * 1000
+            return LLMResponse(
+                content=content,
+                model=model,
+                provider=self.provider,
+                prompt_tokens=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+                completion_tokens=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+                total_tokens=int(
+                    usage.get("total_tokens")
+                    or (
+                        int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+                        + int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+                    )
+                ),
+                finish_reason=finish_reason,
+                raw_response={"stream": True, "events": raw_events[-20:]},
+                latency_ms=latency_ms,
+            )
+
+        except urllib.error.HTTPError as e:
+            error_body = ""
+            try:
+                error_body = e.read().decode("utf-8")
+            except Exception:
+                pass
+            return LLMResponse(
+                content=content,
+                model=model,
+                provider=self.provider,
+                error=f"HTTP {e.code}: {error_body}",
+                raw_response={"stream": True, "partial": content},
+            )
+        except urllib.error.URLError as e:
+            return LLMResponse(
+                content=content,
+                model=model,
+                provider=self.provider,
+                error=f"URL Error: {e.reason}",
+                raw_response={"stream": True, "partial": content},
+            )
+        except Exception as e:
+            return LLMResponse(
+                content=content,
+                model=model,
+                provider=self.provider,
+                error=f"Error: {str(e)}",
+                raw_response={"stream": True, "partial": content},
+            )
+
+    @staticmethod
+    def _iter_sse_data(response: Any) -> Iterator[str]:
+        data_lines: list[str] = []
+        for raw_line in response:
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                if data_lines:
+                    yield "\n".join(data_lines)
+                    data_lines = []
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("data:"):
+                data_lines.append(line[5:].strip())
+        if data_lines:
+            yield "\n".join(data_lines)
+
+    @staticmethod
+    def _parse_openai_stream_chunk(chunk: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+        choices = chunk.get("choices") if isinstance(chunk.get("choices"), list) else []
+        usage = chunk.get("usage") if isinstance(chunk.get("usage"), dict) else {}
+        if not choices:
+            return "", "", usage
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+        piece = str(delta.get("content") or "")
+        finish_reason = str(choice.get("finish_reason") or "")
+        return piece, finish_reason, usage
+
+    @staticmethod
+    def _parse_anthropic_stream_chunk(chunk: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
+        event_type = str(chunk.get("type") or "")
+        usage: dict[str, Any] = {}
+        if isinstance(chunk.get("message"), dict) and isinstance(chunk["message"].get("usage"), dict):
+            usage.update(chunk["message"]["usage"])
+        if isinstance(chunk.get("usage"), dict):
+            usage.update(chunk["usage"])
+        if event_type == "content_block_delta":
+            delta = chunk.get("delta") if isinstance(chunk.get("delta"), dict) else {}
+            if str(delta.get("type") or "") == "text_delta":
+                return str(delta.get("text") or ""), "", usage
+        if event_type == "message_delta":
+            delta = chunk.get("delta") if isinstance(chunk.get("delta"), dict) else {}
+            return "", str(delta.get("stop_reason") or ""), usage
+        return "", "", usage
 
     def simple_chat(self, system_prompt: str, user_message: str, model: str | None = None, **kwargs) -> LLMResponse:
         """Simple chat with system and user message.

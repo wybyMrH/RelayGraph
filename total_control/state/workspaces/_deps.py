@@ -11,7 +11,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from ...agent_executor import AgentExecutor, AgentExecutionResult
 from ...config import AppConfig, ServerConfig, load_config, save_user_overlay

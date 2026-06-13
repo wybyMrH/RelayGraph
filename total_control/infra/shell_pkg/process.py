@@ -15,6 +15,7 @@ from ...config import AppConfig, ServerConfig
 from ...constants import *  # noqa: F403
 from ...utils import *  # noqa: F403
 from .command import run_command
+from .ssh import ssh_command
 from ..web_terminal import set_terminal_winsize
 
 

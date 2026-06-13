@@ -80,6 +80,7 @@ class AgentExecutor:
         tools: list[dict[str, Any]],
         tool_executor: Callable[[str, dict[str, Any]], str] | None = None,
         step_callback: Callable[[AgentStep], None] | None = None,
+        token_callback: Callable[[str, str], None] | None = None,
     ):
         """Initialize agent executor.
 
@@ -94,6 +95,7 @@ class AgentExecutor:
         self.tools = tools
         self.tool_executor = tool_executor
         self.step_callback = step_callback
+        self.token_callback = token_callback
         configured = agent.get("max_iterations")
         self.max_iterations = int(configured) if configured not in (None, "") else 10
 
@@ -212,7 +214,27 @@ class AgentExecutor:
 
         for iteration in range(self.max_iterations):
             # Call LLM
-            response = self.llm_client.chat(messages)
+            if self.token_callback:
+                stream_state = {"mode": "undecided"}
+
+                def on_stream_delta(delta: str, accumulated: str, _raw: dict[str, Any]) -> None:
+                    text = str(accumulated or "")
+                    mode = stream_state["mode"]
+                    if mode == "blocked":
+                        return
+                    if mode == "undecided":
+                        stripped = text.lstrip()
+                        if not stripped:
+                            return
+                        if stripped.startswith("{") or stripped.startswith("```"):
+                            stream_state["mode"] = "blocked"
+                            return
+                        stream_state["mode"] = "emit"
+                    self.token_callback(delta, accumulated)
+
+                response = self.llm_client.chat_stream(messages, on_delta=on_stream_delta)
+            else:
+                response = self.llm_client.chat(messages)
 
             if not response.success:
                 return AgentExecutionResult(

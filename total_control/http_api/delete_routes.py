@@ -34,7 +34,7 @@ def handle_delete(handler: Any, state: Any, parsed: Any) -> bool:
         state.delete_tool_definition(tool_id)
         handler.send_json({"ok": True})
         return True
-    if parsed.path.startswith("/api/provider-profiles/") and "/" not in parsed.path[19:]:
+    if parsed.path.startswith("/api/provider-profiles/") and "/" not in parsed.path[23:]:
         profile_id = parsed.path.split("/")[3]
         state.delete_provider_profile(profile_id)
         handler.send_json({"ok": True})

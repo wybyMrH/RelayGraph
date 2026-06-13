@@ -249,6 +249,60 @@ class ChatMixin:
         }
 
 
+    def publish_workspace_chat_delta(
+        self,
+        workspace_id: str,
+        assistant_message_id: str,
+        *,
+        delta: str,
+        accumulated: str,
+    ) -> None:
+        workspace_id = str(workspace_id or "").strip()
+        assistant_message_id = str(assistant_message_id or "").strip()
+        if not workspace_id or not assistant_message_id:
+            return
+        accumulated = str(accumulated or "")
+        if not accumulated:
+            return
+        with self.lock:
+            current = self.workspace_by_id(workspace_id)
+            if not current:
+                return
+            chat = normalize_workspace_chat(current.get("chat"), existing=current.get("chat"))
+            updated_chat: list[dict[str, Any]] = []
+            updated_message: dict[str, Any] | None = None
+            for message in chat:
+                if str(message.get("id") or "") == assistant_message_id:
+                    next_message = {
+                        **message,
+                        "text": accumulated,
+                        "status": "streaming",
+                        "updated_at": now_iso(),
+                    }
+                    updated_message = normalize_workspace_chat_message(next_message, existing=message)
+                    updated_chat.append(updated_message)
+                else:
+                    updated_chat.append(message)
+            if updated_message is None:
+                return
+            merged = copy.deepcopy(current)
+            merged["chat"] = updated_chat
+            updated = normalize_workspace_payload(merged, existing=current)
+            index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+            if index < 0:
+                return
+            self.workspaces[index] = updated
+
+        self.publish_event(
+            "chat.message.delta",
+            workspace_id=workspace_id,
+            payload={
+                "message": copy.deepcopy(updated_message),
+                "delta": str(delta or ""),
+            },
+        )
+
+
     def _workspace_chat_reply(
         self,
         workspace_id: str,
@@ -256,6 +310,7 @@ class ChatMixin:
         agent_id: str,
         *,
         use_llm: bool,
+        delta_callback: Callable[[str, str], None] | None = None,
     ) -> tuple[str, dict[str, Any] | None, str]:
         with self.lock:
             current = self.workspace_by_id(workspace_id)
@@ -322,6 +377,7 @@ class ChatMixin:
                         tools=allowed_tools,
                         tool_executor=tool_executor,
                         step_callback=on_agent_step,
+                        token_callback=delta_callback,
                     )
                     chat_context = []
                     for msg in chat[-10:]:
@@ -370,11 +426,20 @@ class ChatMixin:
         error = ""
         execution_info: dict[str, Any] | None = None
         try:
+            def on_reply_delta(delta: str, accumulated: str) -> None:
+                self.publish_workspace_chat_delta(
+                    workspace_id,
+                    assistant_message_id,
+                    delta=delta,
+                    accumulated=accumulated,
+                )
+
             reply_text, execution_info, agent_name = self._workspace_chat_reply(
                 workspace_id,
                 text,
                 agent_id,
                 use_llm=use_llm,
+                delta_callback=on_reply_delta,
             )
         except Exception as exc:  # noqa: BLE001 - background chat must report failure via event.
             status = "failed"

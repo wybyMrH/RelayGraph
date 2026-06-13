@@ -303,7 +303,8 @@ def normalize_workspace_instance_from_template(
     source_template = template_snapshot.get("source") if isinstance(template_snapshot.get("source"), dict) else {}
     env_template = template_snapshot.get("env") if isinstance(template_snapshot.get("env"), dict) else {}
     recipes = template_snapshot.get("recipes") if isinstance(template_snapshot.get("recipes"), list) else []
-    recipe = recipes[0] if recipes and isinstance(recipes[0], dict) else {}
+    template_recipe = recipes[0] if recipes and isinstance(recipes[0], dict) else {}
+    recipe = normalize_workspace_recipe(payload, existing=template_recipe)
 
     workspace_id = str(current.get("id") or "").strip() or (
         datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
@@ -391,7 +392,7 @@ def normalize_workspace_instance_from_template(
             "manager": env_manager,
             "python": python_version,
         },
-        "recipes": copy.deepcopy(template_snapshot.get("recipes") if isinstance(template_snapshot.get("recipes"), list) else []),
+        "recipes": [recipe],
         "agents": agents,
         "model": model,
         "chat": normalize_workspace_chat(
