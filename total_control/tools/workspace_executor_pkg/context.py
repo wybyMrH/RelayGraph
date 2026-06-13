@@ -59,6 +59,14 @@ class WorkspaceToolContext:
         return nodes
 
     def gpu_candidates(self, min_free_mib: int = 0, server_id: str = "") -> list[dict[str, Any]]:
+        def number_value(value: Any, default: int = 0) -> int:
+            if value in (None, ""):
+                return default
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return default
+
         candidates: list[dict[str, Any]] = []
         for status in self.statuses:
             sid = str(status.get("id") or "").strip()
@@ -69,8 +77,8 @@ class WorkspaceToolContext:
             for gpu in status.get("gpus") if isinstance(status.get("gpus"), list) else []:
                 if not isinstance(gpu, dict):
                     continue
-                free_mib = int(float(gpu.get("memory_free_mib") or 0))
-                util = int(float(gpu.get("gpu_util") or 100))
+                free_mib = number_value(gpu.get("memory_free_mib"), 0)
+                util = number_value(gpu.get("gpu_util"), 100)
                 state = str(gpu.get("state") or "").strip() or ("idle" if util <= 10 else "busy")
                 candidates.append(
                     {
@@ -79,7 +87,7 @@ class WorkspaceToolContext:
                         "gpu_index": gpu.get("index"),
                         "name": str(gpu.get("name") or "").strip(),
                         "memory_free_mib": free_mib,
-                        "memory_total_mib": int(float(gpu.get("memory_total_mib") or 0)),
+                        "memory_total_mib": number_value(gpu.get("memory_total_mib"), 0),
                         "gpu_util": util,
                         "state": state,
                         "eligible": state == "idle" and free_mib >= min_free_mib,

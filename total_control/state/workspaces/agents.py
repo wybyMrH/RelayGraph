@@ -161,28 +161,68 @@ class AgentsMixin:
         min_free_mib = safe_int(args.get("min_free_mib"), 0)
         min_free_gib = round(min_free_mib / 1024, 2) if min_free_mib else 0
         updated_kinds: list[str] = []
+
+        def apply_binding(nodes: Any) -> list[str]:
+            changed: list[str] = []
+            for node in (nodes if isinstance(nodes, list) else []):
+                if not isinstance(node, dict):
+                    continue
+                kind = str(node.get("kind") or "").strip()
+                if kind not in {"gpu.allocate", "run.command"}:
+                    continue
+                config = node.get("config") if isinstance(node.get("config"), dict) else {}
+                config["server_id"] = server_id
+                config["gpu_policy"] = "auto"
+                config["gpu_index"] = gpu_index
+                if kind == "gpu.allocate" and min_free_gib:
+                    config["min_free_memory_gib"] = str(min_free_gib)
+                node["config"] = config
+                changed.append(kind)
+            return changed
+
         nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            kind = str(node.get("kind") or "").strip()
-            if kind not in {"gpu.allocate", "run.command"}:
-                continue
-            config = node.get("config") if isinstance(node.get("config"), dict) else {}
-            config["server_id"] = server_id
-            config["gpu_policy"] = "auto"
-            config["gpu_index"] = gpu_index
-            if kind == "gpu.allocate" and min_free_gib:
-                config["min_free_memory_gib"] = str(min_free_gib)
-            node["config"] = config
-            updated_kinds.append(kind)
+        updated_kinds.extend(apply_binding(nodes))
+        execution = workspace.get("execution") if isinstance(workspace.get("execution"), dict) else {}
+        updated_kinds.extend(apply_binding(execution.get("nodes") if isinstance(execution, dict) else []))
+
+        persisted = False
+        persisted_workspace: dict[str, Any] | None = None
+        workspace_id = str(workspace.get("id") or "").strip()
+        if workspace_id:
+            with self.lock:
+                index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+                if index >= 0:
+                    persisted_workspace = self.workspaces[index]
+                    persisted_kinds: list[str] = []
+                    persisted_kinds.extend(apply_binding(persisted_workspace.get("nodes")))
+                    persisted_execution = persisted_workspace.get("execution") if isinstance(persisted_workspace.get("execution"), dict) else {}
+                    persisted_kinds.extend(apply_binding(persisted_execution.get("nodes") if isinstance(persisted_execution, dict) else []))
+                    if persisted_kinds:
+                        persisted_workspace["updated_at"] = now_iso()
+                        persisted = True
+                        updated_kinds.extend(persisted_kinds)
+            if persisted:
+                self.save_workspaces()
+                with self.lock:
+                    current = self.workspace_by_id(workspace_id)
+                    if current:
+                        persisted_workspace = self.workspace_public_payload(current)
+                if persisted_workspace:
+                    self.publish_event(
+                        "workspace.updated",
+                        workspace_id=workspace_id,
+                        payload={"workspace": copy.deepcopy(persisted_workspace)},
+                    )
+
+        unique_updated_kinds = list(dict.fromkeys(updated_kinds))
         return {
             "status": "bound",
             "tool": "gpu.allocate",
             "controlled": True,
             "runtime_side_effect": "none",
             "selected": copy.deepcopy(selected),
-            "updated_node_kinds": updated_kinds,
+            "persisted": persisted,
+            "updated_node_kinds": unique_updated_kinds,
             "message": "GPU 候选已绑定到 gpu.allocate/run.command 配置；实际执行仍走 job 队列。",
         }
 
