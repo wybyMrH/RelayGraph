@@ -7,6 +7,7 @@ from ...orchestration.workspace_mutations import apply_artifact_write, apply_wor
 from ..registry import TOOL_SIDE_EFFECTS, ToolSideEffect, tool_side_effect
 from .artifacts import execute_artifact_read
 from .helpers import split_values
+from .read_tools import execute_file_read, execute_repo_inspect, execute_repo_read
 from .web_search import execute_web_search
 
 
@@ -31,6 +32,15 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
 
     if tool_id == "web.search":
         return json.dumps(execute_web_search(context, arguments), ensure_ascii=False, indent=2)
+
+    if tool_id == "file.read":
+        return json.dumps(execute_file_read(context, arguments), ensure_ascii=False, indent=2)
+
+    if tool_id == "repo.read":
+        return json.dumps(execute_repo_read(context, arguments), ensure_ascii=False, indent=2)
+
+    if tool_id == "repo.inspect":
+        return json.dumps(execute_repo_inspect(context, arguments), ensure_ascii=False, indent=2)
 
     if tool_id == "repo.clone":
         runtime_result = context.submit_controlled_job(tool_id, arguments)
