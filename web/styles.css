@@ -14175,6 +14175,7 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 }
 
 .workspace-execution-run-progress.status-failed .workspace-execution-run-progress-bar > span,
+.workspace-execution-run-progress.status-stopped .workspace-execution-run-progress-bar > span,
 .workspace-execution-run-progress.status-blocked .workspace-execution-run-progress-bar > span {
   background: linear-gradient(90deg, #c23535, #e25555);
 }

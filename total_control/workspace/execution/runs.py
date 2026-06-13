@@ -112,8 +112,10 @@ def workspace_run_step_status_from_job(job: dict[str, Any]) -> str:
     status = str(job.get("status") or "queued").strip()
     if status in {"starting", "running"}:
         return "running"
-    if status in {"failed", "stopped"}:
+    if status == "failed":
         return "failed"
+    if status == "stopped":
+        return "stopped"
     if status == "done":
         return "done"
     if status == "blocked":
@@ -161,6 +163,8 @@ def derive_workspace_execution_run_status(steps: list[dict[str, Any]]) -> str:
     statuses = [str(step.get("status") or "").strip() for step in steps]
     if any(status == "failed" for status in statuses):
         return "failed"
+    if any(status == "stopped" for status in statuses):
+        return "stopped"
     if any(status == "blocked" for status in statuses):
         return "blocked"
     if any(status == "running" for status in statuses):
@@ -174,7 +178,8 @@ def derive_workspace_execution_run_status(steps: list[dict[str, Any]]) -> str:
 def derive_workspace_execution_run_progress(steps: list[dict[str, Any]]) -> dict[str, int]:
     total = len(steps)
     done = sum(1 for step in steps if str(step.get("status") or "") == "done")
-    failed = sum(1 for step in steps if str(step.get("status") or "") in {"failed", "blocked"})
+    stopped = sum(1 for step in steps if str(step.get("status") or "") == "stopped")
+    failed = sum(1 for step in steps if str(step.get("status") or "") in {"failed", "blocked", "stopped"})
     running = sum(1 for step in steps if str(step.get("status") or "") == "running")
     queued = sum(1 for step in steps if str(step.get("status") or "") == "queued")
     percent = int((done / total) * 100) if total else 0
@@ -182,6 +187,7 @@ def derive_workspace_execution_run_progress(steps: list[dict[str, Any]]) -> dict
         "total": total,
         "done": done,
         "failed": failed,
+        "stopped": stopped,
         "running": running,
         "queued": queued,
         "percent": percent,
