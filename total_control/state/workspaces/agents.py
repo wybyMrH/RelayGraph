@@ -66,6 +66,40 @@ class AgentsMixin:
         return ""
 
 
+    def workspace_tool_runtime_node_kind(self, tool_id: str) -> str:
+        tool = str(tool_id or "").strip()
+        if tool == "repo.clone":
+            return "repo.clone"
+        if tool in {"env.prepare", "env.create"}:
+            return "env.prepare"
+        return "run.command"
+
+
+    def workspace_tool_env_create_command(
+        self,
+        args: dict[str, Any],
+        config: dict[str, Any],
+        workspace: dict[str, Any],
+    ) -> str:
+        command = str(args.get("command") or args.get("setup_command") or "").strip()
+        if command:
+            return command
+        workspace_env = workspace.get("env") if isinstance(workspace.get("env"), dict) else {}
+        env_name = str(args.get("env_name") or config.get("env_name") or workspace_env.get("name") or "").strip()
+        if not env_name:
+            return ""
+        manager = str(args.get("env_manager") or config.get("env_manager") or workspace_env.get("manager") or "conda").strip().lower()
+        python_version = str(args.get("python_version") or config.get("python_version") or workspace_env.get("python") or "").strip()
+        if manager == "venv":
+            workspace_dir = str(args.get("workspace_dir") or config.get("workspace_dir") or workspace.get("workspace_dir") or "").strip()
+            target = env_name if env_name.startswith(("/", "~", ".")) else os.path.join(workspace_dir or ".", env_name)
+            return "python3 -m venv " + shlex.quote(target)
+        command_parts = ["conda", "create", "-y", "-n", shlex.quote(env_name)]
+        if python_version:
+            command_parts.append("python=" + shlex.quote(python_version))
+        return " ".join(command_parts)
+
+
     def submit_workspace_tool_job(
         self,
         workspace: dict[str, Any],
@@ -78,11 +112,34 @@ class AgentsMixin:
         args = arguments if isinstance(arguments, dict) else {}
         if not workspace_id:
             return {"status": "error", "tool": tool, "error": "workspace_id is required"}
-        command = str(args.get("command") or args.get("cmd") or args.get("run_command") or "").strip()
+        command = str(args.get("command") or args.get("cmd") or args.get("run_command") or args.get("setup_command") or "").strip()
         run_config = context.node_config("run.command") if context else {}
+        preferred_node_kind = self.workspace_tool_runtime_node_kind(tool)
         if not command and tool == "job.run":
             command = str(run_config.get("run_command") or "").strip()
-        if not command:
+        if not command and tool == "env.prepare" and context:
+            command = str(context.node_config("env.prepare").get("setup_command") or "").strip()
+        if not command and tool == "env.create":
+            command = self.workspace_tool_env_create_command(
+                args,
+                context.node_config("env.prepare") if context else {},
+                workspace,
+            )
+        if tool == "repo.clone":
+            source = context.source_payload() if context else {}
+            repo_config = context.node_config("repo.clone") if context else {}
+            repo_urls = source.get("repo_urls") if isinstance(source.get("repo_urls"), list) else []
+            repo_url = str(args.get("repo_url") or repo_config.get("repo_url") or (repo_urls[0] if repo_urls else "")).strip()
+            workspace_dir = str(args.get("workspace_dir") or args.get("cwd") or repo_config.get("workspace_dir") or source.get("workspace_dir") or workspace.get("workspace_dir") or "").strip()
+            if not repo_url or not workspace_dir:
+                return {
+                    "status": "blocked",
+                    "tool": tool,
+                    "controlled": True,
+                    "runtime_control": "workspace_job_queue",
+                    "error": "repo_url and workspace_dir are required",
+                }
+        elif not command:
             return {"status": "blocked", "tool": tool, "error": "command is required"}
         block_reason = self.workspace_tool_command_block_reason(tool, command)
         if block_reason:
@@ -110,10 +167,18 @@ class AgentsMixin:
             node = next(
                 (
                     item for item in nodes
-                    if isinstance(item, dict) and str(item.get("kind") or "").strip() == "run.command"
+                    if isinstance(item, dict) and str(item.get("kind") or "").strip() == preferred_node_kind
                 ),
                 None,
             )
+        if node is None and preferred_node_kind != "run.command":
+            node = {
+                "id": safe_id(f"{preferred_node_kind}-agent-runtime"),
+                "kind": preferred_node_kind,
+                "title": WORKSPACE_NODE_LIBRARY.get(preferred_node_kind, {}).get("title") or "Agent 受控任务",
+                "config": {},
+                "handler": {"mode": "system", "name": "Agent Runtime", "output_key": "runtime_result"},
+            }
         if node is None:
             node = {
                 "id": safe_id(f"{tool}-agent-runtime"),
@@ -124,13 +189,32 @@ class AgentsMixin:
             }
         node_copy = copy.deepcopy(node)
         config = node_copy.get("config") if isinstance(node_copy.get("config"), dict) else {}
-        config["run_command"] = command
         config["server_id"] = str(args.get("server_id") or config.get("server_id") or run_config.get("server_id") or "auto").strip() or "auto"
         config["workspace_dir"] = str(args.get("cwd") or args.get("workspace_dir") or config.get("workspace_dir") or workspace.get("workspace_dir") or "").strip()
-        if tool == "host.exec":
+        if tool == "repo.clone":
+            source = context.source_payload() if context else {}
+            repo_config = context.node_config("repo.clone") if context else {}
+            repo_urls = source.get("repo_urls") if isinstance(source.get("repo_urls"), list) else []
+            config["repo_url"] = str(args.get("repo_url") or repo_config.get("repo_url") or (repo_urls[0] if repo_urls else "")).strip()
+            config["repo_ref"] = str(args.get("repo_ref") or args.get("branch") or repo_config.get("repo_ref") or "").strip()
+            config["gpu_policy"] = "cpu"
+            config["gpu_index"] = "none"
+        elif tool in {"env.prepare", "env.create"}:
+            config["setup_command"] = command
+            if args.get("env_name") is not None:
+                config["env_name"] = str(args.get("env_name") or "").strip()
+            if args.get("env_manager") is not None:
+                config["env_manager"] = str(args.get("env_manager") or "").strip()
+            if args.get("python_version") is not None:
+                config["python_version"] = str(args.get("python_version") or "").strip()
             config["gpu_policy"] = "cpu"
             config["gpu_index"] = "none"
         else:
+            config["run_command"] = command
+        if tool == "host.exec":
+            config["gpu_policy"] = "cpu"
+            config["gpu_index"] = "none"
+        elif tool not in {"repo.clone", "env.prepare", "env.create"}:
             if args.get("gpu_policy") is not None:
                 config["gpu_policy"] = str(args.get("gpu_policy") or "").strip()
             elif not str(config.get("gpu_policy") or "").strip() and str(run_config.get("gpu_policy") or "").strip():
@@ -151,8 +235,9 @@ class AgentsMixin:
                 args.get("name")
                 or f"{workspace.get('name') or workspace_id} · {tool}"
             )
-            job_payload["command"] = command
-            job_payload["command_display"] = command
+            if command and tool != "repo.clone":
+                job_payload["command"] = command
+                job_payload["command_display"] = command
             if "wait_for_idle" in args:
                 job_payload["wait_for_idle"] = bool(args.get("wait_for_idle"))
             metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}

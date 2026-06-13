@@ -33,6 +33,9 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         return json.dumps(execute_web_search(context, arguments), ensure_ascii=False, indent=2)
 
     if tool_id == "repo.clone":
+        runtime_result = context.submit_controlled_job(tool_id, arguments)
+        if runtime_result:
+            return json.dumps(runtime_result, ensure_ascii=False, indent=2)
         source = context.source_payload()
         repo_url = str(arguments.get("repo_url") or (source["repo_urls"][0] if source["repo_urls"] else "")).strip()
         workspace_dir = str(arguments.get("workspace_dir") or source.get("workspace_dir") or "").strip()
@@ -43,6 +46,30 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
                 "workspace_dir": workspace_dir,
                 "dry_run": True,
                 "message": "已生成克隆计划，等待工作流节点提交实际任务。" if repo_url else "等待 repo_url。",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    if tool_id in {"env.prepare", "env.create"}:
+        runtime_result = context.submit_controlled_job(tool_id, arguments)
+        if runtime_result:
+            return json.dumps(runtime_result, ensure_ascii=False, indent=2)
+        config = context.node_config("env.prepare")
+        env = workspace_snapshot.get("env") if isinstance(workspace_snapshot.get("env"), dict) else {}
+        source = context.source_payload()
+        command = str(arguments.get("command") or arguments.get("setup_command") or config.get("setup_command") or "").strip()
+        env_name = str(arguments.get("env_name") or config.get("env_name") or env.get("name") or "").strip()
+        return json.dumps(
+            {
+                "status": "ready" if command else "draft",
+                "tool": tool_id,
+                "plan_only": True,
+                "dry_run": True,
+                "command": command,
+                "env_name": env_name,
+                "workspace_dir": str(arguments.get("workspace_dir") or config.get("workspace_dir") or source.get("workspace_dir") or "").strip(),
+                "message": "已生成环境任务；当前上下文未启用受控 runtime，未入队。" if command else "等待 setup_command 或 command。",
             },
             ensure_ascii=False,
             indent=2,

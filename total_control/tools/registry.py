@@ -21,12 +21,16 @@ TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "artifact.write": {"side_effect": ToolSideEffect.MUTATE_CONFIG, "implemented": True},
     "workflow.edit": {"side_effect": ToolSideEffect.MUTATE_CONFIG, "implemented": True},
     "report.write": {"side_effect": ToolSideEffect.MUTATE_CONFIG, "implemented": True},
+    "repo.clone": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "dataset.find": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "dir.scan": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "web.search": {"side_effect": ToolSideEffect.READ, "implemented": True},
+    "env.prepare": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
+    "env.create": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "job.run": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "host.exec": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "gpu.allocate": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
+    "job.reorder": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
     "job.stop": {"side_effect": ToolSideEffect.DANGEROUS, "implemented": False},
 }
 
