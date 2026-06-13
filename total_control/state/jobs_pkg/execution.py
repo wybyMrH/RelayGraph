@@ -79,7 +79,13 @@ class ExecutionJobsMixin:
         return True, str(server_statuses[0].get("id") or ""), ""
 
 
-    def start_job(self, job: dict[str, Any], allow_busy: bool = False) -> None:
+    def start_job(
+        self,
+        job: dict[str, Any],
+        allow_busy: bool = False,
+        *,
+        publish_events: bool = True,
+    ) -> None:
         gpuless = str(job.get("gpu_index") or "").strip().lower() in {"none", "no_gpu", "cpu"}
         if gpuless:
             job["gpu_index"] = "none"
@@ -108,7 +114,8 @@ class ExecutionJobsMixin:
             job["error"] = "unknown server"
             self.save_jobs()
             self.sync_workspace_execution_runs_from_jobs()
-            self.publish_job_event(job, "job.updated")
+            if publish_events:
+                self.publish_job_event(job, "job.updated")
             return
         self.apply_server_paths(job, server)
 
@@ -127,7 +134,8 @@ class ExecutionJobsMixin:
                 job["error"] = str(exc)
                 self.save_jobs()
                 self.sync_workspace_execution_runs_from_jobs()
-                self.publish_job_event(job, "job.updated")
+                if publish_events:
+                    self.publish_job_event(job, "job.updated")
                 return
 
         session = job["session"]
@@ -175,7 +183,8 @@ class ExecutionJobsMixin:
             job["error"] = (result.stderr.strip() or result.stdout.strip() or "tmux start failed")[-1000:]
         self.save_jobs()
         self.sync_workspace_execution_runs_from_jobs()
-        self.publish_job_event(job, "job.updated")
+        if publish_events:
+            self.publish_job_event(job, "job.updated")
 
 
     def tmux_running(self, job: dict[str, Any]) -> bool:

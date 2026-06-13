@@ -361,7 +361,7 @@ PY"""
                 }
 
         job_payload = self.workspace_node_job_payload(workspace, node)
-        job = self.create_job(job_payload)
+        job = self.create_job(job_payload, publish_events=False)
         run = self.register_workspace_execution_run(
             workspace_id,
             kind="node",

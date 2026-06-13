@@ -85,6 +85,9 @@ class RunsMixin:
             run_id=str(run.get("id") or "").strip(),
             payload={"run": copy.deepcopy(run)},
         )
+        for job in job_items:
+            if isinstance(job, dict):
+                self.publish_job_event(job, "job.updated")
         return run
 
 

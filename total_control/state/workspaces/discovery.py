@@ -138,7 +138,7 @@ class DiscoveryMixin:
             metadata["workflow_phase"] = "discovery"
             metadata["discovery_index"] = index
             job_payload["metadata"] = metadata
-            job = self.create_job(job_payload)
+            job = self.create_job(job_payload, publish_events=False)
             jobs.append(job)
             previous_job_id = str(job.get("id") or "")
 

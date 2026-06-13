@@ -39,11 +39,14 @@ class WorkflowMixin:
                 automation=automation if isinstance(automation, dict) else automation_snapshot,
             )
 
+        def create_workspace_job(payload: dict[str, Any]) -> dict[str, Any]:
+            return self.create_job(payload, publish_events=False)
+
         return WorkflowRunnerCallbacks(
             refresh_workspace=refresh_workspace,
             execute_agent_node=execute_agent_node,
             build_job_payload=build_job_payload,
-            create_job=self.create_job,
+            create_job=create_workspace_job,
             step_from_job=workspace_run_step_from_job,
             step_from_agent=workspace_run_step_from_agent,
             executable_node_kinds=WORKSPACE_EXECUTABLE_NODE_KINDS,

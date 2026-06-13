@@ -6,7 +6,7 @@ from ._deps import *  # noqa: F403
 
 
 class CrudJobsMixin:
-    def create_job(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_job(self, payload: dict[str, Any], *, publish_events: bool = True) -> dict[str, Any]:
         config = getattr(self, "config", AppConfig())
         command = str(payload.get("command") or "").strip()
         if not command:
@@ -64,8 +64,9 @@ class CrudJobsMixin:
         if wait_for_idle:
             self.save_jobs()
         else:
-            self.start_job(job, allow_busy=True)
-        self.publish_job_event(job, "job.updated")
+            self.start_job(job, allow_busy=True, publish_events=publish_events)
+        if publish_events:
+            self.publish_job_event(job, "job.updated")
         return job
 
 
@@ -118,7 +119,10 @@ class CrudJobsMixin:
             job = next((item for item in self.jobs if item["id"] == job_id), None)
         if not job:
             raise ValueError("job not found")
-        copied = self.create_job(self.clone_job_payload(job))
+        payload = self.clone_job_payload(job)
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        publish_events = not str(metadata.get("workspace_id") or "").strip()
+        copied = self.create_job(payload, publish_events=publish_events)
         self.register_cloned_workspace_job_run(copied, trigger="copy")
         return copied
 
@@ -130,7 +134,10 @@ class CrudJobsMixin:
             raise ValueError("job not found")
         if str(job.get("status") or "") in {"running", "queued", "starting", "blocked"}:
             raise ValueError("任务仍在进行中，不能重试")
-        retried = self.create_job(self.clone_job_payload(job))
+        payload = self.clone_job_payload(job)
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        publish_events = not str(metadata.get("workspace_id") or "").strip()
+        retried = self.create_job(payload, publish_events=publish_events)
         self.register_cloned_workspace_job_run(retried, trigger="retry")
         return retried
 
