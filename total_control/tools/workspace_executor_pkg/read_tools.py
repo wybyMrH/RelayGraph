@@ -150,3 +150,83 @@ def execute_repo_inspect(context: Any, arguments: dict[str, Any]) -> dict[str, A
         "run_suggestion": run_suggestion,
         "message": f"扫描到 {len(entries)} 个顶层条目。",
     }
+
+
+def execute_path_resolve(context: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    source = context.source_payload()
+    workspace_dir = _workspace_dir(context, arguments) or str(source.get("workspace_dir") or "").strip()
+    config = context.node_config("path.resolve")
+    values = [workspace_dir]
+    values.extend(split_values(arguments.get("paths") or arguments.get("data_roots") or config.get("data_roots")))
+    values.extend(split_values(arguments.get("output_roots") or config.get("output_roots")))
+    root = Path(workspace_dir).expanduser().resolve() if workspace_dir else None
+    resolved: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        path = Path(text).expanduser()
+        if not path.is_absolute() and root:
+            path = root / text
+        path = path.resolve()
+        exists = path.exists()
+        resolved.append(
+            {
+                "input": text,
+                "path": str(path),
+                "exists": exists,
+                "is_dir": path.is_dir() if exists else False,
+                "is_file": path.is_file() if exists else False,
+            }
+        )
+    return {
+        "status": "resolved" if resolved else "blocked",
+        "workspace_dir": str(root) if root else "",
+        "paths": resolved,
+        "message": f"解析 {len(resolved)} 个路径。" if resolved else "等待 workspace_dir 或 paths。",
+    }
+
+
+def execute_artifact_collect(context: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    workspace_dir = _workspace_dir(context, arguments)
+    config = context.node_config("artifact.collect")
+    artifacts = context.workspace_artifacts()
+    artifact_paths = split_values(arguments.get("artifact_paths") or arguments.get("paths") or config.get("artifact_paths"))
+    metric_paths = split_values(arguments.get("metric_paths") or config.get("metric_paths"))
+    collected: list[dict[str, Any]] = []
+    for label, values in (("artifact", artifact_paths), ("metric", metric_paths)):
+        for value in values:
+            resolved = safe_workspace_path(workspace_dir, value) if workspace_dir else None
+            if not resolved:
+                collected.append({"label": label, "input": value, "status": "missing"})
+                continue
+            item: dict[str, Any] = {
+                "label": label,
+                "input": value,
+                "status": "found",
+                "path": str(resolved),
+                "is_dir": resolved.is_dir(),
+                "is_file": resolved.is_file(),
+            }
+            if resolved.is_file():
+                try:
+                    item["size"] = resolved.stat().st_size
+                except OSError:
+                    item["size"] = 0
+            elif resolved.is_dir():
+                item["entries"] = scan_directory(resolved, max_depth=1, max_entries=80)
+            collected.append(item)
+    return {
+        "status": "collected" if artifacts or collected else "draft",
+        "workspace_dir": workspace_dir,
+        "artifact_count": len(artifacts),
+        "artifacts": artifacts[:20],
+        "collected": collected[:40],
+        "message": (
+            f"收集到 {len(artifacts)} 条已登记产物、{len(collected)} 个路径结果。"
+            if artifacts or collected
+            else "等待 artifact_paths 或已登记产物。"
+        ),
+    }

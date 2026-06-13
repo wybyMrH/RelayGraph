@@ -7,7 +7,13 @@ from ...orchestration.workspace_mutations import apply_artifact_write, apply_wor
 from ..registry import TOOL_SIDE_EFFECTS, ToolSideEffect, tool_side_effect
 from .artifacts import execute_artifact_read
 from .helpers import split_values
-from .read_tools import execute_file_read, execute_repo_inspect, execute_repo_read
+from .read_tools import (
+    execute_artifact_collect,
+    execute_file_read,
+    execute_path_resolve,
+    execute_repo_inspect,
+    execute_repo_read,
+)
 from .web_search import execute_web_search
 
 
@@ -36,11 +42,17 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
     if tool_id == "file.read":
         return json.dumps(execute_file_read(context, arguments), ensure_ascii=False, indent=2)
 
+    if tool_id == "file.browse":
+        return json.dumps(context.execute_dir_scan(arguments), ensure_ascii=False, indent=2)
+
     if tool_id == "repo.read":
         return json.dumps(execute_repo_read(context, arguments), ensure_ascii=False, indent=2)
 
     if tool_id == "repo.inspect":
         return json.dumps(execute_repo_inspect(context, arguments), ensure_ascii=False, indent=2)
+
+    if tool_id == "path.resolve":
+        return json.dumps(execute_path_resolve(context, arguments), ensure_ascii=False, indent=2)
 
     if tool_id == "repo.clone":
         runtime_result = context.submit_controlled_job(tool_id, arguments)
@@ -267,6 +279,9 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
     if tool_id == "artifact.read":
         return json.dumps(execute_artifact_read(context, arguments), ensure_ascii=False, indent=2)
 
+    if tool_id == "artifact.collect":
+        return json.dumps(execute_artifact_collect(context, arguments), ensure_ascii=False, indent=2)
+
     if tool_id == "artifact.write":
         try:
             result = apply_artifact_write(
@@ -317,6 +332,37 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
     if tool_id == "chat.write":
         message = arguments.get("message", "")
         return json.dumps({"status": "written", "message": message}, ensure_ascii=False, indent=2)
+
+    if tool_id == "notify.user":
+        message = str(arguments.get("message") or arguments.get("text") or arguments.get("summary") or "").strip()
+        severity = str(arguments.get("severity") or arguments.get("level") or "info").strip().lower() or "info"
+        if severity not in {"info", "success", "warning", "error"}:
+            severity = "info"
+        return json.dumps(
+            {
+                "status": "notified" if message else "blocked",
+                "message": message,
+                "severity": severity,
+                "requires_user": bool(arguments.get("requires_user") or arguments.get("action_required")),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    if tool_id == "schedule.plan":
+        schedule = str(arguments.get("schedule") or arguments.get("cron") or arguments.get("when") or "").strip()
+        command = str(arguments.get("command") or arguments.get("run_command") or context.configured_run_command() or "").strip()
+        return json.dumps(
+            {
+                "status": "planned" if schedule or command else "draft",
+                "schedule": schedule,
+                "command": command,
+                "dry_run": True,
+                "message": "已生成调度计划；实际创建定时/批量任务仍需通过配置页或任务队列确认。" if schedule or command else "等待 schedule 或 command。",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
 
     side_effect = tool_side_effect(tool_id)
     meta = TOOL_SIDE_EFFECTS.get(str(tool_id or "").strip(), {})

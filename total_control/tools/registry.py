@@ -23,6 +23,8 @@ TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "report.write": {"side_effect": ToolSideEffect.MUTATE_CONFIG, "implemented": True},
     "repo.clone": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "dataset.find": {"side_effect": ToolSideEffect.READ, "implemented": True},
+    "file.browse": {"side_effect": ToolSideEffect.READ, "implemented": True},
+    "path.resolve": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "dir.scan": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "web.search": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "env.prepare": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
@@ -32,6 +34,9 @@ TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "gpu.allocate": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "job.reorder": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "job.stop": {"side_effect": ToolSideEffect.DANGEROUS, "implemented": True},
+    "artifact.collect": {"side_effect": ToolSideEffect.READ, "implemented": True},
+    "notify.user": {"side_effect": ToolSideEffect.MUTATE_CONFIG, "implemented": True},
+    "schedule.plan": {"side_effect": ToolSideEffect.MUTATE_CONFIG, "implemented": True},
 }
 
 
