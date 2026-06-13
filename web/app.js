@@ -1040,8 +1040,8 @@ const WORKSPACE_TOOL_CATALOG = [
     id: "host.exec",
     label: "主机执行计划",
     category: "host",
-    capability: "read",
-    description: "生成目标主机检查或命令计划；真正执行仍走受控工作流。",
+    capability: "execute",
+    description: "通过受控 job 队列执行目标主机检查或命令，保留日志和停止入口。",
   },
   {
     id: "gpu.inspect",
@@ -1089,8 +1089,8 @@ const WORKSPACE_TOOL_CATALOG = [
     id: "job.run",
     label: "任务提交包",
     category: "run",
-    capability: "read",
-    description: "生成任务提交包；真正入队仍走工作流运行按钮。",
+    capability: "execute",
+    description: "通过受控 job 队列提交运行任务，并同步 workspace run 记录。",
   },
   {
     id: "job.stop",

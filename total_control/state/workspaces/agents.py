@@ -21,6 +21,51 @@ class AgentsMixin:
         }
 
 
+    def workspace_tool_command_block_reason(self, tool_id: str, command: str) -> str:
+        tool = str(tool_id or "").strip()
+        if tool != "host.exec":
+            return ""
+        text = str(command or "").strip()
+        if not text:
+            return ""
+        lowered = text.lower()
+        compact = re.sub(r"\s+", " ", lowered)
+        destructive_terms = {
+            "mkfs": "格式化文件系统",
+            "wipefs": "清除文件系统签名",
+            "fdisk": "修改磁盘分区",
+            "parted": "修改磁盘分区",
+            "shutdown": "关闭主机",
+            "poweroff": "关闭主机",
+            "halt": "关闭主机",
+            "reboot": "重启主机",
+        }
+        for term, label in destructive_terms.items():
+            if re.search(rf"(^|[;&|]\s*)(sudo\s+)?{re.escape(term)}(\s|$)", compact):
+                return f"host.exec 默认拒绝{label}命令；请改用人工确认后的配置化工作流。"
+        if re.search(r"(^|[;&|]\s*)(sudo\s+)?(systemctl\s+)?(reboot|poweroff|halt)(\s|$)", compact):
+            return "host.exec 默认拒绝重启或关机命令；请改用人工确认后的配置化工作流。"
+        if re.search(r"(^|[;&|]\s*)init\s+[06](\s|$)", compact):
+            return "host.exec 默认拒绝切换到关机/重启运行级别。"
+        if re.search(r"dd\s+[^;&|]*(^|\s)of=/dev/", compact):
+            return "host.exec 默认拒绝直接写入块设备。"
+        if ":(){:|:&};:" in compact:
+            return "host.exec 默认拒绝 fork bomb。"
+        rm_pattern = (
+            r"(^|[;&|]\s*)(sudo\s+)?rm\s+"
+            r"[^;&|]*-[^\s;&|]*r[^\s;&|]*f?[^\s;&|]*"
+            r"[^;&|]*(\s+--no-preserve-root)?\s+"
+            r"([\"']?(/|~|\$home|\${home})(/|\*|\s|[\"']|$))"
+        )
+        if re.search(rm_pattern, compact):
+            return "host.exec 默认拒绝删除根目录、HOME 或其整体内容。"
+        if re.search(r"(^|[;&|]\s*)(sudo\s+)?chmod\s+-r\s+777\s+/", compact):
+            return "host.exec 默认拒绝递归放开根目录权限。"
+        if re.search(r"(^|[;&|]\s*)(sudo\s+)?chown\s+-r\s+[^;&|]+\s+/", compact):
+            return "host.exec 默认拒绝递归改写根目录属主。"
+        return ""
+
+
     def submit_workspace_tool_job(
         self,
         workspace: dict[str, Any],
@@ -39,6 +84,16 @@ class AgentsMixin:
             command = str(run_config.get("run_command") or "").strip()
         if not command:
             return {"status": "blocked", "tool": tool, "error": "command is required"}
+        block_reason = self.workspace_tool_command_block_reason(tool, command)
+        if block_reason:
+            return {
+                "status": "blocked",
+                "tool": tool,
+                "controlled": True,
+                "runtime_control": "workspace_job_queue",
+                "command": command,
+                "error": block_reason,
+            }
 
         nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
         requested_node_id = str(args.get("node_id") or "").strip()
