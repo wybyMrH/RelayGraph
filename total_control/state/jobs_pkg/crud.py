@@ -73,6 +73,8 @@ class CrudJobsMixin:
         requested_server = str(job.get("requested_server_id") or job.get("server_id") or "local")
         requested_gpu = job.get("requested_gpu_index", job.get("gpu_index", "auto"))
         metadata = copy.deepcopy(job.get("metadata") or {})
+        metadata.pop("execution_run_id", None)
+        metadata.pop("step_index", None)
         return {
             "name": str(job.get("name") or job.get("command_display") or job.get("command") or "任务"),
             "server_id": requested_server,
@@ -92,12 +94,33 @@ class CrudJobsMixin:
         }
 
 
+    def register_cloned_workspace_job_run(self, job: dict[str, Any], *, trigger: str) -> None:
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        workspace_id = str(metadata.get("workspace_id") or "").strip()
+        if not workspace_id:
+            return
+        register = getattr(self, "register_workspace_execution_run", None)
+        workspace_by_id = getattr(self, "workspace_by_id", None)
+        if not callable(register) or not callable(workspace_by_id) or not workspace_by_id(workspace_id):
+            return
+        action_label = "重试任务" if trigger == "retry" else "复制任务"
+        register(
+            workspace_id,
+            kind="node",
+            trigger=trigger,
+            summary=f"{action_label} · {str(job.get('name') or job.get('command_display') or job.get('id') or '').strip()}",
+            jobs=[job],
+        )
+
+
     def copy_job(self, job_id: str) -> dict[str, Any]:
         with self.lock:
             job = next((item for item in self.jobs if item["id"] == job_id), None)
         if not job:
             raise ValueError("job not found")
-        return self.create_job(self.clone_job_payload(job))
+        copied = self.create_job(self.clone_job_payload(job))
+        self.register_cloned_workspace_job_run(copied, trigger="copy")
+        return copied
 
 
     def retry_job(self, job_id: str) -> dict[str, Any]:
@@ -107,7 +130,9 @@ class CrudJobsMixin:
             raise ValueError("job not found")
         if str(job.get("status") or "") in {"running", "queued", "starting", "blocked"}:
             raise ValueError("任务仍在进行中，不能重试")
-        return self.create_job(self.clone_job_payload(job))
+        retried = self.create_job(self.clone_job_payload(job))
+        self.register_cloned_workspace_job_run(retried, trigger="retry")
+        return retried
 
 
     def delete_job(self, job_id: str) -> None:
