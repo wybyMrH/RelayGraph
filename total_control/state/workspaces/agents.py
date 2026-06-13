@@ -5,6 +5,188 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 
 class AgentsMixin:
+    def workspace_tool_runtime(self, workspace: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "submit_job": lambda tool_id, arguments, context: self.submit_workspace_tool_job(
+                workspace,
+                tool_id,
+                arguments,
+                context,
+            ),
+            "bind_gpu": lambda arguments, context: self.bind_workspace_tool_gpu_allocation(
+                workspace,
+                arguments,
+                context,
+            ),
+        }
+
+
+    def submit_workspace_tool_job(
+        self,
+        workspace: dict[str, Any],
+        tool_id: str,
+        arguments: dict[str, Any],
+        context: Any,
+    ) -> dict[str, Any]:
+        workspace_id = str(workspace.get("id") or "").strip()
+        tool = str(tool_id or "").strip()
+        args = arguments if isinstance(arguments, dict) else {}
+        if not workspace_id:
+            return {"status": "error", "tool": tool, "error": "workspace_id is required"}
+        command = str(args.get("command") or args.get("cmd") or args.get("run_command") or "").strip()
+        run_config = context.node_config("run.command") if context else {}
+        if not command and tool == "job.run":
+            command = str(run_config.get("run_command") or "").strip()
+        if not command:
+            return {"status": "blocked", "tool": tool, "error": "command is required"}
+
+        nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
+        requested_node_id = str(args.get("node_id") or "").strip()
+        node = next(
+            (
+                item for item in nodes
+                if isinstance(item, dict)
+                and requested_node_id
+                and str(item.get("id") or "").strip() == requested_node_id
+            ),
+            None,
+        )
+        if node is None:
+            node = next(
+                (
+                    item for item in nodes
+                    if isinstance(item, dict) and str(item.get("kind") or "").strip() == "run.command"
+                ),
+                None,
+            )
+        if node is None:
+            node = {
+                "id": safe_id(f"{tool}-agent-runtime"),
+                "kind": "run.command",
+                "title": "Agent 受控任务",
+                "config": {},
+                "handler": {"mode": "system", "name": "Agent Runtime", "output_key": "run_result"},
+            }
+        node_copy = copy.deepcopy(node)
+        config = node_copy.get("config") if isinstance(node_copy.get("config"), dict) else {}
+        config["run_command"] = command
+        config["server_id"] = str(args.get("server_id") or config.get("server_id") or run_config.get("server_id") or "auto").strip() or "auto"
+        config["workspace_dir"] = str(args.get("cwd") or args.get("workspace_dir") or config.get("workspace_dir") or workspace.get("workspace_dir") or "").strip()
+        if tool == "host.exec":
+            config["gpu_policy"] = "cpu"
+            config["gpu_index"] = "none"
+        else:
+            if args.get("gpu_policy") is not None:
+                config["gpu_policy"] = str(args.get("gpu_policy") or "").strip()
+            elif not str(config.get("gpu_policy") or "").strip() and str(run_config.get("gpu_policy") or "").strip():
+                config["gpu_policy"] = str(run_config.get("gpu_policy") or "").strip()
+            if args.get("gpu_index") is not None:
+                config["gpu_index"] = str(args.get("gpu_index") or "").strip()
+            elif not str(config.get("gpu_index") or "").strip() and str(run_config.get("gpu_index") or "").strip():
+                config["gpu_index"] = str(run_config.get("gpu_index") or "").strip()
+        if args.get("env_name") is not None:
+            config["env_name"] = str(args.get("env_name") or "").strip()
+        if args.get("min_free_memory_gib") is not None:
+            config["min_free_memory_gib"] = str(args.get("min_free_memory_gib") or "").strip()
+        node_copy["config"] = config
+
+        try:
+            job_payload = self.workspace_node_job_payload(workspace, node_copy)
+            job_payload["name"] = str(
+                args.get("name")
+                or f"{workspace.get('name') or workspace_id} · {tool}"
+            )
+            job_payload["command"] = command
+            job_payload["command_display"] = command
+            if "wait_for_idle" in args:
+                job_payload["wait_for_idle"] = bool(args.get("wait_for_idle"))
+            metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}
+            metadata.update(
+                {
+                    "tool_id": tool,
+                    "agent_runtime_tool": True,
+                    "runtime_control": "workspace_job_queue",
+                    "submitted_by": "agent_tool",
+                }
+            )
+            job_payload["metadata"] = metadata
+            job = self.create_job(job_payload)
+            run = self.register_workspace_execution_run(
+                workspace_id,
+                kind="node",
+                trigger="agent_tool",
+                summary=f"Agent 工具任务 · {tool}",
+                jobs=[job],
+            )
+            with self.lock:
+                persisted = self.workspace_by_id(workspace_id)
+                if persisted and isinstance(persisted.get("runs"), list):
+                    workspace["runs"] = copy.deepcopy(persisted["runs"])
+            return {
+                "status": "submitted",
+                "tool": tool,
+                "controlled": True,
+                "runtime_control": "workspace_job_queue",
+                "job": copy.deepcopy(job),
+                "job_id": str(job.get("id") or "").strip(),
+                "run": copy.deepcopy(run),
+                "run_id": str(run.get("id") or "").strip(),
+                "message": "任务已通过受控 workspace job 队列提交。",
+            }
+        except Exception as exc:  # noqa: BLE001 - tools report errors inside the agent loop.
+            return {"status": "error", "tool": tool, "controlled": True, "error": str(exc)}
+
+
+    def bind_workspace_tool_gpu_allocation(
+        self,
+        workspace: dict[str, Any],
+        arguments: dict[str, Any],
+        context: Any,
+    ) -> dict[str, Any]:
+        args = arguments if isinstance(arguments, dict) else {}
+        selected = args.get("selected") if isinstance(args.get("selected"), dict) else None
+        if not selected and context:
+            min_free_mib = safe_int(args.get("min_free_mib"), 0)
+            server_id = str(args.get("server_id") or "").strip()
+            selected = next((item for item in context.gpu_candidates(min_free_mib=min_free_mib, server_id=server_id) if item.get("eligible")), None)
+        if not selected:
+            return {
+                "status": "blocked",
+                "tool": "gpu.allocate",
+                "controlled": True,
+                "error": "没有满足条件的 GPU 候选。",
+            }
+        server_id = str(selected.get("server_id") or "").strip()
+        gpu_index = str(selected.get("gpu_index") if selected.get("gpu_index") is not None else "").strip()
+        min_free_mib = safe_int(args.get("min_free_mib"), 0)
+        min_free_gib = round(min_free_mib / 1024, 2) if min_free_mib else 0
+        updated_kinds: list[str] = []
+        nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            kind = str(node.get("kind") or "").strip()
+            if kind not in {"gpu.allocate", "run.command"}:
+                continue
+            config = node.get("config") if isinstance(node.get("config"), dict) else {}
+            config["server_id"] = server_id
+            config["gpu_policy"] = "auto"
+            config["gpu_index"] = gpu_index
+            if kind == "gpu.allocate" and min_free_gib:
+                config["min_free_memory_gib"] = str(min_free_gib)
+            node["config"] = config
+            updated_kinds.append(kind)
+        return {
+            "status": "bound",
+            "tool": "gpu.allocate",
+            "controlled": True,
+            "runtime_side_effect": "none",
+            "selected": copy.deepcopy(selected),
+            "updated_node_kinds": updated_kinds,
+            "message": "GPU 候选已绑定到 gpu.allocate/run.command 配置；实际执行仍走 job 队列。",
+        }
+
+
     def _execute_agent_on_mutable_workspace(
         self,
         workspace: dict[str, Any],
@@ -60,6 +242,7 @@ class AgentsMixin:
             workspace,
             statuses=copy.deepcopy(self.statuses),
             jobs=copy.deepcopy(self.jobs),
+            runtime=self.workspace_tool_runtime(workspace),
         )
         agent_config = dict(agent)
         if max_iterations is not None:

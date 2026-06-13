@@ -7,6 +7,7 @@ from ...orchestration.workspace_mutations import apply_artifact_write, apply_wor
 from ..registry import TOOL_SIDE_EFFECTS, ToolSideEffect, tool_side_effect
 from .artifacts import execute_artifact_read
 from .helpers import split_values
+from .web_search import execute_web_search
 
 
 def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
@@ -29,25 +30,7 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         )
 
     if tool_id == "web.search":
-        source = context.source_payload()
-        query = str(arguments.get("query") or source.get("goal_text") or "").strip()
-        results = [
-            {"type": "repo", "url": url, "source": "workspace.input"}
-            for url in source["repo_urls"]
-        ] + [
-            {"type": "paper", "url": url, "source": "workspace.input"}
-            for url in source["paper_urls"]
-        ]
-        return json.dumps(
-            {
-                "status": "seeded" if results else "draft",
-                "query": query,
-                "results": results,
-                "note": "当前工具返回工作台已有搜索种子；真正联网搜索应由受控搜索工具接管。",
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+        return json.dumps(execute_web_search(context, arguments), ensure_ascii=False, indent=2)
 
     if tool_id == "repo.clone":
         source = context.source_payload()
@@ -93,14 +76,18 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         if not selected and not candidates:
             scheduler_selected = context.automation_selected_gpu()
             selected = scheduler_selected if scheduler_selected else None
+        runtime_result = context.bind_gpu_allocation({**arguments, "selected": selected, "min_free_mib": min_free_mib})
+        if runtime_result:
+            return json.dumps(runtime_result, ensure_ascii=False, indent=2)
         return json.dumps(
             {
                 "status": "allocated" if selected else "blocked",
                 "selected": selected,
                 "candidate_count": len(candidates),
                 "min_free_mib": min_free_mib,
+                "plan_only": True,
                 "dry_run": True,
-                "message": "已选出候选 GPU，等待 run.command 使用。" if selected else "没有满足条件的 GPU 候选。",
+                "message": "已选出候选 GPU，等待受控 runtime 绑定到 run.command。" if selected else "没有满足条件的 GPU 候选。",
             },
             ensure_ascii=False,
             indent=2,
@@ -155,16 +142,39 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         )
 
     if tool_id == "job.run":
+        runtime_result = context.submit_controlled_job(tool_id, arguments)
+        if runtime_result:
+            return json.dumps(runtime_result, ensure_ascii=False, indent=2)
         run_config = context.node_config("run.command")
         command = str(arguments.get("command") or run_config.get("run_command") or "").strip()
         return json.dumps(
             {
                 "status": "ready" if command else "draft",
+                "plan_only": True,
                 "dry_run": True,
                 "command": command,
                 "server_id": str(arguments.get("server_id") or run_config.get("server_id") or "").strip(),
                 "gpu_index": str(arguments.get("gpu_index") or run_config.get("gpu_index") or "").strip(),
-                "message": "已生成任务提交包；由工作流运行按钮真正入队。" if command else "等待 run.command。",
+                "message": "已生成任务提交包；当前上下文未启用受控 runtime，未入队。" if command else "等待 run.command。",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    if tool_id == "host.exec":
+        runtime_result = context.submit_controlled_job(tool_id, arguments)
+        if runtime_result:
+            return json.dumps(runtime_result, ensure_ascii=False, indent=2)
+        command = str(arguments.get("command") or arguments.get("cmd") or "").strip()
+        return json.dumps(
+            {
+                "status": "ready" if command else "draft",
+                "plan_only": True,
+                "dry_run": True,
+                "command": command,
+                "server_id": str(arguments.get("server_id") or "").strip(),
+                "gpu_index": "none",
+                "message": "已生成主机命令计划；当前上下文未启用受控 runtime，未入队。" if command else "等待 command。",
             },
             ensure_ascii=False,
             indent=2,

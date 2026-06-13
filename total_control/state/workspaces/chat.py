@@ -81,6 +81,7 @@ class ChatMixin:
                         preview_workspace,
                         statuses=copy.deepcopy(self.statuses),
                         jobs=copy.deepcopy(self.jobs),
+                        runtime=self.workspace_tool_runtime(preview_workspace),
                     )
                     execution_id = make_agent_execution_id()
 
@@ -355,6 +356,7 @@ class ChatMixin:
                         preview_workspace,
                         statuses=copy.deepcopy(self.statuses),
                         jobs=copy.deepcopy(self.jobs),
+                        runtime=self.workspace_tool_runtime(preview_workspace),
                     )
                     execution_id = make_agent_execution_id()
 

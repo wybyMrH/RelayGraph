@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from .discovery import execute_dataset_find, execute_dir_scan
 from .helpers import split_values
@@ -13,6 +13,7 @@ class WorkspaceToolContext:
     workspace: dict[str, Any]
     statuses: list[dict[str, Any]] = field(default_factory=list)
     jobs: list[dict[str, Any]] = field(default_factory=list)
+    runtime: Any = None
 
     def node_config(self, kind: str) -> dict[str, Any]:
         for node in self.workspace.get("nodes") if isinstance(self.workspace.get("nodes"), list) else []:
@@ -110,6 +111,26 @@ class WorkspaceToolContext:
 
     def execute_dir_scan(self, arguments: dict[str, Any]) -> dict[str, Any]:
         return execute_dir_scan(self, arguments)
+
+    def runtime_callback(self, name: str) -> Callable[..., dict[str, Any]] | None:
+        runtime = self.runtime
+        if isinstance(runtime, dict):
+            callback = runtime.get(name)
+        else:
+            callback = getattr(runtime, name, None) if runtime is not None else None
+        return callback if callable(callback) else None
+
+    def submit_controlled_job(self, tool_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        callback = self.runtime_callback("submit_job")
+        if not callback:
+            return {}
+        return callback(tool_id, arguments if isinstance(arguments, dict) else {}, self)
+
+    def bind_gpu_allocation(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        callback = self.runtime_callback("bind_gpu")
+        if not callback:
+            return {}
+        return callback(arguments if isinstance(arguments, dict) else {}, self)
 
     def execute(self, tool_id: str, arguments: dict[str, Any]) -> str:
         from .dispatcher import execute_tool

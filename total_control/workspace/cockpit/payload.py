@@ -281,6 +281,7 @@ def normalize_workspace_payload(
     template_snapshot = payload.get("template_snapshot") if isinstance(payload.get("template_snapshot"), dict) else current.get("template_snapshot")
     execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else current.get("execution")
     automation = payload.get("automation") if isinstance(payload.get("automation"), dict) else current.get("automation")
+    runs = payload.get("runs") if isinstance(payload.get("runs"), list) else current.get("runs")
 
     return {
         "id": workspace_id,
@@ -316,6 +317,7 @@ def normalize_workspace_payload(
         "template_snapshot": copy.deepcopy(template_snapshot) if isinstance(template_snapshot, dict) else {},
         "execution": copy.deepcopy(execution) if isinstance(execution, dict) else {},
         "automation": copy.deepcopy(automation) if isinstance(automation, dict) else {},
+        "runs": normalize_workspace_execution_runs(runs),
         "created_at": created_at,
         "updated_at": now_iso(),
     }

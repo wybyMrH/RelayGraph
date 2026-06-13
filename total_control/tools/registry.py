@@ -23,10 +23,10 @@ TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "report.write": {"side_effect": ToolSideEffect.MUTATE_CONFIG, "implemented": True},
     "dataset.find": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "dir.scan": {"side_effect": ToolSideEffect.READ, "implemented": True},
-    "web.search": {"side_effect": ToolSideEffect.READ, "implemented": False},
-    "job.run": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
-    "host.exec": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
-    "gpu.allocate": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
+    "web.search": {"side_effect": ToolSideEffect.READ, "implemented": True},
+    "job.run": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
+    "host.exec": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
+    "gpu.allocate": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "job.stop": {"side_effect": ToolSideEffect.DANGEROUS, "implemented": False},
 }
 
@@ -45,11 +45,12 @@ def create_workspace_tool_executor(
     *,
     statuses: list[dict[str, Any]] | None = None,
     jobs: list[dict[str, Any]] | None = None,
+    runtime: Any = None,
 ) -> Callable[[str, dict[str, Any]], str]:
     """Create a workspace-bound tool executor (implementation in workspace_executor)."""
     from .workspace_executor import create_workspace_tool_executor as _factory
 
-    return _factory(workspace, server_config, statuses=statuses, jobs=jobs)
+    return _factory(workspace, server_config, statuses=statuses, jobs=jobs, runtime=runtime)
 
 
 def summarize_mapped_inputs(mapped_inputs: dict[str, Any] | None, *, limit: int = 6) -> list[dict[str, str]]:
