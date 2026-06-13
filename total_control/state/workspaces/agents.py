@@ -539,12 +539,30 @@ class AgentsMixin:
                 },
             )
 
+        def on_agent_delta(delta: str, accumulated: str) -> None:
+            if not str(accumulated or "").strip():
+                return
+            self.publish_event(
+                "agent.message.delta",
+                workspace_id=workspace_id,
+                agent_execution_id=execution_id,
+                payload={
+                    "delta": str(delta or ""),
+                    "accumulated": str(accumulated or ""),
+                    "node_id": str((node or {}).get("id") or "").strip(),
+                    "node_kind": node_kind,
+                    "agent_id": str(agent.get("id") or "").strip(),
+                    "chat": False,
+                },
+            )
+
         executor = AgentExecutor(
             agent=agent_config,
             llm_client=llm_client,
             tools=allowed_tools,
             tool_executor=tool_executor,
             step_callback=on_agent_step,
+            token_callback=on_agent_delta,
         )
         node_kind = str(requested_node_kind or (node or {}).get("kind") or "").strip()
         handler = (node or {}).get("handler") if isinstance((node or {}).get("handler"), dict) else {}

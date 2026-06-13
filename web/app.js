@@ -203,6 +203,7 @@ const WORKSPACE_STREAM_EVENT_TYPES = [
   "chat.message.delta",
   "chat.message.completed",
   "chat.message.failed",
+  "agent.message.delta",
   "agent.step.created",
   "agent.completed",
   "agent.failed",
@@ -1275,6 +1276,12 @@ function loadStoredValue(key, fallback = "") {
 function saveStoredValue(key, value) {
   try {
     localStorage.setItem(key, value);
+  } catch {}
+}
+
+function removeStoredValue(key) {
+  try {
+    localStorage.removeItem(key);
   } catch {}
 }
 
@@ -5365,6 +5372,16 @@ function workspaceUseInputsPayload() {
   };
 }
 
+function workspaceDefaultLauncherInputs() {
+  return {
+    goal_text: "",
+    repo_urls: [],
+    paper_urls: [],
+    references: [],
+    context_blocks: [],
+  };
+}
+
 function setWorkspaceLauncherInputs(inputs = {}) {
   if ($("workspaceTaskGoalInput")) $("workspaceTaskGoalInput").value = String(inputs.goal_text || "");
   if ($("workspaceTaskRepoInput")) $("workspaceTaskRepoInput").value = Array.isArray(inputs.repo_urls) ? inputs.repo_urls.join("\n") : "";
@@ -5389,11 +5406,36 @@ function saveWorkspaceLauncherDraft() {
   saveStoredJson(STORAGE_KEYS.workspaceLauncherDraft, workspaceUseInputsPayload());
 }
 
+function clearWorkspaceLauncherDraft() {
+  removeStoredValue(STORAGE_KEYS.workspaceLauncherDraft);
+}
+
 function restoreWorkspaceLauncherDraft() {
   if (state.selectedWorkspaceId) return;
   const draft = loadStoredJson(STORAGE_KEYS.workspaceLauncherDraft, {});
   if (!draft || typeof draft !== "object") return;
-  setWorkspaceLauncherInputs(draft);
+  setWorkspaceLauncherInputs({
+    ...workspaceDefaultLauncherInputs(),
+    goal_text: String(draft.goal_text || ""),
+  });
+}
+
+function resetWorkspaceLauncherToDefaults() {
+  setWorkspaceLauncherInputs(workspaceDefaultLauncherInputs());
+  clearWorkspaceLauncherDraft();
+  state.selectedWorkspaceId = "";
+  state.selectedWorkspaceExecutionNodeId = "";
+  saveStoredValue(STORAGE_KEYS.selectedWorkspace, "");
+  closeWorkspaceEventStream();
+  if (state.workflowTemplates[0]?.id) {
+    state.selectedWorkflowTemplateId = state.workflowTemplates[0].id;
+    saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId);
+  }
+  clearWorkspaceMessage();
+  setWorkspaceUseMessage("启动器已恢复默认值。");
+  renderWorkspaces();
+  renderWorkspacePanels();
+  renderWorkspaceWorkbench();
 }
 
 function workspaceUseSourceMode(inputs = workspaceUseInputsPayload()) {
@@ -10144,13 +10186,7 @@ function renderWorkflowTemplateStudioOverview() {
 
 function hydrateWorkspaceUseInputsFromWorkspace(workspace) {
   const inputs = workspaceLauncherInputsFromWorkspace(workspace);
-  setWorkspaceLauncherInputs({
-    goal_text: "",
-    repo_urls: inputs.repo_urls,
-    paper_urls: inputs.paper_urls,
-    references: inputs.references,
-    context_blocks: inputs.context_blocks,
-  });
+  setWorkspaceLauncherInputs(inputs);
 }
 
 function ensureDirectorySlash(path) {
@@ -11194,7 +11230,7 @@ function workspaceById(workspaceId) {
 }
 
 function selectedWorkspace() {
-  const workspaceId = String($("workspaceIdInput")?.value || state.selectedWorkspaceId || "").trim();
+  const workspaceId = String(state.selectedWorkspaceId || "").trim();
   return workspaceId ? workspaceById(workspaceId) : null;
 }
 
@@ -11370,7 +11406,7 @@ function workspaceAgentStreamTraceMarkup(records = []) {
         const steps = Array.isArray(record.steps) ? record.steps : [];
         const recentSteps = steps.slice(-3);
         const status = String(record.status || "running").trim();
-        const summary = String(record.error || record.final_answer || "").trim();
+        const summary = String(record.error || record.final_answer || record.partial_answer || "").trim();
         const stepCount = Number(record.total_steps) || steps.length;
         const title = record.chat ? "对话执行" : record.node_kind ? workspaceCockpitStageLabel(record.node_kind) : "Agent 执行";
         const meta = [
@@ -17454,7 +17490,7 @@ function workspaceItemCockpitSummary(workspace = {}) {
 
 function workspaceProjectQueueMarkup(items = []) {
   const workspaces = Array.isArray(items) ? items : [];
-  const selected = workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId) || workspaces[0] || null;
+  const selected = workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId) || null;
   const queueCounts = workspaces.reduce((acc, workspace) => {
     const counts = workspace?.execution?.counts && typeof workspace.execution.counts === "object" ? workspace.execution.counts : {};
     acc.active += Number(counts.running || 0) + Number(counts.queued || 0) + Number(counts.starting || 0);
@@ -17473,14 +17509,16 @@ function workspaceProjectQueueMarkup(items = []) {
   const selectedFailed = Number(selectedCounts.failed || 0) + Number(selectedCounts.stopped || 0);
   const currentTitle = selected
     ? selected.name || selected.id
-    : "还没有保存实例";
+    : workspaces.length ? "等待选择实例" : "还没有保存实例";
   const currentDetail = selected
     ? [
         currentNode ? `${currentNode.title || currentNode.kind} · ${workspaceStatusLabel(currentNode.status || "pending")}` : `${(selected.nodes || []).length} 节点`,
         selectedActive ? `${selectedActive} 活跃` : selectedFailed ? `${selectedFailed} 异常` : `${Number(selectedCounts.done || 0)} 完成`,
         selectedAutomation?.advance?.title || selectedAutomation?.summary || "",
       ].filter(Boolean).join(" · ")
-    : "先在驾驶舱创建实例，再让系统自动发现路径、数据、环境和 GPU。";
+    : workspaces.length
+      ? "尚未载入历史实例，启动器保持默认输入。"
+      : "先在驾驶舱创建实例，再让系统自动发现路径、数据、环境和 GPU。";
   const primaryAction = selected
     ? { label: "看驾驶舱", dataAction: "switch-workspace-tab", tab: "home", tone: "primary", title: "打开当前实例的驾驶舱、执行链和运行摘要。" }
     : { label: "创建并发现", dataAction: "create-workspace-discover", tone: "primary", title: "创建实例并先运行安全发现链。" };
@@ -18738,13 +18776,9 @@ async function deleteWorkspace(workspaceId) {
     await fetchJson(`/api/workspaces/${workspaceId}`, { method: "DELETE" });
     state.workspaces = state.workspaces.filter((item) => item.id !== workspaceId);
     if (state.selectedWorkspaceId === workspaceId) {
-      state.selectedWorkspaceId = state.workspaces[0]?.id || "";
+      state.selectedWorkspaceId = "";
       saveStoredValue(STORAGE_KEYS.selectedWorkspace, state.selectedWorkspaceId);
-      if (state.selectedWorkspaceId) {
-        selectWorkspace(state.selectedWorkspaceId, { persist: false });
-      } else {
-        resetWorkspaceForm();
-      }
+      clearWorkspaceForm();
     }
     renderWorkspaces();
     renderWorkspaceWorkbench();
@@ -19268,6 +19302,9 @@ function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
     execution.steps.forEach((item) => upsertStep(item));
   }
   if (step) upsertStep(step);
+  const partialAnswer = eventType === "agent.message.delta"
+    ? String(payload.accumulated || payload.text || "").trim()
+    : String(previous.partial_answer || "").trim();
   const status = eventType === "agent.failed"
     ? "failed"
     : eventType === "agent.completed"
@@ -19282,6 +19319,7 @@ function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
     chat: Boolean(payload.chat || previous.chat),
     status,
     final_answer: String(execution.final_answer || previous.final_answer || "").trim(),
+    partial_answer: eventType === "agent.completed" ? "" : partialAnswer,
     error: String(execution.error || previous.error || "").trim(),
     total_steps: Number(execution.total_steps ?? previous.total_steps ?? steps.length) || steps.length,
     steps: steps.slice(-24),
@@ -20381,7 +20419,8 @@ function updatePollTimer(seconds) {
 
 function restoreStoredUiState() {
   state.selectedServer = loadStoredValue(STORAGE_KEYS.selectedServer, state.selectedServer || "");
-  state.selectedWorkspaceId = loadStoredValue(STORAGE_KEYS.selectedWorkspace, state.selectedWorkspaceId || "");
+  state.selectedWorkspaceId = "";
+  removeStoredValue(STORAGE_KEYS.selectedWorkspace);
   state.selectedWorkflowTemplateId = loadStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId || "");
   state.selectedGlobalAgentId = loadStoredValue(STORAGE_KEYS.selectedGlobalAgent, state.selectedGlobalAgentId || "");
   state.selectedGlobalToolId = loadStoredValue(STORAGE_KEYS.selectedGlobalTool, state.selectedGlobalToolId || "");
@@ -20504,7 +20543,7 @@ function restoreWorkspaceUiSnapshot(snapshot = {}, options = {}) {
   if ((force || !currentWorkspaceValid) && workspaceId && state.workspaces.some((item) => String(item?.id || "") === workspaceId)) {
     state.selectedWorkspaceId = workspaceId;
   } else if (!currentWorkspaceValid && state.selectedWorkspaceId) {
-    state.selectedWorkspaceId = state.workspaces[0]?.id || "";
+    state.selectedWorkspaceId = "";
   }
 
   const templateId = String(snapshot.selectedWorkflowTemplateId || "").trim();
@@ -20614,10 +20653,6 @@ function applyStatusPayload(payload = {}, options = {}) {
     state.selectedGpu = "auto";
   }
   if (!preserveWorkspaceUi) {
-    if (!state.selectedWorkspaceId && state.workspaces.length) {
-      state.selectedWorkspaceId = state.workspaces[0].id;
-      saveStoredValue(STORAGE_KEYS.selectedWorkspace, state.selectedWorkspaceId);
-    }
     if (!state.selectedWorkflowTemplateId && state.workflowTemplates.length) {
       state.selectedWorkflowTemplateId = state.workflowTemplates[0].id;
       saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId);
@@ -22575,6 +22610,9 @@ function bindEvents() {
   });
   $("workspaceTestChainBtn")?.addEventListener("click", () => {
     testWorkspaceStarterChain();
+  });
+  $("workspaceResetLauncherBtn")?.addEventListener("click", () => {
+    resetWorkspaceLauncherToDefaults();
   });
   $("workspaceUseChatSendBtn")?.addEventListener("click", () => {
     void submitWorkspaceUseChat();

@@ -30,6 +30,7 @@ data/preview_cache_settings.json
 # Local/private planning docs and scratch space
 docs/
 temp/
+tests/
 
 # Test artifacts
 test-results/

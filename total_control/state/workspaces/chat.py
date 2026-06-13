@@ -373,13 +373,30 @@ class ChatMixin:
                             },
                         )
 
+                    def on_agent_delta(delta: str, accumulated: str) -> None:
+                        if delta_callback:
+                            delta_callback(delta, accumulated)
+                        if not str(accumulated or "").strip():
+                            return
+                        self.publish_event(
+                            "agent.message.delta",
+                            workspace_id=workspace_id,
+                            agent_execution_id=execution_id,
+                            payload={
+                                "delta": str(delta or ""),
+                                "accumulated": str(accumulated or ""),
+                                "agent_id": str(agent.get("id") or "").strip(),
+                                "chat": True,
+                            },
+                        )
+
                     executor = AgentExecutor(
                         agent=agent,
                         llm_client=llm_client,
                         tools=allowed_tools,
                         tool_executor=tool_executor,
                         step_callback=on_agent_step,
-                        token_callback=delta_callback,
+                        token_callback=on_agent_delta,
                     )
                     chat_context = []
                     for msg in chat[-10:]:

@@ -233,6 +233,8 @@ class AgentExecutor:
                     self.token_callback(delta, accumulated)
 
                 response = self.llm_client.chat_stream(messages, on_delta=on_stream_delta)
+                if not response.success and not response.content:
+                    response = self.llm_client.chat(messages)
             else:
                 response = self.llm_client.chat(messages)
 
