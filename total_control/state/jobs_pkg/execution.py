@@ -108,6 +108,7 @@ class ExecutionJobsMixin:
             job["error"] = "unknown server"
             self.save_jobs()
             self.sync_workspace_execution_runs_from_jobs()
+            self.publish_job_event(job, "job.updated")
             return
         self.apply_server_paths(job, server)
 
@@ -126,6 +127,7 @@ class ExecutionJobsMixin:
                 job["error"] = str(exc)
                 self.save_jobs()
                 self.sync_workspace_execution_runs_from_jobs()
+                self.publish_job_event(job, "job.updated")
                 return
 
         session = job["session"]
@@ -173,6 +175,7 @@ class ExecutionJobsMixin:
             job["error"] = (result.stderr.strip() or result.stdout.strip() or "tmux start failed")[-1000:]
         self.save_jobs()
         self.sync_workspace_execution_runs_from_jobs()
+        self.publish_job_event(job, "job.updated")
 
 
     def tmux_running(self, job: dict[str, Any]) -> bool:
@@ -313,6 +316,7 @@ class ExecutionJobsMixin:
         job["finished_at"] = now_iso()
         self.save_jobs()
         self.sync_workspace_execution_runs_from_jobs()
+        self.publish_job_event(job, "job.updated")
         return job
 
 

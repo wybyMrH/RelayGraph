@@ -79,6 +79,12 @@ class RunsMixin:
             workspace["updated_at"] = now_iso()
         self.save_workspaces()
         self.save_jobs()
+        self.publish_event(
+            "run.created",
+            workspace_id=workspace_id,
+            run_id=str(run.get("id") or "").strip(),
+            payload={"run": copy.deepcopy(run)},
+        )
         return run
 
 
@@ -102,6 +108,7 @@ class RunsMixin:
             return False
 
         changed = False
+        changed_runs: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
         with self.lock:
             for bound_workspace_id, run_id in run_refs:
                 workspace_index = next(
@@ -121,9 +128,38 @@ class RunsMixin:
                     runs[run_index] = refreshed_run
                     workspace["runs"] = runs
                     workspace["updated_at"] = now_iso()
+                    changed_runs.append((bound_workspace_id, current_run, refreshed_run))
                     changed = True
         if changed:
             self.save_workspaces()
+            for bound_workspace_id, previous_run, refreshed_run in changed_runs:
+                run_id = str(refreshed_run.get("id") or "").strip()
+                self.publish_event(
+                    "run.updated",
+                    workspace_id=bound_workspace_id,
+                    run_id=run_id,
+                    payload={"run": copy.deepcopy(refreshed_run)},
+                )
+                previous_steps = {
+                    str(step.get("job_id") or step.get("agent_execution_id") or step.get("index") or ""): step
+                    for step in previous_run.get("steps", [])
+                    if isinstance(step, dict)
+                }
+                for step in refreshed_run.get("steps", []):
+                    if not isinstance(step, dict):
+                        continue
+                    step_key = str(step.get("job_id") or step.get("agent_execution_id") or step.get("index") or "")
+                    previous_step = previous_steps.get(step_key)
+                    if previous_step == step:
+                        continue
+                    self.publish_event(
+                        "run.step.updated",
+                        workspace_id=bound_workspace_id,
+                        run_id=run_id,
+                        job_id=str(step.get("job_id") or "").strip(),
+                        agent_execution_id=str(step.get("agent_execution_id") or "").strip(),
+                        payload={"run": copy.deepcopy(refreshed_run), "step": copy.deepcopy(step)},
+                    )
         return changed
 
 
@@ -162,6 +198,12 @@ class RunsMixin:
             workspace["runs"] = normalize_workspace_execution_runs(runs)
             workspace["updated_at"] = now_iso()
         self.save_workspaces()
+        self.publish_event(
+            "run.created",
+            workspace_id=workspace_id,
+            run_id=str(run.get("id") or "").strip(),
+            payload={"run": copy.deepcopy(run)},
+        )
         with self.lock:
             refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
             public_workspace = self.workspace_public_payload(refreshed_workspace)

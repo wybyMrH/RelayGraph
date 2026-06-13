@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote
 
+from ..events import stream_workspace_events
 from ..utils import safe_int
 
 
@@ -57,6 +58,22 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
             return True
         handler.send_json({"tool_definition": copy.deepcopy(tool)})
         return True
+    parts = parsed.path.split("/")
+    if parsed.path.startswith("/api/workspaces/") and len(parts) == 5 and parts[4] == "events":
+        workspace_id = unquote(parts[3])
+        if not state.workspace_by_id(workspace_id):
+            handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+            return True
+        query = parse_qs(parsed.query)
+        since_id = safe_int((query.get("since") or [handler.headers.get("Last-Event-ID", "0")])[0], 0)
+        stream_workspace_events(
+            handler,
+            state.event_broker,
+            workspace_id,
+            since_id=since_id,
+            stop_event=getattr(state, "stop_event", None),
+        )
+        return True
     if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/cockpit"):
         workspace_id = parsed.path.split("/")[3]
         try:
@@ -64,7 +81,6 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
         except ValueError:
             handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
         return True
-    parts = parsed.path.split("/")
     if parsed.path.startswith("/api/workspaces/") and len(parts) == 6 and parts[4] == "runs":
         workspace_id = unquote(parts[3])
         run_id = unquote(parts[5])

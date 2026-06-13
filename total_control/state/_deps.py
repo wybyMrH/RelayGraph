@@ -16,6 +16,7 @@ from typing import Any
 from ..agent_executor import AgentExecutor, AgentExecutionResult
 from ..config import AppConfig, ServerConfig, load_config, save_user_overlay
 from ..constants import *  # noqa: F403
+from ..events import EventBroker
 from ..utils import *  # noqa: F403
 from ..infra.checks import run_server_checks, stop_server_process
 from ..infra.shell import *  # noqa: F403

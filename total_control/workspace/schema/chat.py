@@ -23,15 +23,21 @@ def normalize_workspace_chat_message(
     if role not in {"system", "user", "assistant"}:
         role = "user"
     text = str(current.get("text") or previous.get("text") or "").strip()
+    status = str(current.get("status") or previous.get("status") or "completed").strip().lower()
+    if status not in {"pending", "streaming", "completed", "failed"}:
+        status = "completed"
     return {
         "id": str(current.get("id") or previous.get("id") or f"chat-{uuid.uuid4().hex[:8]}").strip(),
         "role": role,
         "text": text,
+        "status": status,
+        "error": str(current.get("error") or previous.get("error") or "").strip(),
         "agent_id": safe_id(str(current.get("agent_id") or previous.get("agent_id") or ""))
         if str(current.get("agent_id") or previous.get("agent_id") or "").strip()
         else "",
         "agent_name": str(current.get("agent_name") or previous.get("agent_name") or "").strip(),
         "created_at": str(current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
+        "updated_at": str(current.get("updated_at") or previous.get("updated_at") or current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
     }
 
 def normalize_workspace_chat(
@@ -51,7 +57,7 @@ def normalize_workspace_chat(
             continue
         existing_item = previous_by_id.get(str(item.get("id") or "").strip(), {})
         message = normalize_workspace_chat_message(item, existing=existing_item)
-        if not message["text"]:
+        if not message["text"] and message.get("status") not in {"pending", "streaming"}:
             continue
         messages.append(message)
     return messages[-200:]
@@ -62,14 +68,19 @@ def make_workspace_chat_message(
     *,
     agent_id: str = "",
     agent_name: str = "",
+    status: str = "completed",
+    error: str = "",
 ) -> dict[str, Any]:
     return normalize_workspace_chat_message(
         {
             "role": role,
             "text": text,
+            "status": status,
+            "error": error,
             "agent_id": agent_id,
             "agent_name": agent_name,
             "created_at": now_iso(),
+            "updated_at": now_iso(),
         }
     )
 

@@ -65,6 +65,7 @@ class CrudJobsMixin:
             self.save_jobs()
         else:
             self.start_job(job, allow_busy=True)
+        self.publish_job_event(job, "job.updated")
         return job
 
 

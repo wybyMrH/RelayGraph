@@ -64,11 +64,28 @@ class AgentsMixin:
         agent_config = dict(agent)
         if max_iterations is not None:
             agent_config = {**agent_config, "max_iterations": max_iterations}
+        execution_id = make_agent_execution_id()
+
+        def on_agent_step(step: Any) -> None:
+            step_payload = step.to_dict() if hasattr(step, "to_dict") else step
+            self.publish_event(
+                "agent.step.created",
+                workspace_id=workspace_id,
+                agent_execution_id=execution_id,
+                payload={
+                    "step": copy.deepcopy(step_payload) if isinstance(step_payload, dict) else {},
+                    "node_id": str((node or {}).get("id") or "").strip(),
+                    "node_kind": node_kind,
+                    "agent_id": str(agent.get("id") or "").strip(),
+                },
+            )
+
         executor = AgentExecutor(
             agent=agent_config,
             llm_client=llm_client,
             tools=allowed_tools,
             tool_executor=tool_executor,
+            step_callback=on_agent_step,
         )
         node_kind = str(requested_node_kind or (node or {}).get("kind") or "").strip()
         handler = (node or {}).get("handler") if isinstance((node or {}).get("handler"), dict) else {}
@@ -90,7 +107,7 @@ class AgentsMixin:
             },
         )
         result = execution_result.to_dict()
-        result["id"] = make_agent_execution_id()
+        result["id"] = execution_id
         if execution_result.success and isinstance(node, dict):
             if effective_output_key and not collect_agent_step_output(workspace, node, output_key=effective_output_key)[1]:
                 apply_final_answer_output(
@@ -104,6 +121,17 @@ class AgentsMixin:
             result["artifacts"] = artifacts
             if output_value:
                 result["output_value"] = output_value
+        self.publish_event(
+            "agent.completed" if execution_result.success else "agent.failed",
+            workspace_id=workspace_id,
+            agent_execution_id=execution_id,
+            payload={
+                "execution": copy.deepcopy(result),
+                "node_id": str((node or {}).get("id") or "").strip(),
+                "node_kind": node_kind,
+                "agent_id": str(agent.get("id") or "").strip(),
+            },
+        )
         return result
 
 

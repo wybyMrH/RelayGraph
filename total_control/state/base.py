@@ -8,6 +8,7 @@ class BaseMixin:
         self.config = load_config(config_path)
         self.servers = self.config.servers
         self.lock = threading.RLock()
+        self.event_broker = EventBroker()
         self.statuses: list[dict[str, Any]] = []
         self.last_refresh = 0.0
         self.last_refreshed_at = ""
@@ -73,6 +74,43 @@ class BaseMixin:
             "config_path": str(self.config_path),
             "server_count": len(self.servers),
         }
+
+
+    def publish_event(
+        self,
+        event_type: str,
+        *,
+        workspace_id: str = "",
+        payload: dict[str, Any] | None = None,
+        run_id: str = "",
+        job_id: str = "",
+        agent_execution_id: str = "",
+    ) -> dict[str, Any] | None:
+        broker = getattr(self, "event_broker", None)
+        if broker is None:
+            return None
+        return broker.publish(
+            event_type,
+            workspace_id=workspace_id,
+            payload=payload,
+            run_id=run_id,
+            job_id=job_id,
+            agent_execution_id=agent_execution_id,
+        )
+
+
+    def publish_job_event(self, job: dict[str, Any], event_type: str = "job.updated") -> None:
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        workspace_id = str(metadata.get("workspace_id") or "").strip()
+        if not workspace_id:
+            return
+        self.publish_event(
+            event_type,
+            workspace_id=workspace_id,
+            job_id=str(job.get("id") or "").strip(),
+            run_id=str(metadata.get("execution_run_id") or "").strip(),
+            payload={"job": copy.deepcopy(job)},
+        )
 
 
     def server_by_id(self, server_id: str) -> ServerConfig | None:

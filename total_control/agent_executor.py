@@ -79,6 +79,7 @@ class AgentExecutor:
         llm_client: LLMClient,
         tools: list[dict[str, Any]],
         tool_executor: Callable[[str, dict[str, Any]], str] | None = None,
+        step_callback: Callable[[AgentStep], None] | None = None,
     ):
         """Initialize agent executor.
 
@@ -92,6 +93,7 @@ class AgentExecutor:
         self.llm_client = llm_client
         self.tools = tools
         self.tool_executor = tool_executor
+        self.step_callback = step_callback
         configured = agent.get("max_iterations")
         self.max_iterations = int(configured) if configured not in (None, "") else 10
 
@@ -256,6 +258,8 @@ class AgentExecutor:
             step.observation = observation
 
             steps.append(step)
+            if self.step_callback:
+                self.step_callback(step)
 
             # Add to conversation history
             messages.append(ChatMessage(role="assistant", content=response.content))

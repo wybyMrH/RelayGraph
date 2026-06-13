@@ -165,6 +165,10 @@ const state = {
     workspaceFlowPanY: 0,
     workspaceInspectorChatAgentId: "",
     selectedWorkspaceFlowToolKey: "",
+    workspaceEventSource: null,
+    workspaceEventWorkspaceId: "",
+    workspaceEventConnected: false,
+    workspaceEventLastIds: {},
     workspaceUiRevision: 0,
     offlineServersOpen: true,
     workspaceToolSearch: "",
@@ -186,6 +190,23 @@ let activeWorkspaceHelpAnchor = null;
 let workspaceHelpHideTimer = null;
 
 const $ = (id) => document.getElementById(id);
+
+const WORKSPACE_STREAM_EVENT_TYPES = [
+  "workspace.updated",
+  "cockpit.updated",
+  "run.created",
+  "run.updated",
+  "run.step.updated",
+  "job.updated",
+  "chat.message.created",
+  "chat.message.delta",
+  "chat.message.completed",
+  "chat.message.failed",
+  "agent.step.created",
+  "agent.completed",
+  "agent.failed",
+  "heartbeat",
+];
 
 function markWorkspaceUiInteraction() {
   state.ui.workspaceUiRevision = Number(state.ui.workspaceUiRevision || 0) + 1;
@@ -2018,13 +2039,19 @@ function normalizeWorkspaceChatMessage(message = {}, index = 0) {
   const role = ["user", "assistant", "system"].includes(String(message.role || ""))
     ? String(message.role)
     : "user";
+  const status = ["pending", "streaming", "completed", "failed"].includes(String(message.status || ""))
+    ? String(message.status)
+    : "completed";
   return {
     id: String(message.id || makeClientId(`chat-${index}`)),
     role,
     text: String(message.text || ""),
+    status,
+    error: String(message.error || ""),
     agent_id: String(message.agent_id || ""),
     agent_name: String(message.agent_name || ""),
     created_at: String(message.created_at || ""),
+    updated_at: String(message.updated_at || message.created_at || ""),
   };
 }
 
@@ -13341,12 +13368,12 @@ function renderWorkspaceChat() {
           ? "System"
           : `你${agentText ? ` · 指派 ${agentText}` : ""}`;
       return `
-        <article class="workspace-chat-item ${escapeHtml(message.role)}">
+        <article class="workspace-chat-item ${escapeHtml(message.role)} status-${escapeHtml(message.status || "completed")}">
           <div class="workspace-chat-head">
             <strong>${escapeHtml(title)}</strong>
-            <span>${escapeHtml(fmtDate(message.created_at) || message.created_at || "")}</span>
+            <span>${escapeHtml([fmtDate(message.updated_at || message.created_at) || message.updated_at || message.created_at || "", message.status === "pending" ? "生成中" : message.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</span>
           </div>
-          <p class="workspace-chat-text">${escapeHtml(message.text)}</p>
+          <p class="workspace-chat-text">${escapeHtml(message.error || message.text)}</p>
         </article>
       `;
     }).join("");
@@ -14495,6 +14522,7 @@ function selectWorkspace(workspaceId, options = {}) {
   renderWorkspacePanels();
   renderWorkspaceWorkbench();
   switchProductTab("workspace");
+  connectWorkspaceEventStream(workspace.id);
   if (options.refreshCockpit !== false) {
     void refreshWorkspaceCockpit(workspace.id, { render: true, quiet: true });
   }
@@ -18064,13 +18092,13 @@ function renderWorkspaceUseChat() {
     return;
   }
   list.innerHTML = filtered.slice(-12).map((message) => `
-    <article class="workspace-chat-message assistant workspace-chat-message-output">
+    <article class="workspace-chat-message assistant workspace-chat-message-output status-${escapeHtml(message.status || "completed")}">
       <div class="workspace-chat-message-head">
         <span class="workspace-chat-message-role">输出</span>
         <strong>${escapeHtml(message.agent_name || activeAgent?.name || "Agent")}</strong>
-        <em>${escapeHtml(fmtDate(message.created_at || ""))}</em>
+        <em>${escapeHtml([fmtDate(message.updated_at || message.created_at || ""), message.status === "pending" ? "生成中" : message.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</em>
       </div>
-      <div class="workspace-chat-message-body">${escapeHtml(message.text || "")}</div>
+      <div class="workspace-chat-message-body">${escapeHtml(message.error || message.text || "")}</div>
     </article>
   `).join("");
 }
@@ -18799,6 +18827,8 @@ async function submitWorkspaceUseChat() {
       body: JSON.stringify({
         text,
         agent_id: $("workspaceUseChatAgentSelect")?.value || workspace.model?.chat_agent_id || "",
+        stream: true,
+        use_llm: true,
       }),
     });
     if (payload.workspace) {
@@ -19106,6 +19136,32 @@ function upsertWorkspaceInState(workspace) {
   else state.workspaces.unshift(workspace);
 }
 
+function upsertJobInState(job = {}) {
+  const id = String(job.id || "").trim();
+  if (!id) return;
+  const index = state.jobs.findIndex((item) => String(item?.id || "") === id);
+  if (index >= 0) state.jobs.splice(index, 1, job);
+  else state.jobs.unshift(job);
+}
+
+function mergeWorkspaceChatMessages(workspaceId, messages = []) {
+  const id = String(workspaceId || "").trim();
+  const workspace = workspaceById(id);
+  if (!workspace || !Array.isArray(messages) || !messages.length) return null;
+  const chat = Array.isArray(workspace.chat) ? workspace.chat.slice() : [];
+  messages.forEach((message, index) => {
+    const normalized = normalizeWorkspaceChatMessage(message, chat.length + index);
+    const messageId = String(normalized.id || "").trim();
+    if (!messageId) return;
+    const existingIndex = chat.findIndex((item) => String(item?.id || "") === messageId);
+    if (existingIndex >= 0) chat.splice(existingIndex, 1, { ...chat[existingIndex], ...normalized });
+    else chat.push(normalized);
+  });
+  const next = { ...workspace, chat };
+  upsertWorkspaceInState(next);
+  return next;
+}
+
 function mergeWorkspaceCockpitPayload(workspaceId, payload = {}) {
   const id = String(workspaceId || payload.workspace_id || "").trim();
   const workspace = workspaceById(id);
@@ -19134,6 +19190,93 @@ function mergeWorkspaceCockpitPayload(workspaceId, payload = {}) {
   }
   upsertWorkspaceInState(next);
   return next;
+}
+
+function applyWorkspaceStreamEvent(rawEvent = {}) {
+  const event = rawEvent && typeof rawEvent === "object" ? rawEvent : {};
+  const eventType = String(event.type || "").trim();
+  if (eventType === "heartbeat") return;
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+  const workspaceId = String(event.workspace_id || payload.workspace_id || payload.workspace?.id || state.selectedWorkspaceId || "").trim();
+  if (!workspaceId) return;
+  if (payload.workspace && typeof payload.workspace === "object") {
+    upsertWorkspaceInState(payload.workspace);
+  }
+  if (payload.job && typeof payload.job === "object") {
+    upsertJobInState(payload.job);
+  }
+  if (payload.run && typeof payload.run === "object") {
+    mergeWorkspaceRunDetailPayload(workspaceId, { workspace_id: workspaceId, run: payload.run });
+  }
+  const chatMessages = [];
+  if (payload.message && typeof payload.message === "object") chatMessages.push(payload.message);
+  if (Array.isArray(payload.messages)) {
+    payload.messages.forEach((message) => {
+      if (message && typeof message === "object") chatMessages.push(message);
+    });
+  }
+  if (chatMessages.length) mergeWorkspaceChatMessages(workspaceId, chatMessages);
+  if (payload.cockpit || payload.automation || payload.execution) {
+    mergeWorkspaceCockpitPayload(workspaceId, payload);
+  }
+  if (workspaceId === state.selectedWorkspaceId) {
+    renderWorkspaces();
+    renderJobs();
+    renderWorkspaceHome();
+    renderWorkspaceRuns();
+    renderWorkspaceExecutionDetail();
+    renderWorkspaceUseChat();
+    renderWorkspaceChat();
+    renderWorkspaceUseMonitor(selectedWorkspace());
+  }
+}
+
+function handleWorkspaceStreamMessage(event) {
+  let payload = null;
+  try {
+    payload = JSON.parse(event.data || "{}");
+  } catch (error) {
+    return;
+  }
+  const workspaceId = String(payload.workspace_id || state.ui.workspaceEventWorkspaceId || "").trim();
+  const eventId = Number(event.lastEventId || payload.id || 0);
+  if (workspaceId && Number.isFinite(eventId) && eventId > 0) {
+    state.ui.workspaceEventLastIds[workspaceId] = eventId;
+  }
+  applyWorkspaceStreamEvent(payload);
+}
+
+function closeWorkspaceEventStream() {
+  if (state.ui.workspaceEventSource) {
+    state.ui.workspaceEventSource.close();
+  }
+  state.ui.workspaceEventSource = null;
+  state.ui.workspaceEventWorkspaceId = "";
+  state.ui.workspaceEventConnected = false;
+}
+
+function connectWorkspaceEventStream(workspaceId = state.selectedWorkspaceId) {
+  const id = String(workspaceId || "").trim();
+  if (!id || typeof EventSource === "undefined") {
+    closeWorkspaceEventStream();
+    return;
+  }
+  if (state.ui.workspaceEventSource && state.ui.workspaceEventWorkspaceId === id) return;
+  closeWorkspaceEventStream();
+  const lastId = Number(state.ui.workspaceEventLastIds[id] || 0);
+  const url = `/api/workspaces/${encodeURIComponent(id)}/events${lastId > 0 ? `?since=${encodeURIComponent(String(lastId))}` : ""}`;
+  const source = new EventSource(url);
+  state.ui.workspaceEventSource = source;
+  state.ui.workspaceEventWorkspaceId = id;
+  WORKSPACE_STREAM_EVENT_TYPES.forEach((eventType) => {
+    source.addEventListener(eventType, handleWorkspaceStreamMessage);
+  });
+  source.onopen = () => {
+    state.ui.workspaceEventConnected = true;
+  };
+  source.onerror = () => {
+    state.ui.workspaceEventConnected = false;
+  };
 }
 
 async function refreshWorkspaceCockpit(workspaceId = state.selectedWorkspaceId, options = {}) {
@@ -19946,7 +20089,7 @@ async function submitWorkspaceChat() {
     const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, agent_id: agentId }),
+      body: JSON.stringify({ text, agent_id: agentId, stream: true, use_llm: true }),
     });
     if (payload.workspace) {
       upsertWorkspaceInState(payload.workspace);
@@ -22202,6 +22345,7 @@ function bindEvents() {
     positionWorkspaceHelpPopover();
   });
   window.addEventListener("scroll", () => positionWorkspaceHelpPopover(), true);
+  window.addEventListener("beforeunload", closeWorkspaceEventStream);
   $("serverList")?.addEventListener("dragstart", (event) => {
     if ((state.ui.serverSort || "default") !== "manual") {
       event.preventDefault();
