@@ -1,0 +1,127 @@
+"""Workspace cockpit — FSM, scheduler, discovery, payload."""
+
+from .fsm import (
+    attach_workspace_cockpit,
+    workspace_workflow_blocking_checks,
+    workspace_readiness_message,
+    _workspace_cockpit_facts,
+    resolve_workspace_advance_fsm,
+    workspace_advance_decision,
+    workspace_cockpit_decision_from_public_workspace,
+    workspace_next_action_button,
+    derive_workspace_cockpit_chain,
+    workspace_next_action_from_fsm,
+    workspace_next_action,
+    derive_workspace_cockpit,
+)
+
+from .helpers import (
+    workspace_jobs_for_workspace,
+    workspace_node_config_ready_status,
+    append_unique_text,
+    workspace_payload_bool,
+    workspace_backfill_request_matches,
+    clamp_score,
+)
+
+from .discovery import (
+    workspace_path_like_values,
+    workspace_project_path_score,
+    workspace_default_name_seed,
+    infer_workspace_dir_from_inputs,
+    infer_workspace_data_roots,
+    workspace_dataset_value_kind,
+    derive_workspace_dataset_discovery_plan,
+    workspace_dataset_discovery_bundle_command,
+)
+
+from .commands import (
+    infer_workspace_setup_command,
+    infer_workspace_run_command,
+    infer_workspace_best_gpu,
+)
+
+from .scheduler import (
+    workspace_status_age_seconds,
+    workspace_host_resource_summary_for_scheduler,
+    workspace_scheduler_candidate_status,
+    workspace_scheduler_score,
+    workspace_scheduler_reasons,
+    derive_workspace_resource_scheduler,
+    workspace_scheduler_values_from_selection,
+    workspace_scheduler_values_from_candidate,
+    derive_workspace_scheduler_values,
+    apply_workspace_config_value,
+    apply_workspace_scheduler_config_value,
+    workspace_mutable_node_config_by_kind,
+)
+
+from .evidence import (
+    apply_workspace_evidence_config_value,
+    merge_workspace_evidence_config_values,
+    workspace_discovery_evidence_values,
+    workspace_evidence_backfill_item,
+    derive_workspace_evidence_backfill_plan,
+    apply_workspace_discovery_evidence_to_payload,
+    apply_workspace_evidence_backfill_item_to_payload,
+)
+
+from .payload import (
+    apply_workspace_automation_defaults_to_payload,
+    apply_workspace_job_runtime,
+    normalize_workspace_payload,
+)
+
+__all__ = [
+    "attach_workspace_cockpit",
+    "workspace_workflow_blocking_checks",
+    "workspace_readiness_message",
+    "_workspace_cockpit_facts",
+    "resolve_workspace_advance_fsm",
+    "workspace_advance_decision",
+    "workspace_cockpit_decision_from_public_workspace",
+    "workspace_next_action_button",
+    "derive_workspace_cockpit_chain",
+    "workspace_next_action_from_fsm",
+    "workspace_next_action",
+    "derive_workspace_cockpit",
+    "workspace_jobs_for_workspace",
+    "workspace_node_config_ready_status",
+    "append_unique_text",
+    "workspace_payload_bool",
+    "workspace_backfill_request_matches",
+    "clamp_score",
+    "workspace_path_like_values",
+    "workspace_project_path_score",
+    "workspace_default_name_seed",
+    "infer_workspace_dir_from_inputs",
+    "infer_workspace_data_roots",
+    "workspace_dataset_value_kind",
+    "derive_workspace_dataset_discovery_plan",
+    "workspace_dataset_discovery_bundle_command",
+    "infer_workspace_setup_command",
+    "infer_workspace_run_command",
+    "infer_workspace_best_gpu",
+    "workspace_status_age_seconds",
+    "workspace_host_resource_summary_for_scheduler",
+    "workspace_scheduler_candidate_status",
+    "workspace_scheduler_score",
+    "workspace_scheduler_reasons",
+    "derive_workspace_resource_scheduler",
+    "workspace_scheduler_values_from_selection",
+    "workspace_scheduler_values_from_candidate",
+    "derive_workspace_scheduler_values",
+    "apply_workspace_config_value",
+    "apply_workspace_scheduler_config_value",
+    "workspace_mutable_node_config_by_kind",
+    "apply_workspace_evidence_config_value",
+    "merge_workspace_evidence_config_values",
+    "workspace_discovery_evidence_values",
+    "workspace_evidence_backfill_item",
+    "derive_workspace_evidence_backfill_plan",
+    "apply_workspace_discovery_evidence_to_payload",
+    "apply_workspace_evidence_backfill_item_to_payload",
+    "apply_workspace_automation_defaults_to_payload",
+    "apply_workspace_job_runtime",
+    "normalize_workspace_payload",
+]
