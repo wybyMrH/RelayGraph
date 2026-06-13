@@ -202,10 +202,10 @@ DEFAULT_WORKSPACE_TOOLS: list[dict[str, Any]] = [
     },
     {
         "id": "host.exec",
-        "label": "主机执行",
+        "label": "主机执行计划",
         "category": "host",
-        "capability": "execute",
-        "description": "在目标主机上运行检查、命令和维护脚本。",
+        "capability": "read",
+        "description": "生成目标主机检查或命令计划；真正执行仍走受控工作流。",
         "enabled": True,
     },
     {
@@ -218,10 +218,10 @@ DEFAULT_WORKSPACE_TOOLS: list[dict[str, Any]] = [
     },
     {
         "id": "gpu.allocate",
-        "label": "GPU 选择",
+        "label": "GPU 候选",
         "category": "gpu",
-        "capability": "control",
-        "description": "为任务挑选空闲或最合适的显卡。",
+        "capability": "read",
+        "description": "给出 GPU 调度候选；真正占用由工作流任务处理。",
         "enabled": True,
     },
     {
@@ -258,10 +258,10 @@ DEFAULT_WORKSPACE_TOOLS: list[dict[str, Any]] = [
     },
     {
         "id": "job.run",
-        "label": "任务提交",
+        "label": "任务提交包",
         "category": "run",
-        "capability": "execute",
-        "description": "把命令提交到任务中心并落到 tmux 后台。",
+        "capability": "read",
+        "description": "生成任务提交包；真正入队仍走工作流运行按钮。",
         "enabled": True,
     },
     {

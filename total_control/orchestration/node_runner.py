@@ -70,26 +70,22 @@ def run_agent_node(
     node: dict[str, Any],
     run_context: ExecutionRunContext,
     *,
-    debug_runner: Any = None,
+    agent_executor: Any = None,
     mapped_inputs: dict[str, Any] | None = None,
     input_text: str = "",
 ) -> StepResult:
-    """Execute an agent-backed node.
-
-    `debug_runner` should be a callable compatible with TotalControlState.debug_workspace_agent
-    until WorkflowRunner owns the full execution path.
-    """
+    """Execute an agent-backed workflow node through the host-provided agent executor."""
     kind = str(node.get("kind") or "").strip()
     agent_id = _node_agent_id(node)
     if kind not in AGENT_EXECUTABLE_KINDS:
         return StepResult(skipped=True, reason=f"{kind or 'unknown'} is not agent-executable in V1")
     if _node_handler_mode(node) != "agent" or not agent_id:
         return StepResult(skipped=True, reason="node handler is not configured for agent execution")
-    if debug_runner is None:
+    if agent_executor is None:
         return StepResult(
             status="blocked",
             executor="agent",
-            reason="agent node runner is not wired yet; use debug_workspace_agent during Phase 3 rollout",
+            reason="agent node executor is unavailable",
         )
 
     handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
@@ -115,7 +111,7 @@ def run_agent_node(
         "mapped_inputs": resolved_inputs,
         "execute_llm": True,
     }
-    result = debug_runner(str(workspace.get("id") or run_context.workspace_id), agent_id, payload)
+    result = agent_executor(str(workspace.get("id") or run_context.workspace_id), agent_id, payload)
     execution = (result or {}).get("execution") if isinstance(result, dict) else {}
     success = bool(isinstance(execution, dict) and execution.get("success"))
     status = "completed" if success else "failed"

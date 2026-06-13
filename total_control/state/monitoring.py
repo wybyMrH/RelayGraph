@@ -89,6 +89,7 @@ class MonitoringMixin:
 
 
     def status_payload(self) -> dict[str, Any]:
+        self.sync_workspace_execution_runs_from_jobs()
         with self.lock:
             workspaces = [
                 self.workspace_public_payload(item)

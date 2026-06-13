@@ -178,7 +178,7 @@ class AgentsMixin:
                 node_config=node_config,
             )
 
-        def debug_runner(_workspace_id: str, _agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        def agent_executor(_workspace_id: str, _agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             execution = self._execute_agent_on_mutable_workspace(
                 workspace,
                 agent,
@@ -197,7 +197,7 @@ class AgentsMixin:
             workspace,
             node,
             context,
-            debug_runner=debug_runner,
+            agent_executor=agent_executor,
             mapped_inputs=mapped_inputs,
             input_text=input_text,
         )

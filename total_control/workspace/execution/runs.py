@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
+from ...orchestration.types import StepResult
 from .jobs import workspace_job_binding, workspace_job_sort_key
 from .trace import workspace_node_artifacts, workspace_node_resources, workspace_node_trace
 

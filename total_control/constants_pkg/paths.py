@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = ROOT / "web"
 DATA_DIR = ROOT / "data"
 JOBS_PATH = DATA_DIR / "jobs.json"

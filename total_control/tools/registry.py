@@ -11,7 +11,7 @@ class ToolSideEffect(str, Enum):
     DANGEROUS = "dangerous"
 
 
-# Phase 3 rollout map. `implemented=False` keeps current simulated responses.
+# Tool side-effect map. `implemented=False` means the dispatcher returns a dry-run or simulated payload.
 TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "repo.read": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "repo.inspect": {"side_effect": ToolSideEffect.READ, "implemented": True},
@@ -24,8 +24,9 @@ TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "dataset.find": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "dir.scan": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "web.search": {"side_effect": ToolSideEffect.READ, "implemented": False},
-    "job.run": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
+    "job.run": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
     "host.exec": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
+    "gpu.allocate": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
     "job.stop": {"side_effect": ToolSideEffect.DANGEROUS, "implemented": False},
 }
 

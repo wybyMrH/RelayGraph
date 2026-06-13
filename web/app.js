@@ -1016,10 +1016,10 @@ const WORKSPACE_TOOL_CATALOG = [
   },
   {
     id: "host.exec",
-    label: "主机执行",
+    label: "主机执行计划",
     category: "host",
-    capability: "execute",
-    description: "在目标主机上跑检查、命令和维护脚本。",
+    capability: "read",
+    description: "生成目标主机检查或命令计划；真正执行仍走受控工作流。",
   },
   {
     id: "gpu.inspect",
@@ -1030,10 +1030,10 @@ const WORKSPACE_TOOL_CATALOG = [
   },
   {
     id: "gpu.allocate",
-    label: "GPU 选择",
+    label: "GPU 候选",
     category: "gpu",
-    capability: "control",
-    description: "为任务挑选空闲或最合适的显卡。",
+    capability: "read",
+    description: "给出 GPU 调度候选；真正占用由工作流任务处理。",
   },
   {
     id: "env.inspect",
@@ -1065,10 +1065,10 @@ const WORKSPACE_TOOL_CATALOG = [
   },
   {
     id: "job.run",
-    label: "任务提交",
+    label: "任务提交包",
     category: "run",
-    capability: "execute",
-    description: "把命令提交到任务中心并落到 tmux。",
+    capability: "read",
+    description: "生成任务提交包；真正入队仍走工作流运行按钮。",
   },
   {
     id: "job.stop",
@@ -5347,21 +5347,11 @@ function setWorkspaceLauncherInputs(inputs = {}) {
 function workspaceLauncherInputsFromWorkspace(workspace = null) {
   const inputs = workspace?.inputs && typeof workspace.inputs === "object" ? workspace.inputs : {};
   const source = workspace?.source && typeof workspace.source === "object" ? workspace.source : {};
-  const listOrFallback = (value, fallback = "") => {
-    if (Array.isArray(value) && value.length) return value;
-    const text = String(fallback || "").trim();
-    return text ? [text] : [];
-  };
-  const references = Array.isArray(inputs.references) && inputs.references.length
-    ? inputs.references
-    : Array.isArray(workspace?.references)
-      ? workspace.references
-      : [];
   return {
     goal_text: String(inputs.goal_text || workspace?.brief || source.idea_text || ""),
-    repo_urls: listOrFallback(inputs.repo_urls, source.repo_url),
-    paper_urls: listOrFallback(inputs.paper_urls, source.paper_url),
-    references,
+    repo_urls: Array.isArray(inputs.repo_urls) ? inputs.repo_urls : [],
+    paper_urls: Array.isArray(inputs.paper_urls) ? inputs.paper_urls : [],
+    references: Array.isArray(inputs.references) ? inputs.references : [],
     context_blocks: Array.isArray(inputs.context_blocks) ? inputs.context_blocks : [],
   };
 }
@@ -11380,7 +11370,7 @@ function workspaceExecutionRunItemMarkup(run = {}) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
   const status = String(run.status || "pending");
   return `
-    <article class="workspace-execution-run-item status-${escapeHtml(status)}" data-run-id="${escapeHtml(run.id || "")}">
+    <article class="workspace-execution-run-item status-${escapeHtml(status)}" role="button" tabindex="0" data-run-id="${escapeHtml(run.id || "")}" title="刷新这条执行记录的详情；若有关联任务则打开第一条任务日志">
       <div class="workspace-execution-run-item-head">
         <div>
           <span>${escapeHtml(workspaceRunKindLabel(run.kind))}</span>
@@ -14505,6 +14495,9 @@ function selectWorkspace(workspaceId, options = {}) {
   renderWorkspacePanels();
   renderWorkspaceWorkbench();
   switchProductTab("workspace");
+  if (options.refreshCockpit !== false) {
+    void refreshWorkspaceCockpit(workspace.id, { render: true, quiet: true });
+  }
 }
 
 function rebuildWorkspaceStarterChain() {
@@ -19113,6 +19106,95 @@ function upsertWorkspaceInState(workspace) {
   else state.workspaces.unshift(workspace);
 }
 
+function mergeWorkspaceCockpitPayload(workspaceId, payload = {}) {
+  const id = String(workspaceId || payload.workspace_id || "").trim();
+  const workspace = workspaceById(id);
+  if (!id || !workspace) return null;
+  const next = { ...workspace };
+  const automation = {
+    ...(workspace.automation && typeof workspace.automation === "object" ? workspace.automation : {}),
+  };
+  if (payload.automation && typeof payload.automation === "object") {
+    Object.assign(automation, payload.automation);
+  }
+  const cockpit = payload.cockpit && typeof payload.cockpit === "object"
+    ? payload.cockpit
+    : automation.cockpit && typeof automation.cockpit === "object"
+      ? automation.cockpit
+      : null;
+  if (cockpit) {
+    automation.cockpit = cockpit;
+    if (cockpit.next_action && typeof cockpit.next_action === "object") {
+      automation.next_action = cockpit.next_action;
+    }
+  }
+  next.automation = automation;
+  if (payload.execution && typeof payload.execution === "object") {
+    next.execution = payload.execution;
+  }
+  upsertWorkspaceInState(next);
+  return next;
+}
+
+async function refreshWorkspaceCockpit(workspaceId = state.selectedWorkspaceId, options = {}) {
+  const id = String(workspaceId || "").trim();
+  if (!id || !workspaceById(id)) return null;
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/cockpit`);
+    const workspace = mergeWorkspaceCockpitPayload(id, payload);
+    if (workspace && options.render !== false && state.selectedWorkspaceId === id) {
+      renderWorkspaceHome();
+      renderWorkspaceRuns();
+      renderWorkspaceExecutionDetail();
+      renderWorkspaceUseMonitor(workspace);
+    }
+    return workspace;
+  } catch (error) {
+    if (!options.quiet) setWorkspaceMessage(error.message, true);
+    return null;
+  }
+}
+
+function mergeWorkspaceRunDetailPayload(workspaceId, payload = {}) {
+  const run = payload.run && typeof payload.run === "object" ? payload.run : null;
+  const id = String(workspaceId || payload.workspace_id || run?.workspace_id || "").trim();
+  const workspace = workspaceById(id);
+  if (!workspace || !run?.id) return null;
+  const runs = Array.isArray(workspace.runs) ? workspace.runs.slice() : [];
+  const index = runs.findIndex((item) => String(item?.id || "") === String(run.id || ""));
+  if (index >= 0) runs.splice(index, 1, run);
+  else runs.unshift(run);
+  upsertWorkspaceInState({ ...workspace, runs });
+  return run;
+}
+
+async function refreshWorkspaceRunDetail(runId, options = {}) {
+  const workspace = selectedWorkspace();
+  const id = String(runId || "").trim();
+  if (!workspace?.id || !id) return null;
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/runs/${encodeURIComponent(id)}`);
+    const run = mergeWorkspaceRunDetailPayload(workspace.id, payload);
+    if (run && options.render !== false) renderWorkspaceRuns();
+    return run;
+  } catch (error) {
+    if (!options.quiet) setWorkspaceMessage(error.message, true);
+    return null;
+  }
+}
+
+async function openWorkspaceRunDetail(runId) {
+  const run = await refreshWorkspaceRunDetail(runId);
+  if (!run) return;
+  const steps = Array.isArray(run.steps) ? run.steps : [];
+  const jobStep = steps.find((step) => String(step?.job_id || "").trim());
+  if (jobStep?.job_id) {
+    await showLog(jobStep.job_id);
+    return;
+  }
+  setWorkspaceMessage(`运行详情已刷新：${workspaceRunKindLabel(run.kind)} · ${zhStatus(run.status || "pending")}。`);
+}
+
 function resetWorkspaceAgentDebug(agent = selectedWorkspaceAgent(), options = {}) {
   const workspaceId = String(selectedWorkspace()?.id || "draft").trim();
   const agentId = String(agent?.id || "").trim();
@@ -20385,7 +20467,10 @@ async function loadStatus(force = false, options = {}) {
         if (activeTool) state.toolDefinitionDraft = normalizeGlobalToolDefinitionDraft(activeTool);
       }
       if (state.selectedWorkspaceId && ($("workspaceIdInput")?.value !== state.selectedWorkspaceId || !state.workspaceNodesDraft.length)) {
-        selectWorkspace(state.selectedWorkspaceId, { persist: false });
+        selectWorkspace(state.selectedWorkspaceId, { persist: false, refreshCockpit: false });
+      }
+      if (state.selectedWorkspaceId) {
+        await refreshWorkspaceCockpit(state.selectedWorkspaceId, { render: false, quiet: true });
       }
       renderWorkspaceWorkbench();
     } else if (state.ui.productTab === "workspace") {
@@ -21969,6 +22054,10 @@ function handleWorkspaceAutomationAction(button) {
     void showLog(button.dataset.jobId);
     return true;
   }
+  if (action === "open-workspace-run" && button.dataset.runId) {
+    void openWorkspaceRunDetail(button.dataset.runId);
+    return true;
+  }
   if (action === "open-last-workspace-log") {
     const workspace = selectedWorkspace();
     const jobId = String(button.dataset.jobId || workspace?.execution?.last_job_id || "").trim();
@@ -22794,13 +22883,16 @@ function bindEvents() {
     }
     const item = event.target.closest(".workspace-run-item[data-job-id]");
     if (item?.dataset.jobId) void showLog(item.dataset.jobId);
+    const runItem = event.target.closest(".workspace-execution-run-item[data-run-id]");
+    if (runItem?.dataset.runId) void openWorkspaceRunDetail(runItem.dataset.runId);
   });
   $("workspaceRunList")?.addEventListener("keydown", (event) => {
     if (!["Enter", " "].includes(event.key)) return;
-    const item = event.target.closest(".workspace-run-item[data-job-id]");
-    if (!item?.dataset.jobId) return;
+    const item = event.target.closest(".workspace-run-item[data-job-id], .workspace-execution-run-item[data-run-id]");
+    if (!item?.dataset.jobId && !item?.dataset.runId) return;
     consumeClick(event);
-    void showLog(item.dataset.jobId);
+    if (item.dataset.jobId) void showLog(item.dataset.jobId);
+    else void openWorkspaceRunDetail(item.dataset.runId);
   });
   $("providerProfileList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='select-provider-profile']");
