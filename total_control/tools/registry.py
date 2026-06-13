@@ -30,8 +30,8 @@ TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "job.run": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "host.exec": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
     "gpu.allocate": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
-    "job.reorder": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": False},
-    "job.stop": {"side_effect": ToolSideEffect.DANGEROUS, "implemented": False},
+    "job.reorder": {"side_effect": ToolSideEffect.MUTATE_RUNTIME, "implemented": True},
+    "job.stop": {"side_effect": ToolSideEffect.DANGEROUS, "implemented": True},
 }
 
 

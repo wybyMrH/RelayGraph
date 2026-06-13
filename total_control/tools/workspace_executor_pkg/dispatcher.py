@@ -217,6 +217,22 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
             indent=2,
         )
 
+    if tool_id in {"job.stop", "job.reorder"}:
+        runtime_result = context.control_job(tool_id, arguments)
+        if runtime_result:
+            return json.dumps(runtime_result, ensure_ascii=False, indent=2)
+        return json.dumps(
+            {
+                "status": "blocked",
+                "tool": tool_id,
+                "controlled": True,
+                "runtime_control": "workspace_job_control",
+                "message": "当前上下文未启用受控 job 控制。",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+
     if tool_id == "execution.package":
         package = context.execution_package_payload()
         return json.dumps(

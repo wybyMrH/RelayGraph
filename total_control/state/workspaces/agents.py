@@ -18,6 +18,12 @@ class AgentsMixin:
                 arguments,
                 context,
             ),
+            "control_job": lambda tool_id, arguments, context: self.control_workspace_tool_job(
+                workspace,
+                tool_id,
+                arguments,
+                context,
+            ),
         }
 
 
@@ -365,6 +371,96 @@ class AgentsMixin:
             "updated_node_kinds": unique_updated_kinds,
             "message": "GPU 候选已绑定到 gpu.allocate/run.command 配置；实际执行仍走 job 队列。",
         }
+
+
+    def control_workspace_tool_job(
+        self,
+        workspace: dict[str, Any],
+        tool_id: str,
+        arguments: dict[str, Any],
+        context: Any,
+    ) -> dict[str, Any]:
+        _ = context
+        workspace_id = str(workspace.get("id") or "").strip()
+        tool = str(tool_id or "").strip()
+        args = arguments if isinstance(arguments, dict) else {}
+        if not workspace_id:
+            return {"status": "error", "tool": tool, "error": "workspace_id is required"}
+
+        requested_job_id = str(args.get("job_id") or args.get("id") or "").strip()
+        with self.lock:
+            workspace_jobs = []
+            for job in self.jobs:
+                metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+                if str(metadata.get("workspace_id") or "").strip() == workspace_id:
+                    workspace_jobs.append(job)
+            if not requested_job_id and bool(args.get("latest")) and workspace_jobs:
+                workspace_jobs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+                requested_job_id = str(workspace_jobs[0].get("id") or "").strip()
+            job = next((item for item in workspace_jobs if str(item.get("id") or "").strip() == requested_job_id), None)
+
+        if not requested_job_id:
+            return {"status": "blocked", "tool": tool, "controlled": True, "error": "job_id is required"}
+        if not job:
+            return {
+                "status": "blocked",
+                "tool": tool,
+                "controlled": True,
+                "error": "job not found in this workspace",
+                "job_id": requested_job_id,
+            }
+
+        if tool == "job.stop":
+            current_status = str(job.get("status") or "").strip()
+            if current_status in {"done", "failed", "stopped"}:
+                return {
+                    "status": "noop",
+                    "tool": tool,
+                    "controlled": True,
+                    "runtime_control": "workspace_job_control",
+                    "job": copy.deepcopy(job),
+                    "job_id": requested_job_id,
+                    "message": f"任务已是 {current_status}，无需停止。",
+                }
+            stopped = self.stop_job(requested_job_id)
+            return {
+                "status": "stopped",
+                "tool": tool,
+                "controlled": True,
+                "runtime_control": "workspace_job_control",
+                "job": copy.deepcopy(stopped),
+                "job_id": requested_job_id,
+                "message": "任务已通过受控 job 控制停止。",
+            }
+
+        if tool == "job.reorder":
+            direction = str(args.get("direction") or args.get("move") or "top").strip().lower()
+            try:
+                result = self.reorder_job(requested_job_id, direction)
+            except ValueError as exc:
+                return {
+                    "status": "blocked",
+                    "tool": tool,
+                    "controlled": True,
+                    "runtime_control": "workspace_job_control",
+                    "job_id": requested_job_id,
+                    "error": str(exc),
+                }
+            changed_job = result.get("job") if isinstance(result.get("job"), dict) else job
+            self.publish_job_event(changed_job, "job.updated")
+            return {
+                "status": "reordered",
+                "tool": tool,
+                "controlled": True,
+                "runtime_control": "workspace_job_control",
+                "job": copy.deepcopy(changed_job),
+                "job_id": requested_job_id,
+                "queue_position": result.get("queue_position"),
+                "total_waiting": result.get("total_waiting"),
+                "message": "任务队列顺序已通过受控 job 控制更新。",
+            }
+
+        return {"status": "error", "tool": tool, "controlled": True, "error": "unsupported job control tool"}
 
 
     def _execute_agent_on_mutable_workspace(

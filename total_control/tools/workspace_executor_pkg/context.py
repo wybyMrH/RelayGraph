@@ -140,6 +140,12 @@ class WorkspaceToolContext:
             return {}
         return callback(arguments if isinstance(arguments, dict) else {}, self)
 
+    def control_job(self, tool_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        callback = self.runtime_callback("control_job")
+        if not callback:
+            return {}
+        return callback(tool_id, arguments if isinstance(arguments, dict) else {}, self)
+
     def execute(self, tool_id: str, arguments: dict[str, Any]) -> str:
         from .dispatcher import execute_tool
 
