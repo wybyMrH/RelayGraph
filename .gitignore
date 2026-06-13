@@ -31,8 +31,6 @@ data/preview_cache_settings.json
 docs/
 temp/
 tests/
-
-# Test artifacts
 test-results/
 
 # Environment
