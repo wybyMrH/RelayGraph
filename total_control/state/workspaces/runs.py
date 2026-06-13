@@ -160,6 +160,9 @@ class RunsMixin:
                         agent_execution_id=str(step.get("agent_execution_id") or "").strip(),
                         payload={"run": copy.deepcopy(refreshed_run), "step": copy.deepcopy(step)},
                     )
+                    step_job_id = str(step.get("job_id") or "").strip()
+                    if step_job_id and step_job_id in jobs_by_id:
+                        self.publish_job_event(jobs_by_id[step_job_id], "job.updated")
         return changed
 
 
