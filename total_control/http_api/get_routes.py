@@ -109,6 +109,9 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/provider-profiles":
         handler.send_json(state.list_provider_profiles())
         return True
+    if parsed.path == "/api/provider-catalog":
+        handler.send_json(state.list_provider_catalog())
+        return True
     if parsed.path.startswith("/api/provider-profiles/") and "/" not in parsed.path[19:]:
         profile_id = parsed.path.split("/")[3]
         profile = state.provider_profile_by_id(profile_id)

@@ -15,7 +15,17 @@ class PersistenceMixin:
 
     def save_provider_profiles(self) -> None:
         with self.lock:
-            write_json(PROVIDER_PROFILES_PATH, self.provider_profiles)
+            # Keep plaintext in memory (LLMClient needs it); write an encrypted
+            # copy to disk so provider_profiles.json never holds raw keys.
+            encrypted: list[Any] = []
+            for profile in self.provider_profiles:
+                if isinstance(profile, dict):
+                    sealed = dict(profile)
+                    sealed["api_key"] = encrypt_secret(str(sealed.get("api_key") or ""))
+                    encrypted.append(sealed)
+                else:
+                    encrypted.append(profile)
+            write_json(PROVIDER_PROFILES_PATH, encrypted)
 
 
     def save_workflow_templates(self) -> None:

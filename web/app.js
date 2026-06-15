@@ -1256,14 +1256,53 @@ const SOURCE_AGENT_ROLE_IDS = {
 };
 
 const PROVIDER_VENDOR_OPTIONS = [
-  { value: "openai", label: "OpenAI" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "google", label: "Google" },
-  { value: "deepseek", label: "DeepSeek" },
-  { value: "qwen", label: "Qwen" },
-  { value: "openrouter", label: "OpenRouter" },
-  { value: "custom", label: "Custom" },
+  // === 国际主流提供商 ===
+  { value: "openai", label: "OpenAI", base_url: "https://api.openai.com/v1" },
+  { value: "anthropic", label: "Anthropic (Claude)", base_url: "https://api.anthropic.com/v1" },
+  { value: "google", label: "Google Gemini", base_url: "https://generativelanguage.googleapis.com/v1beta/openai" },
+  { value: "deepseek", label: "DeepSeek", base_url: "https://api.deepseek.com" },
+  { value: "groq", label: "Groq", base_url: "https://api.groq.com/openai/v1" },
+  { value: "openrouter", label: "OpenRouter", base_url: "https://openrouter.ai/api/v1" },
+  { value: "mistral", label: "Mistral AI", base_url: "https://api.mistral.ai/v1" },
+  { value: "cohere", label: "Cohere", base_url: "https://api.cohere.ai/compatibility/v1" },
+  { value: "together", label: "Together AI", base_url: "https://api.together.xyz/v1" },
+  // === 中国主流提供商 ===
+  { value: "qwen", label: "Qwen (通义千问)", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  { value: "zhipu", label: "Zhipu (智谱GLM)", base_url: "https://open.bigmodel.cn/api/paas/v4" },
+  { value: "moonshot", label: "Moonshot (Kimi)", base_url: "https://api.moonshot.cn/v1" },
+  { value: "baichuan", label: "Baichuan (百川)", base_url: "https://api.baichuan-ai.com/v1" },
+  { value: "minimax", label: "MiniMax", base_url: "https://api.minimax.chat/v1" },
+  { value: "yi", label: "Yi (零一万物)", base_url: "https://api.01.ai/v1" },
+  { value: "siliconflow", label: "SiliconFlow (硅基流动)", base_url: "https://api.siliconflow.cn/v1" },
+  // === 其他 ===
+  { value: "xiaomi-mimo", label: "MiMo (小米)", base_url: "https://api.xiaomimimo.com/v1" },
+  { value: "ollama", label: "Ollama (本地)", base_url: "http://localhost:11434/v1" },
+  { value: "custom", label: "Custom (自定义)", base_url: "" },
 ];
+
+function vendorDefaultBaseUrl(vendor = "") {
+  const entry = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === String(vendor || "").trim());
+  return entry?.base_url || "";
+}
+
+// A base_url counts as "this vendor's default" if it's empty or matches any
+// known vendor preset — so switching vendor can safely overwrite it.
+function baseUrlIsVendorDefault(url = "") {
+  const value = String(url || "").trim();
+  if (!value) return true;
+  return PROVIDER_VENDOR_OPTIONS.some((item) => item.base_url && item.base_url === value);
+}
+
+function providerProfileIsValid(profile = {}) {
+  return Boolean(
+    profile
+    && String(profile.label || "").trim()
+    && String(profile.vendor || "").trim()
+    && String(profile.base_url || "").trim()
+    && String(profile.model || "").trim()
+    && (String(profile.api_key || "").trim() || profile.has_api_key),
+  );
+}
 
 function loadStoredValue(key, fallback = "") {
   try {
@@ -1534,6 +1573,62 @@ function makeClientId(prefix = "node") {
   if (globalThis.crypto?.randomUUID) return `${prefix}-${globalThis.crypto.randomUUID()}`;
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+// Editor inputs trigger a state update that re-renders the panel via innerHTML,
+// which rebuilds the focused input and drops focus/caret mid-keystroke. Wrap any
+// input-driven render with this so the active field is refocused afterwards.
+function _inputSignature(el) {
+  const data = el.dataset
+    ? Object.keys(el.dataset).sort().map((k) => `${k}=${el.dataset[k]}`).join("|")
+    : "";
+  return `${el.tagName}|${el.type || ""}|${el.name || ""}|${data}`;
+}
+
+function _findInputBySignature(sig) {
+  let match = null;
+  for (const el of document.querySelectorAll("input, textarea, select")) {
+    if (_inputSignature(el) === sig) {
+      if (match) return null; // ambiguous — refuse to guess
+      match = el;
+    }
+  }
+  return match;
+}
+
+function captureActiveInput() {
+  const active = document.activeElement;
+  if (!active || !/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return null;
+  let start = null;
+  let end = null;
+  try {
+    start = active.selectionStart;
+    end = active.selectionEnd;
+  } catch (_) {
+    start = end = null;
+  }
+  return { sig: _inputSignature(active), start, end };
+}
+
+function restoreActiveInput(captured) {
+  if (!captured) return;
+  const match = _findInputBySignature(captured.sig);
+  if (!match) return;
+  match.focus();
+  if (captured.start !== null) {
+    try {
+      match.setSelectionRange(captured.start, captured.end);
+    } catch (_) {
+      /* not all elements support selection */
+    }
+  }
+}
+
+function preserveActiveInput(renderFn) {
+  const captured = captureActiveInput();
+  renderFn();
+  restoreActiveInput(captured);
+}
+
 
 function parseLineList(value) {
   if (Array.isArray(value)) {
@@ -2065,14 +2160,17 @@ function normalizeWorkspaceChatMessage(message = {}, index = 0) {
 }
 
 function normalizeProviderProfile(profile = {}, index = 0) {
-  const label = String(profile.label || "").trim() || `Profile ${index + 1}`;
+  // Required fields are kept empty when not provided so the UI can mark them
+  // red and block save, instead of silently inventing defaults.
   return {
     id: String(profile.id || makeClientId("provider")),
-    label,
-    vendor: String(profile.vendor || "openai"),
-    base_url: String(profile.base_url || ""),
-    model: String(profile.model || ""),
+    label: String(profile.label || "").trim(),
+    vendor: String(profile.vendor || "").trim(),
+    base_url: String(profile.base_url || "").trim(),
+    model: String(profile.model || "").trim(),
     api_key: String(profile.api_key || ""),
+    api_key_masked: String(profile.api_key_masked || ""),
+    has_api_key: Boolean(profile.has_api_key || profile.api_key || profile.api_key_masked),
     is_default: Boolean(profile.is_default),
     is_new: Boolean(profile.is_new),
   };
@@ -2149,8 +2247,10 @@ function updateSelectedWorkspaceTool(updater) {
       .filter((toolId) => workspaceToolById(toolId, state.workspaceToolsDraft) || toolId === normalized.id),
   }));
   persistWorkspaceAgentDrafts();
-  renderWorkspaceTools();
-  renderWorkspaceAgents();
+  preserveActiveInput(() => {
+    renderWorkspaceTools();
+    renderWorkspaceAgents();
+  });
 }
 
 function addWorkspaceTool() {
@@ -2182,8 +2282,10 @@ function removeWorkspaceTool(toolId) {
   state.selectedWorkspaceToolId = state.workspaceToolsDraft[0]?.id || "";
   persistWorkspaceToolDrafts();
   persistWorkspaceAgentDrafts();
-  renderWorkspaceTools();
-  renderWorkspaceAgents();
+  preserveActiveInput(() => {
+    renderWorkspaceTools();
+    renderWorkspaceAgents();
+  });
 }
 
 function maskSecret(value) {
@@ -2269,7 +2371,8 @@ async function loadProviderProfiles(options = {}) {
       vendor: p.provider || "openai",
       base_url: p.base_url || "",
       model: (p.models || [])[0] || "",
-      api_key: p.api_key_masked || "",
+      api_key: "",
+      api_key_masked: p.api_key_masked || "",
       has_api_key: !!(p.api_key_masked || p.api_key),
       is_default: p.is_default || false,
     }));
@@ -2295,14 +2398,27 @@ async function saveProviderProfile(profile, options = {}) {
   };
 
   const existing = !options.forceCreate && state.providerProfiles.some((p) => p.id === profile.id && !p.is_new);
-  const url = existing ? `/api/provider-profiles/${profile.id}` : "/api/provider-profiles";
-  const method = existing ? "PUT" : "POST";
 
-  const response = await fetchJson(url, {
-    method,
+  const send = (m, u) => fetchJson(u, {
+    method: m,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+
+  let response;
+  try {
+    response = existing
+      ? await send("PUT", `/api/provider-profiles/${profile.id}`)
+      : await send("POST", "/api/provider-profiles");
+  } catch (error) {
+    // A profile that lost its is_new flag but was never actually created on the
+    // backend returns 404 "not found" on PUT — fall back to creating it.
+    if (existing && /not found|404/i.test(String(error.message || error))) {
+      response = await send("POST", "/api/provider-profiles");
+    } else {
+      throw error;
+    }
+  }
 
   await loadProviderProfiles();
   return response.provider_profile;
@@ -2790,7 +2906,7 @@ function updateWorkflowTemplateDraft(updater) {
   if (!normalized.nodes.some((node) => node.id === state.selectedTemplateNodeId)) {
     state.selectedTemplateNodeId = normalized.nodes[0]?.id || "";
   }
-  renderWorkspaceWorkbench();
+  preserveActiveInput(() => renderWorkspaceWorkbench());
 }
 
 function updateSelectedWorkflowTemplateNode(updater) {
@@ -11380,6 +11496,20 @@ function workspaceRunProgressMarkup(run, options = {}) {
   `;
 }
 
+function workspaceToolPolicyBadge(sideEffect = "", controlled = false) {
+  const tier = String(sideEffect || "").trim();
+  if (!tier) return "";
+  const map = {
+    read: { label: "读", cls: "policy-read" },
+    mutate_config: { label: "改配置", cls: "policy-config" },
+    mutate_runtime: { label: controlled ? "受控运行" : "运行", cls: "policy-runtime" },
+    dangerous: { label: "危险", cls: "policy-dangerous" },
+  };
+  const entry = map[tier];
+  if (!entry) return "";
+  return `<span class="tool-policy-badge ${entry.cls}" title="工具权限策略：${escapeHtml(tier)}${controlled ? "（经 job 队列受控）" : ""}">${escapeHtml(entry.label)}</span>`;
+}
+
 function workspaceAgentStepTraceMarkup(agentSteps = [], options = {}) {
   const steps = (Array.isArray(agentSteps) ? agentSteps : []).filter((item) => item && typeof item === "object");
   if (!steps.length) return "";
@@ -11391,7 +11521,8 @@ function workspaceAgentStepTraceMarkup(agentSteps = [], options = {}) {
     const observation = compactText(String(item.observation || item.error || "").trim(), compact ? 56 : 140);
     const label = action || thought || "推理步";
     const detail = action ? observation : thought;
-    return `<li title="${escapeHtml(`${label}${detail ? ` · ${detail}` : ""}`)}"><strong>${escapeHtml(label)}</strong>${detail ? `<em>${escapeHtml(detail)}</em>` : ""}</li>`;
+    const badge = action ? workspaceToolPolicyBadge(item.side_effect, item.controlled) : "";
+    return `<li title="${escapeHtml(`${label}${detail ? ` · ${detail}` : ""}`)}"><strong>${escapeHtml(label)}</strong>${badge}${detail ? `<em>${escapeHtml(detail)}</em>` : ""}</li>`;
   }).join("");
   const more = steps.length > limit ? `<li class="muted"><em>还有 ${steps.length - limit} 步</em></li>` : "";
   return `<ol class="workspace-agent-step-trace${compact ? " compact" : ""}">${items}${more}</ol>`;
@@ -13959,6 +14090,7 @@ function workspaceModelRoutingSummaryMarkup() {
 }
 
 function renderWorkspaceModel() {
+  const _focusCapture = captureActiveInput();
   renderWorkspaceAgentControls();
   const profileCount = $("workspaceProviderCount");
   if (profileCount) profileCount.textContent = `${state.providerProfiles.length} 个 profile`;
@@ -13976,8 +14108,8 @@ function renderWorkspaceModel() {
             return `
               <button class="workspace-provider-card${active}" type="button" data-action="select-provider-profile" data-profile-id="${escapeHtml(profile.id)}" title="选择这个 Provider Profile，编辑模型、Base URL 和 API key">
                 <div class="workspace-provider-head">
-                  <strong>${escapeHtml(profile.label)}</strong>
-                  <span class="server-badge subtle">${escapeHtml(PROVIDER_VENDOR_OPTIONS.find((item) => item.value === profile.vendor)?.label || profile.vendor)}</span>
+                  <strong>${escapeHtml(profile.label || "(未命名)")}</strong>
+                  <span class="server-badge subtle">${escapeHtml(PROVIDER_VENDOR_OPTIONS.find((item) => item.value === profile.vendor)?.label || profile.vendor || "custom")}</span>${profile.is_new ? '<span class="server-badge">草稿</span>' : ""}
                 </div>
                 <div class="workspace-provider-meta">${escapeHtml(profile.model || "未设置模型")}</div>
                 <div class="workspace-provider-meta">${escapeHtml(profile.base_url || "默认 base URL")}</div>
@@ -13999,10 +14131,11 @@ function renderWorkspaceModel() {
         <div class="workspace-node-editor-card">
           <div class="workspace-node-editor-head">
             <div>
-              <h4>${escapeHtml(profile.label)}</h4>
-              <p class="muted">API key 只保存在当前浏览器 localStorage，不会写入项目。</p>
+              <h4>${escapeHtml(profile.label || "(未命名)")}</h4>
+              <p class="muted">API key 加密保存在本地 data 目录，不会写入项目仓库。</p>
             </div>
             <div class="workspace-node-editor-actions">
+              <button class="secondary mini" type="button" data-action="test-provider-profile" title="用当前接入信息向模型发一个最小请求，验证连通性（不需要先保存）">测试连接</button>
               <button class="secondary mini danger" type="button" data-action="remove-provider-profile" data-profile-id="${escapeHtml(profile.id)}" title="删除这个本地 Provider Profile，并清理当前项目中的引用">删除 Profile</button>
             </div>
           </div>
@@ -14026,10 +14159,14 @@ function renderWorkspaceModel() {
               <input data-provider-field="model" value="${escapeHtml(profile.model)}" placeholder="gpt-4.1 / claude / deepseek-chat" />
             </label>
           </div>
-          <label>
+          <label class="provider-key-field">
             API Key
-            <input data-provider-field="api_key" value="${escapeHtml(profile.api_key)}" placeholder="sk-..." />
+            <span class="provider-key-row">
+              <input data-provider-field="api_key" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值可覆盖` : "sk-..."}" autocomplete="off" />
+              <button type="button" class="provider-key-toggle mini" data-action="toggle-provider-key-visibility" title="${state.ui.providerKeyVisible ? "隐藏明文" : "显示明文"}">${state.ui.providerKeyVisible ? "隐藏" : "显示"}</button>
+            </span>
           </label>
+          ${state.ui.providerTestResult ? `<p class="provider-test-result ${state.ui.providerTestResult.isError ? "error" : "ok"}">${escapeHtml(state.ui.providerTestResult.text)}</p>` : ""}
         </div>
       `;
     }
@@ -14038,6 +14175,7 @@ function renderWorkspaceModel() {
   if ($("workspaceModelNotes")) $("workspaceModelNotes").value = state.workspaceModelDraft.notes || "";
   if ($("workspaceModelProfileSelect")) $("workspaceModelProfileSelect").value = state.workspaceModelDraft.provider_profile_id || "";
   if ($("workspaceModelChatAgentSelect")) $("workspaceModelChatAgentSelect").value = state.workspaceModelDraft.chat_agent_id || "";
+  restoreActiveInput(_focusCapture);
 }
 
 function renderWorkspaceRuns() {
@@ -14653,7 +14791,7 @@ function updateSelectedWorkspaceNode(updater) {
   const next = typeof updater === "function" ? updater(deepClone(current, current)) : { ...current, ...updater };
   state.workspaceNodesDraft.splice(index, 1, next);
   persistWorkspaceNodesDraft();
-  renderWorkspacePanels();
+  preserveActiveInput(() => renderWorkspacePanels());
 }
 
 function toggleWorkspaceSourceFields() {
@@ -18655,8 +18793,8 @@ function renderManageAiModule() {
           return `
             <button class="workspace-template-item${active}" type="button" data-action="select-provider-profile" data-profile-id="${escapeHtml(profile.id)}" title="选择这个 Provider Profile，编辑模型接入和默认路由">
               <div class="workspace-template-item-head">
-                <strong>${escapeHtml(profile.label || profile.id)}</strong>
-                <span class="server-badge subtle">${escapeHtml(profile.vendor || "custom")}</span>
+                <strong>${escapeHtml(profile.label || "(未命名)")}</strong>
+                <span class="server-badge subtle">${escapeHtml(profile.vendor || "custom")}</span>${profile.is_new ? '<span class="server-badge">草稿</span>' : ""}
               </div>
               <div class="workspace-template-item-meta">${escapeHtml(profile.model || "未填 model")}</div>
               <div class="workspace-template-item-desc">${escapeHtml(profile.base_url || "默认 base URL")}</div>
@@ -18676,6 +18814,7 @@ function renderManageAiModule() {
           <p class="muted">这里管理全局模型接入信息，以及当前模板的默认路由。</p>
         </div>
         <div class="workspace-node-editor-actions">
+          <button class="secondary mini" type="button" data-action="test-provider-profile" title="用当前接入信息向模型发一个最小请求，验证连通性（不需要先保存）">测试连接</button>
           <button class="secondary mini" type="button" data-action="save-provider-profile" title="保存当前 Provider Profile 接入配置">保存 Profile</button>
           ${profile ? '<button class="secondary mini danger" type="button" data-action="delete-provider-profile-manage" title="删除当前 Provider Profile，并清理相关路由引用">删除 Profile</button>' : ""}
         </div>
@@ -18684,30 +18823,40 @@ function renderManageAiModule() {
         <section class="workspace-manage-group">
           <div class="workspace-manage-group-head">
             <strong>接入信息</strong>
-            <span class="muted">控制厂商、模型与自定义 Base URL。</span>
+            <span class="muted">选厂商会自动填 Base URL；模型可点"拉取"从端点获取，标红为必填。</span>
           </div>
           <div class="workspace-provider-editor-grid">
             <label>
               显示名
-              <input data-manage-provider-field="label" value="${escapeHtml(profile.label || "")}" />
+              <input data-manage-provider-field="label" class="${String(profile.label || "").trim() ? "" : "invalid"}" value="${escapeHtml(profile.label || "")}" placeholder="必填，如 DeepSeek 主号" />
             </label>
             <label>
               厂商
-              <input data-manage-provider-field="vendor" value="${escapeHtml(profile.vendor || "openai")}" />
+              <select data-manage-provider-field="vendor">
+                ${PROVIDER_VENDOR_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === profile.vendor ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+              </select>
             </label>
             <label>
               Base URL
-              <input data-manage-provider-field="base_url" value="${escapeHtml(profile.base_url || "")}" />
+              <input data-manage-provider-field="base_url" class="${String(profile.base_url || "").trim() ? "" : "invalid"}" value="${escapeHtml(profile.base_url || "")}" placeholder="必填，如 https://api.deepseek.com/v1" />
             </label>
             <label>
               Model
-              <input data-manage-provider-field="model" value="${escapeHtml(profile.model || "")}" />
+              <span class="provider-model-row">
+                <input data-manage-provider-field="model" class="${String(profile.model || "").trim() ? "" : "invalid"}" value="${escapeHtml(profile.model || "")}" placeholder="必填，如 deepseek-chat" list="providerModelOptions" />
+                <button type="button" class="mini" data-action="fetch-provider-models" title="从端点 GET /models 拉取可用模型列表">拉取</button>
+              </span>
             </label>
           </div>
-          <label>
+          <datalist id="providerModelOptions">${(state.ui.providerAvailableModels || []).map((m) => `<option value="${escapeHtml(m)}">`).join("")}</datalist>
+          <label class="provider-key-field">
             API Key
-            <input data-manage-provider-field="api_key" value="${escapeHtml(profile.api_key || "")}" placeholder="sk-..." />
+            <span class="provider-key-row">
+              <input data-manage-provider-field="api_key" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值覆盖` : "必填 sk-..."}" autocomplete="off" />
+              <button type="button" class="provider-key-toggle mini" data-action="toggle-provider-key-visibility">${state.ui.providerKeyVisible ? "隐藏" : "显示"}</button>
+            </span>
           </label>
+          ${state.ui.providerTestResult ? `<p class="provider-test-result ${state.ui.providerTestResult.isError ? "error" : "ok"}">${escapeHtml(state.ui.providerTestResult.text)}${(state.ui.providerTestResult.models || []).length ? `<br><span class="muted">点模型名填入：${state.ui.providerTestResult.models.map((m) => ` <a href="#" data-action="pick-provider-model" data-model="${escapeHtml(m)}">${escapeHtml(m)}</a>`).join("")}</span>` : ""}</p>` : ""}
         </section>
       ` : '<div class="empty">先新增一个 Provider Profile。</div>'}
     </div>
@@ -18973,7 +19122,7 @@ function updateAgentDefinitionDraft(patch) {
     : normalizeGlobalAgentDefinitionDraft(selectedGlobalAgent() || {}, 0);
   state.agentDefinitionDraft = normalizeGlobalAgentDefinitionDraft({ ...current, ...patch }, 0);
   state.ui.agentDefinitionDirty = true;
-  renderWorkspaceWorkbench();
+  preserveActiveInput(() => renderWorkspaceWorkbench());
 }
 
 function newGlobalAgentDraft() {
@@ -19090,7 +19239,7 @@ function updateToolDefinitionDraft(patch) {
     : normalizeGlobalToolDefinitionDraft(selectedGlobalTool() || {}, 0);
   state.toolDefinitionDraft = normalizeGlobalToolDefinitionDraft({ ...current, ...patch }, 0);
   state.ui.toolDefinitionDirty = true;
-  renderWorkspaceWorkbench();
+  preserveActiveInput(() => renderWorkspaceWorkbench());
 }
 
 function newGlobalToolDraft() {
@@ -19161,15 +19310,104 @@ async function deleteGlobalToolDefinition() {
 async function saveManageProviderProfile() {
   const profile = selectedProviderProfile();
   if (!profile) {
-    setWorkspaceManageMessage("先新增或选择一个 Provider Profile。", true);
+    state.ui.providerTestResult = { text: "先新增或选择一个 Provider Profile。", isError: true, models: [] };
+    renderManageAiModule();
     return;
   }
+  if (!providerProfileIsValid(profile)) {
+    state.ui.providerTestResult = { text: "✗ 必填项未填全（标红的：显示名 / 厂商 / Base URL / Model / API Key），无法保存。", isError: true, models: [] };
+    renderManageAiModule();
+    return;
+  }
+  clearTimeout(state._providerProfileSaveTimeout);
+  state._providerProfileSaveTimeout = 0;
   try {
     await saveProviderProfile(profile, { forceCreate: Boolean(profile.is_new) });
-    setWorkspaceManageMessage("Provider Profile 已保存。");
+    state.ui.providerTestResult = { text: "✓ Provider Profile 已保存。", isError: false, models: [] };
+    renderManageAiModule();
   } catch (error) {
-    setWorkspaceManageMessage(error.message, true);
+    state.ui.providerTestResult = { text: `✗ 保存失败：${error.message || error}`, isError: true, models: [] };
+    renderManageAiModule();
   }
+}
+
+async function testManageProviderProfile() {
+  const profile = selectedProviderProfile();
+  if (!profile) {
+    state.ui.providerTestResult = { text: "先新增或选择一个 Provider Profile。", isError: true, models: [] };
+    renderManageAiModule();
+    return;
+  }
+  state.ui.providerTestResult = { text: "正在测试连接…", isError: false, models: [] };
+  renderManageAiModule();
+  const body = profile.api_key
+    ? { provider: profile.vendor, base_url: profile.base_url, api_key: profile.api_key, model: profile.model }
+    : { profile_id: profile.id, model: profile.model };
+  try {
+    const res = await fetchJson("/api/provider-profiles/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const t = res.test || {};
+    const models = Array.isArray(t.available_models) ? t.available_models : [];
+    state.ui.providerTestResult = t.success
+      ? { text: `✓ 连接成功 · ${t.provider || ""} ${t.model || ""} · ${t.latency_ms || 0}ms · ${t.total_tokens || 0} tokens`, isError: false, models }
+      : { text: `✗ 连接失败 · ${t.base_url || ""} · ${t.error || "未知错误"}${models.length ? "（下方可点选正确模型）" : ""}`, isError: true, models };
+  } catch (error) {
+    state.ui.providerTestResult = { text: `✗ 测试请求失败：${error.message || error}`, isError: true, models: [] };
+  }
+  renderManageAiModule();
+}
+
+async function fetchProviderModels() {
+  const profile = selectedProviderProfile();
+  if (!profile) return;
+  state.ui.providerTestResult = { text: "正在拉取模型列表…", isError: false, models: [] };
+  renderManageAiModule();
+  const body = profile.api_key
+    ? { provider: profile.vendor, base_url: profile.base_url, api_key: profile.api_key }
+    : { profile_id: profile.id };
+  try {
+    const res = await fetchJson("/api/provider-profiles/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const m = res.models || {};
+    const models = Array.isArray(m.models) ? m.models : [];
+    state.ui.providerAvailableModels = models;
+    state.ui.providerTestResult = models.length
+      ? { text: `✓ 拉取到 ${models.length} 个模型，点下面模型名填入，或直接编辑 Model 字段。`, isError: false, models }
+      : { text: `✗ 没拉到模型 · ${m.base_url || ""} · ${m.error || "端点可能不支持 /models，请手动填模型名"}`, isError: true, models: [] };
+  } catch (error) {
+    state.ui.providerTestResult = { text: `✗ 拉取失败：${error.message || error}`, isError: true, models: [] };
+  }
+  renderManageAiModule();
+}
+
+async function testProviderConnectionFromEditor() {
+  const profile = selectedProviderProfile();
+  if (!profile) return;
+  state.ui.providerTestResult = { text: "正在测试连接…", isError: false };
+  renderWorkspaceModel();
+  const body = profile.api_key
+    ? { provider: profile.vendor, base_url: profile.base_url, api_key: profile.api_key, model: profile.model }
+    : { profile_id: profile.id, model: profile.model };
+  try {
+    const res = await fetchJson("/api/provider-profiles/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const t = res.test || {};
+    state.ui.providerTestResult = t.success
+      ? { text: `✓ 连接成功 · ${t.provider || ""} ${t.model || ""} · ${t.latency_ms || 0}ms · ${t.total_tokens || 0} tokens`, isError: false }
+      : { text: `✗ 连接失败 · ${t.base_url || ""} · ${t.error || "未知错误"}`, isError: true };
+  } catch (error) {
+    state.ui.providerTestResult = { text: `✗ 测试请求失败：${error.message || error}`, isError: true };
+  }
+  renderWorkspaceModel();
 }
 
 async function deleteManageProviderProfile() {
@@ -19185,20 +19423,16 @@ async function deleteManageProviderProfile() {
 }
 
 function addManageProviderProfile() {
+  // Local draft only — no prefilled defaults, not POSTed until valid/saved.
   const profile = normalizeProviderProfile({
     id: makeClientId("provider"),
-    label: `Profile ${state.providerProfiles.length + 1}`,
-    vendor: "openai",
-    base_url: "",
-    model: "",
-    api_key: "",
     is_new: true,
   }, state.providerProfiles.length);
-  profile.is_new = true;
   state.providerProfiles.unshift(profile);
   state.selectedProviderProfileId = profile.id;
+  state.ui.providerTestResult = null;
   saveStoredValue(STORAGE_KEYS.selectedProviderProfile, profile.id);
-  renderWorkspaceWorkbench();
+  renderManageAiModule();
 }
 
 function upsertWorkspaceInState(workspace) {
@@ -19529,7 +19763,7 @@ function updateSelectedWorkspaceAgent(updater) {
     state.workspaceAgentDebug.result = null;
     state.workspaceAgentDebug.error = "";
   }
-  renderWorkspacePanels();
+  preserveActiveInput(() => renderWorkspacePanels());
 }
 
 function addWorkspaceAgent() {
@@ -19642,36 +19876,38 @@ function updateSelectedProviderProfile(updater) {
   const current = state.providerProfiles[index];
   const next = typeof updater === "function" ? updater(deepClone(current, current)) : { ...current, ...updater };
   state.providerProfiles.splice(index, 1, normalizeProviderProfile(next, index));
-  renderWorkspaceModel();
-  renderWorkspaceWorkbench();
-  // Debounce save to API
+  preserveActiveInput(() => {
+    renderWorkspaceModel();
+    renderWorkspaceWorkbench();
+    renderManageAiModule();
+  });
+  // Auto-save only when the profile is complete — clearing required fields
+  // keeps the change as an in-memory draft instead of clobbering the saved one.
   clearTimeout(state._providerProfileSaveTimeout);
-  state._providerProfileSaveTimeout = setTimeout(() => {
-    saveProviderProfile(next).catch((err) => {
-      console.error("Failed to save provider profile:", err);
-    });
-  }, 500);
+  if (providerProfileIsValid(next)) {
+    state._providerProfileSaveTimeout = setTimeout(() => {
+      saveProviderProfile(next).catch((err) => {
+        console.error("Failed to save provider profile:", err);
+      });
+    }, 800);
+  }
 }
 
 function addProviderProfile() {
+  // New profile is a local draft (is_new) — not POSTed until it's valid
+  // (auto-save) or the user clicks 保存. Avoids creating empty profiles.
   const profile = normalizeProviderProfile({
     id: makeClientId("provider"),
-    label: `Profile ${state.providerProfiles.length + 1}`,
-    vendor: "openai",
-    base_url: "",
-    model: "",
-    api_key: "",
     is_new: true,
   }, state.providerProfiles.length);
   state.providerProfiles.push(profile);
   state.selectedProviderProfileId = profile.id;
+  state.ui.providerTestResult = null;
   saveStoredValue(STORAGE_KEYS.selectedProviderProfile, profile.id);
-  // Create in backend
-  saveProviderProfile(profile, { forceCreate: true }).catch((err) => {
-    console.error("Failed to save provider profile:", err);
-    setWorkspaceMessage("保存 Provider Profile 失败: " + err.message, true);
+  preserveActiveInput(() => {
+    renderWorkspaceModel();
+    renderManageAiModule();
   });
-  renderWorkspaceModel();
 }
 
 async function removeProviderProfile(profileId) {
@@ -22659,14 +22895,14 @@ function bindEvents() {
     const renderOnlyFields = ["name", "references", "tags", "status", "notes"];
     if (syncNodeFields.includes(field)) {
       syncWorkspaceNodesFromForm();
-      renderWorkspacePanels();
+      preserveActiveInput(() => renderWorkspacePanels());
       return;
     }
     if (renderOnlyFields.includes(field)) {
-      renderWorkspacePanels();
+      preserveActiveInput(() => renderWorkspacePanels());
       return;
     }
-    renderWorkspaceHeader();
+    preserveActiveInput(() => renderWorkspaceHeader());
   });
   $("workspaceSourceType")?.addEventListener("change", () => {
     toggleWorkspaceSourceFields();
@@ -23003,10 +23239,20 @@ function bindEvents() {
       return;
     }
     if (target.matches("[data-manage-provider-field]")) {
-      updateSelectedProviderProfile((profile) => ({
-        ...profile,
-        [target.dataset.manageProviderField]: target.value || "",
-      }));
+      const key = target.dataset.manageProviderField;
+      // Switching vendor auto-fills Base URL when it's empty or still a preset,
+      // so the user doesn't end up with a mismatched endpoint (e.g. /anthropic).
+      if (key === "vendor") {
+        updateSelectedProviderProfile((profile) => {
+          const next = { ...profile, vendor: target.value || "" };
+          if (baseUrlIsVendorDefault(profile.base_url)) {
+            next.base_url = vendorDefaultBaseUrl(target.value);
+          }
+          return next;
+        });
+        return;
+      }
+      updateSelectedProviderProfile((profile) => ({ ...profile, [key]: target.value || "" }));
     }
   });
   $("manageAiEditor")?.addEventListener("click", (event) => {
@@ -23014,6 +23260,17 @@ function bindEvents() {
     if (!button) return;
     if (button.dataset.action === "save-provider-profile") {
       void saveManageProviderProfile();
+    } else if (button.dataset.action === "test-provider-profile") {
+      void testManageProviderProfile();
+    } else if (button.dataset.action === "fetch-provider-models") {
+      void fetchProviderModels();
+    } else if (button.dataset.action === "pick-provider-model") {
+      event.preventDefault();
+      const model = button.dataset.model || "";
+      if (model) updateSelectedProviderProfile((profile) => ({ ...profile, model }));
+    } else if (button.dataset.action === "toggle-provider-key-visibility") {
+      state.ui.providerKeyVisible = !state.ui.providerKeyVisible;
+      renderManageAiModule();
     } else if (button.dataset.action === "delete-provider-profile-manage") {
       void deleteManageProviderProfile();
     } else if (button.dataset.action === "save-template-routing") {
@@ -23193,13 +23450,33 @@ function bindEvents() {
     if (button?.dataset.profileId) selectProviderProfile(button.dataset.profileId);
   });
   $("providerProfileEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='remove-provider-profile']");
-    if (button?.dataset.profileId) removeProviderProfile(button.dataset.profileId);
+    const action = event.target.closest("[data-action]");
+    if (!action) return;
+    if (action.dataset.action === "remove-provider-profile" && action.dataset.profileId) {
+      removeProviderProfile(action.dataset.profileId);
+    } else if (action.dataset.action === "test-provider-profile") {
+      void testProviderConnectionFromEditor();
+    } else if (action.dataset.action === "toggle-provider-key-visibility") {
+      state.ui.providerKeyVisible = !state.ui.providerKeyVisible;
+      renderWorkspaceModel();
+    }
   });
   const handleProviderField = (event) => {
     const target = event.target;
     if (!target.matches("[data-provider-field]")) return;
     const key = target.dataset.providerField;
+    // Switching vendor auto-fills Base URL when it's empty or still a preset,
+    // so the user doesn't end up with a mismatched endpoint.
+    if (key === "vendor") {
+      updateSelectedProviderProfile((profile) => {
+        const next = { ...profile, vendor: target.value || "" };
+        if (baseUrlIsVendorDefault(profile.base_url)) {
+          next.base_url = vendorDefaultBaseUrl(target.value);
+        }
+        return next;
+      });
+      return;
+    }
     updateSelectedProviderProfile((profile) => ({
       ...profile,
       [key]: target.value,

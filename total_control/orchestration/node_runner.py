@@ -139,4 +139,13 @@ def run_agent_node(
         detail="agent node executed" if success else str(execution.get("error") or "agent execution failed"),
         agent_execution_id=str(execution.get("id") or "") if isinstance(execution, dict) else "",
         agent_steps=[item for item in agent_steps if isinstance(item, dict)],
+        validation=execution.get("output_validation") if isinstance(execution, dict) and isinstance(execution.get("output_validation"), dict) else {},
+        timed_out=bool(execution.get("timed_out")) if isinstance(execution, dict) else False,
+        cancelled=bool(execution.get("cancelled")) if isinstance(execution, dict) else False,
+        agent_meta={
+            "model": str(execution.get("model") or "").strip(),
+            "total_tokens": int(execution.get("total_tokens") or 0),
+            "execution_time_ms": round(float(execution.get("execution_time_ms") or 0), 1),
+            "max_iterations": int(execution.get("max_iterations") or 0),
+        } if isinstance(execution, dict) else {},
     )

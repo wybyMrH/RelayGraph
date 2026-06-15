@@ -69,9 +69,31 @@ class LLMClient:
             if self.provider == "openai":
                 self.base_url = "https://api.openai.com/v1"
             elif self.provider == "deepseek":
-                self.base_url = "https://api.deepseek.com/v1"
+                self.base_url = "https://api.deepseek.com"
             elif self.provider == "anthropic":
                 self.base_url = "https://api.anthropic.com/v1"
+            elif self.provider == "google":
+                self.base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+            elif self.provider == "groq":
+                self.base_url = "https://api.groq.com/openai/v1"
+            elif self.provider == "mistral":
+                self.base_url = "https://api.mistral.ai/v1"
+            elif self.provider == "qwen":
+                self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            elif self.provider == "zhipu":
+                self.base_url = "https://open.bigmodel.cn/api/paas/v4"
+            elif self.provider == "moonshot":
+                self.base_url = "https://api.moonshot.cn/v1"
+            elif self.provider == "baichuan":
+                self.base_url = "https://api.baichuan-ai.com/v1"
+            elif self.provider == "minimax":
+                self.base_url = "https://api.minimax.chat/v1"
+            elif self.provider == "yi":
+                self.base_url = "https://api.01.ai/v1"
+            elif self.provider == "siliconflow":
+                self.base_url = "https://api.siliconflow.cn/v1"
+            elif self.provider == "openrouter":
+                self.base_url = "https://openrouter.ai/api/v1"
 
     def _headers(self) -> dict[str, str]:
         """Get API headers for the provider."""
@@ -262,6 +284,28 @@ class LLMClient:
                 provider=self.provider,
                 error=f"Error: {str(e)}",
             )
+
+    def list_models(self) -> dict[str, Any]:
+        """GET /models to discover available model ids (OpenAI-compatible).
+
+        Returns ``{success, models: [...], error}``. Anthropic has no /models
+        list endpoint, so callers should treat an empty list + success as
+        "endpoint reachable but no model list".
+        """
+        if self.provider == "anthropic":
+            return {"success": True, "models": [], "error": "anthropic 无 /models 列表端点"}
+        url = f"{self.base_url}/models"
+        try:
+            req = urllib.request.Request(url, headers=self._headers(), method="GET")
+            with urllib.request.urlopen(req, timeout=15) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            items = data.get("data") if isinstance(data, dict) else data
+            models = [str(item.get("id")) for item in (items or []) if isinstance(item, dict) and item.get("id")]
+            return {"success": True, "models": models, "error": ""}
+        except urllib.error.HTTPError as e:
+            return {"success": False, "models": [], "error": f"HTTP {e.code}"}
+        except Exception as e:
+            return {"success": False, "models": [], "error": f"Error: {str(e)}"}
 
     def chat_stream(
         self,

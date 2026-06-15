@@ -39,16 +39,19 @@ WORKSPACE_NODE_IO_CONTRACTS: dict[str, dict[str, Any]] = {
     "repo.inspect": {
         "inputs": ["repo_checkout", "path_map"],
         "output_key": "repo_profile",
+        "output_format": "json",
         "evidence": "入口脚本、依赖文件、默认参数和结果目录",
     },
     "dataset.find": {
         "inputs": ["paper_context", "repo_profile", "数据集 / 路径线索"],
         "output_key": "dataset_profile",
+        "output_format": "json",
         "evidence": "数据集名称、本地路径候选和结构要求",
     },
     "env.infer": {
         "inputs": ["repo_profile", "path_map"],
         "output_key": "env_requirements",
+        "output_format": "json",
         "evidence": "Python/CUDA/依赖文件和安装建议",
     },
     "env.prepare": {
@@ -74,6 +77,7 @@ WORKSPACE_NODE_IO_CONTRACTS: dict[str, dict[str, Any]] = {
     "eval.report": {
         "inputs": ["artifact_manifest", "run_result"],
         "output_key": "evaluation_report",
+        "output_format": "json",
         "evidence": "指标、结论、失败原因和下一步建议",
     },
 }

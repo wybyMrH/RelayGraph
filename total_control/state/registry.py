@@ -212,6 +212,49 @@ class RegistryMixin:
         return {"provider_profiles": items}
 
 
+    def list_provider_catalog(self) -> dict[str, Any]:
+        """List known vendor presets so a profile can be created from a pick + key."""
+        return {"provider_catalog": copy.deepcopy(PROVIDER_CATALOG)}
+
+
+    def create_provider_profile_from_catalog(
+        self,
+        vendor_id: str,
+        *,
+        api_key: str = "",
+        name: str = "",
+        models: list[Any] | None = None,
+        is_default: bool = False,
+    ) -> dict[str, Any]:
+        """Materialize a provider profile from a catalogue vendor + API key.
+
+        Falls back to a non-empty sentinel key for local/no-key vendors
+        (e.g. Ollama) so LLMClient's empty-key guard does not block them.
+        """
+        vendor = provider_catalog_by_id(vendor_id)
+        if not vendor:
+            raise ValueError(f"unknown provider catalog vendor: {vendor_id or '(empty)'}")
+        key_required = bool(vendor.get("key_required", True))
+        resolved_key = str(api_key or "").strip()
+        if key_required and not resolved_key:
+            raise ValueError(f"vendor {vendor_id} requires an api_key")
+        if not resolved_key:
+            resolved_key = "sk-no-key-required"
+
+        profile_models = models if isinstance(models, list) else list(vendor.get("models") or [])
+        profile_name = str(name or "").strip() or str(vendor.get("name") or vendor_id).strip()
+        payload = {
+            "id": str(uuid.uuid4().hex[:10]),
+            "name": profile_name,
+            "provider": str(vendor.get("provider") or "openai").strip(),
+            "base_url": str(vendor.get("base_url") or "").strip(),
+            "api_key": resolved_key,
+            "models": profile_models,
+            "is_default": bool(is_default),
+        }
+        return self.create_provider_profile(payload)
+
+
     def create_provider_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Create a new provider profile."""
         profile_id = str(payload.get("id") or uuid.uuid4().hex[:8]).strip()
@@ -225,25 +268,39 @@ class RegistryMixin:
         if not name:
             name = f"{provider.title()} Profile"
 
-        profile: dict[str, Any] = {
-            "id": profile_id,
-            "name": name,
-            "provider": provider,
-            "base_url": base_url,
-            "api_key": api_key,
-            "models": models,
-            "is_default": is_default,
-            "created_at": now_iso(),
-            "updated_at": now_iso(),
-        }
-
-        # If this is default, unset other defaults
-        if is_default:
-            for p in self.provider_profiles:
-                p["is_default"] = False
-
         with self.lock:
-            self.provider_profiles.append(profile)
+            existing_profiles = [
+                item for item in self.provider_profiles
+                if isinstance(item, dict) and str(item.get("id") or "").strip() == profile_id
+            ]
+            existing = existing_profiles[-1] if existing_profiles else {}
+            resolved_api_key = api_key or str(existing.get("api_key") or "").strip()
+            created_at = str(existing.get("created_at") or now_iso()).strip() or now_iso()
+            profile: dict[str, Any] = {
+                "id": profile_id,
+                "name": name,
+                "provider": provider,
+                "base_url": base_url,
+                "api_key": resolved_api_key,
+                "models": models,
+                "is_default": is_default,
+                "created_at": created_at,
+                "updated_at": now_iso(),
+            }
+
+            updated_profiles: list[dict[str, Any]] = []
+            for item in self.provider_profiles:
+                if not isinstance(item, dict):
+                    continue
+                item_id = str(item.get("id") or "").strip()
+                if item_id == profile_id:
+                    continue
+                if is_default:
+                    item = dict(item)
+                    item["is_default"] = False
+                updated_profiles.append(item)
+            updated_profiles.append(profile)
+            self.provider_profiles = updated_profiles
         self.save_provider_profiles()
 
         # Return masked version
@@ -252,6 +309,96 @@ class RegistryMixin:
             result["api_key_masked"] = result["api_key"][:8] + "..." + result["api_key"][-4:] if len(result["api_key"]) > 12 else "***"
             del result["api_key"]
         return result
+
+
+    def test_provider_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Ping a provider endpoint with a 1-token request to verify the link.
+
+        Accepts either a saved ``profile_id`` or raw ``{provider, base_url,
+        api_key, model}`` values so a draft can be tested before saving.
+        """
+        profile_id = str(payload.get("profile_id") or "").strip()
+        if profile_id:
+            with self.lock:
+                saved = self.provider_profile_by_id(profile_id)
+                profile = copy.deepcopy(saved) if saved else None
+        else:
+            model = str(payload.get("model") or "").strip()
+            profile = {
+                "id": "test",
+                "provider": str(payload.get("provider") or payload.get("vendor") or "openai").strip(),
+                "base_url": str(payload.get("base_url") or "").strip(),
+                "api_key": str(payload.get("api_key") or "").strip(),
+                "models": [model] if model else [],
+            }
+        if not profile:
+            return {"success": False, "error": "provider profile not found", "model": ""}
+        client = LLMClient(profile)
+        if not client.api_key:
+            return {
+                "success": False,
+                "error": "API key not configured",
+                "provider": client.provider,
+                "base_url": client.base_url,
+                "model": "",
+            }
+        model = (client.models[0] if client.models else "") or str(payload.get("model") or "").strip()
+        response = client.chat(
+            [ChatMessage(role="user", content="ping")],
+            model=model or None,
+            max_tokens=8,
+            timeout=15,
+        )
+        # If the chat ping failed (often a bad/unknown model name), still report
+        # connectivity via /models so the user can pick a valid model.
+        models: list[str] = []
+        models_error = ""
+        if not response.success:
+            listed = client.list_models()
+            models = listed.get("models") or []
+            models_error = listed.get("error") or ""
+        return {
+            "success": response.success,
+            "provider": client.provider,
+            "base_url": client.base_url,
+            "model": response.model or model,
+            "latency_ms": round(float(response.latency_ms or 0), 1),
+            "total_tokens": response.total_tokens,
+            "content_preview": (response.content or "")[:120],
+            "error": response.error,
+            "available_models": models,
+            "models_error": models_error,
+        }
+
+    def list_provider_models(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """List available model ids from a provider endpoint (GET /models)."""
+        profile_id = str(payload.get("profile_id") or "").strip()
+        if profile_id:
+            with self.lock:
+                saved = self.provider_profile_by_id(profile_id)
+                profile = copy.deepcopy(saved) if saved else None
+        else:
+            model = str(payload.get("model") or "").strip()
+            profile = {
+                "id": "models",
+                "provider": str(payload.get("provider") or payload.get("vendor") or "openai").strip(),
+                "base_url": str(payload.get("base_url") or "").strip(),
+                "api_key": str(payload.get("api_key") or "").strip(),
+                "models": [model] if model else [],
+            }
+        if not profile:
+            return {"success": False, "models": [], "error": "provider profile not found"}
+        client = LLMClient(profile)
+        if not client.api_key:
+            return {"success": False, "models": [], "error": "API key not configured"}
+        result = client.list_models()
+        return {
+            "success": bool(result.get("success")),
+            "models": list(result.get("models") or []),
+            "provider": client.provider,
+            "base_url": client.base_url,
+            "error": result.get("error") or "",
+        }
 
 
     def update_provider_profile(self, profile_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -296,8 +443,12 @@ class RegistryMixin:
         """Delete a provider profile."""
         profile_id = str(profile_id or "").strip()
         with self.lock:
-            index = next((idx for idx, item in enumerate(self.provider_profiles) if item.get("id") == profile_id), -1)
-            if index < 0:
+            original_count = len(self.provider_profiles)
+            self.provider_profiles = [
+                item
+                for item in self.provider_profiles
+                if not (isinstance(item, dict) and str(item.get("id") or "").strip() == profile_id)
+            ]
+            if len(self.provider_profiles) == original_count:
                 raise ValueError("provider profile not found")
-            del self.provider_profiles[index]
         self.save_provider_profiles()

@@ -17,6 +17,10 @@ class StepResult:
     detail: str = ""
     skipped: bool = False
     reason: str = ""
+    validation: dict[str, Any] = field(default_factory=dict)
+    timed_out: bool = False
+    cancelled: bool = False
+    agent_meta: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -37,6 +41,14 @@ class StepResult:
             payload["agent_steps"] = list(self.agent_steps)
         if self.reason:
             payload["reason"] = self.reason
+        if self.validation:
+            payload["validation"] = dict(self.validation)
+        if self.timed_out:
+            payload["timed_out"] = True
+        if self.cancelled:
+            payload["cancelled"] = True
+        if self.agent_meta:
+            payload["agent_meta"] = dict(self.agent_meta)
         return payload
 
 

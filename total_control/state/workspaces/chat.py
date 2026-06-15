@@ -84,6 +84,9 @@ class ChatMixin:
                         runtime=self.workspace_tool_runtime(preview_workspace),
                     )
                     execution_id = make_agent_execution_id()
+                    cancel_check = register_agent_cancel(execution_id)
+                    chat_timeout_raw = agent.get("timeout_seconds")
+                    chat_timeout = float(chat_timeout_raw) if chat_timeout_raw not in (None, "") and safe_int(chat_timeout_raw, 0) > 0 else None
 
                     def on_agent_step(step: Any) -> None:
                         step_payload = step.to_dict() if hasattr(step, "to_dict") else step
@@ -104,6 +107,8 @@ class ChatMixin:
                         tools=allowed_tools,
                         tool_executor=tool_executor,
                         step_callback=on_agent_step,
+                        timeout_seconds=chat_timeout,
+                        cancel_check=cancel_check,
                     )
 
                     # Build context from chat history
@@ -114,11 +119,14 @@ class ChatMixin:
                         if msg_text:
                             chat_context.append(f"{msg_role}: {msg_text}")
 
-                    execution_result = executor.run(text, context={
-                        "workspace_id": workspace_id,
-                        "workspace_name": preview_workspace.get("name", ""),
-                        "chat_history": chat_context,
-                    })
+                    try:
+                        execution_result = executor.run(text, context={
+                            "workspace_id": workspace_id,
+                            "workspace_name": preview_workspace.get("name", ""),
+                            "chat_history": chat_context,
+                        })
+                    finally:
+                        release_agent_cancel(execution_id)
 
                     if execution_result.success:
                         reply_text = execution_result.final_answer
@@ -359,6 +367,9 @@ class ChatMixin:
                         runtime=self.workspace_tool_runtime(preview_workspace),
                     )
                     execution_id = make_agent_execution_id()
+                    cancel_check = register_agent_cancel(execution_id)
+                    chat_timeout_raw = agent.get("timeout_seconds")
+                    chat_timeout = float(chat_timeout_raw) if chat_timeout_raw not in (None, "") and safe_int(chat_timeout_raw, 0) > 0 else None
 
                     def on_agent_step(step: Any) -> None:
                         step_payload = step.to_dict() if hasattr(step, "to_dict") else step
@@ -397,6 +408,8 @@ class ChatMixin:
                         tool_executor=tool_executor,
                         step_callback=on_agent_step,
                         token_callback=on_agent_delta,
+                        timeout_seconds=chat_timeout,
+                        cancel_check=cancel_check,
                     )
                     chat_context = []
                     for msg in chat[-10:]:
@@ -404,14 +417,17 @@ class ChatMixin:
                         msg_text = str(msg.get("text") or "")
                         if msg_text:
                             chat_context.append(f"{msg_role}: {msg_text}")
-                    execution_result = executor.run(
-                        text,
-                        context={
-                            "workspace_id": workspace_id,
-                            "workspace_name": preview_workspace.get("name", ""),
-                            "chat_history": chat_context,
-                        },
-                    )
+                    try:
+                        execution_result = executor.run(
+                            text,
+                            context={
+                                "workspace_id": workspace_id,
+                                "workspace_name": preview_workspace.get("name", ""),
+                                "chat_history": chat_context,
+                            },
+                        )
+                    finally:
+                        release_agent_cancel(execution_id)
                     execution_info = execution_result.to_dict()
                     execution_info["id"] = execution_id
                     self.publish_event(

@@ -30,6 +30,29 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         profile = state.create_provider_profile(handler.read_body())
         handler.send_json({"provider_profile": profile}, HTTPStatus.CREATED)
         return True
+    if parsed.path == "/api/provider-profiles/from-catalog":
+        body = handler.read_body()
+        try:
+            profile = state.create_provider_profile_from_catalog(
+                str(body.get("vendor_id") or body.get("id") or "").strip(),
+                api_key=str(body.get("api_key") or "").strip(),
+                name=str(body.get("name") or "").strip(),
+                models=body.get("models") if isinstance(body.get("models"), list) else None,
+                is_default=bool(body.get("is_default")),
+            )
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return True
+        handler.send_json({"provider_profile": profile}, HTTPStatus.CREATED)
+        return True
+    if parsed.path == "/api/provider-profiles/test":
+        result = state.test_provider_profile(handler.read_body())
+        handler.send_json({"test": result})
+        return True
+    if parsed.path == "/api/provider-profiles/models":
+        result = state.list_provider_models(handler.read_body())
+        handler.send_json({"models": result})
+        return True
     if parsed.path == "/api/jobs":
         job = state.create_job(handler.read_body())
         handler.send_json({"job": job}, HTTPStatus.CREATED)
@@ -73,6 +96,12 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         job_id = parsed.path.split("/")[3]
         job = state.retry_job(job_id)
         handler.send_json({"job": job}, HTTPStatus.CREATED)
+        return True
+    if parsed.path.startswith("/api/agent-executions/") and parsed.path.endswith("/cancel"):
+        execution_id = parsed.path.split("/")[3]
+        result = state.cancel_agent_execution(execution_id)
+        status = HTTPStatus.OK if result.get("cancelled") else HTTPStatus.NOT_FOUND
+        handler.send_json(result, status)
         return True
     if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/copy"):
         job_id = parsed.path.split("/")[3]

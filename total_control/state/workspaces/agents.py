@@ -5,6 +5,15 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 
 class AgentsMixin:
+    def cancel_agent_execution(self, execution_id: str) -> dict[str, Any]:
+        """Signal a running agent execution to abort on its next iteration."""
+        active = cancel_agent_run(str(execution_id or "").strip())
+        return {
+            "agent_execution_id": str(execution_id or "").strip(),
+            "cancelled": active,
+            "active": agent_run_is_active(str(execution_id or "").strip()),
+        }
+
     def workspace_tool_runtime(self, workspace: dict[str, Any]) -> dict[str, Any]:
         return {
             "submit_job": lambda tool_id, arguments, context: self.submit_workspace_tool_job(
@@ -476,6 +485,7 @@ class AgentsMixin:
         output_key: str = "",
         output_format: str = "",
         max_iterations: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> dict[str, Any]:
         workspace_id = str(workspace.get("id") or "").strip()
         tools = normalize_workspace_tools(workspace.get("tools"), existing=workspace.get("tools"))
@@ -524,6 +534,7 @@ class AgentsMixin:
         if max_iterations is not None:
             agent_config = {**agent_config, "max_iterations": max_iterations}
         execution_id = make_agent_execution_id()
+        cancel_check = register_agent_cancel(execution_id)
 
         def on_agent_step(step: Any) -> None:
             step_payload = step.to_dict() if hasattr(step, "to_dict") else step
@@ -563,6 +574,8 @@ class AgentsMixin:
             tool_executor=tool_executor,
             step_callback=on_agent_step,
             token_callback=on_agent_delta,
+            timeout_seconds=timeout_seconds,
+            cancel_check=cancel_check,
         )
         node_kind = str(requested_node_kind or (node or {}).get("kind") or "").strip()
         handler = (node or {}).get("handler") if isinstance((node or {}).get("handler"), dict) else {}
@@ -570,21 +583,30 @@ class AgentsMixin:
         effective_output_format = str(
             output_format or handler.get("output_format") or (node or {}).get("output_format") or ""
         ).strip()
-        execution_result = executor.run(
-            input_text,
-            context={
-                "workspace_id": workspace_id,
-                "workspace_name": workspace.get("name", ""),
-                "source_type": (workspace.get("source") or {}).get("type", "") if isinstance(workspace.get("source"), dict) else "",
-                "node_kind": node_kind,
-                "output_key": effective_output_key,
-                "output_format": effective_output_format,
-                "node_goal": str((node or {}).get("title") or node_kind or "").strip(),
-                "mapped_inputs": mapped_inputs if isinstance(mapped_inputs, dict) else {},
-            },
-        )
+        try:
+            execution_result = executor.run(
+                input_text,
+                context={
+                    "workspace_id": workspace_id,
+                    "workspace_name": workspace.get("name", ""),
+                    "source_type": (workspace.get("source") or {}).get("type", "") if isinstance(workspace.get("source"), dict) else "",
+                    "node_kind": node_kind,
+                    "output_key": effective_output_key,
+                    "output_format": effective_output_format,
+                    "node_goal": str((node or {}).get("title") or node_kind or "").strip(),
+                    "mapped_inputs": mapped_inputs if isinstance(mapped_inputs, dict) else {},
+                },
+            )
+        finally:
+            release_agent_cancel(execution_id)
         result = execution_result.to_dict()
         result["id"] = execution_id
+        validation = validate_agent_output(
+            output_key=effective_output_key,
+            output_format=effective_output_format,
+            final_answer=execution_result.final_answer,
+        )
+        result["output_validation"] = validation
         if execution_result.success and isinstance(node, dict):
             if effective_output_key and not collect_agent_step_output(workspace, node, output_key=effective_output_key)[1]:
                 apply_final_answer_output(
@@ -593,6 +615,7 @@ class AgentsMixin:
                     output_key=effective_output_key,
                     final_answer=execution_result.final_answer,
                     output_format=effective_output_format,
+                    validation=validation,
                 )
             artifacts, output_value = collect_agent_step_output(workspace, node, output_key=effective_output_key)
             result["artifacts"] = artifacts
@@ -631,6 +654,10 @@ class AgentsMixin:
         max_iterations = safe_int(max_iterations_raw, 0) if max_iterations_raw not in (None, "") else None
         if max_iterations is not None and max_iterations <= 0:
             max_iterations = None
+        timeout_raw = handler.get("timeout_seconds")
+        if timeout_raw in (None, ""):
+            timeout_raw = node.get("timeout_seconds")
+        timeout_seconds = float(timeout_raw) if timeout_raw not in (None, "") and safe_int(timeout_raw, 0) > 0 else None
 
         with self.lock:
             current = self.workspace_by_id(workspace_id)
@@ -695,6 +722,7 @@ class AgentsMixin:
                 output_key=str(payload.get("output_key") or output_key or "").strip(),
                 output_format=output_format,
                 max_iterations=max_iterations,
+                timeout_seconds=timeout_seconds,
             )
             return {"execution": execution}
 

@@ -122,6 +122,18 @@ def workspace_run_step_status_from_job(job: dict[str, Any]) -> str:
         return "blocked"
     return "queued"
 
+def _normalize_agent_meta(payload: Any, current: Any) -> dict[str, Any]:
+    source = payload if isinstance(payload, dict) and payload else (current if isinstance(current, dict) else {})
+    if not source:
+        return {}
+    return {
+        "model": str(source.get("model") or "").strip(),
+        "total_tokens": safe_int(source.get("total_tokens"), 0),
+        "execution_time_ms": round(float(source.get("execution_time_ms") or 0), 1),
+        "max_iterations": safe_int(source.get("max_iterations"), 0),
+    }
+
+
 def normalize_workspace_run_step(
     value: Any,
     *,
@@ -133,6 +145,19 @@ def normalize_workspace_run_step(
     status = str(payload.get("status") or current.get("status") or "queued").strip() or "queued"
     payload_agent_steps = payload.get("agent_steps") if isinstance(payload.get("agent_steps"), list) else None
     payload_mapped_inputs = payload.get("mapped_inputs") if isinstance(payload.get("mapped_inputs"), list) else None
+    payload_validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else None
+    validation_source = payload_validation if payload_validation else (current.get("validation") if isinstance(current.get("validation"), dict) else {})
+    validation: dict[str, Any] = {}
+    if isinstance(validation_source, dict) and validation_source:
+        validation = {
+            "status": str(validation_source.get("status") or "ok").strip() or "ok",
+            "expected_format": str(validation_source.get("expected_format") or "").strip(),
+            "errors": [
+                str(item or "").strip()
+                for item in (validation_source.get("errors") or [])
+                if isinstance(item, str) and str(item or "").strip()
+            ][:4],
+        }
     return {
         "index": index,
         "node_id": str(payload.get("node_id") or current.get("node_id") or "").strip(),
@@ -151,6 +176,10 @@ def normalize_workspace_run_step(
             item for item in (payload_agent_steps if payload_agent_steps else (current.get("agent_steps") or []))
             if isinstance(item, dict)
         ][:24],
+        "validation": validation,
+        "timed_out": bool(payload.get("timed_out")) if payload.get("timed_out") is not None else bool(current.get("timed_out")),
+        "cancelled": bool(payload.get("cancelled")) if payload.get("cancelled") is not None else bool(current.get("cancelled")),
+        "agent_meta": _normalize_agent_meta(payload.get("agent_meta"), current.get("agent_meta")),
         "status": status,
         "started_at": str(payload.get("started_at") or current.get("started_at") or "").strip(),
         "completed_at": str(payload.get("completed_at") or current.get("completed_at") or "").strip(),
@@ -289,6 +318,8 @@ def workspace_run_step_from_agent(
     raw_status = str(payload.get("status") or "").strip()
     if payload.get("skipped"):
         step_status = "done"
+    elif payload.get("cancelled"):
+        step_status = "stopped"
     elif raw_status in {"completed", "warning"}:
         step_status = "done"
     elif raw_status == "failed":
@@ -301,6 +332,16 @@ def workspace_run_step_from_agent(
     mapped_inputs = payload.get("mapped_inputs") if isinstance(payload.get("mapped_inputs"), list) else []
     artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
     agent_steps = payload.get("agent_steps") if isinstance(payload.get("agent_steps"), list) else []
+    validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else {}
+    timed_out = bool(payload.get("timed_out"))
+    cancelled = bool(payload.get("cancelled"))
+    raw_meta = payload.get("agent_meta") if isinstance(payload.get("agent_meta"), dict) else {}
+    agent_meta = {
+        "model": str(raw_meta.get("model") or "").strip(),
+        "total_tokens": safe_int(raw_meta.get("total_tokens"), 0),
+        "execution_time_ms": round(float(raw_meta.get("execution_time_ms") or 0), 1),
+        "max_iterations": safe_int(raw_meta.get("max_iterations"), 0),
+    } if raw_meta else {}
     return normalize_workspace_run_step(
         {
             "index": index,
@@ -313,6 +354,10 @@ def workspace_run_step_from_agent(
             "artifact_count": len([item for item in artifacts if isinstance(item, dict)]),
             "mapped_inputs": [item for item in mapped_inputs if isinstance(item, dict)][:6],
             "agent_steps": [item for item in agent_steps if isinstance(item, dict)][:24],
+            "validation": validation,
+            "timed_out": timed_out,
+            "cancelled": cancelled,
+            "agent_meta": agent_meta,
             "status": step_status,
             "started_at": timestamp,
             "completed_at": timestamp,

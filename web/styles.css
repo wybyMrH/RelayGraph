@@ -5419,6 +5419,66 @@ textarea:focus {
   min-width: 0;
 }
 
+.provider-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-key-row > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.provider-key-toggle {
+  flex: 0 0 auto;
+}
+.provider-test-result {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  word-break: break-all;
+}
+.provider-test-result.ok {
+  background: var(--success-soft, rgba(46, 160, 67, 0.12));
+  color: var(--success, #2ea043);
+}
+.provider-test-result.error {
+  background: var(--danger-soft, rgba(248, 81, 73, 0.12));
+  color: var(--danger, #f85149);
+}
+
+.tool-policy-badge {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.tool-policy-badge.policy-read { background: rgba(110,118,129,0.18); color: #8b949e; }
+.tool-policy-badge.policy-config { background: rgba(56,139,253,0.18); color: #388bfd; }
+.tool-policy-badge.policy-runtime { background: rgba(187,128,9,0.18); color: #bb8009; }
+.tool-policy-badge.policy-dangerous { background: rgba(248,81,73,0.18); color: #f85149; }
+
+input.invalid, select.invalid, textarea.invalid {
+  border-color: #f85149 !important;
+  background: rgba(248, 81, 73, 0.06);
+}
+.provider-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider-model-row > input { flex: 1 1 auto; min-width: 0; }
+.provider-model-row > button { flex: 0 0 auto; }
+.provider-test-result a {
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 600;
+}
+
 .workspace-agent-debug-panel,
 .workspace-agent-debug-result,
 .workspace-agent-debug-blocks,

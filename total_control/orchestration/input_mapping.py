@@ -145,6 +145,79 @@ def build_agent_node_input_text(
     return "\n".join(instructions) + "\n\n" + body
 
 
+def expected_output_format(node: dict[str, Any], contract: dict[str, Any] | None = None) -> str:
+    handler = node.get("handler") if isinstance(node, dict) else {}
+    contract_format = contract.get("output_format") if isinstance(contract, dict) else ""
+    fmt = str(
+        handler.get("output_format")
+        or node.get("output_format")
+        or contract_format
+        or ""
+    ).strip().lower()
+    return fmt
+
+
+def _strip_json_fence(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        first_newline = stripped.find("\n")
+        stripped = stripped[first_newline + 1 :] if first_newline != -1 else stripped[3:]
+    if stripped.endswith("```"):
+        stripped = stripped[:-3]
+    return stripped.strip()
+
+
+def validate_agent_output(
+    *,
+    output_key: str,
+    output_format: str,
+    final_answer: str,
+) -> dict[str, Any]:
+    """Validate an Agent node's final answer against its output contract.
+
+    Returns ``{status, expected_format, parsed, errors}`` where status is one of
+    ``ok`` / ``warning`` / ``failed``. JSON contracts that fail to parse or
+    missing answers surface as non-ok so callers can record them instead of
+    silently accepting malformed output.
+    """
+    expected = str(output_format or "").strip().lower()
+    answer = str(final_answer or "").strip()
+    errors: list[str] = []
+    if not str(output_key or "").strip():
+        return {
+            "status": "failed",
+            "expected_format": expected,
+            "parsed": None,
+            "errors": ["节点缺少 output_key 契约，后续节点无法消费输出"],
+        }
+    if not answer:
+        return {
+            "status": "failed",
+            "expected_format": expected,
+            "parsed": None,
+            "errors": ["Agent 未产出最终答案"],
+        }
+    want_json = expected in {"json", "object"}
+    looks_json = answer.lstrip().startswith(("{", "["))
+    parsed: Any = None
+    if want_json:
+        try:
+            parsed = json.loads(_strip_json_fence(answer))
+        except json.JSONDecodeError as exc:
+            errors.append(f"output_format 要求 JSON，但最终答案解析失败：{exc.msg}")
+    elif looks_json:
+        try:
+            parsed = json.loads(_strip_json_fence(answer))
+        except json.JSONDecodeError:
+            parsed = None
+    return {
+        "status": "warning" if errors else "ok",
+        "expected_format": expected,
+        "parsed": parsed,
+        "errors": errors,
+    }
+
+
 def collect_agent_step_output(
     workspace: dict[str, Any],
     node: dict[str, Any],
@@ -192,6 +265,7 @@ def apply_final_answer_output(
     output_key: str,
     final_answer: str,
     output_format: str = "",
+    validation: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     normalized_key = str(output_key or "").strip()
     answer = str(final_answer or "").strip()
@@ -204,16 +278,18 @@ def apply_final_answer_output(
     if normalized_key in outputs:
         return None
 
-    parsed: Any = None
-    if output_format.strip().lower() in {"json", "object"} or answer.startswith("{") or answer.startswith("["):
-        try:
-            parsed = json.loads(answer)
-        except json.JSONDecodeError:
-            parsed = None
+    if validation is None:
+        validation = validate_agent_output(
+            output_key=normalized_key,
+            output_format=output_format,
+            final_answer=answer,
+        )
+    parsed = validation.get("parsed")
+    status = str(validation.get("status") or "ok").strip()
     content = json.dumps(parsed, ensure_ascii=False, indent=2) if parsed is not None else answer
     label = normalized_key.replace("_", " ").strip() or "output"
     path = f"artifacts/{normalized_key}.json" if parsed is not None else f"artifacts/{normalized_key}.txt"
-    return apply_artifact_write(
+    result = apply_artifact_write(
         workspace,
         node_id=str(node.get("id") or "").strip(),
         node_kind=str(node.get("kind") or "").strip(),
@@ -223,3 +299,10 @@ def apply_final_answer_output(
         output_key=normalized_key,
         artifact_type="json" if parsed is not None else "note",
     )
+    if status != "ok" and isinstance(result, dict):
+        result["validation"] = {
+            "status": status,
+            "expected_format": str(validation.get("expected_format") or "").strip(),
+            "errors": list(validation.get("errors") or []),
+        }
+    return result

@@ -2,6 +2,41 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 
+
+def _dedupe_provider_profiles(profiles: list[Any]) -> tuple[list[dict[str, Any]], bool]:
+    deduped: list[dict[str, Any]] = []
+    index_by_id: dict[str, int] = {}
+    changed = False
+    for item in profiles:
+        if not isinstance(item, dict):
+            changed = True
+            continue
+        profile = copy.deepcopy(item)
+        profile_id = str(profile.get("id") or "").strip()
+        if not profile_id:
+            deduped.append(profile)
+            continue
+        existing_index = index_by_id.get(profile_id)
+        if existing_index is None:
+            index_by_id[profile_id] = len(deduped)
+            deduped.append(profile)
+            continue
+        changed = True
+        merged = deduped[existing_index]
+        for key in ("name", "provider", "base_url", "created_at", "updated_at"):
+            value = str(profile.get(key) or "").strip()
+            if value:
+                merged[key] = value
+        if isinstance(profile.get("models"), list) and profile.get("models"):
+            merged["models"] = list(profile.get("models") or [])
+        if "is_default" in profile:
+            merged["is_default"] = bool(profile.get("is_default"))
+        api_key = str(profile.get("api_key") or "").strip()
+        if api_key:
+            merged["api_key"] = api_key
+    return deduped, changed
+
+
 class BaseMixin:
     def __init__(self, config_path: Path):
         self.config_path = config_path
@@ -46,6 +81,10 @@ class BaseMixin:
         self.workspaces: list[dict[str, Any]] = raw_workspaces if isinstance(raw_workspaces, list) else []
         raw_provider_profiles = read_json(PROVIDER_PROFILES_PATH, [])
         self.provider_profiles: list[dict[str, Any]] = raw_provider_profiles if isinstance(raw_provider_profiles, list) else []
+        for _profile in self.provider_profiles:
+            if isinstance(_profile, dict):
+                _profile["api_key"] = decrypt_secret(str(_profile.get("api_key") or ""))
+        self.provider_profiles, provider_profiles_deduped = _dedupe_provider_profiles(self.provider_profiles)
         self.next_queue_rank = 1
         self.terminals: dict[str, WebTerminal] = {}
         self.terminals_lock = threading.Lock()
@@ -60,6 +99,8 @@ class BaseMixin:
             write_json(AGENT_DEFINITIONS_PATH, self.agent_definitions)
         if not isinstance(raw_workflow_templates, list) or not raw_workflow_templates:
             write_json(WORKFLOW_TEMPLATES_PATH, self.workflow_templates)
+        if provider_profiles_deduped and hasattr(self, "save_provider_profiles"):
+            self.save_provider_profiles()
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         FILE_PREVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         self.thread = threading.Thread(target=self.scheduler_loop, daemon=True)

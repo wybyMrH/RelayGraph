@@ -38,7 +38,9 @@
     },
     "agent_ids": [
       "repo-scout",
+      "researcher",
       "env-builder",
+      "gpu-scout",
       "runner",
       "evaluator"
     ],
@@ -47,22 +49,33 @@
       "repo.read",
       "repo.inspect",
       "file.read",
+      "path.resolve",
+      "artifact.write",
+      "workflow.edit",
+      "web.search",
+      "repo.search",
+      "artifact.read",
+      "dataset.find",
+      "dir.scan",
       "env.inspect",
+      "env.infer",
       "env.prepare",
       "env.create",
       "host.exec",
+      "gpu.inspect",
+      "gpu.allocate",
       "job.run",
       "job.stop",
       "job.reorder",
-      "gpu.allocate",
       "log.read",
-      "artifact.read",
+      "execution.package",
       "report.write",
-      "notify.user"
+      "notify.user",
+      "artifact.collect"
     ],
     "nodes": [
       {
-        "id": "source.repo-31948ae8",
+        "id": "source.repo-8b02feab",
         "kind": "source.repo",
         "title": "仓库输入",
         "status": "draft",
@@ -74,7 +87,8 @@
           "mode": "human",
           "agent_id": "",
           "name": "你",
-          "handoff": "确认仓库地址、目标分支、成功标准和运行约束。"
+          "handoff": "确认仓库地址、目标分支、成功标准和运行约束。",
+          "output_key": "source_repo"
         },
         "notes": "",
         "runtime": {
@@ -85,7 +99,10 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
           "x": 0,
@@ -93,7 +110,7 @@
         }
       },
       {
-        "id": "repo.clone-76c3789d",
+        "id": "repo.clone-2a8485fc",
         "kind": "repo.clone",
         "title": "克隆仓库",
         "status": "draft",
@@ -106,7 +123,8 @@
           "mode": "system",
           "agent_id": "repo-scout",
           "name": "Repo Scout",
-          "handoff": "记录克隆目录、分支或提交，并确认代码已经落地。"
+          "handoff": "记录克隆目录、分支或提交，并确认代码已经落地。",
+          "output_key": "repo_checkout"
         },
         "notes": "",
         "runtime": {
@@ -117,7 +135,10 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
           "x": 240,
@@ -125,7 +146,43 @@
         }
       },
       {
-        "id": "repo.inspect-02f4700b",
+        "id": "path.resolve-b3e6f1a3",
+        "kind": "path.resolve",
+        "title": "解析路径",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "data_roots": "",
+          "output_roots": "runs\noutputs\ncheckpoints\nlogs"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "输出工作目录、数据目录、日志目录和结果目录的候选路径。",
+          "output_key": "path_map"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 480,
+          "y": 0
+        }
+      },
+      {
+        "id": "repo.inspect-63efff41",
         "kind": "repo.inspect",
         "title": "检查仓库",
         "status": "draft",
@@ -138,7 +195,8 @@
           "mode": "agent",
           "agent_id": "repo-scout",
           "name": "Repo Scout",
-          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。"
+          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。",
+          "output_key": "repo_profile"
         },
         "notes": "",
         "runtime": {
@@ -149,15 +207,108 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 480,
+          "x": 720,
           "y": 0
+        },
+        "output_key": "repo_profile",
+        "input_mapping": {
+          "repo_checkout": "$context.outputs.repo_checkout",
+          "path_map": "$context.outputs.path_map"
         }
       },
       {
-        "id": "env.prepare-1b9fdecb",
+        "id": "dataset.find-edf3216d",
+        "kind": "dataset.find",
+        "title": "发现数据集",
+        "status": "draft",
+        "config": {
+          "query": "给定仓库地址后，自动完成克隆、检查、环境准备、运行与结果整理。",
+          "dataset_hints": "",
+          "data_roots": "",
+          "expected_layout": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "researcher",
+          "name": "Researcher",
+          "handoff": "输出数据集名称、来源、本地路径候选、下载方式和结构要求。",
+          "output_key": "dataset_profile"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 960,
+          "y": 0
+        },
+        "output_key": "dataset_profile",
+        "input_mapping": {
+          "paper_context": "$input.paper_urls",
+          "repo_profile": "$context.outputs.repo_profile",
+          "数据集 / 路径线索": "$input.references"
+        }
+      },
+      {
+        "id": "env.infer-6d0d01d6",
+        "kind": "env.infer",
+        "title": "推断环境",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "manifest_paths": "requirements.txt, pyproject.toml, environment.yml, setup.py",
+          "env_name": "",
+          "python_version": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "env-builder",
+          "name": "Env Builder",
+          "handoff": "输出 Python/CUDA/依赖文件判断和建议安装命令。",
+          "output_key": "env_requirements"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "output_key": "env_requirements",
+        "input_mapping": {
+          "repo_profile": "$context.outputs.repo_profile",
+          "path_map": "$context.outputs.path_map"
+        }
+      },
+      {
+        "id": "env.prepare-51be4cb5",
         "kind": "env.prepare",
         "title": "准备环境",
         "status": "draft",
@@ -172,7 +323,8 @@
           "mode": "system",
           "agent_id": "env-builder",
           "name": "Env Builder",
-          "handoff": "记录环境名、安装结果、失败依赖和替代方案。"
+          "handoff": "记录环境名、安装结果、失败依赖和替代方案。",
+          "output_key": "env_ready"
         },
         "notes": "",
         "runtime": {
@@ -183,15 +335,56 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 720,
+          "x": 1440,
           "y": 0
         }
       },
       {
-        "id": "run.command-35a9e2f5",
+        "id": "gpu.allocate-f78db9d9",
+        "kind": "gpu.allocate",
+        "title": "分配 GPU",
+        "status": "draft",
+        "config": {
+          "server_id": "",
+          "gpu_policy": "auto",
+          "gpu_index": "",
+          "min_free_memory_gib": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "gpu-scout",
+          "name": "GPU Scout",
+          "handoff": "记录目标服务器、GPU 编号、空闲显存和调度约束。",
+          "output_key": "gpu_allocation"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1680,
+          "y": 0
+        }
+      },
+      {
+        "id": "run.command-0558068e",
         "kind": "run.command",
         "title": "运行任务",
         "status": "draft",
@@ -200,6 +393,8 @@
           "env_name": "",
           "server_id": "",
           "gpu_policy": "auto",
+          "gpu_index": "",
+          "min_free_memory_gib": "",
           "run_command": "",
           "schedule": ""
         },
@@ -207,7 +402,8 @@
           "mode": "system",
           "agent_id": "runner",
           "name": "Runner",
-          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。"
+          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。",
+          "output_key": "run_result"
         },
         "notes": "",
         "runtime": {
@@ -218,15 +414,55 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 960,
+          "x": 1920,
           "y": 0
         }
       },
       {
-        "id": "eval.report-e9fbfa76",
+        "id": "artifact.collect-62f88d64",
+        "kind": "artifact.collect",
+        "title": "收集产物",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "artifact_paths": "runs\noutputs\ncheckpoints\nlogs",
+          "metric_paths": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "evaluator",
+          "name": "Evaluator",
+          "handoff": "输出日志、指标、模型文件、运行命令和可复现产物路径。",
+          "output_key": "artifact_manifest"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 2160,
+          "y": 0
+        }
+      },
+      {
+        "id": "eval.report-f86993e0",
         "kind": "eval.report",
         "title": "结果整理",
         "status": "draft",
@@ -239,7 +475,8 @@
           "mode": "agent",
           "agent_id": "evaluator",
           "name": "Evaluator",
-          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。"
+          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。",
+          "output_key": "evaluation_report"
         },
         "notes": "",
         "runtime": {
@@ -250,45 +487,78 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 1200,
+          "x": 2400,
           "y": 0
+        },
+        "output_key": "evaluation_report",
+        "input_mapping": {
+          "artifact_manifest": "$context.outputs.artifact_manifest",
+          "run_result": "$context.outputs.run_result"
         }
       }
     ],
     "links": [
       {
-        "id": "link-1-source.repo-31948ae8-repo.clone-76c3789d",
-        "from": "source.repo-31948ae8",
-        "to": "repo.clone-76c3789d"
+        "id": "link-1-source.repo-8b02feab-repo.clone-2a8485fc",
+        "from": "source.repo-8b02feab",
+        "to": "repo.clone-2a8485fc"
       },
       {
-        "id": "link-2-repo.clone-76c3789d-repo.inspect-02f4700b",
-        "from": "repo.clone-76c3789d",
-        "to": "repo.inspect-02f4700b"
+        "id": "link-2-repo.clone-2a8485fc-path.resolve-b3e6f1a3",
+        "from": "repo.clone-2a8485fc",
+        "to": "path.resolve-b3e6f1a3"
       },
       {
-        "id": "link-3-repo.inspect-02f4700b-env.prepare-1b9fdecb",
-        "from": "repo.inspect-02f4700b",
-        "to": "env.prepare-1b9fdecb"
+        "id": "link-3-path.resolve-b3e6f1a3-repo.inspect-63efff41",
+        "from": "path.resolve-b3e6f1a3",
+        "to": "repo.inspect-63efff41"
       },
       {
-        "id": "link-4-env.prepare-1b9fdecb-run.command-35a9e2f5",
-        "from": "env.prepare-1b9fdecb",
-        "to": "run.command-35a9e2f5"
+        "id": "link-4-repo.inspect-63efff41-dataset.find-edf3216d",
+        "from": "repo.inspect-63efff41",
+        "to": "dataset.find-edf3216d"
       },
       {
-        "id": "link-5-run.command-35a9e2f5-eval.report-e9fbfa76",
-        "from": "run.command-35a9e2f5",
-        "to": "eval.report-e9fbfa76"
+        "id": "link-5-dataset.find-edf3216d-env.infer-6d0d01d6",
+        "from": "dataset.find-edf3216d",
+        "to": "env.infer-6d0d01d6"
+      },
+      {
+        "id": "link-6-env.infer-6d0d01d6-env.prepare-51be4cb5",
+        "from": "env.infer-6d0d01d6",
+        "to": "env.prepare-51be4cb5"
+      },
+      {
+        "id": "link-7-env.prepare-51be4cb5-gpu.allocate-f78db9d9",
+        "from": "env.prepare-51be4cb5",
+        "to": "gpu.allocate-f78db9d9"
+      },
+      {
+        "id": "link-8-gpu.allocate-f78db9d9-run.command-0558068e",
+        "from": "gpu.allocate-f78db9d9",
+        "to": "run.command-0558068e"
+      },
+      {
+        "id": "link-9-run.command-0558068e-artifact.collect-62f88d64",
+        "from": "run.command-0558068e",
+        "to": "artifact.collect-62f88d64"
+      },
+      {
+        "id": "link-10-artifact.collect-62f88d64-eval.report-f86993e0",
+        "from": "artifact.collect-62f88d64",
+        "to": "eval.report-f86993e0"
       }
     ],
     "notes": "",
     "tags": [],
     "created_at": "2026-06-07T00:17:04",
-    "updated_at": "2026-06-07T00:17:04"
+    "updated_at": "2026-06-14T10:17:23"
   },
   {
     "id": "paper-default-flow",
@@ -305,9 +575,9 @@
     },
     "workspace_dir": "",
     "env": {
-      "name": "",
+      "name": "agent-workspace",
       "manager": "conda",
-      "python": ""
+      "python": "3.11"
     },
     "recipes": [
       {
@@ -322,7 +592,7 @@
       }
     ],
     "model": {
-      "provider_profile_id": "",
+      "provider_profile_id": "provider-52828f5d-108c-4d89-bb7b-e0ce6f6c5cf3",
       "routing_mode": "workspace_default",
       "chat_agent_id": "",
       "notes": ""
@@ -331,6 +601,7 @@
       "researcher",
       "repo-scout",
       "env-builder",
+      "gpu-scout",
       "runner",
       "evaluator"
     ],
@@ -339,25 +610,33 @@
       "repo.search",
       "artifact.read",
       "artifact.write",
+      "dataset.find",
+      "dir.scan",
       "repo.clone",
       "repo.read",
       "repo.inspect",
       "file.read",
+      "path.resolve",
+      "workflow.edit",
       "env.inspect",
+      "env.infer",
       "env.prepare",
       "env.create",
       "host.exec",
+      "gpu.inspect",
+      "gpu.allocate",
       "job.run",
       "job.stop",
       "job.reorder",
-      "gpu.allocate",
       "log.read",
+      "execution.package",
       "report.write",
-      "notify.user"
+      "notify.user",
+      "artifact.collect"
     ],
     "nodes": [
       {
-        "id": "source.paper-7d233f27",
+        "id": "source.paper-a7064fd9",
         "kind": "source.paper",
         "title": "论文输入",
         "status": "draft",
@@ -368,7 +647,8 @@
           "mode": "human",
           "agent_id": "",
           "name": "你",
-          "handoff": "补齐论文链接、任务目标和希望复现的指标。"
+          "handoff": "补齐论文链接、任务目标和希望复现的指标。",
+          "output_key": ""
         },
         "notes": "",
         "runtime": {
@@ -379,7 +659,10 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
           "x": 0,
@@ -387,7 +670,7 @@
         }
       },
       {
-        "id": "research.search-f004265b",
+        "id": "research.search-847cbe8e",
         "kind": "research.search",
         "title": "检索资料",
         "status": "draft",
@@ -402,7 +685,8 @@
           "mode": "agent",
           "agent_id": "researcher",
           "name": "Researcher",
-          "handoff": "输出候选仓库、关键依赖、相关文章和可信度说明。"
+          "handoff": "输出候选仓库、关键依赖、相关文章和可信度说明。",
+          "output_key": "research_brief"
         },
         "notes": "",
         "runtime": {
@@ -413,15 +697,96 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
           "x": 240,
           "y": 0
+        },
+        "input_mapping": {
+          "source_context": "$prev.output",
+          "论文 / 资料": "$input.paper_urls",
+          "参考线索": "$input.references"
+        },
+        "output_key": "research_brief"
+      },
+      {
+        "id": "repo.clone-a73e85e9",
+        "kind": "repo.clone",
+        "title": "克隆仓库",
+        "status": "draft",
+        "config": {
+          "repo_url": "",
+          "repo_ref": "",
+          "workspace_dir": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "记录克隆目录、分支或提交，并确认代码已经落地。",
+          "output_key": ""
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 480,
+          "y": 0
         }
       },
       {
-        "id": "repo.inspect-443e3619",
+        "id": "path.resolve-99b78d81",
+        "kind": "path.resolve",
+        "title": "解析路径",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "data_roots": "",
+          "output_roots": "runs\noutputs\ncheckpoints\nlogs"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "输出工作目录、数据目录、日志目录和结果目录的候选路径。",
+          "output_key": ""
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 720,
+          "y": 0
+        }
+      },
+      {
+        "id": "repo.inspect-ec7ea761",
         "kind": "repo.inspect",
         "title": "检查仓库",
         "status": "draft",
@@ -434,7 +799,8 @@
           "mode": "agent",
           "agent_id": "repo-scout",
           "name": "Repo Scout",
-          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。"
+          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。",
+          "output_key": "repo_profile"
         },
         "notes": "",
         "runtime": {
@@ -445,30 +811,124 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 480,
+          "x": 960,
           "y": 0
-        }
+        },
+        "input_mapping": {
+          "repo_checkout": "$context.outputs.repo_checkout",
+          "path_map": "$context.outputs.path_map"
+        },
+        "output_key": "repo_profile"
       },
       {
-        "id": "env.prepare-ac5fa6bf",
+        "id": "dataset.find-41a1b9a4",
+        "kind": "dataset.find",
+        "title": "发现数据集",
+        "status": "draft",
+        "config": {
+          "query": "给定论文链接后，先检索资料与候选实现，再继续环境准备、运行与评估。",
+          "dataset_hints": "",
+          "data_roots": "",
+          "expected_layout": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "researcher",
+          "name": "Researcher",
+          "handoff": "输出数据集名称、来源、本地路径候选、下载方式和结构要求。",
+          "output_key": "dataset_profile"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "input_mapping": {
+          "paper_context": "$input.paper_urls",
+          "repo_profile": "$context.outputs.repo_profile",
+          "数据集 / 路径线索": "$input.references"
+        },
+        "output_key": "dataset_profile"
+      },
+      {
+        "id": "env.infer-e97e0ffd",
+        "kind": "env.infer",
+        "title": "推断环境",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "manifest_paths": "requirements.txt, pyproject.toml, environment.yml, setup.py",
+          "env_name": "agent-workspace",
+          "python_version": "3.11"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "env-builder",
+          "name": "Env Builder",
+          "handoff": "输出 Python/CUDA/依赖文件判断和建议安装命令。",
+          "output_key": "env_requirements"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1440,
+          "y": 0
+        },
+        "input_mapping": {
+          "repo_profile": "$context.outputs.repo_profile",
+          "path_map": "$context.outputs.path_map"
+        },
+        "output_key": "env_requirements"
+      },
+      {
+        "id": "env.prepare-d9277f31",
         "kind": "env.prepare",
         "title": "准备环境",
         "status": "draft",
         "config": {
           "workspace_dir": "",
-          "env_name": "",
+          "env_name": "agent-workspace",
           "env_manager": "conda",
-          "python_version": "",
+          "python_version": "3.11",
           "setup_command": ""
         },
         "handler": {
           "mode": "system",
           "agent_id": "env-builder",
           "name": "Env Builder",
-          "handoff": "记录环境名、安装结果、失败依赖和替代方案。"
+          "handoff": "记录环境名、安装结果、失败依赖和替代方案。",
+          "output_key": ""
         },
         "notes": "",
         "runtime": {
@@ -479,23 +939,66 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 720,
+          "x": 1680,
           "y": 0
         }
       },
       {
-        "id": "run.command-9c8444c3",
+        "id": "gpu.allocate-2398f228",
+        "kind": "gpu.allocate",
+        "title": "分配 GPU",
+        "status": "draft",
+        "config": {
+          "server_id": "",
+          "gpu_policy": "auto",
+          "gpu_index": "",
+          "min_free_memory_gib": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "gpu-scout",
+          "name": "GPU Scout",
+          "handoff": "记录目标服务器、GPU 编号、空闲显存和调度约束。",
+          "output_key": ""
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1920,
+          "y": 0
+        }
+      },
+      {
+        "id": "run.command-2f0e67fc",
         "kind": "run.command",
         "title": "运行任务",
         "status": "draft",
         "config": {
           "workspace_dir": "",
-          "env_name": "",
+          "env_name": "agent-workspace",
           "server_id": "",
           "gpu_policy": "auto",
+          "gpu_index": "",
+          "min_free_memory_gib": "",
           "run_command": "",
           "schedule": ""
         },
@@ -503,7 +1006,8 @@
           "mode": "system",
           "agent_id": "runner",
           "name": "Runner",
-          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。"
+          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。",
+          "output_key": ""
         },
         "notes": "",
         "runtime": {
@@ -514,15 +1018,55 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 960,
+          "x": 2160,
           "y": 0
         }
       },
       {
-        "id": "eval.report-b882774d",
+        "id": "artifact.collect-657a5f3e",
+        "kind": "artifact.collect",
+        "title": "收集产物",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "artifact_paths": "runs\noutputs\ncheckpoints\nlogs",
+          "metric_paths": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "evaluator",
+          "name": "Evaluator",
+          "handoff": "输出日志、指标、模型文件、运行命令和可复现产物路径。",
+          "output_key": ""
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 2400,
+          "y": 0
+        }
+      },
+      {
+        "id": "eval.report-daa5ac3e",
         "kind": "eval.report",
         "title": "结果整理",
         "status": "draft",
@@ -535,7 +1079,8 @@
           "mode": "agent",
           "agent_id": "evaluator",
           "name": "Evaluator",
-          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。"
+          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。",
+          "output_key": "evaluation_report"
         },
         "notes": "",
         "runtime": {
@@ -546,45 +1091,83 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 1200,
+          "x": 2640,
           "y": 0
-        }
+        },
+        "input_mapping": {
+          "artifact_manifest": "$context.outputs.artifact_manifest",
+          "run_result": "$context.outputs.run_result"
+        },
+        "output_key": "evaluation_report"
       }
     ],
     "links": [
       {
-        "id": "link-1-source.paper-7d233f27-research.search-f004265b",
-        "from": "source.paper-7d233f27",
-        "to": "research.search-f004265b"
+        "id": "link-1-source.paper-a7064fd9-research.search-847cbe8e",
+        "from": "source.paper-a7064fd9",
+        "to": "research.search-847cbe8e"
       },
       {
-        "id": "link-2-research.search-f004265b-repo.inspect-443e3619",
-        "from": "research.search-f004265b",
-        "to": "repo.inspect-443e3619"
+        "id": "link-2-research.search-847cbe8e-repo.clone-a73e85e9",
+        "from": "research.search-847cbe8e",
+        "to": "repo.clone-a73e85e9"
       },
       {
-        "id": "link-3-repo.inspect-443e3619-env.prepare-ac5fa6bf",
-        "from": "repo.inspect-443e3619",
-        "to": "env.prepare-ac5fa6bf"
+        "id": "link-3-repo.clone-a73e85e9-path.resolve-99b78d81",
+        "from": "repo.clone-a73e85e9",
+        "to": "path.resolve-99b78d81"
       },
       {
-        "id": "link-4-env.prepare-ac5fa6bf-run.command-9c8444c3",
-        "from": "env.prepare-ac5fa6bf",
-        "to": "run.command-9c8444c3"
+        "id": "link-4-path.resolve-99b78d81-repo.inspect-ec7ea761",
+        "from": "path.resolve-99b78d81",
+        "to": "repo.inspect-ec7ea761"
       },
       {
-        "id": "link-5-run.command-9c8444c3-eval.report-b882774d",
-        "from": "run.command-9c8444c3",
-        "to": "eval.report-b882774d"
+        "id": "link-5-repo.inspect-ec7ea761-dataset.find-41a1b9a4",
+        "from": "repo.inspect-ec7ea761",
+        "to": "dataset.find-41a1b9a4"
+      },
+      {
+        "id": "link-6-dataset.find-41a1b9a4-env.infer-e97e0ffd",
+        "from": "dataset.find-41a1b9a4",
+        "to": "env.infer-e97e0ffd"
+      },
+      {
+        "id": "link-7-env.infer-e97e0ffd-env.prepare-d9277f31",
+        "from": "env.infer-e97e0ffd",
+        "to": "env.prepare-d9277f31"
+      },
+      {
+        "id": "link-8-env.prepare-d9277f31-gpu.allocate-2398f228",
+        "from": "env.prepare-d9277f31",
+        "to": "gpu.allocate-2398f228"
+      },
+      {
+        "id": "link-9-gpu.allocate-2398f228-run.command-2f0e67fc",
+        "from": "gpu.allocate-2398f228",
+        "to": "run.command-2f0e67fc"
+      },
+      {
+        "id": "link-10-run.command-2f0e67fc-artifact.collect-657a5f3e",
+        "from": "run.command-2f0e67fc",
+        "to": "artifact.collect-657a5f3e"
+      },
+      {
+        "id": "link-11-artifact.collect-657a5f3e-eval.report-daa5ac3e",
+        "from": "artifact.collect-657a5f3e",
+        "to": "eval.report-daa5ac3e"
       }
     ],
     "notes": "",
     "tags": [],
     "created_at": "2026-06-07T00:17:04",
-    "updated_at": "2026-06-07T00:17:04"
+    "updated_at": "2026-06-14T14:21:55"
   },
   {
     "id": "idea-default-flow",
@@ -627,6 +1210,7 @@
       "researcher",
       "repo-scout",
       "env-builder",
+      "gpu-scout",
       "runner",
       "evaluator"
     ],
@@ -635,25 +1219,33 @@
       "repo.search",
       "artifact.read",
       "artifact.write",
+      "dataset.find",
+      "dir.scan",
       "repo.clone",
       "repo.read",
       "repo.inspect",
       "file.read",
+      "path.resolve",
+      "workflow.edit",
       "env.inspect",
+      "env.infer",
       "env.prepare",
       "env.create",
       "host.exec",
+      "gpu.inspect",
+      "gpu.allocate",
       "job.run",
       "job.stop",
       "job.reorder",
-      "gpu.allocate",
       "log.read",
+      "execution.package",
       "report.write",
-      "notify.user"
+      "notify.user",
+      "artifact.collect"
     ],
     "nodes": [
       {
-        "id": "source.idea-5f2f8df1",
+        "id": "source.idea-077871a8",
         "kind": "source.idea",
         "title": "想法输入",
         "status": "draft",
@@ -664,7 +1256,8 @@
           "mode": "human",
           "agent_id": "",
           "name": "你",
-          "handoff": "把目标、限制条件和成功标准写清楚，再交给 Planner 和 Researcher。"
+          "handoff": "把目标、限制条件和成功标准写清楚，再交给 Planner 和 Researcher。",
+          "output_key": "idea_brief"
         },
         "notes": "",
         "runtime": {
@@ -675,7 +1268,10 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
           "x": 0,
@@ -683,7 +1279,7 @@
         }
       },
       {
-        "id": "research.search-e80a519b",
+        "id": "research.search-a2bdaee6",
         "kind": "research.search",
         "title": "检索资料",
         "status": "draft",
@@ -698,7 +1294,8 @@
           "mode": "agent",
           "agent_id": "researcher",
           "name": "Researcher",
-          "handoff": "输出候选仓库、关键依赖、相关文章和可信度说明。"
+          "handoff": "输出候选仓库、关键依赖、相关文章和可信度说明。",
+          "output_key": "research_brief"
         },
         "notes": "",
         "runtime": {
@@ -709,15 +1306,96 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
           "x": 240,
           "y": 0
+        },
+        "output_key": "research_brief",
+        "input_mapping": {
+          "source_context": "$prev.output",
+          "论文 / 资料": "$input.paper_urls",
+          "参考线索": "$input.references"
         }
       },
       {
-        "id": "repo.inspect-679f9395",
+        "id": "repo.clone-c2b694ff",
+        "kind": "repo.clone",
+        "title": "克隆仓库",
+        "status": "draft",
+        "config": {
+          "repo_url": "",
+          "repo_ref": "",
+          "workspace_dir": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "记录克隆目录、分支或提交，并确认代码已经落地。",
+          "output_key": "repo_checkout"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 480,
+          "y": 0
+        }
+      },
+      {
+        "id": "path.resolve-2a4270db",
+        "kind": "path.resolve",
+        "title": "解析路径",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "data_roots": "",
+          "output_roots": "runs\noutputs\ncheckpoints\nlogs"
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "repo-scout",
+          "name": "Repo Scout",
+          "handoff": "输出工作目录、数据目录、日志目录和结果目录的候选路径。",
+          "output_key": "path_map"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 720,
+          "y": 0
+        }
+      },
+      {
+        "id": "repo.inspect-50ccfeb1",
         "kind": "repo.inspect",
         "title": "检查仓库",
         "status": "draft",
@@ -730,7 +1408,8 @@
           "mode": "agent",
           "agent_id": "repo-scout",
           "name": "Repo Scout",
-          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。"
+          "handoff": "产出入口、依赖、默认命令、配置文件和结果目录。",
+          "output_key": "repo_profile"
         },
         "notes": "",
         "runtime": {
@@ -741,15 +1420,108 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 480,
+          "x": 960,
           "y": 0
+        },
+        "output_key": "repo_profile",
+        "input_mapping": {
+          "repo_checkout": "$context.outputs.repo_checkout",
+          "path_map": "$context.outputs.path_map"
         }
       },
       {
-        "id": "env.prepare-92a63d4b",
+        "id": "dataset.find-4885b64d",
+        "kind": "dataset.find",
+        "title": "发现数据集",
+        "status": "draft",
+        "config": {
+          "query": "给定目标文本后，先拆解问题、检索相关资料，再准备环境、运行与整理结果。",
+          "dataset_hints": "",
+          "data_roots": "",
+          "expected_layout": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "researcher",
+          "name": "Researcher",
+          "handoff": "输出数据集名称、来源、本地路径候选、下载方式和结构要求。",
+          "output_key": "dataset_profile"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1200,
+          "y": 0
+        },
+        "output_key": "dataset_profile",
+        "input_mapping": {
+          "paper_context": "$input.paper_urls",
+          "repo_profile": "$context.outputs.repo_profile",
+          "数据集 / 路径线索": "$input.references"
+        }
+      },
+      {
+        "id": "env.infer-80ae7adc",
+        "kind": "env.infer",
+        "title": "推断环境",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "manifest_paths": "requirements.txt, pyproject.toml, environment.yml, setup.py",
+          "env_name": "",
+          "python_version": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "env-builder",
+          "name": "Env Builder",
+          "handoff": "输出 Python/CUDA/依赖文件判断和建议安装命令。",
+          "output_key": "env_requirements"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1440,
+          "y": 0
+        },
+        "output_key": "env_requirements",
+        "input_mapping": {
+          "repo_profile": "$context.outputs.repo_profile",
+          "path_map": "$context.outputs.path_map"
+        }
+      },
+      {
+        "id": "env.prepare-a71e3425",
         "kind": "env.prepare",
         "title": "准备环境",
         "status": "draft",
@@ -764,7 +1536,8 @@
           "mode": "system",
           "agent_id": "env-builder",
           "name": "Env Builder",
-          "handoff": "记录环境名、安装结果、失败依赖和替代方案。"
+          "handoff": "记录环境名、安装结果、失败依赖和替代方案。",
+          "output_key": "env_ready"
         },
         "notes": "",
         "runtime": {
@@ -775,15 +1548,56 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 720,
+          "x": 1680,
           "y": 0
         }
       },
       {
-        "id": "run.command-b1b4ea9b",
+        "id": "gpu.allocate-98b17286",
+        "kind": "gpu.allocate",
+        "title": "分配 GPU",
+        "status": "draft",
+        "config": {
+          "server_id": "",
+          "gpu_policy": "auto",
+          "gpu_index": "",
+          "min_free_memory_gib": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "system",
+          "agent_id": "gpu-scout",
+          "name": "GPU Scout",
+          "handoff": "记录目标服务器、GPU 编号、空闲显存和调度约束。",
+          "output_key": "gpu_allocation"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 1920,
+          "y": 0
+        }
+      },
+      {
+        "id": "run.command-2102127a",
         "kind": "run.command",
         "title": "运行任务",
         "status": "draft",
@@ -792,6 +1606,8 @@
           "env_name": "",
           "server_id": "",
           "gpu_policy": "auto",
+          "gpu_index": "",
+          "min_free_memory_gib": "",
           "run_command": "",
           "schedule": ""
         },
@@ -799,7 +1615,8 @@
           "mode": "system",
           "agent_id": "runner",
           "name": "Runner",
-          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。"
+          "handoff": "记录服务器、GPU、会话、日志路径和下一步评估入口。",
+          "output_key": "run_result"
         },
         "notes": "",
         "runtime": {
@@ -810,15 +1627,55 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 960,
+          "x": 2160,
           "y": 0
         }
       },
       {
-        "id": "eval.report-0c6d65d1",
+        "id": "artifact.collect-5fce8fee",
+        "kind": "artifact.collect",
+        "title": "收集产物",
+        "status": "draft",
+        "config": {
+          "workspace_dir": "",
+          "artifact_paths": "runs\noutputs\ncheckpoints\nlogs",
+          "metric_paths": "",
+          "notes": ""
+        },
+        "handler": {
+          "mode": "agent",
+          "agent_id": "evaluator",
+          "name": "Evaluator",
+          "handoff": "输出日志、指标、模型文件、运行命令和可复现产物路径。",
+          "output_key": "artifact_manifest"
+        },
+        "notes": "",
+        "runtime": {
+          "run_count": 0,
+          "last_job_id": "",
+          "last_job_name": "",
+          "last_job_kind": "",
+          "last_job_status": "",
+          "last_run_at": "",
+          "last_finished_at": "",
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
+        },
+        "position": {
+          "x": 2400,
+          "y": 0
+        }
+      },
+      {
+        "id": "eval.report-81170fde",
         "kind": "eval.report",
         "title": "结果整理",
         "status": "draft",
@@ -831,7 +1688,8 @@
           "mode": "agent",
           "agent_id": "evaluator",
           "name": "Evaluator",
-          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。"
+          "handoff": "汇总核心指标、主要输出文件、异常和下一步建议。",
+          "output_key": "evaluation_report"
         },
         "notes": "",
         "runtime": {
@@ -842,44 +1700,82 @@
           "last_job_status": "",
           "last_run_at": "",
           "last_finished_at": "",
-          "last_error": ""
+          "last_error": "",
+          "trace": [],
+          "artifacts": [],
+          "resources": {}
         },
         "position": {
-          "x": 1200,
+          "x": 2640,
           "y": 0
+        },
+        "output_key": "evaluation_report",
+        "input_mapping": {
+          "artifact_manifest": "$context.outputs.artifact_manifest",
+          "run_result": "$context.outputs.run_result"
         }
       }
     ],
     "links": [
       {
-        "id": "link-1-source.idea-5f2f8df1-research.search-e80a519b",
-        "from": "source.idea-5f2f8df1",
-        "to": "research.search-e80a519b"
+        "id": "link-1-source.idea-077871a8-research.search-a2bdaee6",
+        "from": "source.idea-077871a8",
+        "to": "research.search-a2bdaee6"
       },
       {
-        "id": "link-2-research.search-e80a519b-repo.inspect-679f9395",
-        "from": "research.search-e80a519b",
-        "to": "repo.inspect-679f9395"
+        "id": "link-2-research.search-a2bdaee6-repo.clone-c2b694ff",
+        "from": "research.search-a2bdaee6",
+        "to": "repo.clone-c2b694ff"
       },
       {
-        "id": "link-3-repo.inspect-679f9395-env.prepare-92a63d4b",
-        "from": "repo.inspect-679f9395",
-        "to": "env.prepare-92a63d4b"
+        "id": "link-3-repo.clone-c2b694ff-path.resolve-2a4270db",
+        "from": "repo.clone-c2b694ff",
+        "to": "path.resolve-2a4270db"
       },
       {
-        "id": "link-4-env.prepare-92a63d4b-run.command-b1b4ea9b",
-        "from": "env.prepare-92a63d4b",
-        "to": "run.command-b1b4ea9b"
+        "id": "link-4-path.resolve-2a4270db-repo.inspect-50ccfeb1",
+        "from": "path.resolve-2a4270db",
+        "to": "repo.inspect-50ccfeb1"
       },
       {
-        "id": "link-5-run.command-b1b4ea9b-eval.report-0c6d65d1",
-        "from": "run.command-b1b4ea9b",
-        "to": "eval.report-0c6d65d1"
+        "id": "link-5-repo.inspect-50ccfeb1-dataset.find-4885b64d",
+        "from": "repo.inspect-50ccfeb1",
+        "to": "dataset.find-4885b64d"
+      },
+      {
+        "id": "link-6-dataset.find-4885b64d-env.infer-80ae7adc",
+        "from": "dataset.find-4885b64d",
+        "to": "env.infer-80ae7adc"
+      },
+      {
+        "id": "link-7-env.infer-80ae7adc-env.prepare-a71e3425",
+        "from": "env.infer-80ae7adc",
+        "to": "env.prepare-a71e3425"
+      },
+      {
+        "id": "link-8-env.prepare-a71e3425-gpu.allocate-98b17286",
+        "from": "env.prepare-a71e3425",
+        "to": "gpu.allocate-98b17286"
+      },
+      {
+        "id": "link-9-gpu.allocate-98b17286-run.command-2102127a",
+        "from": "gpu.allocate-98b17286",
+        "to": "run.command-2102127a"
+      },
+      {
+        "id": "link-10-run.command-2102127a-artifact.collect-5fce8fee",
+        "from": "run.command-2102127a",
+        "to": "artifact.collect-5fce8fee"
+      },
+      {
+        "id": "link-11-artifact.collect-5fce8fee-eval.report-81170fde",
+        "from": "artifact.collect-5fce8fee",
+        "to": "eval.report-81170fde"
       }
     ],
     "notes": "",
     "tags": [],
     "created_at": "2026-06-07T00:17:04",
-    "updated_at": "2026-06-07T00:17:04"
+    "updated_at": "2026-06-14T10:17:23"
   }
 ]
