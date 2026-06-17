@@ -535,6 +535,24 @@ class AgentsMixin:
             agent_config = {**agent_config, "max_iterations": max_iterations}
         execution_id = make_agent_execution_id()
         cancel_check = register_agent_cancel(execution_id)
+        node_kind = str(requested_node_kind or (node or {}).get("kind") or "").strip()
+        trace_events: list[dict[str, Any]] = []
+
+        def on_agent_event(event_type: str, event_payload: dict[str, Any]) -> None:
+            if isinstance(event_payload, dict) and event_payload:
+                trace_events.append(copy.deepcopy(event_payload))
+            self.publish_event(
+                event_type,
+                workspace_id=workspace_id,
+                agent_execution_id=execution_id,
+                payload={
+                    **(event_payload if isinstance(event_payload, dict) else {}),
+                    "node_id": str((node or {}).get("id") or "").strip(),
+                    "node_kind": node_kind,
+                    "agent_id": str(agent.get("id") or "").strip(),
+                    "chat": False,
+                },
+            )
 
         def on_agent_step(step: Any) -> None:
             step_payload = step.to_dict() if hasattr(step, "to_dict") else step
@@ -574,10 +592,10 @@ class AgentsMixin:
             tool_executor=tool_executor,
             step_callback=on_agent_step,
             token_callback=on_agent_delta,
+            event_callback=on_agent_event,
             timeout_seconds=timeout_seconds,
             cancel_check=cancel_check,
         )
-        node_kind = str(requested_node_kind or (node or {}).get("kind") or "").strip()
         handler = (node or {}).get("handler") if isinstance((node or {}).get("handler"), dict) else {}
         effective_output_key = str(output_key or handler.get("output_key") or (node or {}).get("output_key") or "").strip()
         effective_output_format = str(
@@ -601,6 +619,7 @@ class AgentsMixin:
             release_agent_cancel(execution_id)
         result = execution_result.to_dict()
         result["id"] = execution_id
+        result["trace_events"] = normalize_agent_trace_events(trace_events)
         validation = validate_agent_output(
             output_key=effective_output_key,
             output_format=effective_output_format,

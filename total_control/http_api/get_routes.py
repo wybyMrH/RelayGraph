@@ -93,8 +93,17 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
         return True
     if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/runs"):
         workspace_id = parsed.path.split("/")[3]
+        query = parse_qs(parsed.query)
         try:
-            handler.send_json(state.list_workspace_execution_runs(workspace_id))
+            handler.send_json(
+                state.list_workspace_execution_runs(
+                    workspace_id,
+                    status=str((query.get("status") or [""])[0]),
+                    node_kind=str((query.get("node_kind") or [""])[0]),
+                    job_id=str((query.get("job_id") or [""])[0]),
+                    agent_execution_id=str((query.get("agent_execution_id") or [""])[0]),
+                )
+            )
         except ValueError:
             handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
         return True

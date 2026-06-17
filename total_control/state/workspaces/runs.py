@@ -216,7 +216,15 @@ class RunsMixin:
         return {"run": run, "workspace": public_workspace}
 
 
-    def list_workspace_execution_runs(self, workspace_id: str) -> dict[str, Any]:
+    def list_workspace_execution_runs(
+        self,
+        workspace_id: str,
+        *,
+        status: str = "",
+        node_kind: str = "",
+        job_id: str = "",
+        agent_execution_id: str = "",
+    ) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         self.sync_workspace_execution_runs_from_jobs(workspace_id)
         with self.lock:
@@ -224,9 +232,17 @@ class RunsMixin:
             if not workspace:
                 raise ValueError("workspace not found")
             public_workspace = self.workspace_public_payload(workspace)
+        runs = public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else []
+        filtered_runs = filter_workspace_execution_runs(
+            runs,
+            status=status,
+            node_kind=node_kind,
+            job_id=job_id,
+            agent_execution_id=agent_execution_id,
+        )
         return {
             "workspace_id": workspace_id,
-            "runs": public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else [],
+            "runs": filtered_runs,
         }
 
 

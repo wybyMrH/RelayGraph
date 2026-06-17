@@ -20,6 +20,12 @@ from .llm_client import (
     tool_definition_for_llm,
 )
 from .tools.registry import TOOL_SIDE_EFFECTS, ToolSideEffect, create_workspace_tool_executor
+from .workspace.execution.agent_trace import (
+    compact_tool_arguments,
+    compact_tool_observation,
+    make_agent_trace_event,
+    tool_observation_failed,
+)
 
 
 def _tool_side_effect(tool_id: str) -> str:
@@ -103,6 +109,7 @@ class AgentExecutor:
         tool_executor: Callable[[str, dict[str, Any]], str] | None = None,
         step_callback: Callable[[AgentStep], None] | None = None,
         token_callback: Callable[[str, str], None] | None = None,
+        event_callback: Callable[[str, dict[str, Any]], None] | None = None,
         timeout_seconds: float | None = None,
         cancel_check: Callable[[], bool] | None = None,
     ):
@@ -115,6 +122,7 @@ class AgentExecutor:
             tool_executor: Optional function to execute tools (tool_id, args) -> result
             step_callback: Optional step notification callback
             token_callback: Optional streaming token callback
+            event_callback: Optional fine-grained trace event callback (event_type, payload)
             timeout_seconds: Optional wall-clock budget across the whole loop.
             cancel_check: Optional callable returning True when the run should abort.
         """
@@ -124,6 +132,7 @@ class AgentExecutor:
         self.tool_executor = tool_executor
         self.step_callback = step_callback
         self.token_callback = token_callback
+        self.event_callback = event_callback
         configured = agent.get("max_iterations")
         self.max_iterations = int(configured) if configured not in (None, "") else 10
         self.timeout_seconds = float(timeout_seconds) if timeout_seconds not in (None, "") else None
@@ -188,6 +197,14 @@ class AgentExecutor:
 
         # Default: return tool info (simulated execution)
         return f"[Simulated] Tool '{tool_id}' called with arguments: {json.dumps(arguments, ensure_ascii=False)}"
+
+    def _emit_trace_event(self, event_type: str, **fields: Any) -> None:
+        # 发布细粒度 trace 事件
+        if not self.event_callback:
+            return
+        payload = make_agent_trace_event(event_type, **fields)
+        if payload:
+            self.event_callback(event_type, payload)
 
     def run(self, user_input: str, context: dict[str, Any] | None = None) -> AgentExecutionResult:
         """Run the agent with the given input.
@@ -276,7 +293,7 @@ class AgentExecutor:
                     model=last_model,
                 )
             # Call LLM
-            if self.token_callback:
+            if self.token_callback or self.event_callback:
                 stream_state = {"mode": "undecided"}
 
                 def on_stream_delta(delta: str, accumulated: str, _raw: dict[str, Any]) -> None:
@@ -292,7 +309,14 @@ class AgentExecutor:
                             stream_state["mode"] = "blocked"
                             return
                         stream_state["mode"] = "emit"
-                    self.token_callback(delta, accumulated)
+                    if self.token_callback:
+                        self.token_callback(delta, accumulated)
+                    self._emit_trace_event(
+                        "agent.thought.delta",
+                        step_number=len(steps) + 1,
+                        delta=str(delta or ""),
+                        accumulated=text,
+                    )
 
                 response = self.llm_client.chat_stream(messages, on_delta=on_stream_delta)
                 if not response.success and not response.content:
@@ -323,10 +347,17 @@ class AgentExecutor:
 
             if not tool_call:
                 # No tool call = final answer
+                final_answer = str(response.content or "")
+                if final_answer.strip():
+                    self._emit_trace_event(
+                        "agent.answer.delta",
+                        step_number=len(steps) + 1,
+                        accumulated=final_answer,
+                    )
                 execution_time = (datetime.now() - start_time).total_seconds() * 1000
                 return AgentExecutionResult(
                     success=True,
-                    final_answer=response.content,
+                    final_answer=final_answer,
                     steps=steps,
                     total_tokens=total_tokens,
                     total_steps=len(steps),
@@ -353,9 +384,26 @@ class AgentExecutor:
             step.side_effect = _tool_side_effect(tool_id)
             step.controlled = step.side_effect == ToolSideEffect.MUTATE_RUNTIME.value
 
+            self._emit_trace_event(
+                "agent.tool.called",
+                step_number=step.step_number,
+                tool_id=tool_id,
+                arguments_summary=compact_tool_arguments(arguments),
+                side_effect=step.side_effect,
+                controlled=step.controlled,
+            )
+
             # Execute tool and get observation
             observation = self._execute_tool(tool_id, arguments)
             step.observation = observation
+            tool_failed = tool_observation_failed(observation)
+            self._emit_trace_event(
+                "agent.tool.failed" if tool_failed else "agent.tool.result",
+                step_number=step.step_number,
+                tool_id=tool_id,
+                observation_summary=compact_tool_observation(observation),
+                status="failed" if tool_failed else "ok",
+            )
 
             steps.append(step)
             if self.step_callback:

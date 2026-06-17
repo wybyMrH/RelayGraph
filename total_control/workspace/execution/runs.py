@@ -5,6 +5,7 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 from ...orchestration.types import StepResult
 from .jobs import workspace_job_binding, workspace_job_sort_key
+from .agent_trace import normalize_agent_trace_events
 from .trace import workspace_node_artifacts, workspace_node_resources, workspace_node_trace
 
 def derive_workspace_execution_state(
@@ -144,6 +145,7 @@ def normalize_workspace_run_step(
     index = safe_int(payload.get("index"), safe_int(current.get("index"), 0))
     status = str(payload.get("status") or current.get("status") or "queued").strip() or "queued"
     payload_agent_steps = payload.get("agent_steps") if isinstance(payload.get("agent_steps"), list) else None
+    payload_trace_events = payload.get("trace_events") if isinstance(payload.get("trace_events"), list) else None
     payload_mapped_inputs = payload.get("mapped_inputs") if isinstance(payload.get("mapped_inputs"), list) else None
     payload_validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else None
     validation_source = payload_validation if payload_validation else (current.get("validation") if isinstance(current.get("validation"), dict) else {})
@@ -176,6 +178,9 @@ def normalize_workspace_run_step(
             item for item in (payload_agent_steps if payload_agent_steps else (current.get("agent_steps") or []))
             if isinstance(item, dict)
         ][:24],
+        "trace_events": normalize_agent_trace_events(
+            payload_trace_events if payload_trace_events is not None else (current.get("trace_events") or []),
+        ),
         "validation": validation,
         "timed_out": bool(payload.get("timed_out")) if payload.get("timed_out") is not None else bool(current.get("timed_out")),
         "cancelled": bool(payload.get("cancelled")) if payload.get("cancelled") is not None else bool(current.get("cancelled")),
@@ -292,6 +297,49 @@ def normalize_workspace_execution_runs(
 def workspace_execution_run_sort_key(run: dict[str, Any]) -> tuple[str, str]:
     return (str(run.get("created_at") or ""), str(run.get("id") or ""))
 
+
+def filter_workspace_execution_runs(
+    runs: list[dict[str, Any]],
+    *,
+    status: str = "",
+    node_kind: str = "",
+    job_id: str = "",
+    agent_execution_id: str = "",
+) -> list[dict[str, Any]]:
+    # 按状态、节点类型、任务或 Agent 执行 id 过滤运行记录
+    filtered = [run for run in runs if isinstance(run, dict)]
+    status_filter = str(status or "").strip().lower()
+    if status_filter:
+        filtered = [run for run in filtered if str(run.get("status") or "").strip().lower() == status_filter]
+    node_kind_filter = str(node_kind or "").strip()
+    if node_kind_filter:
+        filtered = [
+            run for run in filtered
+            if any(
+                isinstance(step, dict) and str(step.get("node_kind") or "").strip() == node_kind_filter
+                for step in (run.get("steps") if isinstance(run.get("steps"), list) else [])
+            )
+        ]
+    job_id_filter = str(job_id or "").strip()
+    if job_id_filter:
+        filtered = [
+            run for run in filtered
+            if any(
+                isinstance(step, dict) and str(step.get("job_id") or "").strip() == job_id_filter
+                for step in (run.get("steps") if isinstance(run.get("steps"), list) else [])
+            )
+        ]
+    agent_filter = str(agent_execution_id or "").strip()
+    if agent_filter:
+        filtered = [
+            run for run in filtered
+            if any(
+                isinstance(step, dict) and str(step.get("agent_execution_id") or "").strip() == agent_filter
+                for step in (run.get("steps") if isinstance(run.get("steps"), list) else [])
+            )
+        ]
+    return filtered
+
 def workspace_run_step_from_job(job: dict[str, Any], index: int) -> dict[str, Any]:
     metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
     return normalize_workspace_run_step(
@@ -332,6 +380,7 @@ def workspace_run_step_from_agent(
     mapped_inputs = payload.get("mapped_inputs") if isinstance(payload.get("mapped_inputs"), list) else []
     artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
     agent_steps = payload.get("agent_steps") if isinstance(payload.get("agent_steps"), list) else []
+    trace_events = payload.get("trace_events") if isinstance(payload.get("trace_events"), list) else []
     validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else {}
     timed_out = bool(payload.get("timed_out"))
     cancelled = bool(payload.get("cancelled"))
@@ -354,6 +403,7 @@ def workspace_run_step_from_agent(
             "artifact_count": len([item for item in artifacts if isinstance(item, dict)]),
             "mapped_inputs": [item for item in mapped_inputs if isinstance(item, dict)][:6],
             "agent_steps": [item for item in agent_steps if isinstance(item, dict)][:24],
+            "trace_events": normalize_agent_trace_events(trace_events),
             "validation": validation,
             "timed_out": timed_out,
             "cancelled": cancelled,

@@ -14,6 +14,7 @@ class StepResult:
     job_id: str = ""
     agent_execution_id: str = ""
     agent_steps: list[dict[str, Any]] = field(default_factory=list)
+    trace_events: list[dict[str, Any]] = field(default_factory=list)
     detail: str = ""
     skipped: bool = False
     reason: str = ""
@@ -39,6 +40,8 @@ class StepResult:
             payload["agent_execution_id"] = self.agent_execution_id
         if self.agent_steps:
             payload["agent_steps"] = list(self.agent_steps)
+        if self.trace_events:
+            payload["trace_events"] = list(self.trace_events)
         if self.reason:
             payload["reason"] = self.reason
         if self.validation:

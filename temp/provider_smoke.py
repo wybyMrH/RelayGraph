@@ -10,7 +10,8 @@ safe to run in CI.
 Pick a profile by, in priority order:
 
   1. ``--profile-id <id>``         read from data/provider_profiles.json
-  2. ``--vendor <id>`` + key       build an ad-hoc profile from the catalogue
+  2. ``--profile-name <name>``      match profile ``name`` in data/provider_profiles.json
+  3. ``--vendor <id>`` + key       build an ad-hoc profile from the catalogue
                                    (``--api-key`` or ``TC_SMOKE_API_KEY``)
   3. environment fallback          ``TC_SMOKE_VENDOR`` / ``TC_SMOKE_API_KEY``
                                    / ``TC_SMOKE_BASE_URL`` / ``TC_SMOKE_MODEL``
@@ -19,6 +20,7 @@ Examples::
 
     python temp/provider_smoke.py --vendor deepseek --api-key sk-...
     python temp/provider_smoke.py --profile-id <id-from-config-center>
+    python temp/provider_smoke.py --profile-name ds_01
     TC_SMOKE_VENDOR=ollama python temp/provider_smoke.py
 """
 
@@ -65,16 +67,29 @@ def _merge_saved_profile_versions(profiles: list[dict[str, Any]], profile_id: st
 
 
 def _read_profile(args: argparse.Namespace) -> dict[str, Any] | None:
-    if args.profile_id:
+    if args.profile_id or args.profile_name:
         profiles = []
         if PROVIDER_PROFILES_PATH.exists():
             try:
                 profiles = json.loads(PROVIDER_PROFILES_PATH.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 profiles = []
-        match = _merge_saved_profile_versions(profiles, args.profile_id)
+        profile_id = str(args.profile_id or "").strip()
+        if not profile_id and args.profile_name:
+            target_name = str(args.profile_name or "").strip().lower()
+            for item in profiles:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip().lower()
+                if name == target_name:
+                    profile_id = str(item.get("id") or "").strip()
+                    break
+            if not profile_id:
+                print(f"[skip] profile name '{args.profile_name}' not found in {PROVIDER_PROFILES_PATH}")
+                return None
+        match = _merge_saved_profile_versions(profiles, profile_id)
         if not match:
-            print(f"[skip] profile id '{args.profile_id}' not found in {PROVIDER_PROFILES_PATH}")
+            print(f"[skip] profile id '{profile_id}' not found in {PROVIDER_PROFILES_PATH}")
         return match
 
     vendor_id = (args.vendor or os.environ.get("TC_SMOKE_VENDOR") or "").strip().lower()
@@ -202,6 +217,7 @@ def run(profile: dict[str, Any]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Real provider smoke for RelayGraph")
     parser.add_argument("--profile-id", default="")
+    parser.add_argument("--profile-name", default="")
     parser.add_argument("--vendor", default="")
     parser.add_argument("--api-key", default="")
     parser.add_argument("--base-url", default="")
@@ -210,7 +226,7 @@ def main() -> int:
 
     profile = _read_profile(args)
     if not profile:
-        print("[skip] no provider configured — set --vendor/--api-key or --profile-id")
+        print("[skip] no provider configured — set --vendor/--api-key, --profile-id, or --profile-name")
         print("        (safe no-op; no committed keys required)")
         return 0
     return run(profile)

@@ -5,6 +5,27 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 
 class ChatMixin:
+    def _chat_agent_execution_trace(
+        self,
+        execution_id: str,
+        execution_info: dict[str, Any],
+        *,
+        provider_profile_id: str = "",
+        success: bool = False,
+    ) -> dict[str, Any]:
+        # 构造可回放的对话 Agent trace
+        return build_agent_execution_trace(
+            execution_id,
+            model=str(execution_info.get("model") or ""),
+            provider_profile_id=provider_profile_id,
+            total_tokens=int(execution_info.get("total_tokens") or 0),
+            total_steps=int(execution_info.get("total_steps") or 0),
+            success=success,
+            error=str(execution_info.get("error") or ""),
+            trace_events=execution_info.get("trace_events") if isinstance(execution_info.get("trace_events"), list) else [],
+            agent_steps=execution_info.get("steps") if isinstance(execution_info.get("steps"), list) else [],
+        )
+
     def append_workspace_chat(self, workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         text = str(payload.get("text") or "").strip()
@@ -51,6 +72,7 @@ class ChatMixin:
         # Generate reply - either from LLM or from placeholder
         reply_text = ""
         execution_info = None
+        effective_profile_id = ""
 
         if use_llm and agent_id:
             # Try to use actual LLM
@@ -87,6 +109,21 @@ class ChatMixin:
                     cancel_check = register_agent_cancel(execution_id)
                     chat_timeout_raw = agent.get("timeout_seconds")
                     chat_timeout = float(chat_timeout_raw) if chat_timeout_raw not in (None, "") and safe_int(chat_timeout_raw, 0) > 0 else None
+                    trace_events: list[dict[str, Any]] = []
+
+                    def on_agent_event(event_type: str, event_payload: dict[str, Any]) -> None:
+                        if isinstance(event_payload, dict) and event_payload:
+                            trace_events.append(copy.deepcopy(event_payload))
+                        self.publish_event(
+                            event_type,
+                            workspace_id=workspace_id,
+                            agent_execution_id=execution_id,
+                            payload={
+                                **(event_payload if isinstance(event_payload, dict) else {}),
+                                "agent_id": str(agent.get("id") or "").strip(),
+                                "chat": True,
+                            },
+                        )
 
                     def on_agent_step(step: Any) -> None:
                         step_payload = step.to_dict() if hasattr(step, "to_dict") else step
@@ -101,12 +138,29 @@ class ChatMixin:
                             },
                         )
 
+                    def on_agent_delta(delta: str, accumulated: str) -> None:
+                        if not str(accumulated or "").strip():
+                            return
+                        self.publish_event(
+                            "agent.message.delta",
+                            workspace_id=workspace_id,
+                            agent_execution_id=execution_id,
+                            payload={
+                                "delta": str(delta or ""),
+                                "accumulated": str(accumulated or ""),
+                                "agent_id": str(agent.get("id") or "").strip(),
+                                "chat": True,
+                            },
+                        )
+
                     executor = AgentExecutor(
                         agent=agent,
                         llm_client=llm_client,
                         tools=allowed_tools,
                         tool_executor=tool_executor,
                         step_callback=on_agent_step,
+                        token_callback=on_agent_delta,
+                        event_callback=on_agent_event,
                         timeout_seconds=chat_timeout,
                         cancel_check=cancel_check,
                     )
@@ -135,6 +189,7 @@ class ChatMixin:
 
                     execution_info = execution_result.to_dict()
                     execution_info["id"] = execution_id
+                    execution_info["trace_events"] = normalize_agent_trace_events(trace_events)
                     self.publish_event(
                         "agent.completed" if execution_result.success else "agent.failed",
                         workspace_id=workspace_id,
@@ -151,6 +206,19 @@ class ChatMixin:
             reply_text = build_workspace_chat_reply(preview_workspace, text, agent_id=agent_id)
 
         assistant_message = make_workspace_chat_message("assistant", reply_text, agent_id=agent_id, agent_name=agent_name)
+        if execution_info:
+            assistant_message = normalize_workspace_chat_message(
+                {
+                    **assistant_message,
+                    "agent_execution": self._chat_agent_execution_trace(
+                        str(execution_info.get("id") or ""),
+                        execution_info,
+                        provider_profile_id=effective_profile_id if use_llm and agent_id else "",
+                        success=bool(execution_info.get("success")),
+                    ),
+                },
+                existing=assistant_message,
+            )
 
         with self.lock:
             merged = copy.deepcopy(current)
@@ -370,6 +438,21 @@ class ChatMixin:
                     cancel_check = register_agent_cancel(execution_id)
                     chat_timeout_raw = agent.get("timeout_seconds")
                     chat_timeout = float(chat_timeout_raw) if chat_timeout_raw not in (None, "") and safe_int(chat_timeout_raw, 0) > 0 else None
+                    trace_events: list[dict[str, Any]] = []
+
+                    def on_agent_event(event_type: str, event_payload: dict[str, Any]) -> None:
+                        if isinstance(event_payload, dict) and event_payload:
+                            trace_events.append(copy.deepcopy(event_payload))
+                        self.publish_event(
+                            event_type,
+                            workspace_id=workspace_id,
+                            agent_execution_id=execution_id,
+                            payload={
+                                **(event_payload if isinstance(event_payload, dict) else {}),
+                                "agent_id": str(agent.get("id") or "").strip(),
+                                "chat": True,
+                            },
+                        )
 
                     def on_agent_step(step: Any) -> None:
                         step_payload = step.to_dict() if hasattr(step, "to_dict") else step
@@ -408,6 +491,7 @@ class ChatMixin:
                         tool_executor=tool_executor,
                         step_callback=on_agent_step,
                         token_callback=on_agent_delta,
+                        event_callback=on_agent_event,
                         timeout_seconds=chat_timeout,
                         cancel_check=cancel_check,
                     )
@@ -430,6 +514,7 @@ class ChatMixin:
                         release_agent_cancel(execution_id)
                     execution_info = execution_result.to_dict()
                     execution_info["id"] = execution_id
+                    execution_info["trace_events"] = normalize_agent_trace_events(trace_events)
                     self.publish_event(
                         "agent.completed" if execution_result.success else "agent.failed",
                         workspace_id=workspace_id,
@@ -499,6 +584,21 @@ class ChatMixin:
                         "agent_name": message.get("agent_name") or agent_name,
                         "updated_at": now_iso(),
                     }
+                    if execution_info:
+                        model_config = current.get("model") if isinstance(current.get("model"), dict) else {}
+                        routing_mode = str(model_config.get("routing_mode") or "workspace_default").strip() or "workspace_default"
+                        workspace_profile_id = str(model_config.get("provider_profile_id") or "").strip()
+                        agent = workspace_agent_by_id(current, agent_id)
+                        agent_profile_id = str(agent.get("provider_profile_id") or "").strip() if agent else ""
+                        effective_profile_id = workspace_profile_id
+                        if routing_mode == "agent_override" and agent_profile_id:
+                            effective_profile_id = agent_profile_id
+                        next_message["agent_execution"] = self._chat_agent_execution_trace(
+                            str(execution_info.get("id") or ""),
+                            execution_info,
+                            provider_profile_id=effective_profile_id if use_llm and agent_id else "",
+                            success=bool(execution_info.get("success")),
+                        )
                     updated_message = normalize_workspace_chat_message(next_message, existing=message)
                     updated_chat.append(updated_message)
                 else:

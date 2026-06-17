@@ -14354,6 +14354,58 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   color: var(--muted);
 }
 
+.workspace-agent-fine-trace {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.workspace-agent-fine-trace.compact {
+  margin-top: 4px;
+}
+
+.workspace-agent-fine-trace-item {
+  margin: 0 0 4px;
+  list-style: decimal;
+}
+
+.workspace-agent-fine-trace-item strong {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.workspace-agent-fine-trace-type {
+  display: inline-block;
+  min-width: 52px;
+  margin-right: 4px;
+  color: #2457b2;
+  font-weight: 600;
+}
+
+.workspace-agent-fine-trace-item.status-failed .workspace-agent-fine-trace-type {
+  color: var(--bad);
+}
+
+.workspace-agent-fine-trace-item em {
+  display: block;
+  font-style: normal;
+  color: var(--muted);
+}
+
+.workspace-agent-execution-fine-trace {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.workspace-agent-execution-fine-trace > strong {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .workspace-execution-run-step-actions {
   display: flex;
   flex-wrap: wrap;

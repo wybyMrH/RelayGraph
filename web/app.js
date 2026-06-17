@@ -205,6 +205,11 @@ const WORKSPACE_STREAM_EVENT_TYPES = [
   "chat.message.failed",
   "agent.message.delta",
   "agent.step.created",
+  "agent.thought.delta",
+  "agent.tool.called",
+  "agent.tool.result",
+  "agent.tool.failed",
+  "agent.answer.delta",
   "agent.completed",
   "agent.failed",
   "heartbeat",
@@ -1302,6 +1307,10 @@ function providerProfileIsValid(profile = {}) {
     && String(profile.model || "").trim()
     && (String(profile.api_key || "").trim() || profile.has_api_key),
   );
+}
+
+function configuredProviderProfiles(list = state.providerProfiles) {
+  return (Array.isArray(list) ? list : []).filter((profile) => providerProfileIsValid(profile));
 }
 
 function loadStoredValue(key, fallback = "") {
@@ -10125,7 +10134,7 @@ function workspaceManageOverviewCards() {
   const agentsWithTools = enabledAgents.filter((agent) => Array.isArray(agent.tools) && agent.tools.length);
   const selectedProfile = selectedProviderProfile();
   const templateProfile = providerProfileById(draft?.model?.provider_profile_id || "");
-  const configuredProfiles = profiles.filter((profile) => String(profile.model || "").trim() && (profile.api_key || profile.base_url || profile.vendor));
+  const configuredProfiles = configuredProviderProfiles(profiles);
   return [
     {
       tab: "templates",
@@ -10156,8 +10165,12 @@ function workspaceManageOverviewCards() {
       label: "AI 路由",
       title: `${profiles.length} 个 Profile`,
       detail: `${configuredProfiles.length} 个已填模型 · 当前 ${selectedProfile ? providerProfileLabel(selectedProfile) : "未选择"}`,
-      next: templateProfile ? `模板默认 ${providerProfileLabel(templateProfile)}` : "给当前模板指定默认 Profile 和聊天 Agent",
-      state: profiles.length && templateProfile ? "ready" : profiles.length ? "blocked" : "draft",
+      next: templateProfile
+        ? `模板默认 ${providerProfileLabel(templateProfile)}`
+        : configuredProfiles.length
+          ? "Profile 已就绪，可在模板 AI 路由中设默认"
+          : "先新增 Provider Profile 并填写模型",
+      state: configuredProfiles.length ? "ready" : profiles.length ? "blocked" : "draft",
     },
     {
       tab: "inspect",
@@ -10190,10 +10203,15 @@ function workspaceManageFocusSummary(tab = state.ui.workspaceManageTab || "templ
   }
   if (tab === "ai") {
     const profile = selectedProviderProfile();
+    const configured = configuredProviderProfiles();
     return {
       title: "AI 层负责模型接入和模板默认路由",
-      detail: profile ? `当前 Profile：${providerProfileLabel(profile)}。` : "还没有可用 Profile。",
-      action: "模板默认路由决定实例创建后的聊天 Agent、节点 Agent 是否能覆盖模型。",
+      detail: configured.length
+        ? `${configured.length} 个 Profile 已配置${profile ? `，当前 ${providerProfileLabel(profile)}。` : "。"}`
+        : "还没有可用 Profile。",
+      action: configured.length
+        ? "模板默认 Profile 和聊天 Agent 可在 AI 路由页设置；已有 Profile 即可用于实例。"
+        : "先新增 DeepSeek / OpenAI 等 Provider Profile，再绑定到模板或项目。",
     };
   }
   if (tab === "inspect") {
@@ -10252,7 +10270,10 @@ function renderWorkflowTemplateStudioOverview() {
   const nodes = Array.isArray(draft.nodes) ? draft.nodes : [];
   const automatedNodes = nodes.filter((node) => String(node.handler?.mode || "human") !== "human");
   const assignedNodes = automatedNodes.filter((node) => String(node.handler?.agent_id || "").trim()).length;
-  const profile = providerProfileById(draft.model?.provider_profile_id || "");
+  const profiles = Array.isArray(state.providerProfiles) ? state.providerProfiles : [];
+  const configuredProfiles = configuredProviderProfiles(profiles);
+  const selectedProfile = selectedProviderProfile();
+  const profile = providerProfileById(draft.model?.provider_profile_id || "") || selectedProfile;
   const chatAgent = globalAgentById(draft.model?.chat_agent_id || "");
   const sourceBits = [
     draft.source?.repo_url ? "repo" : "",
@@ -10286,9 +10307,17 @@ function renderWorkflowTemplateStudioOverview() {
     },
     {
       label: "AI 路由",
-      title: profile ? providerProfileLabel(profile) : draft.model?.routing_mode || "workspace_default",
-      detail: chatAgent ? `聊天 Agent ${chatAgent.name || chatAgent.id}` : "未设置默认聊天 Agent",
-      state: profile ? "ready" : "blocked",
+      title: profile
+        ? providerProfileLabel(profile)
+        : configuredProfiles.length
+          ? `${configuredProfiles.length} 个 Profile`
+          : draft.model?.routing_mode || "未配置",
+      detail: chatAgent
+        ? `聊天 Agent ${chatAgent.name || chatAgent.id}`
+        : configuredProfiles.length
+          ? "Profile 已就绪，可在 AI 路由页设模板默认"
+          : "先新增 Provider Profile 并填写模型",
+      state: configuredProfiles.length ? "ready" : profiles.length ? "blocked" : "draft",
     },
   ];
   root.innerHTML = cards.map((card) => `
@@ -11510,6 +11539,109 @@ function workspaceToolPolicyBadge(sideEffect = "", controlled = false) {
   return `<span class="tool-policy-badge ${entry.cls}" title="工具权限策略：${escapeHtml(tier)}${controlled ? "（经 job 队列受控）" : ""}">${escapeHtml(entry.label)}</span>`;
 }
 
+function workspaceAgentTraceEventLabel(eventType = "") {
+  const map = {
+    "agent.thought.delta": "推理",
+    "agent.tool.called": "调用工具",
+    "agent.tool.result": "工具结果",
+    "agent.tool.failed": "工具失败",
+    "agent.answer.delta": "回答",
+    "agent.message.delta": "输出",
+    "agent.step.created": "步骤",
+  };
+  return map[String(eventType || "").trim()] || "事件";
+}
+
+function normalizeAgentTraceEventFromPayload(eventType = "", payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const type = String(source.type || eventType || "").trim();
+  if (!type.startsWith("agent.")) return null;
+  const event = {
+    type,
+    at: String(source.at || "").trim(),
+    step_number: source.step_number,
+    tool_id: String(source.tool_id || "").trim(),
+    arguments_summary: String(source.arguments_summary || "").trim(),
+    observation_summary: String(source.observation_summary || "").trim(),
+    delta: String(source.delta || "").trim(),
+    accumulated: String(source.accumulated || "").trim(),
+    status: String(source.status || "").trim(),
+    side_effect: String(source.side_effect || "").trim(),
+    error: String(source.error || "").trim(),
+  };
+  if (source.controlled !== undefined) event.controlled = Boolean(source.controlled);
+  return event;
+}
+
+function mergeAgentTraceEvents(existing = [], incoming = []) {
+  const merged = (Array.isArray(existing) ? existing : []).slice();
+  const append = (candidate) => {
+    const event = candidate && typeof candidate === "object" ? candidate : null;
+    if (!event?.type) return;
+    const key = [
+      event.type,
+      event.step_number ?? "",
+      event.tool_id || "",
+      event.at || "",
+      event.accumulated || event.observation_summary || event.arguments_summary || "",
+    ].join("|");
+    const index = merged.findIndex((item) => {
+      const itemKey = [
+        item?.type || "",
+        item?.step_number ?? "",
+        item?.tool_id || "",
+        item?.at || "",
+        item?.accumulated || item?.observation_summary || item?.arguments_summary || "",
+      ].join("|");
+      return itemKey === key;
+    });
+    if (index >= 0) merged.splice(index, 1, { ...merged[index], ...event });
+    else merged.push(event);
+  };
+  (Array.isArray(incoming) ? incoming : []).forEach((item) => append(item));
+  return merged.slice(-48);
+}
+
+function workspaceAgentTraceEventDetail(event = {}) {
+  const type = String(event.type || "").trim();
+  if (type === "agent.tool.called") {
+    return String(event.arguments_summary || event.tool_id || "").trim();
+  }
+  if (type === "agent.tool.result" || type === "agent.tool.failed") {
+    return String(event.observation_summary || event.error || "").trim();
+  }
+  if (type === "agent.answer.delta" || type === "agent.thought.delta" || type === "agent.message.delta") {
+    return String(event.accumulated || event.delta || "").trim();
+  }
+  return String(event.error || event.observation_summary || event.arguments_summary || "").trim();
+}
+
+function workspaceAgentFineTraceMarkup(traceEvents = [], options = {}) {
+  const events = (Array.isArray(traceEvents) ? traceEvents : []).filter((item) => item && typeof item === "object");
+  if (!events.length) return "";
+  const limit = Number(options.limit) || 8;
+  const compact = Boolean(options.compact);
+  const items = events.slice(-limit).map((event) => {
+    const type = String(event.type || "").trim();
+    const label = workspaceAgentTraceEventLabel(type);
+    const detail = compactText(workspaceAgentTraceEventDetail(event), compact ? 72 : 160);
+    const status = type === "agent.tool.failed" ? "failed" : type === "agent.tool.result" ? "ok" : "info";
+    const badge = event.side_effect ? workspaceToolPolicyBadge(event.side_effect, event.controlled) : "";
+    const toolId = String(event.tool_id || "").trim();
+    const title = [label, toolId, detail].filter(Boolean).join(" · ");
+    return `
+      <li class="workspace-agent-fine-trace-item status-${escapeHtml(status)}" title="${escapeHtml(title)}">
+        <span class="workspace-agent-fine-trace-type">${escapeHtml(label)}</span>
+        ${toolId ? `<strong>${escapeHtml(toolId)}</strong>` : ""}
+        ${badge}
+        ${detail ? `<em>${escapeHtml(detail)}</em>` : ""}
+      </li>
+    `;
+  }).join("");
+  const more = events.length > limit ? `<li class="muted"><em>还有 ${events.length - limit} 条 trace</em></li>` : "";
+  return `<ol class="workspace-agent-fine-trace${compact ? " compact" : ""}">${items}${more}</ol>`;
+}
+
 function workspaceAgentStepTraceMarkup(agentSteps = [], options = {}) {
   const steps = (Array.isArray(agentSteps) ? agentSteps : []).filter((item) => item && typeof item === "object");
   if (!steps.length) return "";
@@ -11551,9 +11683,10 @@ function workspaceAgentStreamTraceMarkup(records = []) {
               <strong>${escapeHtml(title)}</strong>
               <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
             </div>
-            ${meta ? `<em>${escapeHtml(meta)}</em>` : ""}
-            ${workspaceAgentStepTraceMarkup(recentSteps, { compact: true, limit: 3 })}
-            ${summary ? `<p title="${escapeHtml(summary)}">${escapeHtml(compactText(summary, 120))}</p>` : ""}
+        ${meta ? `<em>${escapeHtml(meta)}</em>` : ""}
+        ${workspaceAgentFineTraceMarkup(record.trace_events || [], { compact: true, limit: 6 })}
+        ${!Array.isArray(record.trace_events) || !record.trace_events.length ? workspaceAgentStepTraceMarkup(recentSteps, { compact: true, limit: 3 }) : ""}
+        ${summary ? `<p title="${escapeHtml(summary)}">${escapeHtml(compactText(summary, 120))}</p>` : ""}
           </div>
         `;
       }).join("")}
@@ -11567,12 +11700,40 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
   const status = String(step.status || "queued");
   const errorText = String(step.error || "").trim();
   const isAgent = String(step.executor || "") === "agent";
-  const agentMeta = isAgent ? workspaceMappedInputsCompactLine(step.mapped_inputs || [], 2) : "";
+  const mappedInputsLine = isAgent ? workspaceMappedInputsCompactLine(step.mapped_inputs || [], 2) : "";
   const outputKey = String(step.output_key || "").trim();
+  const nodeId = String(step.node_id || "").trim();
   const agentExecutionId = String(step.agent_execution_id || "").trim();
-  const agentTrace = isAgent ? workspaceAgentStepTraceMarkup(step.agent_steps || [], { compact: true, limit: 3 }) : "";
+  const executionMeta = step.agent_meta && typeof step.agent_meta === "object" ? step.agent_meta : {};
+  const agentTraceEvents = Array.isArray(step.trace_events) ? step.trace_events : [];
+  const agentTrace = isAgent
+    ? (agentTraceEvents.length
+      ? workspaceAgentFineTraceMarkup(agentTraceEvents, { compact: true, limit: 6 })
+      : workspaceAgentStepTraceMarkup(step.agent_steps || [], { compact: true, limit: 3 }))
+    : "";
+  const metaParts = [];
+  if (isAgent && executionMeta.model) metaParts.push(executionMeta.model);
+  if (isAgent && executionMeta.total_tokens) metaParts.push(`${Number(executionMeta.total_tokens) || 0} tokens`);
+  if (isAgent && executionMeta.max_iterations) metaParts.push(`max ${Number(executionMeta.max_iterations) || 0} iter`);
+  if (isAgent && step.timed_out) metaParts.push("timeout");
+  if (isAgent && step.cancelled) metaParts.push("cancelled");
+  const executionMetaLine = metaParts.length ? metaParts.join(" · ") : "";
+  const validation = step.validation && typeof step.validation === "object" ? step.validation : {};
+  const validationLine = isAgent && validation.status && validation.status !== "ok"
+    ? `输出校验 ${validation.status}${Array.isArray(validation.errors) && validation.errors.length ? `：${validation.errors[0]}` : ""}`
+    : "";
+  const canCancelAgent = isAgent && agentExecutionId && ["running", "queued"].includes(status);
+  const canRetryAgent = isAgent && nodeId && ["failed", "stopped", "blocked"].includes(status);
+  const agentActions = isAgent && (canCancelAgent || canRetryAgent)
+    ? `
+        <div class="workspace-execution-run-step-actions">
+          ${canCancelAgent ? `<button class="secondary mini danger" type="button" data-action="cancel-agent-step" data-agent-execution-id="${escapeHtml(agentExecutionId)}" title="取消正在执行的 Agent 步">取消 Agent</button>` : ""}
+          ${canRetryAgent ? `<button class="secondary mini" type="button" data-action="retry-agent-step" data-node-id="${escapeHtml(nodeId)}" title="重新运行这个 Agent 节点">重试 Agent</button>` : ""}
+        </div>
+      `
+    : "";
   return `
-    <article class="workspace-execution-run-step status-${escapeHtml(status)}${isAgent ? " executor-agent" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}">
+    <article class="workspace-execution-run-step status-${escapeHtml(status)}${isAgent ? " executor-agent" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
       <div class="workspace-execution-run-step-head">
         <strong>${escapeHtml(`${Number(step.index) + 1}. ${nodeTitle}`)}</strong>
         <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
@@ -11582,8 +11743,10 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
         ${jobId ? `<span>任务 ${escapeHtml(jobId)}</span>` : ""}
         ${isAgent && agentExecutionId ? `<span>${escapeHtml(agentExecutionId)}</span>` : ""}
         ${isAgent && outputKey ? `<span>${escapeHtml(outputKey)}</span>` : ""}
+        ${executionMetaLine ? `<span>${escapeHtml(executionMetaLine)}</span>` : ""}
       </div>
-      ${isAgent && agentMeta ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(agentMeta)}</p>` : ""}
+      ${isAgent && mappedInputsLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(mappedInputsLine)}</p>` : ""}
+      ${validationLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(validationLine)}</p>` : ""}
       ${agentTrace}
       ${errorText ? `<p class="workspace-execution-run-step-error">${escapeHtml(errorText)}</p>` : ""}
       ${jobId ? `
@@ -11591,6 +11754,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
           <button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(jobId)}" title="打开这一步的任务日志">打开日志</button>
         </div>
       ` : ""}
+      ${agentActions}
     </article>
   `;
 }
@@ -12157,6 +12321,7 @@ function ensureWorkspaceAgentDebugState(agent = selectedWorkspaceAgent()) {
 function workspaceAgentExecutionTraceMarkup(execution) {
   if (!execution || typeof execution !== "object") return "";
   const steps = Array.isArray(execution.steps) ? execution.steps : [];
+  const traceEvents = Array.isArray(execution.trace_events) ? execution.trace_events : [];
   const finalAnswer = String(execution.final_answer || "").trim();
   const error = String(execution.error || "").trim();
   const status = execution.success ? "ready" : error ? "failed" : "draft";
@@ -12178,6 +12343,12 @@ function workspaceAgentExecutionTraceMarkup(execution) {
           <em>${escapeHtml(steps.map((step) => step.action).filter(Boolean).slice(0, 4).join(" / ") || "没有工具调用")}</em>
         </article>
       </div>
+      ${traceEvents.length ? `
+        <div class="workspace-agent-execution-fine-trace">
+          <strong>细粒度 trace</strong>
+          ${workspaceAgentFineTraceMarkup(traceEvents, { limit: 12 })}
+        </div>
+      ` : ""}
       ${finalAnswer ? `<pre class="workspace-agent-debug-pre">${escapeHtml(finalAnswer)}</pre>` : ""}
       ${error ? `<div class="workspace-agent-debug-warning">${escapeHtml(error)}</div>` : ""}
       <div class="workspace-agent-execution-steps">
@@ -13224,7 +13395,8 @@ function workspaceHomeCockpitMarkup(workspace = selectedWorkspace(), formData = 
   const runCommand = String(runNode?.config?.run_command || formData.run_command || "").trim();
   const enabledAgents = state.workspaceAgentsDraft.filter((agent) => agent.enabled !== false).length;
   const enabledTools = state.workspaceToolsDraft.filter((tool) => tool.enabled !== false).length;
-  const profile = providerProfileById(state.workspaceModelDraft.provider_profile_id);
+  const profile = providerProfileById(state.workspaceModelDraft.provider_profile_id) || selectedProviderProfile();
+  const configuredProfiles = configuredProviderProfiles();
   const jobs = workspaceJobs();
   const activeJobs = jobs.filter((job) => isJobActive(job)).length;
   const failedJobs = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || ""))).length;
@@ -13233,7 +13405,11 @@ function workspaceHomeCockpitMarkup(workspace = selectedWorkspace(), formData = 
   const datasetStatus = String(datasetPlan?.status || (workspace?.id ? "warning" : "draft"));
   const bundleStatus = String(bundle?.status || (workspace?.id ? "draft" : "warning"));
   const resourceStatus = String(resource?.status || (state.servers.some((server) => server.online) ? "warning" : "draft"));
-  const layerStatus = enabledAgents && enabledTools && profile ? "ready" : enabledAgents && enabledTools ? "warning" : "blocked";
+  const layerStatus = enabledAgents && enabledTools && configuredProfiles.length
+    ? "ready"
+    : enabledAgents && enabledTools
+      ? "warning"
+      : "blocked";
   const jobStatus = activeJobs ? "running" : failedJobs ? "failed" : jobs.length ? "done" : "draft";
   const items = [
     {
@@ -14035,23 +14211,29 @@ function renderWorkspaceTools() {
 
 function workspaceModelRoutingSummaryMarkup() {
   const profiles = state.providerProfiles || [];
+  const configuredProfiles = configuredProviderProfiles(profiles);
   const defaultProfile = providerProfileById(state.workspaceModelDraft.provider_profile_id);
   const selectedProfile = selectedProviderProfile();
+  const effectiveProfile = defaultProfile || selectedProfile;
   const enabledAgents = state.workspaceAgentsDraft.filter((agent) => agent.enabled !== false);
-  const routedAgents = enabledAgents.filter((agent) => String(agent.provider_profile_id || "").trim() || defaultProfile);
+  const routedAgents = enabledAgents.filter((agent) => String(agent.provider_profile_id || "").trim() || effectiveProfile);
   const overrideAgents = enabledAgents.filter((agent) => String(agent.provider_profile_id || "").trim());
   const chatAgent = workspaceAgentById(state.workspaceModelDraft.chat_agent_id);
   const routeMode = state.workspaceModelDraft.routing_mode === "agent_override" ? "允许 Agent 覆盖" : "项目统一默认";
   const missingRouteCount = Math.max(0, enabledAgents.length - routedAgents.length);
-  const status = !profiles.length || missingRouteCount ? "warning" : defaultProfile || overrideAgents.length ? "ready" : "draft";
-  const primaryAction = !profiles.length
+  const status = !configuredProfiles.length
+    ? "warning"
+    : effectiveProfile || overrideAgents.length
+      ? "ready"
+      : "draft";
+  const primaryAction = !configuredProfiles.length
     ? { label: "新增 Profile", dataAction: "add-provider-profile", tone: "primary", title: "新增一个当前浏览器可用的 Provider Profile，并展开 AI 高级配置。" }
     : { label: "打开高级配置", dataAction: "open-workspace-details", targetId: "workspaceModelAdvancedDetails", tone: "primary", title: "展开项目 AI 路由、本地 Provider Profile 和 API Key 配置。" };
-  const secondaryAction = profiles.length
+  const secondaryAction = configuredProfiles.length
     ? { label: "新增 Profile", dataAction: "add-provider-profile", tone: "secondary", title: "新增一个当前浏览器可用的 Provider Profile。" }
     : { label: "高级配置", dataAction: "open-workspace-details", targetId: "workspaceModelAdvancedDetails", tone: "secondary", title: "展开 AI 路由高级配置。" };
   const chips = [
-    { label: "默认 Profile", value: defaultProfile ? providerProfileLabel(defaultProfile) : "未指定", status: defaultProfile ? "ready" : "warning" },
+    { label: "默认 Profile", value: effectiveProfile ? providerProfileLabel(effectiveProfile) : "未指定", status: effectiveProfile ? "ready" : configuredProfiles.length ? "warning" : "draft" },
     { label: "Agent 路由", value: `${routedAgents.length}/${enabledAgents.length}`, status: missingRouteCount ? "warning" : enabledAgents.length ? "ready" : "draft" },
     { label: "覆盖模式", value: routeMode, status: state.workspaceModelDraft.routing_mode === "agent_override" ? "running" : "ready" },
     { label: "对话 Agent", value: chatAgent?.name || "项目默认", status: chatAgent ? "ready" : "draft" },
@@ -18304,7 +18486,12 @@ function renderWorkspaceUseChat() {
     list.innerHTML = '<div class="empty">当前 Agent 还没有回复。</div>';
     return;
   }
-  list.innerHTML = filtered.slice(-12).map((message) => `
+  list.innerHTML = filtered.slice(-12).map((message) => {
+    const agentExecution = message.agent_execution && typeof message.agent_execution === "object" ? message.agent_execution : null;
+    const traceMarkup = agentExecution?.trace_events?.length
+      ? workspaceAgentFineTraceMarkup(agentExecution.trace_events, { compact: true, limit: 4 })
+      : "";
+    return `
     <article class="workspace-chat-message assistant workspace-chat-message-output status-${escapeHtml(message.status || "completed")}">
       <div class="workspace-chat-message-head">
         <span class="workspace-chat-message-role">输出</span>
@@ -18312,8 +18499,10 @@ function renderWorkspaceUseChat() {
         <em>${escapeHtml([fmtDate(message.updated_at || message.created_at || ""), message.status === "pending" ? "生成中" : message.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</em>
       </div>
       <div class="workspace-chat-message-body">${escapeHtml(message.error || message.text || "")}</div>
+      ${traceMarkup}
     </article>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function renderWorkspaceModeSwitch() {
@@ -18710,7 +18899,7 @@ function renderManageToolModule() {
                 <strong>${escapeHtml(tool.label || tool.id)}</strong>
                 <span class="state ${tool.enabled === false ? "blocked" : "ready"}">${tool.enabled === false ? "停用" : "启用"}</span>
               </div>
-              <div class="workspace-template-item-meta">${escapeHtml(workspaceToolCategoryLabel(tool.category || "general"))} · ${escapeHtml(tool.capability || "read")}</div>
+              <div class="workspace-template-item-meta">${escapeHtml(workspaceToolCategoryLabel(tool.category || "general"))} · ${escapeHtml(tool.capability || "read")}${tool.side_effect ? ` · ${workspaceToolPolicyBadge(tool.side_effect, tool.side_effect === "mutate_runtime")}` : ""}</div>
               <div class="workspace-template-item-desc">${escapeHtml(tool.description || "未填写描述")}</div>
             </button>
           `;
@@ -18730,7 +18919,7 @@ function renderManageToolModule() {
       <div class="workspace-node-editor-head">
         <div>
           <h4>${escapeHtml(tool.label || tool.id)}</h4>
-          <p class="muted">工具边界是全局注册表，Agent 只通过 allowlist 引用。</p>
+          <p class="muted">工具边界是全局注册表，Agent 只通过 allowlist 引用。${tool.side_effect ? workspaceToolPolicyBadge(tool.side_effect, tool.side_effect === "mutate_runtime") : ""}</p>
         </div>
         <div class="workspace-node-editor-actions">
           <button class="secondary mini" type="button" data-action="save-global-tool" title="保存当前全局工具定义，供 Agent allowlist 引用">保存工具</button>
@@ -19536,7 +19725,16 @@ function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
     execution.steps.forEach((item) => upsertStep(item));
   }
   if (step) upsertStep(step);
-  const partialAnswer = eventType === "agent.message.delta"
+  const traceEvent = normalizeAgentTraceEventFromPayload(eventType, payload);
+  const traceEvents = mergeAgentTraceEvents(
+    previous.trace_events || [],
+    traceEvent ? [traceEvent] : [],
+  );
+  if (Array.isArray(execution.trace_events)) {
+    traceEvents.push(...execution.trace_events.filter((item) => item && typeof item === "object"));
+  }
+  const normalizedTraceEvents = mergeAgentTraceEvents([], traceEvents);
+  const partialAnswer = eventType === "agent.message.delta" || eventType === "agent.answer.delta"
     ? String(payload.accumulated || payload.text || "").trim()
     : String(previous.partial_answer || "").trim();
   const status = eventType === "agent.failed"
@@ -19557,6 +19755,7 @@ function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
     error: String(execution.error || previous.error || "").trim(),
     total_steps: Number(execution.total_steps ?? previous.total_steps ?? steps.length) || steps.length,
     steps: steps.slice(-24),
+    trace_events: normalizedTraceEvents,
     updated_at: String(event.created_at || new Date().toISOString()),
   };
   if (existingIndex >= 0) store.splice(existingIndex, 1, record);
@@ -20120,6 +20319,24 @@ function workspaceWorkflowErrorMessage(error) {
     .slice(0, 5)
     .join("、");
   return `${prefix}完整运行前检查未通过：${labels}。先点“自动发现”或补齐阻塞项，再提交完整工作流。`;
+}
+
+async function cancelAgentExecution(executionId, options = {}) {
+  const id = String(executionId || "").trim();
+  if (!id) return null;
+  try {
+    const result = await fetchJson(`/api/agent-executions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+    if (!options.quiet) {
+      setWorkspaceMessage(result.cancelled ? "已发送 Agent 取消信号。" : "该 Agent 执行已结束或不存在。");
+    }
+    await loadStatus(true, { renderWorkspace: true });
+    await refreshWorkspaceCockpit(state.selectedWorkspaceId, { render: true, quiet: true });
+    renderWorkspaceRuns();
+    return result;
+  } catch (error) {
+    if (!options.quiet) setWorkspaceMessage(error.message, true);
+    return null;
+  }
 }
 
 async function runWorkspaceNode(nodeId, options = {}) {
@@ -23410,6 +23627,16 @@ function bindEvents() {
   });
   $("workspaceRunList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
+    if (button?.dataset.action === "cancel-agent-step" && button.dataset.agentExecutionId) {
+      consumeClick(event);
+      void cancelAgentExecution(button.dataset.agentExecutionId);
+      return;
+    }
+    if (button?.dataset.action === "retry-agent-step" && button.dataset.nodeId) {
+      consumeClick(event);
+      void runWorkspaceNode(button.dataset.nodeId, { prefer: "agent" });
+      return;
+    }
     if (button?.dataset.jobId) {
       const actionEvent = actionProxyEvent(event, button);
       if (button.dataset.action === "open-workspace-run") {

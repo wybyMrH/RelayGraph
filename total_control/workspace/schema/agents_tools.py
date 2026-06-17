@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from ...constants import *  # noqa: F403
+from ...tools.registry import TOOL_SIDE_EFFECTS, tool_side_effect
 from ...utils import *  # noqa: F403
 from ..errors import WorkspaceWorkflowReadinessError
 
@@ -52,11 +53,15 @@ def normalize_workspace_tool(
     label = str(base.get("label") or base.get("display_name") or tool_id).strip() or tool_id
     category = str(base.get("category") or "general").strip() or "general"
     capability = str(base.get("capability") or "read").strip() or "read"
+    registry_meta = TOOL_SIDE_EFFECTS.get(tool_id) if isinstance(TOOL_SIDE_EFFECTS.get(tool_id), dict) else {}
+    side_effect = str(base.get("side_effect") or registry_meta.get("side_effect") or tool_side_effect(tool_id).value).strip()
     return {
         "id": tool_id,
         "label": label,
         "category": category,
         "capability": capability,
+        "side_effect": side_effect,
+        "implemented": bool(base.get("implemented", registry_meta.get("implemented", True))),
         "description": str(base.get("description") or "").strip(),
         "enabled": bool(base.get("enabled", True)),
         "notes": str(base.get("notes") or "").strip(),

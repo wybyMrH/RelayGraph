@@ -8,6 +8,7 @@ from typing import Any
 from ...constants import *  # noqa: F403
 from ...utils import *  # noqa: F403
 from ..errors import WorkspaceWorkflowReadinessError
+from ..execution.agent_trace import normalize_agent_execution_trace
 from .agents_tools import normalize_workspace_tool
 
 
@@ -36,6 +37,10 @@ def normalize_workspace_chat_message(
         if str(current.get("agent_id") or previous.get("agent_id") or "").strip()
         else "",
         "agent_name": str(current.get("agent_name") or previous.get("agent_name") or "").strip(),
+        "agent_execution": normalize_agent_execution_trace(
+            current.get("agent_execution"),
+            existing=previous.get("agent_execution") if isinstance(previous.get("agent_execution"), dict) else None,
+        ),
         "created_at": str(current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
         "updated_at": str(current.get("updated_at") or previous.get("updated_at") or current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
     }
