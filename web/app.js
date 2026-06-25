@@ -12013,6 +12013,7 @@ function workspaceExecutionRunItemMarkup(run = {}) {
   const compareAction = compareBaseId && compareBaseId !== runId
     ? `<button class="secondary mini" type="button" data-action="compare-workspace-run" data-run-id="${escapeHtml(runId)}" title="用已设置的基准运行与这次运行生成结构化对比 JSON">对比</button>`
     : `<button class="secondary mini" type="button" data-action="set-workspace-run-compare-base" data-run-id="${escapeHtml(runId)}" title="把这次运行设为后续对比的基准">设基准</button>`;
+  const exportAction = `<button class="secondary mini" type="button" data-action="download-workspace-run-export" data-run-id="${escapeHtml(runId)}" title="下载这次运行的结构化导出 JSON，包含回放、日志、产物和报告">导出</button>`;
   return `
     <article class="workspace-execution-run-item status-${escapeHtml(status)}" role="button" tabindex="0" data-run-id="${escapeHtml(runId)}" title="刷新这条执行记录的详情；若有关联任务则打开第一条任务日志">
       <div class="workspace-execution-run-item-head">
@@ -12023,6 +12024,7 @@ function workspaceExecutionRunItemMarkup(run = {}) {
         </div>
         <div class="workspace-execution-run-item-actions">
           ${compareAction}
+          ${exportAction}
           <button class="secondary mini" type="button" data-action="copy-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="复制这次运行的结构化回放 JSON，包含步骤、任务、执行包和交付闭环">复制回放</button>
           <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
         </div>
@@ -17103,6 +17105,13 @@ function triggerBrowserDownload(url, filename = "") {
   anchor.remove();
 }
 
+function downloadTextFile(text, filename, contentType = "text/plain;charset=utf-8") {
+  const blob = new Blob([String(text ?? "")], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  triggerBrowserDownload(url, filename || "download.txt");
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function previewPathMatchesState(path, serverId = "") {
   const previewPath = normalizePathForCompare(state.filePreview.path || "");
   const nextPath = normalizePathForCompare(path || "");
@@ -20704,6 +20713,25 @@ async function copyWorkspaceRunReplay(runId) {
     setWorkspaceMessage("运行回放 JSON 已复制，可用于复盘、对比或导出。");
   } catch (error) {
     setWorkspaceMessage(error.message || "复制运行回放失败。", true);
+  }
+}
+
+async function downloadWorkspaceRunExport(runId) {
+  const workspace = selectedWorkspace();
+  const id = String(runId || "").trim();
+  if (!workspace?.id || !id) {
+    setWorkspaceMessage("还没有可导出的运行记录。", true);
+    return;
+  }
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/runs/${encodeURIComponent(id)}/export`);
+    const exportPayload = payload.export && typeof payload.export === "object" ? payload.export : payload;
+    const filename = String(exportPayload.filename || `relaygraph-run-${safeId(workspace.id)}-${safeId(id)}.json`);
+    downloadTextFile(JSON.stringify(exportPayload, null, 2), filename, "application/json;charset=utf-8");
+    const summary = exportPayload.summary && typeof exportPayload.summary === "object" ? exportPayload.summary : {};
+    setWorkspaceMessage(`运行导出已下载：${Number(summary.step_count || 0)} 步 · ${Number(summary.log_count || 0)} 段日志 · ${Number(summary.report_count || 0)} 份报告。`);
+  } catch (error) {
+    setWorkspaceMessage(error.message || "下载运行导出失败。", true);
   }
 }
 
@@ -24541,6 +24569,11 @@ function bindEvents() {
     if (button?.dataset.action === "copy-workspace-run-replay" && button.dataset.runId) {
       consumeClick(event);
       void copyWorkspaceRunReplay(button.dataset.runId);
+      return;
+    }
+    if (button?.dataset.action === "download-workspace-run-export" && button.dataset.runId) {
+      consumeClick(event);
+      void downloadWorkspaceRunExport(button.dataset.runId);
       return;
     }
     if (button?.dataset.action === "set-workspace-run-compare-base" && button.dataset.runId) {

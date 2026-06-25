@@ -428,3 +428,26 @@ class RunsMixin:
             "target_run_id": target_run_id,
             "compare": workspace_execution_run_compare_payload(public_workspace, base_run, target_run, jobs=jobs),
         }
+
+
+    def get_workspace_execution_run_export(self, workspace_id: str, run_id: str) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        run_id = str(run_id or "").strip()
+        if not run_id:
+            raise KeyError("workspace execution run not found")
+        self.sync_workspace_execution_runs_from_jobs(workspace_id)
+        with self.lock:
+            workspace = self.workspace_by_id(workspace_id)
+            if not workspace:
+                raise ValueError("workspace not found")
+            public_workspace = self.workspace_public_payload(workspace)
+            jobs = copy.deepcopy(getattr(self, "jobs", []))
+        runs = public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else []
+        run = next((item for item in runs if isinstance(item, dict) and str(item.get("id") or "") == run_id), None)
+        if not run:
+            raise KeyError("workspace execution run not found")
+        return {
+            "workspace_id": workspace_id,
+            "run_id": run_id,
+            "export": workspace_execution_run_export_payload(public_workspace, run, jobs=jobs),
+        }

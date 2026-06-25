@@ -30,6 +30,7 @@ from .runs import (
     workspace_execution_run_snapshot,
     workspace_execution_run_replay_payload,
     workspace_execution_run_compare_payload,
+    workspace_execution_run_export_payload,
 )
 
 from .jobs import (
@@ -110,6 +111,7 @@ __all__ = [
     "workspace_execution_run_snapshot",
     "workspace_execution_run_replay_payload",
     "workspace_execution_run_compare_payload",
+    "workspace_execution_run_export_payload",
     "workspace_job_binding",
     "workspace_job_sort_key",
     "workspace_config_values",
