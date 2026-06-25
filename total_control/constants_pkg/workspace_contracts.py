@@ -105,6 +105,15 @@ AGENT_NODE_DEFAULT_INPUT_MAPPINGS: dict[str, dict[str, str]] = {
         "artifact_manifest": "$context.outputs.artifact_manifest",
         "run_result": "$context.outputs.run_result",
     },
+    "path.resolve": {
+        "repo_profile": "$context.outputs.repo_profile",
+        "repo_checkout": "$context.outputs.repo_checkout",
+        "数据集 / 路径线索": "$input.references",
+    },
+    "artifact.collect": {
+        "run_result": "$context.outputs.run_result",
+        "path_map": "$context.outputs.path_map",
+    },
 }
 
 DEFAULT_WORKSPACE_TOOLS: list[dict[str, Any]] = [

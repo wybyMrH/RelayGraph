@@ -18,6 +18,12 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         template = state.create_workflow_template(handler.read_body())
         handler.send_json({"workflow_template": template}, HTTPStatus.CREATED)
         return True
+    if parsed.path == "/api/workflow-templates/preview":
+        try:
+            handler.send_json(state.validate_workflow_template(handler.read_body()))
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return True
     if parsed.path == "/api/agent-definitions":
         agent = state.create_agent_definition(handler.read_body())
         handler.send_json({"agent_definition": agent}, HTTPStatus.CREATED)
@@ -25,6 +31,13 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/tool-definitions":
         tool = state.create_tool_definition(handler.read_body())
         handler.send_json({"tool_definition": tool}, HTTPStatus.CREATED)
+        return True
+    if parsed.path.startswith("/api/tool-definitions/") and parsed.path.endswith("/test"):
+        tool_id = parsed.path.split("/")[3]
+        try:
+            handler.send_json({"test": state.test_tool_definition(tool_id, handler.read_body())})
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
         return True
     if parsed.path == "/api/provider-profiles":
         profile = state.create_provider_profile(handler.read_body())
@@ -191,6 +204,20 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         result = state.append_workspace_chat(workspace_id, handler.read_body())
         handler.send_json(result, HTTPStatus.CREATED)
         return True
+    if (
+        parsed.path.startswith("/api/workspaces/")
+        and "/context-reflections/" in parsed.path
+        and parsed.path.endswith("/accept")
+    ):
+        parts = parsed.path.split("/")
+        workspace_id = parts[3] if len(parts) > 3 else ""
+        message_id = parts[5] if len(parts) > 5 else ""
+        try:
+            result = state.accept_workspace_context_reflection(workspace_id, message_id, handler.read_body())
+            handler.send_json(result)
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return True
     if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/automation/apply"):
         parts = parsed.path.split("/")
         workspace_id = parts[3] if len(parts) > 3 else ""
@@ -246,6 +273,13 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         template_id = parsed.path.split("/")[3]
         template = state.update_workflow_template(template_id, handler.read_body())
         handler.send_json({"workflow_template": template})
+        return True
+    if parsed.path.startswith("/api/workflow-templates/") and parsed.path.endswith("/preview"):
+        template_id = parsed.path.split("/")[3]
+        try:
+            handler.send_json(state.validate_workflow_template(handler.read_body(), template_id=template_id))
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
         return True
     if parsed.path.startswith("/api/agent-definitions/") and "/" not in parsed.path[23:]:
         agent_id = parsed.path.split("/")[3]

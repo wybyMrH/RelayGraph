@@ -4,6 +4,7 @@ import html
 import json
 import os
 import re
+import time
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -21,6 +22,7 @@ def workspace_seed_results(context: Any) -> list[dict[str, str]]:
 
 
 def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    started = time.monotonic()
     source = context.source_payload()
     query = str(arguments.get("query") or source.get("goal_text") or "").strip()
     try:
@@ -32,23 +34,38 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
     provider = str(arguments.get("provider") or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_PROVIDER") or "").strip().lower()
 
     if endpoint:
-        return _execute_endpoint_search(endpoint, query, limit, seeds)
-    if provider in {"duckduckgo", "ddg"} or bool(arguments.get("network")):
-        return _execute_duckduckgo_search(query, limit, seeds)
-
-    return {
-        "status": "seeded" if seeds else "unconfigured",
-        "query": query,
-        "provider": provider or "",
-        "provider_configured": False,
-        "provider_status": "unconfigured",
-        "fallback_used": bool(seeds),
-        "results": seeds[:limit],
-        "message": (
-            "返回工作台已有搜索种子；设置 TOTAL_CONTROL_WEB_SEARCH_PROVIDER=duckduckgo "
-            "或 TOTAL_CONTROL_WEB_SEARCH_ENDPOINT 接入真实搜索。"
-        ),
+        payload = _execute_endpoint_search(endpoint, query, limit, seeds)
+    elif provider in {"duckduckgo", "ddg"} or bool(arguments.get("network")):
+        payload = _execute_duckduckgo_search(query, limit, seeds)
+    else:
+        payload = {
+            "status": "seeded" if seeds else "unconfigured",
+            "query": query,
+            "provider": provider or "",
+            "provider_configured": False,
+            "provider_status": "unconfigured",
+            "fallback_used": bool(seeds),
+            "results": seeds[:limit],
+            "message": (
+                "返回工作台已有搜索种子；设置 TOTAL_CONTROL_WEB_SEARCH_PROVIDER=duckduckgo "
+                "或 TOTAL_CONTROL_WEB_SEARCH_ENDPOINT 接入真实搜索。"
+            ),
+        }
+    latency_ms = round((time.monotonic() - started) * 1000, 1)
+    results = payload.get("results") if isinstance(payload.get("results"), list) else []
+    payload["latency_ms"] = latency_ms
+    payload["result_count"] = len(results)
+    payload["result_provenance"] = [
+        str(item.get("source") or "unknown").strip() or "unknown"
+        for item in results
+        if isinstance(item, dict)
+    ][:limit]
+    payload["rate_limit"] = {
+        "provider": str(payload.get("provider") or provider or "seed").strip(),
+        "max_results": limit,
+        "hint": "DuckDuckGo HTML 接口未提供官方 quota；endpoint 模式取决于远端服务。",
     }
+    return payload
 
 
 def _execute_endpoint_search(endpoint: str, query: str, limit: int, seeds: list[dict[str, str]]) -> dict[str, Any]:

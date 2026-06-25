@@ -42,6 +42,18 @@ class WorkflowMixin:
         def create_workspace_job(payload: dict[str, Any]) -> dict[str, Any]:
             return self.create_job(payload, publish_events=False)
 
+        def record_run_steps(
+            run_id: str,
+            steps: list[dict[str, Any]],
+            jobs: list[dict[str, Any]],
+        ) -> dict[str, Any]:
+            return self.update_workspace_execution_run_steps(
+                workspace_id,
+                str(run_id or "").strip(),
+                steps=steps,
+                jobs=jobs,
+            )
+
         return WorkflowRunnerCallbacks(
             refresh_workspace=refresh_workspace,
             execute_agent_node=execute_agent_node,
@@ -50,6 +62,7 @@ class WorkflowMixin:
             step_from_job=workspace_run_step_from_job,
             step_from_agent=workspace_run_step_from_agent,
             executable_node_kinds=WORKSPACE_EXECUTABLE_NODE_KINDS,
+            record_run_steps=record_run_steps,
         )
 
 
@@ -129,6 +142,11 @@ class WorkflowMixin:
                 check for check in blocked_checks
                 if str(check.get("id") or "") == "starter_chain"
             ]
+        elif not force:
+            blocked_checks = [
+                *blocked_checks,
+                *workspace_execution_package_blocking_checks(automation, full_workflow=True),
+            ]
         if blocked_checks and not force:
             with self.lock:
                 payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
@@ -169,24 +187,97 @@ class WorkflowMixin:
                 evidence_applied=evidence_applied,
             )
 
-        workflow_runner = WorkflowRunner(self.workflow_runner_callbacks(workspace_id, automation))
-        sequence_result = workflow_runner.run(
-            workspace_id,
-            nodes,
-            workspace,
-            executor_prefer=executor_prefer,
-            automation=automation,
-            until_node_id=until_node_id,
-            target_node=target_node,
+        planned_modes = [resolve_node_executor_mode(node, executor_prefer) for node in nodes]
+        if not any(mode != "skip" for mode in planned_modes):
+            raise ValueError("workspace has no runnable steps")
+
+        initial_agent_count = sum(1 for node in nodes if resolve_node_executor_mode(node, executor_prefer) == "agent")
+        run_summary = (
+            f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
+            if until_node_id
+            else (
+                f"混合工作流 · {initial_agent_count} agent · {max(len(nodes) - initial_agent_count, 0)} job"
+                if initial_agent_count and len(nodes) - initial_agent_count
+                else f"Agent 工作流 · {initial_agent_count} 步"
+                if initial_agent_count
+                else f"完整工作流 · {len(nodes)} 步"
+            )
         )
+        initial_package = workspace_execution_bundle_result(automation, [])
+        if until_node_id:
+            initial_package["scope"] = {
+                "mode": "run_to_node",
+                "target_node_id": until_node_id,
+                "target_node_title": str((target_node or {}).get("title") or "").strip(),
+                "target_node_kind": str((target_node or {}).get("kind") or "").strip(),
+            }
+        run = self.register_workspace_execution_run(
+            workspace_id,
+            kind="reproduction",
+            trigger="user",
+            summary=run_summary,
+            steps=[],
+            package_snapshot=initial_package,
+        )
+        run_id = str(run.get("id") or "").strip()
+        workflow_runner = WorkflowRunner(self.workflow_runner_callbacks(workspace_id, automation))
+        try:
+            sequence_result = workflow_runner.run(
+                workspace_id,
+                nodes,
+                workspace,
+                executor_prefer=executor_prefer,
+                automation=automation,
+                until_node_id=until_node_id,
+                target_node=target_node,
+                run_id=run_id,
+            )
+        except Exception as exc:
+            failed_step = normalize_workspace_run_step(
+                {
+                    "index": 0,
+                    "node_id": "",
+                    "node_kind": "workflow",
+                    "node_title": "工作流提交",
+                    "executor": "system",
+                    "status": "failed",
+                    "completed_at": now_iso(),
+                    "error": str(exc),
+                }
+            )
+            self.update_workspace_execution_run_steps(
+                workspace_id,
+                run_id,
+                steps=[failed_step],
+                package_snapshot=initial_package,
+            )
+            raise
         jobs = sequence_result.jobs
         run_steps = sequence_result.run_steps
         agent_step_count = sequence_result.agent_step_count
 
         if not run_steps:
+            failed_step = normalize_workspace_run_step(
+                {
+                    "index": 0,
+                    "node_id": "",
+                    "node_kind": "workflow",
+                    "node_title": "工作流提交",
+                    "executor": "system",
+                    "status": "failed",
+                    "completed_at": now_iso(),
+                    "error": "workspace has no runnable steps",
+                }
+            )
+            self.update_workspace_execution_run_steps(
+                workspace_id,
+                run_id,
+                steps=[failed_step],
+                package_snapshot=initial_package,
+            )
             raise ValueError("workspace has no runnable steps")
 
-        run_summary = (
+        final_summary = (
             f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
             if until_node_id
             else (
@@ -197,17 +288,6 @@ class WorkflowMixin:
                 else f"完整工作流 · {len(jobs)} 步"
             )
         )
-        run = self.register_workspace_execution_run(
-            workspace_id,
-            kind="reproduction",
-            trigger="user",
-            summary=run_summary,
-            jobs=jobs,
-            steps=run_steps,
-        )
-        with self.lock:
-            refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
-            payload_workspace = self.workspace_public_payload(refreshed_workspace)
         execution_package = workspace_execution_bundle_result(automation, jobs)
         if until_node_id:
             execution_package["scope"] = {
@@ -216,11 +296,22 @@ class WorkflowMixin:
                 "target_node_title": str((target_node or {}).get("title") or "").strip(),
                 "target_node_kind": str((target_node or {}).get("kind") or "").strip(),
             }
+        run = self.update_workspace_execution_run_steps(
+            workspace_id,
+            run_id,
+            jobs=jobs,
+            steps=run_steps,
+            summary=final_summary,
+            package_snapshot=execution_package,
+        )
+        with self.lock:
+            refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
+            payload_workspace = self.workspace_public_payload(refreshed_workspace)
         return {
             "workspace": payload_workspace,
             "jobs": jobs,
             "run": run,
-            "run_id": run["id"],
+            "run_id": run_id,
             "applied": applied,
             "evidence_applied": evidence_applied,
             "execution_package": execution_package,

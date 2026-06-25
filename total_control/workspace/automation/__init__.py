@@ -71,6 +71,8 @@ from .deployment import (
 )
 
 from .bundle import (
+    make_execution_package_id,
+    make_stable_execution_package_id,
     workspace_execution_bundle_step,
     workspace_execution_bundle_missing_item,
     workspace_checkout_command,
@@ -159,6 +161,8 @@ __all__ = [
     "workspace_deployment_host",
     "workspace_deployment_stop_command",
     "workspace_deployment_plan",
+    "make_execution_package_id",
+    "make_stable_execution_package_id",
     "workspace_execution_bundle_step",
     "workspace_execution_bundle_missing_item",
     "workspace_checkout_command",

@@ -124,7 +124,14 @@ def normalize_workspace_agent(
         filtered_tools = [tool for tool in tools if tool in allowed_tools]
         if filtered_tools:
             tools = filtered_tools
-    return {
+    max_iterations_raw = base.get("max_iterations")
+    max_iterations = safe_int(max_iterations_raw, 0) if max_iterations_raw not in (None, "") else 0
+    timeout_raw = base.get("timeout_seconds")
+    timeout_seconds = float(timeout_raw) if timeout_raw not in (None, "") and safe_int(timeout_raw, 0) > 0 else 0.0
+    output_format = str(base.get("output_format") or "").strip().lower()
+    if output_format not in {"", "text", "json"}:
+        output_format = ""
+    result: dict[str, Any] = {
         "id": agent_id,
         "name": name,
         "role": role,
@@ -133,6 +140,13 @@ def normalize_workspace_agent(
         "provider_profile_id": str(base.get("provider_profile_id") or "").strip(),
         "enabled": bool(base.get("enabled", True)),
     }
+    if max_iterations > 0:
+        result["max_iterations"] = max_iterations
+    if timeout_seconds > 0:
+        result["timeout_seconds"] = timeout_seconds
+    if output_format:
+        result["output_format"] = output_format
+    return result
 
 def normalize_workspace_agents(
     value: Any,

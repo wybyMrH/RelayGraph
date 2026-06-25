@@ -53,7 +53,7 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
         "config_defaults": {
             "workspace_dir": "",
             "data_roots": "",
-            "output_roots": "runs\noutputs\ncheckpoints\nlogs",
+            "output_roots": "",
         },
     },
     "repo.inspect": {
@@ -80,7 +80,7 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
         "category": "env",
         "config_defaults": {
             "workspace_dir": "",
-            "manifest_paths": "requirements.txt, pyproject.toml, environment.yml, setup.py",
+            "manifest_paths": "",
             "env_name": "",
             "python_version": "",
         },
@@ -91,7 +91,7 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
         "config_defaults": {
             "workspace_dir": "",
             "env_name": "",
-            "env_manager": "conda",
+            "env_manager": "",
             "python_version": "",
             "setup_command": "",
         },
@@ -101,7 +101,7 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
         "category": "gpu",
         "config_defaults": {
             "server_id": "",
-            "gpu_policy": "auto",
+            "gpu_policy": "",
             "gpu_index": "",
             "min_free_memory_gib": "",
             "notes": "",
@@ -114,7 +114,7 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
             "workspace_dir": "",
             "env_name": "",
             "server_id": "",
-            "gpu_policy": "auto",
+            "gpu_policy": "",
             "gpu_index": "",
             "min_free_memory_gib": "",
             "run_command": "",
@@ -126,7 +126,7 @@ WORKSPACE_NODE_LIBRARY: dict[str, dict[str, Any]] = {
         "category": "artifact",
         "config_defaults": {
             "workspace_dir": "",
-            "artifact_paths": "runs\noutputs\ncheckpoints\nlogs",
+            "artifact_paths": "",
             "metric_paths": "",
             "notes": "",
         },

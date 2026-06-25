@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..agent_executor import AgentExecutor, AgentExecutionResult
-from ..config import AppConfig, ServerConfig, load_config, save_user_overlay
+from ..config import AppConfig, ServerConfig, load_config, load_user_overlay, save_user_overlay
 from ..constants import *  # noqa: F403
 from ..events import EventBroker
 from ..secrets_crypto import decrypt_secret, encrypt_secret, is_encrypted
@@ -33,7 +33,7 @@ from ..orchestration.input_mapping import (
 from ..orchestration.node_runner import AGENT_EXECUTABLE_KINDS, resolve_node_executor_mode, run_agent_node
 from ..orchestration.types import ExecutionRunContext, StepResult
 from ..orchestration.workflow_runner import WorkflowRunner, WorkflowRunnerCallbacks, run_workflow_sequence
-from ..tools.registry import create_workspace_tool_executor, summarize_mapped_inputs
+from ..tools.registry import ToolSideEffect, create_workspace_tool_executor, summarize_mapped_inputs, tool_side_effect
 from ..workspace.schema import *  # noqa: F403
 from ..workspace.execution import *  # noqa: F403
 from ..workspace.automation import *  # noqa: F403

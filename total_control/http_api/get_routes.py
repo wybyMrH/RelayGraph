@@ -28,6 +28,13 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/workflow-templates":
         handler.send_json(state.list_workflow_templates())
         return True
+    if parsed.path.startswith("/api/workflow-templates/") and parsed.path.endswith("/preview"):
+        template_id = parsed.path.split("/")[3]
+        try:
+            handler.send_json(state.validate_workflow_template({}, template_id=template_id))
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.NOT_FOUND)
+        return True
     if parsed.path.startswith("/api/workflow-templates/") and "/" not in parsed.path[24:]:
         template_id = parsed.path.split("/")[3]
         template = state.workflow_template_by_id(template_id)
@@ -49,6 +56,17 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
         return True
     if parsed.path == "/api/tool-definitions":
         handler.send_json(state.list_tool_definitions())
+        return True
+    if parsed.path == "/api/provider-route-health":
+        handler.send_json({"provider_route_health": state.provider_route_health()})
+        return True
+    if parsed.path == "/api/execution-overview":
+        query = parse_qs(parsed.query)
+        handler.send_json(
+            state.execution_overview(
+                {"limit": (query.get("limit") or ["50"])[0]},
+            )
+        )
         return True
     if parsed.path.startswith("/api/tool-definitions/") and "/" not in parsed.path[22:]:
         tool_id = parsed.path.split("/")[3]
@@ -80,6 +98,28 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
             handler.send_json(state.workspace_cockpit_payload(workspace_id))
         except ValueError:
             handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+        return True
+    if parsed.path.startswith("/api/workspaces/") and len(parts) == 7 and parts[4] == "runs" and parts[6] == "replay":
+        workspace_id = unquote(parts[3])
+        run_id = unquote(parts[5])
+        try:
+            handler.send_json(state.get_workspace_execution_run_replay(workspace_id, run_id))
+        except ValueError:
+            handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+        except KeyError:
+            handler.send_json({"error": "workspace execution run not found"}, HTTPStatus.NOT_FOUND)
+        return True
+    if parsed.path.startswith("/api/workspaces/") and len(parts) == 6 and parts[4] == "runs" and parts[5] == "compare":
+        workspace_id = unquote(parts[3])
+        query = parse_qs(parsed.query)
+        base_run_id = str((query.get("base") or [""])[0])
+        target_run_id = str((query.get("target") or [""])[0])
+        try:
+            handler.send_json(state.compare_workspace_execution_runs(workspace_id, base_run_id, target_run_id))
+        except ValueError:
+            handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+        except KeyError:
+            handler.send_json({"error": "workspace execution run not found"}, HTTPStatus.NOT_FOUND)
         return True
     if parsed.path.startswith("/api/workspaces/") and len(parts) == 6 and parts[4] == "runs":
         workspace_id = unquote(parts[3])

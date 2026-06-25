@@ -19,6 +19,74 @@ class RegistryMixin:
         with self.lock:
             return {"tool_definitions": copy.deepcopy(self.tool_definitions)}
 
+    def test_tool_definition(self, tool_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Run a safe tool preview against a workspace snapshot.
+
+        Configuration-center tool tests must not bypass the controlled runtime
+        queue. Read-only tools can execute with the workspace executor; runtime
+        and dangerous tools return a blocked/plan-only result so their payload
+        shape can be inspected without causing side effects.
+        """
+        requested = payload if isinstance(payload, dict) else {}
+        requested_tool_id = str(tool_id or requested.get("tool_id") or "").strip()
+        with self.lock:
+            tool = copy.deepcopy(self.tool_definition_by_id(requested_tool_id)) if requested_tool_id else None
+            workspace_id = str(requested.get("workspace_id") or "").strip()
+            workspace = copy.deepcopy(self.workspace_by_id(workspace_id)) if workspace_id else None
+            if not workspace:
+                workspace = copy.deepcopy(self.workspaces[0]) if getattr(self, "workspaces", []) else {}
+            statuses = copy.deepcopy(getattr(self, "statuses", []))
+            jobs = copy.deepcopy(getattr(self, "jobs", []))
+        if not tool:
+            raise ValueError("tool definition not found")
+
+        side_effect = str(tool.get("side_effect") or tool_side_effect(requested_tool_id).value).strip()
+        arguments = requested.get("arguments") if isinstance(requested.get("arguments"), dict) else {}
+        workspace_summary = {
+            "id": str(workspace.get("id") or "").strip(),
+            "name": str(workspace.get("name") or workspace.get("brief") or "").strip(),
+        }
+        if side_effect != ToolSideEffect.READ.value:
+            return {
+                "tool_id": requested_tool_id,
+                "status": "blocked",
+                "safe": False,
+                "side_effect": side_effect,
+                "workspace": workspace_summary,
+                "arguments": copy.deepcopy(arguments),
+                "result": {
+                    "status": "blocked",
+                    "plan_only": True,
+                    "message": "配置中心只允许安全测试 read-only 工具；runtime/config/dangerous 工具必须通过 Agent trace 或受控 workflow/job 队列验证。",
+                },
+            }
+
+        executor = create_workspace_tool_executor(
+            workspace,
+            getattr(self, "config", None),
+            statuses=statuses,
+            jobs=jobs,
+            runtime=None,
+        )
+        started = time.time()
+        observation = executor(requested_tool_id, arguments)
+        latency_ms = round((time.time() - started) * 1000, 1)
+        parsed_result: Any
+        try:
+            parsed_result = json.loads(observation)
+        except (TypeError, json.JSONDecodeError):
+            parsed_result = {"text": str(observation or "")[:4000]}
+        return {
+            "tool_id": requested_tool_id,
+            "status": "ok",
+            "safe": True,
+            "side_effect": side_effect,
+            "workspace": workspace_summary,
+            "arguments": copy.deepcopy(arguments),
+            "latency_ms": latency_ms,
+            "result": parsed_result,
+        }
+
 
     def list_agent_definitions(self) -> dict[str, Any]:
         with self.lock:
@@ -32,6 +100,467 @@ class RegistryMixin:
                 for item in sorted(self.workflow_templates, key=workflow_template_sort_key, reverse=True)
             ]
         return {"workflow_templates": items}
+
+    def provider_route_health(self) -> dict[str, Any]:
+        with self.lock:
+            profiles = copy.deepcopy(getattr(self, "provider_profiles", []))
+            agents = copy.deepcopy(getattr(self, "agent_definitions", []))
+            templates = copy.deepcopy(getattr(self, "workflow_templates", []))
+        profile_index = {
+            str(profile.get("id") or "").strip(): profile
+            for profile in profiles
+            if isinstance(profile, dict) and str(profile.get("id") or "").strip()
+        }
+        issues: list[dict[str, Any]] = []
+
+        def add_issue(severity: str, code: str, message: str, **extra: Any) -> None:
+            issue = {
+                "severity": severity,
+                "code": code,
+                "message": message,
+            }
+            issue.update({key: value for key, value in extra.items() if value not in (None, "")})
+            issues.append(issue)
+
+        configured_profiles = 0
+        for profile_id, profile in profile_index.items():
+            api_key = str(profile.get("api_key") or "").strip()
+            models = [str(item or "").strip() for item in profile.get("models", []) if str(item or "").strip()] if isinstance(profile.get("models"), list) else []
+            base_url = str(profile.get("base_url") or "").strip()
+            profile_ready = bool(api_key and models and base_url)
+            if profile_ready:
+                configured_profiles += 1
+            missing_severity = "warning" if profile_ready or configured_profiles else "blocking"
+            if not api_key:
+                add_issue(missing_severity, "provider_missing_api_key", f"Provider Profile {profile.get('name') or profile_id} 没有 API key。", provider_profile_id=profile_id)
+            if not models:
+                add_issue("warning", "provider_missing_model", f"Provider Profile {profile.get('name') or profile_id} 没有模型。", provider_profile_id=profile_id)
+            if not base_url:
+                add_issue("warning", "provider_missing_base_url", f"Provider Profile {profile.get('name') or profile_id} 没有 Base URL。", provider_profile_id=profile_id)
+
+        if configured_profiles:
+            for issue in issues:
+                if issue.get("severity") == "blocking" and issue.get("code") == "provider_missing_api_key":
+                    issue["severity"] = "warning"
+
+        if not profile_index:
+            add_issue("blocking", "no_provider_profiles", "还没有 Provider Profile，Agent 无法真实调用模型。")
+
+        for agent in agents:
+            if not isinstance(agent, dict):
+                continue
+            agent_id = str(agent.get("id") or "").strip()
+            if agent.get("enabled") is False:
+                continue
+            agent_profile_id = str(agent.get("provider_profile_id") or "").strip()
+            if agent_profile_id and agent_profile_id not in profile_index:
+                add_issue(
+                    "warning",
+                    "agent_unknown_provider_profile",
+                    f"Agent {agent.get('name') or agent_id} 指向不存在的 Provider Profile {agent_profile_id}。",
+                    agent_id=agent_id,
+                    provider_profile_id=agent_profile_id,
+                )
+
+        for template in templates:
+            if not isinstance(template, dict):
+                continue
+            template_id = str(template.get("id") or "").strip()
+            model = template.get("model") if isinstance(template.get("model"), dict) else {}
+            template_profile_id = str(model.get("provider_profile_id") or "").strip()
+            routing_mode = str(model.get("routing_mode") or "workspace_default").strip() or "workspace_default"
+            if template_profile_id and template_profile_id not in profile_index:
+                add_issue(
+                    "warning",
+                    "template_unknown_provider_profile",
+                    f"模板 {template.get('name') or template_id} 指向不存在的 Provider Profile {template_profile_id}。",
+                    template_id=template_id,
+                    provider_profile_id=template_profile_id,
+                )
+            if routing_mode == "workspace_default" and not template_profile_id and not configured_profiles:
+                add_issue(
+                    "blocking",
+                    "template_without_provider_route",
+                    f"模板 {template.get('name') or template_id} 没有默认 Provider，且全局没有可用 Profile。",
+                    template_id=template_id,
+                )
+
+        blocking_count = sum(1 for item in issues if item.get("severity") == "blocking")
+        warning_count = sum(1 for item in issues if item.get("severity") == "warning")
+        return {
+            "status": "blocked" if blocking_count else "warning" if warning_count else "ready",
+            "profile_count": len(profile_index),
+            "configured_profile_count": configured_profiles,
+            "agent_count": len([item for item in agents if isinstance(item, dict)]),
+            "template_count": len([item for item in templates if isinstance(item, dict)]),
+            "blocking_count": blocking_count,
+            "warning_count": warning_count,
+            "issues": issues,
+        }
+
+    def execution_overview(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        requested = payload if isinstance(payload, dict) else {}
+        limit = max(1, min(safe_int(requested.get("limit"), 50), 200))
+        self.sync_workspace_execution_runs_from_jobs()
+        with self.lock:
+            workspaces = copy.deepcopy(getattr(self, "workspaces", []))
+            jobs = copy.deepcopy(getattr(self, "jobs", []))
+        workspace_names = {
+            str(workspace.get("id") or "").strip(): str(workspace.get("name") or workspace.get("brief") or workspace.get("id") or "").strip()
+            for workspace in workspaces
+            if isinstance(workspace, dict) and str(workspace.get("id") or "").strip()
+        }
+        runs: list[dict[str, Any]] = []
+        for workspace in workspaces:
+            if not isinstance(workspace, dict):
+                continue
+            workspace_id = str(workspace.get("id") or "").strip()
+            workspace_name = workspace_names.get(workspace_id, workspace_id)
+            for run in workspace_execution_runs_public(workspace.get("runs"), jobs):
+                if not isinstance(run, dict):
+                    continue
+                steps = run.get("steps") if isinstance(run.get("steps"), list) else []
+                runs.append(
+                    {
+                        "id": str(run.get("id") or "").strip(),
+                        "workspace_id": workspace_id,
+                        "workspace_name": workspace_name,
+                        "kind": str(run.get("kind") or "").strip(),
+                        "status": str(run.get("status") or "").strip(),
+                        "summary": str(run.get("summary") or "").strip(),
+                        "progress": copy.deepcopy(run.get("progress") if isinstance(run.get("progress"), dict) else {}),
+                        "step_count": len(steps),
+                        "job_ids": [
+                            str(step.get("job_id") or "").strip()
+                            for step in steps
+                            if isinstance(step, dict) and str(step.get("job_id") or "").strip()
+                        ][:8],
+                        "agent_execution_ids": [
+                            str(step.get("agent_execution_id") or "").strip()
+                            for step in steps
+                            if isinstance(step, dict) and str(step.get("agent_execution_id") or "").strip()
+                        ][:8],
+                        "created_at": str(run.get("created_at") or "").strip(),
+                        "updated_at": str(run.get("updated_at") or "").strip(),
+                    }
+                )
+        runs.sort(key=lambda item: (str(item.get("updated_at") or ""), str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
+
+        job_items: list[dict[str, Any]] = []
+        for job in jobs:
+            if not isinstance(job, dict):
+                continue
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            workspace_id = str(metadata.get("workspace_id") or job.get("workspace_id") or "").strip()
+            job_items.append(
+                {
+                    "id": str(job.get("id") or "").strip(),
+                    "workspace_id": workspace_id,
+                    "workspace_name": workspace_names.get(workspace_id, workspace_id or "未绑定 workspace"),
+                    "status": str(job.get("status") or "").strip(),
+                    "kind": str(metadata.get("node_kind") or job.get("kind") or "").strip(),
+                    "server_id": str(job.get("server_id") or metadata.get("server_id") or "").strip(),
+                    "summary": str(job.get("summary") or metadata.get("node_title") or "").strip(),
+                    "execution_run_id": str(metadata.get("execution_run_id") or "").strip(),
+                    "created_at": str(job.get("created_at") or "").strip(),
+                    "updated_at": str(job.get("updated_at") or job.get("finished_at") or job.get("created_at") or "").strip(),
+                }
+            )
+        job_items.sort(key=lambda item: (str(item.get("updated_at") or ""), str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
+        return {
+            "runs": runs[:limit],
+            "jobs": job_items[:limit],
+            "summary": {
+                "run_count": len(runs),
+                "job_count": len(job_items),
+                "active_run_count": sum(1 for item in runs if str(item.get("status") or "") in {"queued", "running", "pending"}),
+                "active_job_count": sum(1 for item in job_items if str(item.get("status") or "") in {"queued", "blocked", "starting", "running"}),
+                "failed_run_count": sum(1 for item in runs if str(item.get("status") or "") in {"failed", "blocked", "stopped"}),
+                "failed_job_count": sum(1 for item in job_items if str(item.get("status") or "") in {"failed", "stopped"}),
+            },
+        }
+
+    def validate_workflow_template(self, payload: dict[str, Any], template_id: str = "") -> dict[str, Any]:
+        body = payload if isinstance(payload, dict) else {}
+        requested_id = str(template_id or body.get("template_id") or "").strip()
+        with self.lock:
+            current = self.workflow_template_by_id(requested_id) if requested_id else None
+            if requested_id and not current:
+                raise ValueError("workflow template not found")
+            template = normalize_workflow_template(
+                body if body else copy.deepcopy(current or {}),
+                existing=current,
+                agent_definitions=self.agent_definitions,
+                tool_definitions=self.tool_definitions,
+            )
+            public = self.workflow_template_public_payload(template)
+            validation = self._workflow_template_validation_payload(template, body)
+            preview = self._workflow_template_preview_payload(template, validation)
+        return {
+            "workflow_template": public,
+            "validation": validation,
+            "preview": preview,
+        }
+
+    def _workflow_template_validation_payload(
+        self,
+        template: dict[str, Any],
+        raw_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        nodes = template.get("nodes") if isinstance(template.get("nodes"), list) else []
+        links = raw_payload.get("links") if isinstance(raw_payload.get("links"), list) else template.get("links")
+        links = links if isinstance(links, list) else []
+        model = template.get("model") if isinstance(template.get("model"), dict) else {}
+        agent_index = {
+            str(agent.get("id") or "").strip(): agent
+            for agent in self.agent_definitions
+            if isinstance(agent, dict) and str(agent.get("id") or "").strip()
+        }
+        tool_index = {
+            str(tool.get("id") or "").strip(): tool
+            for tool in self.tool_definitions
+            if isinstance(tool, dict) and str(tool.get("id") or "").strip()
+        }
+        provider_ids = {
+            str(profile.get("id") or "").strip()
+            for profile in getattr(self, "provider_profiles", [])
+            if isinstance(profile, dict) and str(profile.get("id") or "").strip()
+        }
+        issues: list[dict[str, Any]] = []
+
+        def add_issue(
+            severity: str,
+            kind: str,
+            code: str,
+            message: str,
+            **extra: Any,
+        ) -> None:
+            issue = {
+                "severity": severity,
+                "kind": kind,
+                "code": code,
+                "message": message,
+            }
+            issue.update({key: value for key, value in extra.items() if value not in (None, "")})
+            issues.append(issue)
+
+        if not nodes:
+            add_issue("blocking", "template", "no_nodes", "模板没有节点，无法创建可执行实例。")
+
+        node_ids: set[str] = set()
+        output_keys: dict[str, dict[str, Any]] = {}
+        for index, node in enumerate(nodes):
+            if not isinstance(node, dict):
+                add_issue("blocking", "node", "invalid_node", "模板节点不是对象。", index=index)
+                continue
+            node_id = str(node.get("id") or "").strip()
+            kind = str(node.get("kind") or "").strip()
+            title = str(node.get("title") or kind or f"节点 {index + 1}").strip()
+            if not node_id:
+                add_issue("blocking", "node", "missing_node_id", f"{title} 缺少节点 ID。", index=index)
+            elif node_id in node_ids:
+                add_issue("blocking", "node", "duplicate_node_id", f"节点 ID {node_id} 重复。", node_id=node_id)
+            else:
+                node_ids.add(node_id)
+            if kind and kind not in WORKSPACE_NODE_LIBRARY:
+                add_issue("warning", "node", "custom_node_kind", f"{title} 使用自定义节点类型 {kind}。", node_id=node_id)
+
+            handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
+            mode = str(handler.get("mode") or "human").strip().lower() or "human"
+            agent_id = str(handler.get("agent_id") or "").strip()
+            if mode != "human":
+                if not agent_id:
+                    add_issue("blocking", "agent", "missing_agent", f"{title} 是 {mode} 节点，但没有绑定 Agent。", node_id=node_id)
+                else:
+                    agent = agent_index.get(agent_id)
+                    if not agent:
+                        add_issue("blocking", "agent", "unknown_agent", f"{title} 绑定的 Agent {agent_id} 不存在。", node_id=node_id, agent_id=agent_id)
+                    elif agent.get("enabled") is False:
+                        severity = "blocking" if mode == "agent" else "warning"
+                        add_issue(severity, "agent", "disabled_agent", f"{title} 绑定的 Agent {agent.get('name') or agent_id} 已停用。", node_id=node_id, agent_id=agent_id)
+                    elif mode == "agent":
+                        for tool_id in parse_tag_list(agent.get("tools", [])):
+                            tool = tool_index.get(tool_id)
+                            if not tool:
+                                add_issue("warning", "tool", "unknown_agent_tool", f"Agent {agent.get('name') or agent_id} 的工具 {tool_id} 不在工具注册表。", node_id=node_id, agent_id=agent_id, tool_id=tool_id)
+                            elif tool.get("enabled") is False:
+                                add_issue("warning", "tool", "disabled_agent_tool", f"Agent {agent.get('name') or agent_id} 的工具 {tool.get('label') or tool_id} 已停用。", node_id=node_id, agent_id=agent_id, tool_id=tool_id)
+
+            required_tool_id = workspace_node_required_tool_id(kind)
+            if required_tool_id:
+                tool = tool_index.get(required_tool_id)
+                if not tool:
+                    add_issue("blocking", "tool", "missing_required_tool", f"{title} 需要工具 {required_tool_id}，但工具注册表里不存在。", node_id=node_id, tool_id=required_tool_id)
+                elif tool.get("enabled") is False:
+                    add_issue("blocking", "tool", "disabled_required_tool", f"{title} 需要的工具 {tool.get('label') or required_tool_id} 已停用。", node_id=node_id, tool_id=required_tool_id)
+
+            output_key = str(
+                node.get("output_key")
+                or handler.get("output_key")
+                or workspace_io_contract_for_kind(kind, index).get("output_key")
+                or ""
+            ).strip()
+            if output_key:
+                previous = output_keys.get(output_key)
+                if previous:
+                    add_issue(
+                        "warning",
+                        "contract",
+                        "duplicate_output_key",
+                        f"{title} 的 output_key {output_key} 与上游节点重复。",
+                        node_id=node_id,
+                        upstream_node_id=previous.get("node_id"),
+                        output_key=output_key,
+                    )
+                else:
+                    output_keys[output_key] = {"node_id": node_id, "index": index}
+
+        seen_edges: set[tuple[str, str]] = set()
+        for link in links:
+            if not isinstance(link, dict):
+                add_issue("blocking", "link", "invalid_link", "模板链路不是对象。")
+                continue
+            from_id = str(link.get("from") or "").strip()
+            to_id = str(link.get("to") or "").strip()
+            if not from_id or not to_id:
+                add_issue("blocking", "link", "incomplete_link", "模板链路缺少 from/to。")
+                continue
+            if from_id not in node_ids or to_id not in node_ids:
+                add_issue("blocking", "link", "dangling_link", f"链路 {from_id} -> {to_id} 指向不存在的节点。", from_node_id=from_id, to_node_id=to_id)
+                continue
+            edge = (from_id, to_id)
+            if edge in seen_edges:
+                add_issue("warning", "link", "duplicate_link", f"链路 {from_id} -> {to_id} 重复。", from_node_id=from_id, to_node_id=to_id)
+            seen_edges.add(edge)
+
+        chat_agent_id = str(model.get("chat_agent_id") or "").strip()
+        if chat_agent_id and chat_agent_id not in agent_index:
+            add_issue("warning", "model", "unknown_chat_agent", f"默认对话 Agent {chat_agent_id} 不存在。", agent_id=chat_agent_id)
+        provider_profile_id = str(model.get("provider_profile_id") or "").strip()
+        if provider_profile_id and provider_profile_id not in provider_ids:
+            add_issue("warning", "model", "unknown_provider_profile", f"默认 Provider Profile {provider_profile_id} 不存在。", provider_profile_id=provider_profile_id)
+        routing_mode = str(model.get("routing_mode") or "workspace_default").strip() or "workspace_default"
+        used_agent_ids = collect_template_agent_ids(nodes, model)
+        for agent_id in used_agent_ids:
+            agent = agent_index.get(agent_id)
+            if not agent:
+                continue
+            agent_profile_id = str(agent.get("provider_profile_id") or "").strip()
+            if agent_profile_id and agent_profile_id not in provider_ids:
+                add_issue(
+                    "warning",
+                    "model",
+                    "unknown_agent_provider_profile",
+                    f"Agent {agent.get('name') or agent_id} 指向的 Provider Profile {agent_profile_id} 不存在。",
+                    agent_id=agent_id,
+                    provider_profile_id=agent_profile_id,
+                )
+            if routing_mode == "agent_override" and not agent_profile_id:
+                add_issue(
+                    "warning",
+                    "model",
+                    "agent_override_without_profile",
+                    f"Agent {agent.get('name') or agent_id} 未设置 Provider 覆盖，会回落到模板默认路由。",
+                    agent_id=agent_id,
+                )
+
+        snapshot = build_template_snapshot(template, self.agent_definitions, self.tool_definitions)
+        contract = derive_workspace_workflow_contract(
+            {
+                "nodes": copy.deepcopy(nodes),
+                "links": copy.deepcopy(template.get("links") if isinstance(template.get("links"), list) else []),
+                "agents": copy.deepcopy(snapshot.get("agents") if isinstance(snapshot.get("agents"), list) else []),
+                "tools": copy.deepcopy(snapshot.get("tools") if isinstance(snapshot.get("tools"), list) else []),
+                "model": copy.deepcopy(model),
+            },
+            {},
+            [],
+            {},
+            {},
+            {},
+        )
+        for contract_node in contract.get("nodes") if isinstance(contract.get("nodes"), list) else []:
+            if not isinstance(contract_node, dict):
+                continue
+            for ref in contract_node.get("missing_inputs") if isinstance(contract_node.get("missing_inputs"), list) else []:
+                if not isinstance(ref, dict):
+                    continue
+                add_issue(
+                    "blocking",
+                    "contract",
+                    "blocked_input_mapping",
+                    f"{contract_node.get('title') or contract_node.get('id')} 的输入 {ref.get('name') or ''} 未能解析：{ref.get('detail') or ''}",
+                    node_id=str(contract_node.get("id") or "").strip(),
+                    source=str(ref.get("source") or "").strip(),
+                    input_name=str(ref.get("name") or "").strip(),
+                )
+
+        blocking_count = sum(1 for issue in issues if issue.get("severity") == "blocking")
+        warning_count = sum(1 for issue in issues if issue.get("severity") == "warning")
+        status = "blocked" if blocking_count else "warning" if warning_count else "ready"
+        return {
+            "status": status,
+            "summary": f"{len(nodes)} 个节点 · {blocking_count} 个阻塞 · {warning_count} 个警告 · {safe_int(contract.get('mapped_count'), 0)}/{safe_int(contract.get('node_count'), 0)} 节点有输入/输出契约 · {safe_int(contract.get('input_gap_count'), 0)} 输入断点",
+            "blocking_count": blocking_count,
+            "warning_count": warning_count,
+            "issue_count": len(issues),
+            "node_count": len(nodes),
+            "agent_count": len(snapshot.get("agents") if isinstance(snapshot.get("agents"), list) else []),
+            "tool_count": len(snapshot.get("tools") if isinstance(snapshot.get("tools"), list) else []),
+            "contract": contract,
+            "issues": issues,
+        }
+
+    def _workflow_template_preview_payload(
+        self,
+        template: dict[str, Any],
+        validation: dict[str, Any],
+    ) -> dict[str, Any]:
+        contract_nodes = validation.get("contract", {}).get("nodes") if isinstance(validation.get("contract"), dict) else []
+        contract_by_id = {
+            str(item.get("id") or "").strip(): item
+            for item in contract_nodes
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        }
+        preview_nodes: list[dict[str, Any]] = []
+        for index, node in enumerate(template.get("nodes") if isinstance(template.get("nodes"), list) else []):
+            if not isinstance(node, dict):
+                continue
+            node_id = str(node.get("id") or "").strip()
+            handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
+            contract = contract_by_id.get(node_id, {})
+            preview_nodes.append(
+                {
+                    "id": node_id,
+                    "index": index + 1,
+                    "kind": str(node.get("kind") or "").strip(),
+                    "title": str(node.get("title") or node.get("kind") or f"节点 {index + 1}").strip(),
+                    "handler": {
+                        "mode": str(handler.get("mode") or "human").strip() or "human",
+                        "agent_id": str(handler.get("agent_id") or "").strip(),
+                        "name": str(handler.get("name") or "").strip(),
+                    },
+                    "output_key": str(contract.get("output_key") or node.get("output_key") or handler.get("output_key") or "").strip(),
+                    "input_mapping": copy.deepcopy(contract.get("input_mapping") if isinstance(contract.get("input_mapping"), dict) else {}),
+                    "input_status": str(contract.get("input_status") or "").strip(),
+                    "tools": copy.deepcopy(contract.get("tools") if isinstance(contract.get("tools"), list) else []),
+                    "model": copy.deepcopy(contract.get("model") if isinstance(contract.get("model"), dict) else {}),
+                }
+            )
+        source = template.get("source") if isinstance(template.get("source"), dict) else {}
+        model = template.get("model") if isinstance(template.get("model"), dict) else {}
+        return {
+            "source_type": str(source.get("type") or "").strip(),
+            "template_id": str(template.get("id") or "").strip(),
+            "template_name": str(template.get("name") or "").strip(),
+            "status": validation.get("status"),
+            "node_count": len(preview_nodes),
+            "agent_ids": copy.deepcopy(template.get("agent_ids") if isinstance(template.get("agent_ids"), list) else []),
+            "tool_ids": copy.deepcopy(template.get("tool_ids") if isinstance(template.get("tool_ids"), list) else []),
+            "provider_profile_id": str(model.get("provider_profile_id") or "").strip(),
+            "chat_agent_id": str(model.get("chat_agent_id") or "").strip(),
+            "nodes": preview_nodes,
+        }
 
 
     def create_tool_definition(self, payload: dict[str, Any]) -> dict[str, Any]:

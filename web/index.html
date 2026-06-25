@@ -475,6 +475,7 @@
                 <button class="tab-chip" data-tab="agents" type="button" title="维护全局 Agent 角色、提示词、工具 allowlist 和模型覆盖">Agent</button>
                 <button class="tab-chip" data-tab="tools" type="button" title="维护工具注册表，控制 Agent 可以使用哪些真实动作">工具</button>
                 <button class="tab-chip" data-tab="ai" type="button" title="维护 Provider Profile、模型路由和模板默认聊天 Agent">AI</button>
+                <button class="tab-chip" data-tab="runs" type="button" title="只读查看全局运行与任务，跳回对应驾驶舱处理">运行</button>
                 <button class="tab-chip" data-tab="inspect" type="button" title="完整链路诊断：节点链、I/O 交接、缺口与门禁（只读检查，编辑请回各配置页）">链路检查</button>
               </div>
               <section id="workspaceManageOverviewSection" class="workspace-manage-overview">
@@ -512,6 +513,7 @@
                         <span id="workflowTemplateMeta" class="muted">顺序链路工作室，节点顺序与执行语义保持一致。</span>
                       </div>
                       <div class="button-row">
+                        <button id="workspacePreviewTemplateBtn" class="secondary" type="button" title="调用后端校验当前草稿的节点、Agent、工具、链路和 I/O 合同">校验模板</button>
                         <button id="workspaceSaveTemplateBtn" class="primary" type="button" title="保存当前模板、节点链、默认输入、Agent 和工具配置">保存模板</button>
                       </div>
                     </div>
@@ -606,6 +608,7 @@
                         <label>
                           环境管理
                           <select id="templateEnvManagerSelect">
+                            <option value="">未选择</option>
                             <option value="conda">conda</option>
                             <option value="venv">venv</option>
                             <option value="custom">custom</option>
@@ -705,6 +708,33 @@
                 </div>
               </section>
 
+              <section id="workspaceManageRunsPanel" class="workspace-manage-panel" hidden>
+                <div class="workspace-chain-inspect-shell">
+                  <header class="workspace-chain-inspect-head">
+                    <div>
+                      <strong>全局运行总览</strong>
+                      <span class="muted">只读查看所有实例的 run/job 状态；处理动作回到对应驾驶舱和运行记录。</span>
+                    </div>
+                    <button class="secondary mini" type="button" data-action="refresh-execution-overview" title="刷新全局运行和任务概览">刷新</button>
+                  </header>
+                  <div id="workspaceManageRunSummary" class="workspace-chain-inspect-summary"></div>
+                  <section class="workspace-chain-inspect-block">
+                    <header class="workspace-chain-inspect-block-head">
+                      <strong>Runs</strong>
+                      <span>按更新时间倒序，点击可打开所属实例驾驶舱</span>
+                    </header>
+                    <div id="workspaceManageRunList" class="workspace-run-list"></div>
+                  </section>
+                  <section class="workspace-chain-inspect-block">
+                    <header class="workspace-chain-inspect-block-head">
+                      <strong>Jobs</strong>
+                      <span>受控队列任务，只读展示当前状态</span>
+                    </header>
+                    <div id="workspaceManageJobList" class="workspace-run-list"></div>
+                  </section>
+                </div>
+              </section>
+
               <section id="workspaceManageInspectPanel" class="workspace-manage-panel workspace-chain-inspect-panel" hidden>
                 <div class="workspace-chain-inspect-shell">
                   <header class="workspace-chain-inspect-head">
@@ -744,6 +774,7 @@
                   </section>
                 </div>
               </section>
+            </section>
             <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
             <summary class="workspace-project-drawer-summary" title="展开项目配置、节点链、Agent、工具、AI 和运行记录编辑区">
               <span>
@@ -997,6 +1028,7 @@
                       <label>
                         环境管理
                         <select id="workspaceEnvManager" name="env_manager">
+                          <option value="">未选择</option>
                           <option value="conda">conda</option>
                           <option value="venv">venv</option>
                           <option value="custom">custom</option>
@@ -1236,7 +1268,6 @@
             </section>
           </div>
           </details>
-            </section>
           </div>
           </div>
         </section>
@@ -1665,6 +1696,6 @@
         </div>
       </main>
     </div>
-    <script src="/app.js?v=20260617phase3b"></script>
+    <script src="/app.js?v=20260624configfix"></script>
   </body>
 </html>

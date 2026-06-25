@@ -8,7 +8,7 @@ from ..tools.registry import summarize_mapped_inputs
 
 ExecutorMode = Literal["auto", "job", "agent", "skip"]
 
-# Phase 3 V1: inspect/infer/report nodes can be delegated to AgentExecutor.
+# Phase 3: inspect/infer/report/summary nodes can be delegated to AgentExecutor.
 AGENT_EXECUTABLE_KINDS: frozenset[str] = frozenset(
     {
         "repo.inspect",
@@ -16,6 +16,8 @@ AGENT_EXECUTABLE_KINDS: frozenset[str] = frozenset(
         "dataset.find",
         "eval.report",
         "research.search",
+        "path.resolve",
+        "artifact.collect",
     }
 )
 
@@ -38,6 +40,8 @@ SHELL_DISCOVERY_KINDS: frozenset[str] = frozenset(
         "dataset.find",
         "env.infer",
         "eval.report",
+        "path.resolve",
+        "artifact.collect",
     }
 )
 
@@ -56,10 +60,10 @@ def resolve_node_executor_mode(node: dict[str, Any], prefer: ExecutorMode = "aut
     kind = str(node.get("kind") or "").strip()
     if prefer in {"job", "agent", "skip"}:
         return prefer
-    if kind in JOB_EXECUTABLE_KINDS:
-        return "job"
     if kind in AGENT_EXECUTABLE_KINDS and _node_handler_mode(node) == "agent" and _node_agent_id(node):
         return "agent"
+    if kind in JOB_EXECUTABLE_KINDS:
+        return "job"
     if kind in SHELL_DISCOVERY_KINDS:
         return "job"
     return "skip"

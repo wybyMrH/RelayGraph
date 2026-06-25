@@ -49,7 +49,7 @@ class MonitoringMixin:
 
     def workspace_public_payload(self, workspace: dict[str, Any]) -> dict[str, Any]:
         jobs = getattr(self, "jobs", [])
-        payload = apply_workspace_job_runtime(workspace, jobs)
+        payload = apply_workspace_job_runtime(clean_workspace_placeholder_config_values(workspace), jobs)
         payload["runs"] = workspace_execution_runs_public(workspace.get("runs"), jobs)
         payload["execution"] = derive_workspace_execution_state(payload, jobs)
         automation = derive_workspace_automation_state(
@@ -78,7 +78,7 @@ class MonitoringMixin:
 
 
     def workflow_template_public_payload(self, template: dict[str, Any]) -> dict[str, Any]:
-        payload = copy.deepcopy(template)
+        payload = clean_workspace_placeholder_config_values(template)
         snapshot = build_template_snapshot(payload, self.agent_definitions, self.tool_definitions)
         payload["agent_ids"] = [str(item.get("id") or "").strip() for item in snapshot.get("agents", []) if str(item.get("id") or "").strip()]
         payload["tool_ids"] = [str(item.get("id") or "").strip() for item in snapshot.get("tools", []) if str(item.get("id") or "").strip()]
@@ -109,4 +109,5 @@ class MonitoringMixin:
                 "workflow_templates": workflow_templates,
                 "agent_definitions": copy.deepcopy(getattr(self, "agent_definitions", [])),
                 "tool_definitions": copy.deepcopy(getattr(self, "tool_definitions", [])),
+                "provider_route_health": self.provider_route_health(),
             }

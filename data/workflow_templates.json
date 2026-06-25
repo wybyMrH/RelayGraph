@@ -592,7 +592,7 @@
       }
     ],
     "model": {
-      "provider_profile_id": "provider-52828f5d-108c-4d89-bb7b-e0ce6f6c5cf3",
+      "provider_profile_id": "",
       "routing_mode": "workspace_default",
       "chat_agent_id": "",
       "notes": ""

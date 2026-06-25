@@ -121,7 +121,7 @@ def normalize_workflow_template(
     recipe = normalize_workspace_recipe(payload, existing=recipe_existing)
     workspace_dir = str(payload.get("workspace_dir") or current.get("workspace_dir") or "").strip()
     env_name = str(payload.get("env_name") or env_current.get("name") or "").strip()
-    env_manager = str(payload.get("env_manager") or env_current.get("manager") or "conda").strip() or "conda"
+    env_manager = str(payload.get("env_manager") or env_current.get("manager") or "").strip()
     python_version = str(payload.get("python_version") or env_current.get("python") or "").strip()
 
     raw_nodes = payload.get("nodes") if isinstance(payload.get("nodes"), list) else current.get("nodes")
@@ -324,7 +324,7 @@ def normalize_workspace_instance_from_template(
         or ""
     ).strip()
     env_name = str(payload.get("env_name") or current.get("env", {}).get("name") or env_template.get("name") or "").strip()
-    env_manager = str(payload.get("env_manager") or current.get("env", {}).get("manager") or env_template.get("manager") or "conda").strip() or "conda"
+    env_manager = str(payload.get("env_manager") or current.get("env", {}).get("manager") or env_template.get("manager") or "").strip()
     python_version = str(payload.get("python_version") or current.get("env", {}).get("python") or env_template.get("python") or "").strip()
 
     nodes = normalize_workspace_nodes(

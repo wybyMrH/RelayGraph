@@ -29,6 +29,22 @@ def normalize_workspace_recipe(
         "enabled": bool(payload.get("recipe_enabled", current.get("enabled", True))),
     }
 
+def clean_workspace_config_default(kind: str, key: str, value: Any) -> Any:
+    text = str(value or "").strip()
+    placeholder_values = {
+        ("research.search", "goal"): {"检索相关代码仓库、依赖和运行方式"},
+        ("path.resolve", "output_roots"): {"runs\noutputs\ncheckpoints\nlogs"},
+        ("repo.inspect", "questions"): {"入口、依赖、默认配置、结果目录"},
+        ("env.infer", "manifest_paths"): {
+            "requirements.txt, pyproject.toml, environment.yml, setup.py",
+            "requirements.txt, pyproject.toml, environment.yml, conda.yml, setup.py",
+        },
+        ("artifact.collect", "artifact_paths"): {"runs\noutputs\ncheckpoints\nlogs"},
+    }
+    if text in placeholder_values.get((str(kind or "").strip(), str(key or "").strip()), set()):
+        return ""
+    return value
+
 def normalize_workspace_handler(value: Any) -> dict[str, Any]:
     current = value if isinstance(value, dict) else {}
     mode = str(current.get("mode") or "human").strip().lower()
@@ -36,6 +52,11 @@ def normalize_workspace_handler(value: Any) -> dict[str, Any]:
         mode = "human"
     max_iterations_raw = current.get("max_iterations")
     max_iterations = safe_int(max_iterations_raw, 0) if max_iterations_raw not in (None, "") else 0
+    timeout_raw = current.get("timeout_seconds")
+    timeout_seconds = float(timeout_raw) if timeout_raw not in (None, "") and safe_int(timeout_raw, 0) > 0 else 0.0
+    output_format = str(current.get("output_format") or "").strip().lower()
+    if output_format not in {"", "text", "json"}:
+        output_format = ""
     payload: dict[str, Any] = {
         "mode": mode,
         "agent_id": safe_id(str(current.get("agent_id") or "")) if str(current.get("agent_id") or "").strip() else "",
@@ -45,6 +66,10 @@ def normalize_workspace_handler(value: Any) -> dict[str, Any]:
     }
     if max_iterations > 0:
         payload["max_iterations"] = max_iterations
+    if timeout_seconds > 0:
+        payload["timeout_seconds"] = timeout_seconds
+    if output_format:
+        payload["output_format"] = output_format
     return payload
 
 def normalize_workspace_runtime(value: Any) -> dict[str, Any]:

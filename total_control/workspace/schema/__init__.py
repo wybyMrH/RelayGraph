@@ -20,6 +20,7 @@ from .agents_tools import (
 )
 
 from .chat import (
+    normalize_workspace_context_reflection,
     normalize_workspace_chat_message,
     normalize_workspace_chat,
     make_workspace_chat_message,
@@ -53,6 +54,7 @@ from .recipe import (
     normalize_workspace_runtime,
     normalize_workspace_model,
     normalize_workspace_inputs,
+    clean_workspace_config_default,
     normalize_source_mode,
     infer_source_mode_from_inputs,
     source_type_for_chain,
@@ -77,6 +79,7 @@ __all__ = [
     "build_template_snapshot",
     "build_workspace_agent_debug",
     "build_workspace_chat_reply",
+    "clean_workspace_config_default",
     "collect_template_agent_ids",
     "collect_template_tool_ids",
     "default_agent_preset_for",
@@ -96,6 +99,7 @@ __all__ = [
     "normalize_workspace_agents",
     "normalize_workspace_chat",
     "normalize_workspace_chat_message",
+    "normalize_workspace_context_reflection",
     "normalize_workspace_handler",
     "normalize_workspace_inputs",
     "normalize_workspace_instance_from_template",

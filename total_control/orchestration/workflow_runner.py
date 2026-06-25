@@ -27,6 +27,7 @@ class WorkflowRunnerCallbacks:
     step_from_job: Callable[[dict[str, Any], int], dict[str, Any]]
     step_from_agent: Callable[[dict[str, Any], StepResult, int], dict[str, Any]]
     executable_node_kinds: frozenset[str]
+    record_run_steps: Callable[[str, list[dict[str, Any]], list[dict[str, Any]]], Any] | None = None
 
 
 def run_workflow_sequence(
@@ -38,6 +39,7 @@ def run_workflow_sequence(
     automation: dict[str, Any] | None = None,
     until_node_id: str = "",
     target_node: dict[str, Any] | None = None,
+    run_id: str = "",
     callbacks: WorkflowRunnerCallbacks,
 ) -> WorkflowRunResult:
     """Run an ordered node list with auto/job/agent executor resolution."""
@@ -66,6 +68,7 @@ def run_workflow_sequence(
             current_workspace = callbacks.refresh_workspace()
             run_context = ExecutionRunContext(
                 workspace_id=workspace_id,
+                run_id=run_id,
                 step_index=len(run_steps),
                 outputs=copy.deepcopy(accumulated_outputs),
                 previous_output=copy.deepcopy(previous_step_output) if previous_step_output else None,
@@ -73,6 +76,8 @@ def run_workflow_sequence(
             step_result = callbacks.execute_agent_node(workspace_id, node, run_context)
             if step_result.status in {"completed", "warning"}:
                 run_steps.append(callbacks.step_from_agent(node, step_result, len(run_steps)))
+                if run_id and callbacks.record_run_steps:
+                    callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
                 agent_step_count += 1
                 if step_result.output_key and step_result.output_key in run_context.outputs:
                     accumulated_outputs[step_result.output_key] = run_context.outputs[step_result.output_key]
@@ -96,6 +101,8 @@ def run_workflow_sequence(
                 mode = "job"
             else:
                 run_steps.append(callbacks.step_from_agent(node, step_result, len(run_steps)))
+                if run_id and callbacks.record_run_steps:
+                    callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
                 agent_step_count += 1
                 stopped_early = True
                 break
@@ -110,6 +117,9 @@ def run_workflow_sequence(
         payload["wait_for_idle"] = True
         metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         metadata["workflow_index"] = index
+        if run_id:
+            metadata["execution_run_id"] = run_id
+            metadata["step_index"] = len(run_steps)
         if until_node_id:
             metadata["workflow_phase"] = "run_to_node"
             metadata["workflow_until_node_id"] = until_node_id
@@ -119,6 +129,8 @@ def run_workflow_sequence(
         job = callbacks.create_job(payload)
         jobs.append(job)
         run_steps.append(callbacks.step_from_job(job, len(run_steps)))
+        if run_id and callbacks.record_run_steps:
+            callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
         previous_job_id = str(job.get("id") or "")
 
     return WorkflowRunResult(
@@ -145,6 +157,7 @@ class WorkflowRunner:
         automation: dict[str, Any] | None = None,
         until_node_id: str = "",
         target_node: dict[str, Any] | None = None,
+        run_id: str = "",
     ) -> WorkflowRunResult:
         return run_workflow_sequence(
             workspace_id,
@@ -154,5 +167,6 @@ class WorkflowRunner:
             automation=automation,
             until_node_id=until_node_id,
             target_node=target_node,
+            run_id=run_id,
             callbacks=self.callbacks,
         )

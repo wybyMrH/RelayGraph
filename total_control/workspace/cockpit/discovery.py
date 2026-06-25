@@ -296,10 +296,40 @@ def derive_workspace_dataset_discovery_plan(
         "hints": hints[:12],
         "expected_layout": expected_layout,
         "found_datasets": found_datasets[:12],
+        "root_verification": workspace_dataset_root_verification(local_roots, found_datasets, hints),
         "evidence_count": safe_int(evidence_group.get("count"), 0),
         "actions": actions,
         "next_action": next_action,
     }
+
+def workspace_dataset_root_verification(
+    local_roots: list[str],
+    found_datasets: list[str],
+    hints: list[str],
+) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in local_roots:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        path = Path(value).expanduser()
+        if path.exists() and path.is_dir():
+            items.append({"path": value, "status": "verified"})
+        else:
+            items.append({"path": value, "status": "missing"})
+    for raw in [*found_datasets, *hints]:
+        value = str(raw or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        path = Path(value).expanduser()
+        if path.exists():
+            items.append({"path": value, "status": "found" if path.is_dir() else "verified"})
+        else:
+            items.append({"path": value, "status": "hint"})
+    return items[:24]
 
 def workspace_dataset_discovery_bundle_command(plan: dict[str, Any]) -> str:
     queries = plan.get("queries") if isinstance(plan.get("queries"), list) else []

@@ -60,8 +60,6 @@ def apply_workspace_automation_defaults_to_payload(
         env_name = f"rg-{safe_id(workspace_default_name_seed(updated))}"[:64]
         env["name"] = env_name
         applied.append({"field": "env.name", "label": "环境名", "value": env_name})
-    if not str(env.get("manager") or "").strip():
-        env["manager"] = "conda"
     updated["env"] = env
 
     data_roots = infer_workspace_data_roots(updated, workspace_dir)
@@ -167,6 +165,19 @@ def apply_workspace_job_runtime(
         node["runtime"] = runtime
     return copy_workspace
 
+def clean_workspace_placeholder_config_values(workspace: dict[str, Any]) -> dict[str, Any]:
+    updated = copy.deepcopy(workspace)
+    for node in updated.get("nodes", []) if isinstance(updated.get("nodes"), list) else []:
+        if not isinstance(node, dict):
+            continue
+        kind = str(node.get("kind") or "").strip()
+        config = node.get("config") if isinstance(node.get("config"), dict) else {}
+        node["config"] = {
+            key: clean_workspace_config_default(kind, key, value)
+            for key, value in config.items()
+        }
+    return updated
+
 def normalize_workspace_payload(
     payload: dict[str, Any],
     *,
@@ -208,7 +219,7 @@ def normalize_workspace_payload(
     status = str(payload.get("status") or current.get("status") or "draft").strip() or "draft"
     workspace_dir = str(payload.get("workspace_dir") or current.get("workspace_dir") or "").strip()
     env_name = str(payload.get("env_name") or env_current.get("name") or "").strip()
-    env_manager = str(payload.get("env_manager") or env_current.get("manager") or "conda").strip() or "conda"
+    env_manager = str(payload.get("env_manager") or env_current.get("manager") or "").strip()
     python_version = str(payload.get("python_version") or env_current.get("python") or "").strip()
     raw_nodes = payload.get("nodes") if isinstance(payload.get("nodes"), list) else None
     raw_links = payload.get("links") if isinstance(payload.get("links"), list) else None

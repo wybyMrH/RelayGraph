@@ -5,6 +5,16 @@ const state = {
   workflowTemplates: [],
   agentDefinitions: [],
   toolDefinitions: [],
+  providerRouteHealth: null,
+  executionOverview: null,
+  toolDefinitionTest: {
+    toolId: "",
+    workspaceId: "",
+    argumentsText: "",
+    result: null,
+    busy: false,
+    error: "",
+  },
   selectedWorkspaceId: "",
   selectedWorkflowTemplateId: "",
   selectedGlobalAgentId: "",
@@ -136,6 +146,7 @@ const state = {
     busy: false,
     error: "",
   },
+  workflowTemplateValidation: null,
   ui: {
     productTab: "console",
     execTab: "job",
@@ -170,6 +181,7 @@ const state = {
     workspaceEventConnected: false,
     workspaceEventLastIds: {},
     workspaceAgentEvents: {},
+    workspaceRunCompareBaseId: "",
     workspaceUiRevision: 0,
     offlineServersOpen: true,
     workspaceToolSearch: "",
@@ -179,6 +191,7 @@ const state = {
     statusBusyVisibleUntil: 0,
     statusBusyTimer: null,
     workflowTemplateDirty: false,
+    workflowTemplateValidationBusy: false,
     agentDefinitionDirty: false,
     toolDefinitionDirty: false,
     providerProfileDirty: false,
@@ -709,7 +722,7 @@ function selectWorkspaceFlowTool(nodeId, toolId = "") {
 }
 
 const WORKSPACE_PROJECT_TABS = ["home", "project", "workflow", "chat", "agents", "tools", "model", "runs"];
-const WORKSPACE_MANAGE_TABS = ["templates", "agents", "tools", "ai", "inspect"];
+const WORKSPACE_MANAGE_TABS = ["templates", "agents", "tools", "ai", "runs", "inspect"];
 
 const WORKSPACE_JOB_EXECUTABLE_KINDS = new Set([
   "repo.clone",
@@ -726,6 +739,8 @@ const WORKSPACE_AGENT_EXECUTABLE_KINDS = new Set([
   "dataset.find",
   "eval.report",
   "research.search",
+  "path.resolve",
+  "artifact.collect",
 ]);
 
 const WORKSPACE_SHELL_DISCOVERY_KINDS = new Set([
@@ -733,6 +748,8 @@ const WORKSPACE_SHELL_DISCOVERY_KINDS = new Set([
   "dataset.find",
   "env.infer",
   "eval.report",
+  "path.resolve",
+  "artifact.collect",
 ]);
 
 function workspaceNodeSupportsAgentRun(node = null) {
@@ -861,6 +878,7 @@ const WORKSPACE_NODE_TYPES = {
         label: "环境管理",
         type: "select",
         options: [
+          { value: "", label: "未选择" },
           { value: "conda", label: "conda" },
           { value: "venv", label: "venv" },
           { value: "custom", label: "custom" },
@@ -880,6 +898,7 @@ const WORKSPACE_NODE_TYPES = {
         label: "GPU 策略",
         type: "select",
         options: [
+          { value: "", label: "未选择" },
           { value: "auto", label: "自动选择" },
           { value: "manual", label: "手动指定" },
           { value: "cpu", label: "仅 CPU" },
@@ -901,6 +920,7 @@ const WORKSPACE_NODE_TYPES = {
         label: "GPU 策略",
         type: "select",
         options: [
+          { value: "", label: "未选择" },
           { value: "auto", label: "自动选择" },
           { value: "manual", label: "手动指定" },
           { value: "cpu", label: "仅 CPU" },
@@ -1309,8 +1329,51 @@ function providerProfileIsValid(profile = {}) {
   );
 }
 
+function providerVendorOptionsMarkup(selectedValue = "") {
+  const selected = String(selectedValue || "").trim();
+  return [
+    `<option value="" ${selected ? "" : "selected"}>未选择</option>`,
+    ...PROVIDER_VENDOR_OPTIONS.map((option) => (
+      `<option value="${escapeHtml(option.value)}" ${option.value === selected ? "selected" : ""}>${escapeHtml(option.label)}</option>`
+    )),
+  ].join("");
+}
+
+function workspaceConfigValue(kind, key, value) {
+  const text = String(value ?? "").trim();
+  const placeholders = {
+    "research.search.goal": new Set(["检索相关代码仓库、依赖和运行方式"]),
+    "path.resolve.output_roots": new Set(["runs\noutputs\ncheckpoints\nlogs"]),
+    "repo.inspect.questions": new Set(["入口、依赖、默认配置、结果目录"]),
+    "env.infer.manifest_paths": new Set([
+      "requirements.txt, pyproject.toml, environment.yml, setup.py",
+      "requirements.txt, pyproject.toml, environment.yml, conda.yml, setup.py",
+    ]),
+    "artifact.collect.artifact_paths": new Set(["runs\noutputs\ncheckpoints\nlogs"]),
+  };
+  return placeholders[`${String(kind || "").trim()}.${String(key || "").trim()}`]?.has(text) ? "" : value;
+}
+
 function configuredProviderProfiles(list = state.providerProfiles) {
   return (Array.isArray(list) ? list : []).filter((profile) => providerProfileIsValid(profile));
+}
+
+function providerRouteHealthStatus() {
+  const health = state.providerRouteHealth && typeof state.providerRouteHealth === "object"
+    ? state.providerRouteHealth
+    : { status: "draft", issues: [], blocking_count: 0, warning_count: 0, configured_profile_count: 0, profile_count: 0 };
+  const configuredCount = Number(health.configured_profile_count || configuredProviderProfiles().length || 0);
+  const blockingCount = configuredCount ? 0 : Number(health.blocking_count || 0);
+  return {
+    ...health,
+    effective_status: blockingCount ? "blocked" : configuredCount ? "ready" : health.status || "draft",
+    effective_blocking_count: blockingCount,
+  };
+}
+
+function providerHealthIssueLabel(issue = {}) {
+  const prefix = issue.severity === "blocking" ? "阻塞" : issue.severity === "warning" ? "警告" : "提示";
+  return `${prefix} · ${issue.message || issue.code || "Provider 路由待检查"}`;
 }
 
 function loadStoredValue(key, fallback = "") {
@@ -1356,7 +1419,14 @@ function loadStoredArray(key) {
 }
 
 async function fetchJson(url, options) {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    const enhanced = new Error(humanizeFetchError(error, `请求 ${url}`));
+    enhanced.cause = error;
+    throw enhanced;
+  }
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     const text = await response.text();
@@ -1545,6 +1615,11 @@ function formatPercent(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "--";
   return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`;
+}
+
+function positiveNumberOrBlank(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : "";
 }
 
 function escapeHtml(value) {
@@ -1770,10 +1845,10 @@ function defaultWorkspaceForm(sourceType = "repo") {
     brief: "",
     tags: [],
     status: "draft",
-    env_name: "agent-workspace",
-    env_manager: "conda",
-    python_version: "3.11",
-    setup_command: "pip install -r requirements.txt",
+    env_name: "",
+    env_manager: "",
+    python_version: "",
+    setup_command: "",
     run_command: "",
     report_command: "",
     schedule: "",
@@ -1783,7 +1858,7 @@ function defaultWorkspaceForm(sourceType = "repo") {
     repo: {
       source_type: "repo",
       repo_url: "",
-      repo_ref: "main",
+      repo_ref: "",
       workspace_dir: "",
     },
     paper: {
@@ -1879,6 +1954,9 @@ function normalizeWorkspaceAgentDraft(agent = {}, index = 0, toolIds = []) {
   const tools = Array.isArray(agent.tools) ? agent.tools.map((item) => String(item || "").trim()).filter(Boolean) : parseTagList(agent.tools || "");
   const allowedTools = new Set(toolIds.map((item) => String(item || "").trim()).filter(Boolean));
   const filteredTools = allowedTools.size ? tools.filter((tool) => allowedTools.has(tool)) : tools;
+  const outputFormat = ["", "text", "json"].includes(String(agent.output_format || ""))
+    ? String(agent.output_format || "")
+    : "";
   return {
     id: String(agent.id || safeId(roleSeed)),
     name: String(agent.name || `Agent ${index + 1}`),
@@ -1886,6 +1964,9 @@ function normalizeWorkspaceAgentDraft(agent = {}, index = 0, toolIds = []) {
     prompt: String(agent.prompt || ""),
     tools: filteredTools,
     provider_profile_id: String(agent.provider_profile_id || ""),
+    max_iterations: positiveNumberOrBlank(agent.max_iterations),
+    timeout_seconds: positiveNumberOrBlank(agent.timeout_seconds),
+    output_format: outputFormat,
     enabled: agent.enabled !== false,
   };
 }
@@ -2148,6 +2229,32 @@ function normalizeWorkspaceModelDraft(model = {}) {
   };
 }
 
+function normalizeWorkspaceContextReflection(reflection = null) {
+  if (!reflection || typeof reflection !== "object") return null;
+  const summary = String(reflection.summary || reflection.text || "").trim();
+  if (!summary) return null;
+  const status = ["suggested", "accepted", "dismissed"].includes(String(reflection.status || ""))
+    ? String(reflection.status)
+    : "suggested";
+  const source = reflection.source && typeof reflection.source === "object" ? reflection.source : {};
+  const confidence = Number(reflection.confidence);
+  return {
+    id: String(reflection.id || makeClientId("ctxref")),
+    summary,
+    status,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    source: {
+      type: String(source.type || "chat"),
+      message_id: String(source.message_id || ""),
+      user_message_id: String(source.user_message_id || ""),
+      agent_execution_id: String(source.agent_execution_id || ""),
+    },
+    created_at: String(reflection.created_at || ""),
+    accepted_at: String(reflection.accepted_at || ""),
+    accepted_context_block: String(reflection.accepted_context_block || ""),
+  };
+}
+
 function normalizeWorkspaceChatMessage(message = {}, index = 0) {
   const role = ["user", "assistant", "system"].includes(String(message.role || ""))
     ? String(message.role)
@@ -2163,6 +2270,8 @@ function normalizeWorkspaceChatMessage(message = {}, index = 0) {
     error: String(message.error || ""),
     agent_id: String(message.agent_id || ""),
     agent_name: String(message.agent_name || ""),
+    agent_execution: message.agent_execution && typeof message.agent_execution === "object" ? deepClone(message.agent_execution, {}) : {},
+    context_reflection: normalizeWorkspaceContextReflection(message.context_reflection),
     created_at: String(message.created_at || ""),
     updated_at: String(message.updated_at || message.created_at || ""),
   };
@@ -2174,9 +2283,9 @@ function normalizeProviderProfile(profile = {}, index = 0) {
   return {
     id: String(profile.id || makeClientId("provider")),
     label: String(profile.label || "").trim(),
-    vendor: String(profile.vendor || "").trim(),
+    vendor: String(profile.vendor || profile.provider || "").trim(),
     base_url: String(profile.base_url || "").trim(),
-    model: String(profile.model || "").trim(),
+    model: String(profile.model || (Array.isArray(profile.models) ? profile.models[0] || "" : "")).trim(),
     api_key: String(profile.api_key || ""),
     api_key_masked: String(profile.api_key_masked || ""),
     has_api_key: Boolean(profile.has_api_key || profile.api_key || profile.api_key_masked),
@@ -2376,8 +2485,8 @@ async function loadProviderProfiles(options = {}) {
     // Transform backend format to frontend format
     const transformed = profiles.map((p) => ({
       id: p.id,
-      label: p.name || p.id,
-      vendor: p.provider || "openai",
+      label: p.name || p.label || "",
+      vendor: p.provider || "",
       base_url: p.base_url || "",
       model: (p.models || [])[0] || "",
       api_key: "",
@@ -2393,6 +2502,24 @@ async function loadProviderProfiles(options = {}) {
     setProviderProfiles(loadStoredArray(STORAGE_KEYS.providerProfiles), { render: renderProfiles });
     return state.providerProfiles;
   }
+}
+
+async function loadExecutionOverview(options = {}) {
+  try {
+    state.executionOverview = await fetchJson("/api/execution-overview?limit=80");
+  } catch (error) {
+    state.executionOverview = {
+      runs: [],
+      jobs: [],
+      summary: {},
+      error: error.message || String(error),
+    };
+  }
+  if (options.render !== false) {
+    renderManageRunsModule();
+    renderWorkspaceManageOverview();
+  }
+  return state.executionOverview;
 }
 
 async function saveProviderProfile(profile, options = {}) {
@@ -2506,8 +2633,8 @@ function workspaceNodeDefaultConfig(kind, formData = {}) {
   } else if (kind === "source.idea") {
     base.idea_text = String(formData.idea_text || formData.brief || "");
   } else if (kind === "research.search") {
-    base.query = workspaceSearchSeed(formData);
-    base.goal = "检索相关代码仓库、依赖和运行方式";
+    base.query = "";
+    base.goal = "";
   } else if (kind === "repo.clone") {
     base.repo_url = String(formData.repo_url || "");
     base.repo_ref = String(formData.repo_ref || "");
@@ -2515,42 +2642,42 @@ function workspaceNodeDefaultConfig(kind, formData = {}) {
   } else if (kind === "path.resolve") {
     base.workspace_dir = String(formData.workspace_dir || "");
     base.data_roots = "";
-    base.output_roots = "runs\noutputs\ncheckpoints\nlogs";
+    base.output_roots = "";
   } else if (kind === "repo.inspect") {
     base.workspace_dir = String(formData.workspace_dir || "");
     base.focus_paths = "";
-    base.questions = "入口、依赖、默认配置、结果目录";
+    base.questions = "";
   } else if (kind === "dataset.find") {
-    base.query = workspaceSearchSeed(formData);
+    base.query = "";
     base.dataset_hints = String(formData.references || "");
     base.data_roots = "";
     base.expected_layout = "";
   } else if (kind === "env.infer") {
     base.workspace_dir = String(formData.workspace_dir || "");
-    base.manifest_paths = "requirements.txt, pyproject.toml, environment.yml, setup.py";
+    base.manifest_paths = "";
     base.env_name = String(formData.env_name || "");
     base.python_version = String(formData.python_version || "");
   } else if (kind === "env.prepare") {
     base.workspace_dir = String(formData.workspace_dir || "");
     base.env_name = String(formData.env_name || "");
-    base.env_manager = String(formData.env_manager || "conda");
+    base.env_manager = String(formData.env_manager || "");
     base.python_version = String(formData.python_version || "");
     base.setup_command = String(formData.setup_command || "");
   } else if (kind === "gpu.allocate") {
     base.server_id = "";
-    base.gpu_policy = "auto";
+    base.gpu_policy = "";
     base.min_free_memory_gib = "";
     base.notes = "";
   } else if (kind === "run.command") {
     base.workspace_dir = String(formData.workspace_dir || "");
     base.env_name = String(formData.env_name || "");
     base.server_id = "";
-    base.gpu_policy = "auto";
+    base.gpu_policy = "";
     base.run_command = String(formData.run_command || "");
     base.schedule = String(formData.schedule || "");
   } else if (kind === "artifact.collect") {
     base.workspace_dir = String(formData.workspace_dir || "");
-    base.artifact_paths = "runs\noutputs\ncheckpoints\nlogs";
+    base.artifact_paths = "";
     base.metric_paths = "";
     base.notes = String(formData.notes || "");
   } else if (kind === "eval.report") {
@@ -2575,10 +2702,13 @@ function createWorkspaceNode(kind, overrides = {}, index = 0, formData = {}) {
 function normalizeWorkspaceDraftNode(node, index = 0, formData = {}) {
   const kind = String(node?.kind || "custom.step");
   const defaults = workspaceNodeDefaultConfig(kind, formData);
-  const config = {
+  const rawConfig = {
     ...defaults,
     ...(node?.config && typeof node.config === "object" ? node.config : {}),
   };
+  const config = Object.fromEntries(
+    Object.entries(rawConfig).map(([key, value]) => [key, workspaceConfigValue(kind, key, value)]),
+  );
   const normalized = {
     id: String(node?.id || makeClientId("node")),
     kind,
@@ -2738,15 +2868,15 @@ function defaultWorkflowTemplateDraft(sourceType = "repo") {
     source: {
       type: sourceType,
       repo_url: "",
-      repo_ref: sourceType === "repo" ? "main" : "",
+      repo_ref: "",
       paper_url: "",
       idea_text: "",
     },
     workspace_dir: "",
     env: {
-      name: defaults.env_name || "agent-workspace",
-      manager: defaults.env_manager || "conda",
-      python: defaults.python_version || "3.11",
+      name: defaults.env_name || "",
+      manager: defaults.env_manager || "",
+      python: defaults.python_version || "",
     },
     recipes: [recipe],
     model: defaultWorkspaceModel(),
@@ -2778,7 +2908,7 @@ function normalizeWorkflowTemplateDraft(template = {}) {
       idea_text: source.idea_text || template.brief || "",
       workspace_dir: template.workspace_dir || "",
       env_name: env.name || "",
-      env_manager: env.manager || "conda",
+      env_manager: env.manager || "",
       python_version: env.python || "",
       setup_command: recipe.setup_command || "",
       run_command: recipe.run_command || "",
@@ -2803,7 +2933,7 @@ function normalizeWorkflowTemplateDraft(template = {}) {
     workspace_dir: String(template.workspace_dir || ""),
     env: {
       name: String(env.name || base.env.name || ""),
-      manager: String(env.manager || base.env.manager || "conda"),
+      manager: String(env.manager || base.env.manager || ""),
       python: String(env.python || base.env.python || ""),
     },
     recipes: [{
@@ -2858,7 +2988,7 @@ function workflowTemplatePayloadForSave() {
     idea_text: draft.source?.idea_text || "",
     workspace_dir: draft.workspace_dir || "",
     env_name: draft.env?.name || "",
-    env_manager: draft.env?.manager || "conda",
+    env_manager: draft.env?.manager || "",
     python_version: draft.env?.python || "",
     setup_command: recipe.setup_command || "",
     run_command: recipe.run_command || "",
@@ -2888,6 +3018,75 @@ function setWorkspaceManageMessage(text = "", isError = false) {
   box.classList.toggle("error", Boolean(isError));
 }
 
+function workflowTemplateValidationLabel(status = "") {
+  const value = String(status || "").trim();
+  if (value === "ready") return "通过";
+  if (value === "warning") return "有警告";
+  if (value === "blocked") return "阻塞";
+  return "未校验";
+}
+
+function workflowTemplateValidationSummary(validation = null) {
+  if (!validation || typeof validation !== "object") return "等待后端校验";
+  return validation.summary
+    || `${Number(validation.node_count || 0)} 个节点 · ${Number(validation.blocking_count || 0)} 个阻塞 · ${Number(validation.warning_count || 0)} 个警告`;
+}
+
+function workflowTemplateValidationIssueMarkup(validation = null, { limit = 4 } = {}) {
+  const issues = Array.isArray(validation?.issues) ? validation.issues : [];
+  if (!issues.length) return '<div class="workspace-template-validation-empty">没有发现阻塞项。</div>';
+  return `
+    <div class="workspace-template-validation-issues">
+      ${issues.slice(0, limit).map((issue) => `
+        <div class="workspace-template-validation-issue severity-${escapeHtml(issue.severity || "warning")}">
+          <span>${escapeHtml(workspaceStatusLabel(issue.severity === "blocking" ? "blocked" : "warning"))}</span>
+          <strong>${escapeHtml(issue.message || issue.code || "配置检查项")}</strong>
+        </div>
+      `).join("")}
+      ${issues.length > limit ? `<div class="workspace-template-validation-more">还有 ${issues.length - limit} 个检查项，可切到链路检查查看上下文。</div>` : ""}
+    </div>
+  `;
+}
+
+function workflowTemplateValidationMarkup(validation = state.workflowTemplateValidation?.validation || null) {
+  const status = String(validation?.status || "").trim() || "draft";
+  const blocking = Number(validation?.blocking_count || 0);
+  const warnings = Number(validation?.warning_count || 0);
+  return `
+    <article class="workspace-template-studio-card workspace-template-validation-card status-${escapeHtml(status)}">
+      <span class="workspace-cockpit-label">后端校验</span>
+      <strong>${state.ui.workflowTemplateValidationBusy ? "校验中..." : workflowTemplateValidationLabel(status)}</strong>
+      <p title="${escapeHtml(workflowTemplateValidationSummary(validation))}">${escapeHtml(workflowTemplateValidationSummary(validation))}</p>
+      <em>${blocking ? `${blocking} 个阻塞会阻止保存` : warnings ? `${warnings} 个警告，可保存但建议处理` : "保存前会自动校验"}</em>
+      ${workflowTemplateValidationIssueMarkup(validation)}
+    </article>
+  `;
+}
+
+async function previewWorkflowTemplate(options = {}) {
+  const payload = workflowTemplatePayloadForSave();
+  const templateId = String(state.selectedWorkflowTemplateId || "").trim();
+  state.ui.workflowTemplateValidationBusy = true;
+  if (options.render !== false) renderWorkflowTemplateStudioOverview();
+  try {
+    const response = await fetchJson(
+      templateId
+        ? `/api/workflow-templates/${encodeURIComponent(templateId)}/preview`
+        : "/api/workflow-templates/preview",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    );
+    state.workflowTemplateValidation = response;
+    return response;
+  } finally {
+    state.ui.workflowTemplateValidationBusy = false;
+    if (options.render !== false) renderWorkspaceWorkbench();
+  }
+}
+
 function selectWorkflowTemplate(templateId, options = {}) {
   const template = workflowTemplateById(templateId);
   if (!template) return;
@@ -2896,6 +3095,7 @@ function selectWorkflowTemplate(templateId, options = {}) {
   if (changed && options.persist !== false) markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, template.id);
   state.workflowTemplateDraft = normalizeWorkflowTemplateDraft(template);
+  state.workflowTemplateValidation = null;
   state.selectedTemplateNodeId = String(options.selectedNodeId || state.workflowTemplateDraft.nodes?.[0]?.id || "").trim();
   state.ui.workflowTemplateDirty = false;
   renderWorkspaceWorkbench();
@@ -2911,6 +3111,7 @@ function updateWorkflowTemplateDraft(updater) {
   const next = typeof updater === "function" ? updater(deepClone(current, current)) : { ...current, ...updater };
   const normalized = normalizeWorkflowTemplateDraft(next);
   state.workflowTemplateDraft = normalized;
+  state.workflowTemplateValidation = null;
   state.ui.workflowTemplateDirty = true;
   if (!normalized.nodes.some((node) => node.id === state.selectedTemplateNodeId)) {
     state.selectedTemplateNodeId = normalized.nodes[0]?.id || "";
@@ -2932,7 +3133,7 @@ function updateSelectedWorkflowTemplateNode(updater) {
     idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
     workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
     env_name: state.workflowTemplateDraft?.env?.name || "",
-    env_manager: state.workflowTemplateDraft?.env?.manager || "conda",
+    env_manager: state.workflowTemplateDraft?.env?.manager || "",
     python_version: state.workflowTemplateDraft?.env?.python || "",
   }));
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
@@ -2954,7 +3155,7 @@ function insertWorkflowTemplateNode(kind) {
       idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
       workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
       env_name: state.workflowTemplateDraft?.env?.name || "",
-      env_manager: state.workflowTemplateDraft?.env?.manager || "conda",
+      env_manager: state.workflowTemplateDraft?.env?.manager || "",
       python_version: state.workflowTemplateDraft?.env?.python || "",
     },
   );
@@ -2997,7 +3198,7 @@ function rebuildWorkflowTemplateNodes() {
     idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
     workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
     env_name: state.workflowTemplateDraft?.env?.name || "",
-    env_manager: state.workflowTemplateDraft?.env?.manager || "conda",
+    env_manager: state.workflowTemplateDraft?.env?.manager || "",
     python_version: state.workflowTemplateDraft?.env?.python || "",
   });
   state.selectedTemplateNodeId = nodes[0]?.id || "";
@@ -5516,19 +5717,14 @@ function setWorkspaceLauncherInputs(inputs = {}) {
 }
 
 function workspaceLauncherInputsFromWorkspace(workspace = null) {
-  const inputs = workspace?.inputs && typeof workspace.inputs === "object" ? workspace.inputs : {};
-  const source = workspace?.source && typeof workspace.source === "object" ? workspace.source : {};
+  void workspace;
   return {
-    goal_text: String(inputs.goal_text || workspace?.brief || source.idea_text || ""),
-    repo_urls: Array.isArray(inputs.repo_urls) ? inputs.repo_urls : [],
-    paper_urls: Array.isArray(inputs.paper_urls) ? inputs.paper_urls : [],
-    references: Array.isArray(inputs.references) ? inputs.references : [],
-    context_blocks: Array.isArray(inputs.context_blocks) ? inputs.context_blocks : [],
+    ...workspaceDefaultLauncherInputs(),
   };
 }
 
 function saveWorkspaceLauncherDraft() {
-  saveStoredJson(STORAGE_KEYS.workspaceLauncherDraft, workspaceUseInputsPayload());
+  clearWorkspaceLauncherDraft();
 }
 
 function clearWorkspaceLauncherDraft() {
@@ -5536,13 +5732,8 @@ function clearWorkspaceLauncherDraft() {
 }
 
 function restoreWorkspaceLauncherDraft() {
-  if (state.selectedWorkspaceId) return;
-  const draft = loadStoredJson(STORAGE_KEYS.workspaceLauncherDraft, {});
-  if (!draft || typeof draft !== "object") return;
-  setWorkspaceLauncherInputs({
-    ...workspaceDefaultLauncherInputs(),
-    goal_text: String(draft.goal_text || ""),
-  });
+  clearWorkspaceLauncherDraft();
+  if (!state.selectedWorkspaceId) setWorkspaceLauncherInputs(workspaceDefaultLauncherInputs());
 }
 
 function resetWorkspaceLauncherToDefaults() {
@@ -6741,7 +6932,7 @@ function workspaceCockpitHandoffMapMarkup(workspace = selectedWorkspace(), templ
           <span>${escapeHtml(preview ? "Starter Chain 交接泳道" : "节点 I/O 交接图")}</span>
           <strong>${escapeHtml(`${mapped}/${items.length} 节点有 input_mapping/output_key · ${ready} 就绪 · ${blocked} 阻塞 · ${inputGaps} 输入断点`)}</strong>
         </div>
-        <small title="参考 FoodMemo 工作流的 AgentDefinition / AgentTool / WorkflowStep，把 Agent、Tool、AI 路由、input_mapping、output_key 和 context.outputs 显式化">Agent / Tool / AI · input_mapping / output_key / context</small>
+        <small title="把 Agent、Tool、AI 路由、input_mapping、output_key 和 context.outputs 显式化">Agent / Tool / AI · input_mapping / output_key / context</small>
       </div>
       <div class="workspace-cockpit-handoff-rail">
         ${items.map((item) => `
@@ -6811,7 +7002,7 @@ function workspaceExecutionContextBusMarkup(workspace = selectedWorkspace(), { l
           <span>执行上下文总线</span>
           <strong>${escapeHtml(context.summary || "等待上下文生成")}</strong>
         </div>
-        <small title="参考 FoodMemo 工作流的 input_data / context.outputs / step_results 结构，把自动推进中的输入、输出和步骤结果显式化">${escapeHtml(`${contextKeys.input_key || "$input"} → ${contextKeys.outputs_key || "$context.outputs"}`)}</small>
+        <small title="把自动推进中的输入、输出和步骤结果显式化">${escapeHtml(`${contextKeys.input_key || "$input"} → ${contextKeys.outputs_key || "$context.outputs"}`)}</small>
       </div>
       <div class="workspace-context-bus-metrics">
         <article class="status-${escapeHtml(input.goal_present ? "ready" : "draft")}">
@@ -6931,19 +7122,20 @@ function workspaceManifestItemAction(item = {}, manifest = {}) {
 }
 
 function workspaceManifestActionButton(action = {}, tone = "secondary") {
-  if (!action?.action) return "";
-  const nodeId = action.nodeId || action.node_id || "";
-  const serverId = action.serverId || action.server_id || "";
-  const targetId = action.targetId || action.target_id || "";
-  const tab = action.tab || "";
+  const guarded = workspaceGuardedFullRunButton({ ...action, dataAction: action.action });
+  if (!guarded?.dataAction) return "";
+  const nodeId = guarded.nodeId || guarded.node_id || "";
+  const serverId = guarded.serverId || guarded.server_id || "";
+  const targetId = guarded.targetId || guarded.target_id || "";
+  const tab = guarded.tab || "";
   const nodeAttr = nodeId ? ` data-node-id="${escapeHtml(nodeId)}"` : "";
   const serverAttr = serverId ? ` data-server-id="${escapeHtml(serverId)}"` : "";
   const targetAttr = targetId ? ` data-target-id="${escapeHtml(targetId)}"` : "";
   const tabAttr = tab ? ` data-tab="${escapeHtml(tab)}"` : "";
-  const help = workspaceAutomationActionHelp(action.action, action.title || action.label || "执行清单动作");
-  const label = action.label || "执行";
+  const help = workspaceAutomationActionHelp(guarded.dataAction, guarded.title || guarded.label || "执行清单动作");
+  const label = guarded.label || "执行";
   return `
-    <button class="${tone} mini" type="button" data-action="${escapeHtml(action.action)}"${nodeAttr}${serverAttr}${targetAttr}${tabAttr} title="${escapeHtml(help)}" aria-label="${escapeHtml(`${label}：${help}`)}" data-workspace-help="${escapeHtml(help)}">
+    <button class="${tone} mini" type="button" data-action="${escapeHtml(guarded.dataAction)}"${nodeAttr}${serverAttr}${targetAttr}${tabAttr} title="${escapeHtml(help)}" aria-label="${escapeHtml(`${label}：${help}`)}" data-workspace-help="${escapeHtml(help)}">
       ${escapeHtml(label)}
     </button>
   `;
@@ -7007,6 +7199,29 @@ function workspaceExecutionBundleScriptText(workspace = selectedWorkspace(), man
   const bundle = sourceManifest.execution_bundle && typeof sourceManifest.execution_bundle === "object" ? sourceManifest.execution_bundle : {};
   const commandScript = bundle.command_script && typeof bundle.command_script === "object" ? bundle.command_script : {};
   return String(commandScript.text || "").trim();
+}
+
+function workspaceExecutionBundleReady(workspace = selectedWorkspace()) {
+  const manifest = workspace?.automation?.reproduction_manifest && typeof workspace.automation.reproduction_manifest === "object"
+    ? workspace.automation.reproduction_manifest
+    : {};
+  const bundle = manifest.execution_bundle && typeof manifest.execution_bundle === "object" ? manifest.execution_bundle : {};
+  return Boolean(bundle.ready_to_execute);
+}
+
+function workspaceGuardedFullRunButton(button = {}, workspace = selectedWorkspace()) {
+  const action = String(button.dataAction || button.action || "").trim();
+  if (action !== "run-selected-workspace" || !workspace?.id || workspaceExecutionBundleReady(workspace)) {
+    return button;
+  }
+  return {
+    ...button,
+    label: String(button.label || "").includes("提交") ? "补齐执行包" : "自动推进",
+    dataAction: "advance-workspace-automation",
+    action: button.action === "run-selected-workspace" ? "advance-workspace-automation" : button.action,
+    tone: button.tone === "primary" ? "primary" : "secondary",
+    title: "执行包未就绪；先按门禁补齐路径、数据、环境、GPU、运行入口或产物报告。",
+  };
 }
 
 function workspaceExecutionBundleMissingAction(item = {}) {
@@ -8845,7 +9060,7 @@ function workspaceSchedulingClosureItems(workspace = selectedWorkspace(), inputs
       title: envItem.title || target.env_name || workspace?.env?.name || "等待环境推断",
       detail: envItem.value || target.workspace_dir || pathItem.value || "从依赖清单、README、工作目录和 setup 命令推断可执行环境。",
       meta: [
-        workspace?.env?.manager || target.env_manager || "conda",
+        workspace?.env?.manager || target.env_manager || "环境管理待选择",
         workspace?.env?.python || "Python 待定",
         target.workspace_dir || workspace?.workspace_dir || "cwd 待定",
       ],
@@ -10135,6 +10350,8 @@ function workspaceManageOverviewCards() {
   const selectedProfile = selectedProviderProfile();
   const templateProfile = providerProfileById(draft?.model?.provider_profile_id || "");
   const configuredProfiles = configuredProviderProfiles(profiles);
+  const providerHealth = providerRouteHealthStatus();
+  const executionSummary = state.executionOverview?.summary || {};
   return [
     {
       tab: "templates",
@@ -10170,7 +10387,21 @@ function workspaceManageOverviewCards() {
         : configuredProfiles.length
           ? "Profile 已就绪，可在模板 AI 路由中设默认"
           : "先新增 Provider Profile 并填写模型",
-      state: configuredProfiles.length ? "ready" : profiles.length ? "blocked" : "draft",
+      state: providerHealth.effective_status || (configuredProfiles.length ? "ready" : profiles.length ? "blocked" : "draft"),
+    },
+    {
+      tab: "runs",
+      label: "全局运行",
+      title: `${Number(executionSummary.run_count || 0)} runs`,
+      detail: `${Number(executionSummary.job_count || state.jobs.length || 0)} jobs · ${Number(executionSummary.active_run_count || 0)} 活跃 run · ${Number(executionSummary.active_job_count || 0)} 活跃 job`,
+      next: Number(executionSummary.failed_run_count || 0) || Number(executionSummary.failed_job_count || 0)
+        ? "有失败/停止记录，点进去回到对应实例处理"
+        : "只读总览，具体操作回到驾驶舱",
+      state: Number(executionSummary.failed_run_count || 0) || Number(executionSummary.failed_job_count || 0)
+        ? "warning"
+        : Number(executionSummary.active_run_count || 0) || Number(executionSummary.active_job_count || 0)
+          ? "running"
+          : "ready",
     },
     {
       tab: "inspect",
@@ -10204,14 +10435,24 @@ function workspaceManageFocusSummary(tab = state.ui.workspaceManageTab || "templ
   if (tab === "ai") {
     const profile = selectedProviderProfile();
     const configured = configuredProviderProfiles();
+    const health = providerRouteHealthStatus();
+    const firstIssue = Array.isArray(health.issues) ? health.issues[0] : null;
     return {
       title: "AI 层负责模型接入和模板默认路由",
       detail: configured.length
         ? `${configured.length} 个 Profile 已配置${profile ? `，当前 ${providerProfileLabel(profile)}。` : "。"}`
         : "还没有可用 Profile。",
       action: configured.length
-        ? "模板默认 Profile 和聊天 Agent 可在 AI 路由页设置；已有 Profile 即可用于实例。"
+        ? (firstIssue ? providerHealthIssueLabel(firstIssue) : "模板默认 Profile 和聊天 Agent 可在 AI 路由页设置；已有 Profile 即可用于实例。")
         : "先新增 DeepSeek / OpenAI 等 Provider Profile，再绑定到模板或项目。",
+    };
+  }
+  if (tab === "runs") {
+    const summary = state.executionOverview?.summary || {};
+    return {
+      title: "运行层只做全局只读观察",
+      detail: `${Number(summary.run_count || 0)} 条 run · ${Number(summary.job_count || state.jobs.length || 0)} 个 job · ${Number(summary.active_job_count || 0)} 个任务活跃。`,
+      action: "这里不直接停止/重试；点击记录会回到所属实例驾驶舱。",
     };
   }
   if (tab === "inspect") {
@@ -10326,7 +10567,7 @@ function renderWorkflowTemplateStudioOverview() {
       <strong>${escapeHtml(card.title)}</strong>
       <p title="${escapeHtml(card.detail)}">${escapeHtml(card.detail)}</p>
     </article>
-  `).join("");
+  `).join("") + workflowTemplateValidationMarkup();
 }
 
 function hydrateWorkspaceUseInputsFromWorkspace(workspace) {
@@ -11762,21 +12003,77 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
 function workspaceExecutionRunItemMarkup(run = {}) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
   const status = String(run.status || "pending");
+  const packageId = String(run.package_id || run.package_snapshot?.package_id || "").trim();
+  const delivery = run.package_snapshot?.delivery_closure && typeof run.package_snapshot.delivery_closure === "object"
+    ? run.package_snapshot.delivery_closure
+    : null;
+  const deliveryMarkup = delivery ? workspaceRunDeliveryClosureMarkup(delivery) : "";
+  const compareBaseId = String(state.ui.workspaceRunCompareBaseId || "").trim();
+  const runId = String(run.id || "").trim();
+  const compareAction = compareBaseId && compareBaseId !== runId
+    ? `<button class="secondary mini" type="button" data-action="compare-workspace-run" data-run-id="${escapeHtml(runId)}" title="用已设置的基准运行与这次运行生成结构化对比 JSON">对比</button>`
+    : `<button class="secondary mini" type="button" data-action="set-workspace-run-compare-base" data-run-id="${escapeHtml(runId)}" title="把这次运行设为后续对比的基准">设基准</button>`;
   return `
-    <article class="workspace-execution-run-item status-${escapeHtml(status)}" role="button" tabindex="0" data-run-id="${escapeHtml(run.id || "")}" title="刷新这条执行记录的详情；若有关联任务则打开第一条任务日志">
+    <article class="workspace-execution-run-item status-${escapeHtml(status)}" role="button" tabindex="0" data-run-id="${escapeHtml(runId)}" title="刷新这条执行记录的详情；若有关联任务则打开第一条任务日志">
       <div class="workspace-execution-run-item-head">
         <div>
           <span>${escapeHtml(workspaceRunKindLabel(run.kind))}</span>
-          <strong>${escapeHtml(run.summary || run.id || "执行记录")}</strong>
-          <em>${escapeHtml(fmtDate(run.created_at || "") || "等待开始")}</em>
+          <strong>${escapeHtml(run.summary || runId || "执行记录")}</strong>
+          <em>${escapeHtml([fmtDate(run.created_at || "") || "等待开始", packageId ? `pkg ${packageId}` : ""].filter(Boolean).join(" · "))}</em>
         </div>
-        <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+        <div class="workspace-execution-run-item-actions">
+          ${compareAction}
+          <button class="secondary mini" type="button" data-action="copy-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="复制这次运行的结构化回放 JSON，包含步骤、任务、执行包和交付闭环">复制回放</button>
+          <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+        </div>
       </div>
       ${workspaceRunProgressMarkup(run)}
+      ${deliveryMarkup}
       <div class="workspace-execution-run-steps">
         ${steps.map((step) => workspaceRunStepItemMarkup(step, run)).join("")}
       </div>
     </article>
+  `;
+}
+
+function workspaceRunDeliveryClosureMarkup(delivery = {}) {
+  const status = String(delivery.status || "draft");
+  const observed = Number(delivery.observed_count || 0);
+  const found = Number(delivery.found_count || 0);
+  const metricCount = delivery.metrics && typeof delivery.metrics === "object" ? Object.keys(delivery.metrics).length : 0;
+  const missing = Array.isArray(delivery.missing_expected) ? delivery.missing_expected.length : 0;
+  const report = delivery.report && typeof delivery.report === "object" ? delivery.report : {};
+  const reportArtifacts = Array.isArray(report.artifacts) ? report.artifacts.filter((item) => item && typeof item === "object") : [];
+  const reportStatus = String(report.status || "draft");
+  const text = [
+    `${found}/${observed || found} 产物`,
+    `${metricCount} 指标`,
+    reportStatus === "ready" ? "报告就绪" : "报告待整理",
+    missing ? `${missing} 预期未见` : "",
+  ].filter(Boolean).join(" · ");
+  const reportMarkup = reportArtifacts.length ? `
+    <div class="workspace-run-report-artifacts">
+      ${reportArtifacts.slice(0, 3).map((artifact) => {
+        const path = String(artifact.resolved_path || artifact.path || "").trim();
+        const summary = String(artifact.summary || artifact.content || "").trim();
+        const title = [artifact.label || "报告", path, summary].filter(Boolean).join(" · ");
+        return `
+          <article title="${escapeHtml(title)}">
+            <strong>${escapeHtml(artifact.label || "报告")}</strong>
+            ${path ? `<span>${escapeHtml(path)}</span>` : ""}
+            ${summary ? `<em>${escapeHtml(compactText(summary, 160))}</em>` : ""}
+          </article>
+        `;
+      }).join("")}
+    </div>
+  ` : "";
+  return `
+    <div class="workspace-run-delivery-closure status-${escapeHtml(status)}" title="${escapeHtml(text)}">
+      <span>交付闭环</span>
+      <strong>${escapeHtml(workspaceStatusLabel(status))}</strong>
+      <em>${escapeHtml(text || "等待产物、指标和报告")}</em>
+      ${reportMarkup}
+    </div>
   `;
 }
 
@@ -12174,7 +12471,7 @@ function syncWorkspaceProjectConfigDrawer(options = {}) {
   const drawer = $("workspaceProjectConfigDrawer");
   if (!drawer) return;
   const mode = state.ui.workspaceMode || "use";
-  const hidden = mode !== "manage";
+  const hidden = mode !== "use";
   drawer.toggleAttribute("hidden", hidden);
   const shouldOpen = !hidden && Boolean(state.ui.workspaceProjectConfigOpen);
   if (drawer.open !== shouldOpen) drawer.open = shouldOpen;
@@ -12374,9 +12671,11 @@ function workspaceAgentExecutionTraceMarkup(execution) {
   `;
 }
 
-function workspaceAgentDebugResultMarkup(result) {
+function workspaceAgentDebugResultMarkup(result, options = {}) {
   if (!result) return "";
+  const scope = String(options.scope || "workspace").trim() || "workspace";
   const execution = result.execution && typeof result.execution === "object" ? result.execution : null;
+  const effectiveConfig = result.effective_config && typeof result.effective_config === "object" ? result.effective_config : {};
   const focusNode = result.focus_node || {};
   const model = result.model || {};
   const context = result.context || {};
@@ -12387,6 +12686,9 @@ function workspaceAgentDebugResultMarkup(result) {
   const warnings = Array.isArray(result.warnings) ? result.warnings : [];
   return `
     <div class="workspace-agent-debug-result">
+      <div class="workspace-agent-debug-actions">
+        <button class="secondary mini" type="button" data-action="copy-agent-debug-transcript" data-debug-scope="${escapeHtml(scope)}" title="复制完整 Agent 调试结果 JSON">复制结果</button>
+      </div>
       <div class="workspace-agent-debug-summary">
         <article class="workspace-agent-debug-card">
           <span>聚焦节点</span>
@@ -12407,6 +12709,14 @@ function workspaceAgentDebugResultMarkup(result) {
           <span>上下文</span>
           <strong>${escapeHtml(workspaceSourceTypeLabel(context.source_type || "idea"))}</strong>
           <em>${escapeHtml(context.workspace_dir || context.source_summary || "未补目录或来源")}</em>
+        </article>
+        <article class="workspace-agent-debug-card">
+          <span>运行边界</span>
+          <strong>${escapeHtml([
+            effectiveConfig.max_iterations ? `max ${effectiveConfig.max_iterations}` : "",
+            effectiveConfig.timeout_seconds ? `${effectiveConfig.timeout_seconds}s` : "",
+          ].filter(Boolean).join(" · ") || "默认")}</strong>
+          <em>${escapeHtml(effectiveConfig.output_format ? `output ${effectiveConfig.output_format}` : "跟随节点输出格式")}</em>
         </article>
       </div>
       <div class="workspace-agent-debug-blocks">
@@ -12467,20 +12777,21 @@ function workspaceAgentDebugResultMarkup(result) {
 }
 
 function workspaceHomeActionButtonMarkup(button = {}, fallbackDetail = "") {
-  const label = button.label || "操作";
-  const tone = button.tone === "primary" ? "primary" : "secondary";
-  const title = button.title || button.detail || fallbackDetail || label;
-  if (button.dataAction) {
-    const action = String(button.dataAction || "").trim();
-    const nodeAttr = button.nodeId ? ` data-node-id="${escapeHtml(button.nodeId)}"` : "";
-    const serverAttr = button.serverId ? ` data-server-id="${escapeHtml(button.serverId)}"` : "";
-    const jobAttr = button.jobId ? ` data-job-id="${escapeHtml(button.jobId)}"` : "";
-    const agentAttr = button.agentId ? ` data-agent-id="${escapeHtml(button.agentId)}"` : "";
-    const toolAttr = button.toolId ? ` data-tool-id="${escapeHtml(button.toolId)}"` : "";
-    const profileAttr = button.profileId ? ` data-profile-id="${escapeHtml(button.profileId)}"` : "";
-    const targetAttr = button.targetId ? ` data-target-id="${escapeHtml(button.targetId)}"` : "";
-    const tabAttr = button.tab ? ` data-tab="${escapeHtml(button.tab)}"` : "";
-    const modeAttr = button.mode ? ` data-mode="${escapeHtml(button.mode)}"` : "";
+  const guarded = workspaceGuardedFullRunButton(button);
+  const label = guarded.label || "操作";
+  const tone = guarded.tone === "primary" ? "primary" : "secondary";
+  const title = guarded.title || guarded.detail || fallbackDetail || label;
+  if (guarded.dataAction) {
+    const action = String(guarded.dataAction || "").trim();
+    const nodeAttr = guarded.nodeId ? ` data-node-id="${escapeHtml(guarded.nodeId)}"` : "";
+    const serverAttr = guarded.serverId ? ` data-server-id="${escapeHtml(guarded.serverId)}"` : "";
+    const jobAttr = guarded.jobId ? ` data-job-id="${escapeHtml(guarded.jobId)}"` : "";
+    const agentAttr = guarded.agentId ? ` data-agent-id="${escapeHtml(guarded.agentId)}"` : "";
+    const toolAttr = guarded.toolId ? ` data-tool-id="${escapeHtml(guarded.toolId)}"` : "";
+    const profileAttr = guarded.profileId ? ` data-profile-id="${escapeHtml(guarded.profileId)}"` : "";
+    const targetAttr = guarded.targetId ? ` data-target-id="${escapeHtml(guarded.targetId)}"` : "";
+    const tabAttr = guarded.tab ? ` data-tab="${escapeHtml(guarded.tab)}"` : "";
+    const modeAttr = guarded.mode ? ` data-mode="${escapeHtml(guarded.mode)}"` : "";
     const help = workspaceAutomationActionHelp(action, title);
     return `
       <button class="${tone} mini" type="button" data-action="${escapeHtml(action)}"${nodeAttr}${serverAttr}${jobAttr}${agentAttr}${toolAttr}${profileAttr}${targetAttr}${tabAttr}${modeAttr} title="${escapeHtml(help)}" aria-label="${escapeHtml(`${label}：${help}`)}" data-workspace-help="${escapeHtml(help)}">
@@ -13724,6 +14035,21 @@ function switchWorkspaceTab(tab, options = {}) {
   }
 }
 
+function workspaceChatContextReflectionMarkup(message = {}, options = {}) {
+  const reflection = normalizeWorkspaceContextReflection(message.context_reflection);
+  if (!reflection || message.role !== "assistant") return "";
+  const summary = compactText(reflection.summary, 160);
+  const accepted = reflection.status === "accepted";
+  const surface = String(options.surface || "workspace");
+  return `
+    <div class="workspace-chat-reflection status-${escapeHtml(reflection.status)}" title="${escapeHtml(reflection.summary)}">
+      <span class="server-badge subtle">${accepted ? "已沉淀" : "上下文建议"}</span>
+      <span>${escapeHtml(summary)}</span>
+      ${accepted ? "" : `<button class="secondary mini" type="button" data-action="accept-chat-context-reflection" data-message-id="${escapeHtml(message.id || "")}" data-surface="${escapeHtml(surface)}" title="写入补充上下文">沉淀</button>`}
+    </div>
+  `;
+}
+
 function renderWorkspaceChat() {
   const list = $("workspaceChatList");
   const hint = $("workspaceChatHint");
@@ -13752,6 +14078,7 @@ function renderWorkspaceChat() {
             <span>${escapeHtml([fmtDate(message.updated_at || message.created_at) || message.updated_at || message.created_at || "", message.status === "pending" ? "生成中" : message.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</span>
           </div>
           <p class="workspace-chat-text">${escapeHtml(message.error || message.text)}</p>
+          ${workspaceChatContextReflectionMarkup(message, { surface: "workspace" })}
         </article>
       `;
     }).join("");
@@ -14329,7 +14656,7 @@ function renderWorkspaceModel() {
             <label>
               厂商
               <select data-provider-field="vendor">
-                ${PROVIDER_VENDOR_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === profile.vendor ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+                ${providerVendorOptionsMarkup(profile.vendor)}
               </select>
             </label>
             <label>
@@ -14687,7 +15014,7 @@ function syncWorkspaceFormFromNode(node) {
   } else if (node.kind === "env.prepare") {
     setValue("workspace_dir", config.workspace_dir || "");
     setValue("env_name", config.env_name || "");
-    setValue("env_manager", config.env_manager || "conda");
+    setValue("env_manager", config.env_manager || "");
     setValue("python_version", config.python_version || "");
     setValue("setup_command", config.setup_command || "");
   } else if (node.kind === "run.command") {
@@ -14733,7 +15060,7 @@ function syncWorkspaceNodesFromForm() {
       copy.config.repo_url = String(formData.repo_url || "");
       copy.config.paper_url = String(formData.paper_url || "");
       copy.config.source_type = String(formData.source_type || "repo");
-      if (!String(copy.config.query || "").trim()) copy.config.query = workspaceSearchSeed(formData);
+      if (!String(copy.config.query || "").trim()) copy.config.query = "";
     }
     if (cloneNode && copy.id === cloneNode.id) {
       copy.config.repo_url = String(formData.repo_url || "");
@@ -14747,7 +15074,7 @@ function syncWorkspaceNodesFromForm() {
       copy.config.workspace_dir = String(formData.workspace_dir || "");
     }
     if (datasetNode && copy.id === datasetNode.id) {
-      if (!String(copy.config.query || "").trim()) copy.config.query = workspaceSearchSeed(formData);
+      if (!String(copy.config.query || "").trim()) copy.config.query = "";
       copy.config.dataset_hints = String(formData.references || copy.config.dataset_hints || "");
     }
     if (envInferNode && copy.id === envInferNode.id) {
@@ -14759,12 +15086,12 @@ function syncWorkspaceNodesFromForm() {
       const setupCommand = String(formData.setup_command || "");
       copy.config.workspace_dir = String(formData.workspace_dir || "");
       copy.config.env_name = String(formData.env_name || "");
-      copy.config.env_manager = String(formData.env_manager || "conda");
+      copy.config.env_manager = String(formData.env_manager || "");
       copy.config.python_version = String(formData.python_version || "");
       if (setupCommand.trim()) copy.config.setup_command = setupCommand;
     }
     if (gpuNode && copy.id === gpuNode.id) {
-      copy.config.gpu_policy = String(copy.config.gpu_policy || "auto");
+      copy.config.gpu_policy = String(copy.config.gpu_policy || "");
     }
     if (runNode && copy.id === runNode.id) {
       const runCommand = String(formData.run_command || "");
@@ -14883,7 +15210,7 @@ function selectWorkspace(workspaceId, options = {}) {
     idea_text: workspace.source?.idea_text || "",
     workspace_dir: workspace.workspace_dir || "",
     env_name: workspace.env?.name || "",
-    env_manager: workspace.env?.manager || "conda",
+    env_manager: workspace.env?.manager || "",
     python_version: workspace.env?.python || "",
     setup_command: recipe.setup_command || nodeRecipeCommands.setup_command || "",
     run_command: recipe.run_command || nodeRecipeCommands.run_command || "",
@@ -17618,19 +17945,21 @@ function renderWorkspaceNodeList() {
   }).join("");
 }
 
-function renderWorkspaceNodeField(field, value) {
+function renderWorkspaceNodeField(field, value, nodeKind = "") {
   const fieldId = `node-field-${field.key}`;
   if (field.type === "textarea") {
+    const fieldValue = workspaceConfigValue(nodeKind, field.key, value);
     return `
       <label>
         ${escapeHtml(field.label)}
-        <textarea id="${escapeHtml(fieldId)}" data-config-key="${escapeHtml(field.key)}" rows="${escapeHtml(String(field.rows || 3))}" placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(value || "")}</textarea>
+        <textarea id="${escapeHtml(fieldId)}" data-config-key="${escapeHtml(field.key)}" rows="${escapeHtml(String(field.rows || 3))}" placeholder="${escapeHtml(field.placeholder || "")}">${escapeHtml(fieldValue || "")}</textarea>
       </label>
     `;
   }
   if (field.type === "select") {
+    const fieldValue = workspaceConfigValue(nodeKind, field.key, value);
     const options = (field.options || [])
-      .map((option) => `<option value="${escapeHtml(option.value)}" ${String(option.value) === String(value || "") ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
+      .map((option) => `<option value="${escapeHtml(option.value)}" ${String(option.value) === String(fieldValue || "") ? "selected" : ""}>${escapeHtml(option.label)}</option>`)
       .join("");
     return `
       <label>
@@ -17639,10 +17968,11 @@ function renderWorkspaceNodeField(field, value) {
       </label>
     `;
   }
+  const fieldValue = workspaceConfigValue(nodeKind, field.key, value);
   return `
     <label>
       ${escapeHtml(field.label)}
-      <input id="${escapeHtml(fieldId)}" data-config-key="${escapeHtml(field.key)}" value="${escapeHtml(value || "")}" placeholder="${escapeHtml(field.placeholder || "")}" />
+      <input id="${escapeHtml(fieldId)}" data-config-key="${escapeHtml(field.key)}" value="${escapeHtml(fieldValue || "")}" placeholder="${escapeHtml(field.placeholder || "")}" />
     </label>
   `;
 }
@@ -17702,7 +18032,7 @@ function renderWorkspaceNodeEditor() {
     })),
   ];
   const configFields = (meta.configFields || [])
-    .map((field) => renderWorkspaceNodeField(field, node.config?.[field.key]))
+    .map((field) => renderWorkspaceNodeField(field, node.config?.[field.key], node.kind))
     .join("");
   box.innerHTML = `
     <div class="workspace-node-editor-card">
@@ -17981,6 +18311,7 @@ function switchWorkspaceManageTab(tab) {
   state.ui.workspaceManageTab = next;
   if (changed) markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.workspaceManageTab, next);
+  if (next === "runs") void loadExecutionOverview({ render: true });
   renderWorkspaceWorkbench();
 }
 
@@ -18215,7 +18546,7 @@ function workspaceDetailActionsMarkup(workspace, node) {
       <button class="primary" type="button" data-action="advance-workspace-automation" title="让系统根据当前门禁状态自动决定：发现、观察、复查失败、回填后完整运行">自动推进</button>
       <button class="secondary" type="button" data-action="apply-workspace-automation" title="把默认建议和发现证据回填到节点配置，例如路径、环境命令、GPU 策略和产物路径">回填建议/发现</button>
       <button class="secondary" type="button" data-action="run-workspace-discovery" title="提交安全发现链，只收集源码、路径、数据、环境、GPU 和产物入口证据">自动发现</button>
-      <button class="secondary" type="button" data-action="run-selected-workspace" title="在门禁通过后提交完整工作流；门禁不通过时不会创建半截队列">运行工作流</button>
+      ${workspaceHomeActionButtonMarkup({ label: "运行工作流", dataAction: "run-selected-workspace", tone: "secondary", title: "在门禁通过后提交完整工作流；门禁不通过时不会创建半截队列" })}
       ${node?.id ? `<button class="secondary" type="button" data-action="run-workspace-to-selected-node" data-node-id="${escapeHtml(node.id)}" title="从起点运行到当前选中节点，用于验证前置 source/data/env/GPU 链路">运行到当前节点</button>` : ""}
       ${node?.id ? `<button class="secondary" type="button" data-action="run-selected-node" data-node-id="${escapeHtml(node.id)}" title="只运行当前选中的节点，用于单点调试或补证据">运行当前节点</button>` : ""}
       ${node?.job_id ? `<button class="secondary" type="button" data-action="open-selected-node-log" data-job-id="${escapeHtml(node.job_id)}" title="打开当前节点最近一次绑定任务的日志输出">打开最近输出</button>` : ""}
@@ -18487,18 +18818,20 @@ function renderWorkspaceUseChat() {
     return;
   }
   list.innerHTML = filtered.slice(-12).map((message) => {
-    const agentExecution = message.agent_execution && typeof message.agent_execution === "object" ? message.agent_execution : null;
+    const viewMessage = normalizeWorkspaceChatMessage(message);
+    const agentExecution = viewMessage.agent_execution && typeof viewMessage.agent_execution === "object" ? viewMessage.agent_execution : null;
     const traceMarkup = agentExecution?.trace_events?.length
       ? workspaceAgentFineTraceMarkup(agentExecution.trace_events, { compact: true, limit: 4 })
       : "";
     return `
-    <article class="workspace-chat-message assistant workspace-chat-message-output status-${escapeHtml(message.status || "completed")}">
+    <article class="workspace-chat-message assistant workspace-chat-message-output status-${escapeHtml(viewMessage.status || "completed")}">
       <div class="workspace-chat-message-head">
         <span class="workspace-chat-message-role">输出</span>
-        <strong>${escapeHtml(message.agent_name || activeAgent?.name || "Agent")}</strong>
-        <em>${escapeHtml([fmtDate(message.updated_at || message.created_at || ""), message.status === "pending" ? "生成中" : message.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</em>
+        <strong>${escapeHtml(viewMessage.agent_name || activeAgent?.name || "Agent")}</strong>
+        <em>${escapeHtml([fmtDate(viewMessage.updated_at || viewMessage.created_at || ""), viewMessage.status === "pending" ? "生成中" : viewMessage.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</em>
       </div>
-      <div class="workspace-chat-message-body">${escapeHtml(message.error || message.text || "")}</div>
+      <div class="workspace-chat-message-body">${escapeHtml(viewMessage.error || viewMessage.text || "")}</div>
+      ${workspaceChatContextReflectionMarkup(viewMessage, { surface: "use" })}
       ${traceMarkup}
     </article>
   `;
@@ -18609,7 +18942,7 @@ function renderWorkflowTemplateNodeEditor() {
     })),
   ];
   const configFields = (meta.configFields || [])
-    .map((field) => renderWorkspaceNodeField(field, node.config?.[field.key]))
+    .map((field) => renderWorkspaceNodeField(field, node.config?.[field.key], node.kind))
     .join("");
   box.innerHTML = `
     <div class="workspace-node-editor-card">
@@ -18699,7 +19032,7 @@ function renderManageTemplateModule() {
   if ($("templateWorkspaceDirInput")) $("templateWorkspaceDirInput").value = draft.workspace_dir || "";
   if ($("templateIdeaInput")) $("templateIdeaInput").value = draft.source?.idea_text || "";
   if ($("templateEnvNameInput")) $("templateEnvNameInput").value = draft.env?.name || "";
-  if ($("templateEnvManagerSelect")) $("templateEnvManagerSelect").value = draft.env?.manager || "conda";
+  if ($("templateEnvManagerSelect")) $("templateEnvManagerSelect").value = draft.env?.manager || "";
   if ($("templatePythonVersionInput")) $("templatePythonVersionInput").value = draft.env?.python || "";
   if ($("templateProviderProfileSelect")) {
     $("templateProviderProfileSelect").innerHTML = `<option value="">未选择</option>${state.providerProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(providerProfileLabel(profile))}</option>`).join("")}`;
@@ -18744,8 +19077,117 @@ function selectGlobalTool(toolId) {
   if (changed) markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.selectedGlobalTool, tool.id);
   state.toolDefinitionDraft = normalizeGlobalToolDefinitionDraft(tool);
+  if (changed || state.toolDefinitionTest.toolId !== tool.id) {
+    state.toolDefinitionTest = {
+      toolId: tool.id,
+      workspaceId: state.selectedWorkspaceId || state.workspaces[0]?.id || "",
+      argumentsText: JSON.stringify(defaultToolTestArguments(tool), null, 2),
+      result: null,
+      busy: false,
+      error: "",
+    };
+  }
   state.ui.toolDefinitionDirty = false;
   renderWorkspaceWorkbench();
+}
+
+function defaultToolTestArguments(tool = selectedGlobalTool()) {
+  const toolId = String(tool?.id || "").trim();
+  const workspace = selectedWorkspace() || state.workspaces[0] || {};
+  const inputs = workspace.inputs && typeof workspace.inputs === "object" ? workspace.inputs : {};
+  const source = workspace.source && typeof workspace.source === "object" ? workspace.source : {};
+  const goal = String(inputs.goal_text || workspace.brief || source.idea_text || "").trim();
+  const workspaceDir = String(workspace.workspace_dir || "").trim();
+  const firstRef = Array.isArray(workspace.references) ? String(workspace.references[0] || "").trim() : "";
+  const firstRepo = String(source.repo_url || (Array.isArray(inputs.repo_urls) ? inputs.repo_urls[0] : "") || "").trim();
+  if (toolId === "web.search" || toolId === "repo.search") return { query: goal || firstRepo || "RelayGraph smoke" };
+  if (toolId === "file.read") return { path: firstRef || "README.md", limit: 4000 };
+  if (toolId === "file.browse" || toolId === "dir.scan") return { path: workspaceDir || ".", max_entries: 24 };
+  if (toolId === "repo.read" || toolId === "repo.inspect") return { path: workspaceDir || ".", focus_paths: ["README.md", "requirements.txt"] };
+  if (toolId === "path.resolve") return { workspace_dir: workspaceDir || ".", data_roots: [] };
+  if (toolId === "dataset.find") return { query: goal || "dataset", data_roots: [] };
+  if (toolId === "gpu.inspect" || toolId === "gpu.allocate") return { min_free_memory_gib: 1 };
+  if (toolId === "env.inspect" || toolId === "env.infer") return { manifest_paths: ["requirements.txt", "environment.yml"] };
+  if (toolId === "artifact.read" || toolId === "artifact.collect") return { artifact_paths: ["runs", "outputs", "logs"] };
+  if (toolId === "log.read" || toolId === "execution.package" || toolId === "workflow.plan") return {};
+  if (toolId === "job.run" || toolId === "host.exec") return { command: "echo relaygraph-tool-test", cwd: workspaceDir || "." };
+  if (toolId === "repo.clone") return { repo_url: firstRepo, workspace_dir: workspaceDir };
+  if (toolId === "env.prepare" || toolId === "env.create") return { command: "python --version", env_name: workspace.env?.name || "" };
+  if (toolId === "job.stop" || toolId === "job.reorder") return { latest: true };
+  return {};
+}
+
+function ensureToolDefinitionTestState(tool = selectedGlobalTool()) {
+  const toolId = String(tool?.id || "").trim();
+  if (!toolId) return;
+  if (state.toolDefinitionTest.toolId === toolId) return;
+  state.toolDefinitionTest = {
+    toolId,
+    workspaceId: state.selectedWorkspaceId || state.workspaces[0]?.id || "",
+    argumentsText: JSON.stringify(defaultToolTestArguments(tool), null, 2),
+    result: null,
+    busy: false,
+    error: "",
+  };
+}
+
+function toolTestResultMarkup(testState = state.toolDefinitionTest) {
+  if (testState.busy) return '<div class="workspace-agent-debug-warning">正在执行安全测试...</div>';
+  if (testState.error) return `<div class="workspace-agent-debug-warning">${escapeHtml(testState.error)}</div>`;
+  const result = testState.result;
+  if (!result) return '<div class="empty">只读工具会执行安全预览；runtime / dangerous 工具只返回 blocked，不会直接提交任务。</div>';
+  const status = String(result.status || "draft");
+  const safeText = result.safe ? "safe read-only" : "blocked / plan-only";
+  const body = JSON.stringify(result.result ?? result, null, 2);
+  return `
+    <div class="workspace-agent-debug-result">
+      <div class="workspace-agent-debug-actions">
+        <button class="secondary mini" type="button" data-action="copy-tool-test-result" title="复制完整工具安全测试结果 JSON">复制结果</button>
+      </div>
+      <div class="workspace-agent-debug-summary">
+        <article class="workspace-agent-debug-card status-${escapeHtml(status)}">
+          <span>测试状态</span>
+          <strong>${escapeHtml(status)}</strong>
+          <em>${escapeHtml(safeText)} · ${escapeHtml(result.side_effect || "read")}${result.latency_ms ? ` · ${escapeHtml(String(result.latency_ms))}ms` : ""}</em>
+        </article>
+        <article class="workspace-agent-debug-card">
+          <span>上下文</span>
+          <strong>${escapeHtml(result.workspace?.name || result.workspace?.id || "无实例")}</strong>
+          <em>${escapeHtml(result.tool_id || testState.toolId || "")}</em>
+        </article>
+      </div>
+      <pre class="workspace-agent-debug-pre">${escapeHtml(body.slice(0, 6000))}</pre>
+    </div>
+  `;
+}
+
+function providerRouteHealthMarkup() {
+  const health = providerRouteHealthStatus();
+  const issues = Array.isArray(health.issues) ? health.issues : [];
+  const status = String(health.effective_status || health.status || "draft");
+  const firstIssues = issues.slice(0, 5);
+  const blockingCount = Number(health.effective_blocking_count ?? health.blocking_count ?? 0);
+  const healthLabel = blockingCount
+    ? workspaceStatusLabel("blocked")
+    : Number(health.configured_profile_count || 0)
+      ? "可用"
+      : workspaceStatusLabel(status);
+  return `
+    <div class="workspace-node-editor-card workspace-manage-editor-stack status-${escapeHtml(status)}">
+      <div class="workspace-node-editor-head">
+        <div>
+          <h4>Provider 路由健康</h4>
+          <p class="muted">${escapeHtml(`${Number(health.configured_profile_count || 0)}/${Number(health.profile_count || 0)} Profile 可用 · ${blockingCount} 阻塞 · ${Number(health.warning_count || 0)} 提示`)}</p>
+        </div>
+        <span class="state ${escapeHtml(status)}">${escapeHtml(healthLabel)}</span>
+      </div>
+      ${firstIssues.length ? `
+        <div class="workspace-agent-debug-warning-list">
+          ${firstIssues.map((issue) => `<div class="workspace-agent-debug-warning">${escapeHtml(providerHealthIssueLabel(issue))}</div>`).join("")}
+        </div>
+      ` : '<div class="empty">当前 Provider / Agent / 模板路由没有发现明显缺口。</div>'}
+    </div>
+  `;
 }
 
 function renderManageAgentModule() {
@@ -18838,6 +19280,30 @@ function renderManageAgentModule() {
       </section>
       <section class="workspace-manage-group">
         <div class="workspace-manage-group-head">
+          <strong>运行边界</strong>
+          <span class="muted">作为节点未覆盖时的全局默认值。</span>
+        </div>
+        <div class="workspace-agent-editor-grid">
+          <label>
+            最大迭代
+            <input data-manage-agent-number="max_iterations" type="number" min="1" step="1" value="${escapeHtml(agent.max_iterations || "")}" placeholder="默认 10" />
+          </label>
+          <label>
+            超时秒数
+            <input data-manage-agent-number="timeout_seconds" type="number" min="1" step="1" value="${escapeHtml(agent.timeout_seconds || "")}" placeholder="不限制" />
+          </label>
+          <label>
+            输出格式
+            <select data-manage-agent-field="output_format">
+              <option value="" ${agent.output_format ? "" : "selected"}>跟随节点</option>
+              <option value="text" ${agent.output_format === "text" ? "selected" : ""}>text</option>
+              <option value="json" ${agent.output_format === "json" ? "selected" : ""}>json</option>
+            </select>
+          </label>
+        </div>
+      </section>
+      <section class="workspace-manage-group">
+        <div class="workspace-manage-group-head">
           <strong>系统提示词</strong>
           <span class="muted">保留完整 Prompt，但控制高度和节奏。</span>
         </div>
@@ -18873,7 +19339,7 @@ function renderManageAgentModule() {
       </label>
       ${state.manageAgentDebug.error ? `<p class="form-message error">${escapeHtml(state.manageAgentDebug.error)}</p>` : ""}
       ${state.manageAgentDebug.result?.debug
-        ? workspaceAgentDebugResultMarkup(state.manageAgentDebug.result.debug)
+        ? workspaceAgentDebugResultMarkup(state.manageAgentDebug.result.debug, { scope: "manage" })
         : '<div class="empty">输入一段任务描述后，调试结果会显示在这里。</div>'}
     </div>
   `;
@@ -18914,6 +19380,12 @@ function renderManageToolModule() {
     editor.innerHTML = '<div class="empty">选择一个工具后在这里编辑。</div>';
     return;
   }
+  ensureToolDefinitionTestState(tool);
+  const testState = state.toolDefinitionTest;
+  const workspaceOptions = [
+    { id: "", name: "自动选择最近实例" },
+    ...state.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name || workspace.brief || workspace.id })),
+  ];
   editor.innerHTML = `
     <div class="workspace-node-editor-card workspace-manage-editor-stack">
       <div class="workspace-node-editor-head">
@@ -18968,6 +19440,29 @@ function renderManageToolModule() {
           启用这个工具
         </label>
       </section>
+      <section class="workspace-manage-group">
+        <div class="workspace-manage-group-head">
+          <strong>安全测试</strong>
+          <span class="muted">只读工具执行预览；runtime / dangerous 工具不会直接产生副作用。</span>
+        </div>
+        <div class="workspace-tool-editor-grid">
+          <label>
+            Workspace 上下文
+            <select id="manageToolTestWorkspaceSelect">
+              ${workspaceOptions.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === testState.workspaceId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label>
+            测试参数
+            <textarea id="manageToolTestArguments" rows="4" spellcheck="false">${escapeHtml(testState.argumentsText || "{}")}</textarea>
+          </label>
+        </div>
+        <div class="button-row">
+          <button class="secondary mini" type="button" data-action="reset-global-tool-test" title="按工具类型和当前实例重新生成安全测试参数">重置参数</button>
+          <button class="primary mini" type="button" data-action="run-global-tool-test" title="调用后端安全测试接口；不会绕过受控任务队列" ${testState.busy ? "disabled" : ""}>${testState.busy ? "测试中..." : "安全测试"}</button>
+        </div>
+        ${toolTestResultMarkup(testState)}
+      </section>
     </div>
   `;
 }
@@ -18996,6 +19491,7 @@ function renderManageAiModule() {
   const profile = selectedProviderProfile();
   const draft = normalizeWorkflowTemplateDraft(state.workflowTemplateDraft || selectedWorkflowTemplate() || defaultWorkflowTemplateDraft("repo"));
   editor.innerHTML = `
+    ${providerRouteHealthMarkup()}
     <div class="workspace-node-editor-card workspace-manage-editor-stack">
       <div class="workspace-node-editor-head">
         <div>
@@ -19021,8 +19517,8 @@ function renderManageAiModule() {
             </label>
             <label>
               厂商
-              <select data-manage-provider-field="vendor">
-                ${PROVIDER_VENDOR_OPTIONS.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === profile.vendor ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+              <select data-manage-provider-field="vendor" class="${String(profile.vendor || "").trim() ? "" : "invalid"}">
+                ${providerVendorOptionsMarkup(profile.vendor)}
               </select>
             </label>
             <label>
@@ -19041,7 +19537,7 @@ function renderManageAiModule() {
           <label class="provider-key-field">
             API Key
             <span class="provider-key-row">
-              <input data-manage-provider-field="api_key" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值覆盖` : "必填 sk-..."}" autocomplete="off" />
+              <input data-manage-provider-field="api_key" class="${String(profile.api_key || "").trim() || profile.has_api_key ? "" : "invalid"}" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值覆盖` : "必填 sk-..."}" autocomplete="off" />
               <button type="button" class="provider-key-toggle mini" data-action="toggle-provider-key-visibility">${state.ui.providerKeyVisible ? "隐藏" : "显示"}</button>
             </span>
           </label>
@@ -19092,6 +19588,96 @@ function renderManageAiModule() {
   `;
 }
 
+function executionOverviewStatusClass(status = "") {
+  const value = String(status || "pending");
+  if (["done", "ready", "completed"].includes(value)) return "ready";
+  if (["running", "queued", "starting", "pending"].includes(value)) return "running";
+  if (["failed", "blocked", "stopped"].includes(value)) return "blocked";
+  return "draft";
+}
+
+function openWorkspaceFromExecutionOverview(workspaceId, options = {}) {
+  const id = String(workspaceId || "").trim();
+  if (!id) return;
+  selectWorkspace(id, { persist: true, refreshCockpit: true });
+  switchWorkspaceMode("use");
+  switchWorkspaceTab("home", { reveal: false });
+  if (options.nodeId) {
+    state.selectedWorkspaceExecutionNodeId = String(options.nodeId || "").trim();
+    renderWorkspaceExecutionDetail();
+  }
+  requestAnimationFrame(() => {
+    revealWorkspacePanelTarget("workspaceExecutionBoard", { block: "start" });
+  });
+}
+
+function manageRunOverviewItemMarkup(run = {}) {
+  const progress = run.progress && typeof run.progress === "object" ? run.progress : {};
+  const status = executionOverviewStatusClass(run.status);
+  return `
+    <button class="workspace-execution-run-item workspace-template-item status-${escapeHtml(status)}" type="button" data-action="open-overview-workspace" data-workspace-id="${escapeHtml(run.workspace_id || "")}" title="打开所属实例驾驶舱">
+      <div class="workspace-template-item-head">
+        <strong>${escapeHtml(run.summary || workspaceRunKindLabel(run.kind) || run.id || "Run")}</strong>
+        <span class="state ${escapeHtml(status)}">${escapeHtml(workspaceStatusLabel(run.status || "pending"))}</span>
+      </div>
+      <div class="workspace-template-item-meta">${escapeHtml(run.workspace_name || run.workspace_id || "未绑定实例")} · ${escapeHtml(fmtDate(run.updated_at || run.created_at))}</div>
+      <div class="workspace-template-item-desc">${escapeHtml(`${Number(progress.done || 0)}/${Number(progress.total || run.step_count || 0)} 步 · ${Number(progress.percent || 0)}% · ${run.job_ids?.length || 0} job · ${run.agent_execution_ids?.length || 0} agent`)}</div>
+    </button>
+  `;
+}
+
+function manageJobOverviewItemMarkup(job = {}) {
+  const status = executionOverviewStatusClass(job.status);
+  return `
+    <button class="workspace-execution-run-item workspace-template-item status-${escapeHtml(status)}" type="button" data-action="open-overview-workspace" data-workspace-id="${escapeHtml(job.workspace_id || "")}" title="打开所属实例驾驶舱">
+      <div class="workspace-template-item-head">
+        <strong>${escapeHtml(job.summary || job.kind || job.id || "Job")}</strong>
+        <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(job.status || "pending"))}</span>
+      </div>
+      <div class="workspace-template-item-meta">${escapeHtml(job.workspace_name || job.workspace_id || "未绑定实例")} · ${escapeHtml(job.server_id || "server auto")} · ${escapeHtml(fmtDate(job.updated_at || job.created_at))}</div>
+      <div class="workspace-template-item-desc">${escapeHtml(job.execution_run_id ? `run ${job.execution_run_id}` : job.id || "")}</div>
+    </button>
+  `;
+}
+
+function renderManageRunsModule() {
+  const summaryRoot = $("workspaceManageRunSummary");
+  const runList = $("workspaceManageRunList");
+  const jobList = $("workspaceManageJobList");
+  if (!summaryRoot && !runList && !jobList) return;
+  const overview = state.executionOverview && typeof state.executionOverview === "object" ? state.executionOverview : {};
+  const summary = overview.summary && typeof overview.summary === "object" ? overview.summary : {};
+  const runs = Array.isArray(overview.runs) ? overview.runs : [];
+  const jobs = Array.isArray(overview.jobs) ? overview.jobs : [];
+  if (summaryRoot) {
+    if (overview.error) {
+      summaryRoot.innerHTML = `<article class="workspace-agent-coverage-card status-failed"><strong>加载失败</strong><span>${escapeHtml(overview.error)}</span></article>`;
+    } else {
+      summaryRoot.innerHTML = [
+        { label: "Runs", value: Number(summary.run_count || runs.length), status: summary.active_run_count ? "running" : "ready" },
+        { label: "Jobs", value: Number(summary.job_count || jobs.length), status: summary.active_job_count ? "running" : "ready" },
+        { label: "活跃任务", value: Number(summary.active_job_count || 0), status: summary.active_job_count ? "running" : "ready" },
+        { label: "失败/停止", value: Number(summary.failed_run_count || 0) + Number(summary.failed_job_count || 0), status: (summary.failed_run_count || summary.failed_job_count) ? "blocked" : "ready" },
+      ].map((item) => `
+        <article class="workspace-agent-coverage-card status-${escapeHtml(item.status)}">
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(String(item.value))}</strong>
+        </article>
+      `).join("");
+    }
+  }
+  if (runList) {
+    runList.innerHTML = runs.length
+      ? runs.slice(0, 30).map((run) => manageRunOverviewItemMarkup(run)).join("")
+      : '<div class="empty">还没有全局 run 记录。</div>';
+  }
+  if (jobList) {
+    jobList.innerHTML = jobs.length
+      ? jobs.slice(0, 30).map((job) => manageJobOverviewItemMarkup(job)).join("")
+      : '<div class="empty">还没有队列任务。</div>';
+  }
+}
+
 function renderWorkspaceWorkbench() {
   renderWorkspaceModeSwitch();
   renderWorkspaceUseMode();
@@ -19099,6 +19685,7 @@ function renderWorkspaceWorkbench() {
   renderManageAgentModule();
   renderManageToolModule();
   renderManageAiModule();
+  renderManageRunsModule();
   renderWorkspaceChainInspectPanel();
   renderWorkspaceManageOverview();
 }
@@ -19177,10 +19764,8 @@ async function createWorkspaceTask(mode = "create") {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apply_defaults: true, include_source: true }),
       });
-      if (result.workspace) {
-        upsertWorkspaceInState(result.workspace);
-        selectWorkspace(result.workspace.id, { persist: false });
-      }
+      const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, result);
+      if (mergedWorkspace) selectWorkspace(mergedWorkspace.id, { persist: false });
       const createdJobs = Array.isArray(result.jobs) ? result.jobs.length : 0;
       const applied = Array.isArray(result.applied) ? result.applied.length : 0;
       const skipped = Array.isArray(result.skipped) ? result.skipped.length : 0;
@@ -19196,10 +19781,8 @@ async function createWorkspaceTask(mode = "create") {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ force_run: false }),
       });
-      if (result.workspace) {
-        upsertWorkspaceInState(result.workspace);
-        selectWorkspace(result.workspace.id, { persist: false });
-      }
+      const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, result);
+      if (mergedWorkspace) selectWorkspace(mergedWorkspace.id, { persist: false });
       setWorkspaceUseMessage(`实例已创建。${workspaceAdvanceMessage(result)}`);
       await loadStatus(true, { renderWorkspace: true });
       focusWorkspaceCockpitFromNextAction(selectedWorkspace());
@@ -19210,10 +19793,8 @@ async function createWorkspaceTask(mode = "create") {
     await loadStatus(true, { renderWorkspace: true });
     focusWorkspaceCockpitFromNextAction(selectedWorkspace());
   } catch (error) {
-    if (error?.payload?.workspace) {
-      upsertWorkspaceInState(error.payload.workspace);
-      selectWorkspace(error.payload.workspace.id, { persist: false });
-    }
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(state.selectedWorkspaceId, error?.payload || {});
+    if (mergedWorkspace) selectWorkspace(mergedWorkspace.id, { persist: false });
     setWorkspaceUseMessage(`实例创建/推进未完成：${workspaceWorkflowErrorMessage(error)}`, true);
   } finally {
     endWorkspaceAutomationAction(busyAction);
@@ -19240,9 +19821,9 @@ async function submitWorkspaceUseChat() {
         use_llm: true,
       }),
     });
-    if (payload.workspace) {
-      upsertWorkspaceInState(payload.workspace);
-      selectWorkspace(payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: false,
         selectedExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
       });
@@ -19253,10 +19834,47 @@ async function submitWorkspaceUseChat() {
   }
 }
 
+async function acceptWorkspaceChatContextReflection(button) {
+  const workspace = selectedWorkspace();
+  const messageId = String(button?.dataset?.messageId || "").trim();
+  const surface = String(button?.dataset?.surface || "workspace");
+  const notify = surface === "use" ? setWorkspaceUseMessage : setWorkspaceMessage;
+  if (!workspace?.id || !messageId) {
+    notify("没有可沉淀的上下文建议。", true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/context-reflections/${encodeURIComponent(messageId)}/accept`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
+        persist: false,
+        selectedNodeId: state.selectedWorkspaceNodeId,
+        selectedExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
+        selectedAgentId: state.selectedWorkspaceAgentId,
+      });
+    }
+    notify("已沉淀到补充上下文。");
+    renderWorkspaceUseChat();
+    renderWorkspaceChat();
+    renderWorkspaceHome();
+  } catch (error) {
+    notify(error.message || "沉淀上下文失败。", true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function newWorkflowTemplateDraft(sourceType = "repo") {
   state.selectedWorkflowTemplateId = "";
   saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, "");
   state.workflowTemplateDraft = normalizeWorkflowTemplateDraft(defaultWorkflowTemplateDraft(sourceType));
+  state.workflowTemplateValidation = null;
   state.selectedTemplateNodeId = state.workflowTemplateDraft.nodes[0]?.id || "";
   state.ui.workflowTemplateDirty = true;
   renderWorkspaceWorkbench();
@@ -19264,8 +19882,16 @@ function newWorkflowTemplateDraft(sourceType = "repo") {
 
 async function saveWorkflowTemplate() {
   const payload = workflowTemplatePayloadForSave();
-  setWorkspaceManageMessage(state.selectedWorkflowTemplateId ? "正在保存模板..." : "正在创建模板...");
+  setWorkspaceManageMessage("正在校验模板...");
   try {
+    const preview = await previewWorkflowTemplate({ render: false });
+    const validation = preview?.validation || {};
+    if (validation.status === "blocked") {
+      renderWorkspaceWorkbench();
+      setWorkspaceManageMessage(`模板校验未通过：${workflowTemplateValidationSummary(validation)}`, true);
+      return;
+    }
+    setWorkspaceManageMessage(state.selectedWorkflowTemplateId ? "正在保存模板..." : "正在创建模板...");
     const response = await fetchJson(
       state.selectedWorkflowTemplateId
         ? `/api/workflow-templates/${encodeURIComponent(state.selectedWorkflowTemplateId)}`
@@ -19279,7 +19905,7 @@ async function saveWorkflowTemplate() {
     const saved = response.workflow_template;
     await loadStatus(true, { renderWorkspace: true });
     if (saved?.id) selectWorkflowTemplate(saved.id);
-    setWorkspaceManageMessage("模板已保存。");
+    setWorkspaceManageMessage(validation.status === "warning" ? "模板已保存，但仍有警告项。" : "模板已保存。");
   } catch (error) {
     setWorkspaceManageMessage(error.message, true);
   }
@@ -19325,6 +19951,9 @@ function newGlobalAgentDraft() {
     prompt: "",
     tools: [],
     provider_profile_id: "",
+    max_iterations: "",
+    timeout_seconds: "",
+    output_format: "",
     enabled: true,
   });
   state.manageAgentDebug = {
@@ -19350,6 +19979,9 @@ async function saveGlobalAgentDefinition() {
     prompt: agent.prompt,
     tools: parseTagList(agent.tools || []),
     provider_profile_id: agent.provider_profile_id || "",
+    max_iterations: positiveNumberOrBlank(agent.max_iterations) || undefined,
+    timeout_seconds: positiveNumberOrBlank(agent.timeout_seconds) || undefined,
+    output_format: agent.output_format || "",
     enabled: agent.enabled !== false,
   };
   try {
@@ -19408,11 +20040,14 @@ async function runGlobalAgentDebug() {
         template_id: state.manageAgentDebug.templateId || "",
         input: state.manageAgentDebug.input || "",
         node_kind: selectedWorkflowTemplateNode()?.kind || "",
+        max_iterations: positiveNumberOrBlank(state.agentDefinitionDraft.max_iterations) || undefined,
+        timeout_seconds: positiveNumberOrBlank(state.agentDefinitionDraft.timeout_seconds) || undefined,
+        output_format: state.agentDefinitionDraft.output_format || "",
         execute_llm: Boolean(state.manageAgentDebug.executeLlm),
       }),
     });
     state.manageAgentDebug.result = payload.debug
-      ? { ...payload, debug: { ...payload.debug, execution: payload.execution || null } }
+      ? { ...payload, debug: { ...payload.debug, execution: payload.execution || null, effective_config: payload.effective_config || null } }
       : payload;
   } catch (error) {
     state.manageAgentDebug.error = error.message;
@@ -19443,6 +20078,14 @@ function newGlobalToolDraft() {
     enabled: true,
     notes: "",
   });
+  state.toolDefinitionTest = {
+    toolId: "",
+    workspaceId: state.selectedWorkspaceId || state.workspaces[0]?.id || "",
+    argumentsText: "{}",
+    result: null,
+    busy: false,
+    error: "",
+  };
   state.ui.toolDefinitionDirty = true;
   renderWorkspaceWorkbench();
 }
@@ -19494,6 +20137,97 @@ async function deleteGlobalToolDefinition() {
   } catch (error) {
     setWorkspaceManageMessage(error.message, true);
   }
+}
+
+function resetGlobalToolTest() {
+  const tool = state.toolDefinitionDraft && Object.keys(state.toolDefinitionDraft).length
+    ? normalizeGlobalToolDefinitionDraft(state.toolDefinitionDraft)
+    : selectedGlobalTool();
+  state.toolDefinitionTest = {
+    toolId: String(tool?.id || state.selectedGlobalToolId || "").trim(),
+    workspaceId: state.selectedWorkspaceId || state.workspaces[0]?.id || "",
+    argumentsText: JSON.stringify(defaultToolTestArguments(tool), null, 2),
+    result: null,
+    busy: false,
+    error: "",
+  };
+  renderManageToolModule();
+}
+
+async function runGlobalToolTest() {
+  const tool = state.toolDefinitionDraft && Object.keys(state.toolDefinitionDraft).length
+    ? normalizeGlobalToolDefinitionDraft(state.toolDefinitionDraft)
+    : selectedGlobalTool();
+  const toolId = String(tool?.id || state.selectedGlobalToolId || "").trim();
+  if (!toolId || !state.selectedGlobalToolId) {
+    state.toolDefinitionTest.error = "先保存或选择一个工具定义。";
+    renderManageToolModule();
+    return;
+  }
+  let args = {};
+  try {
+    args = JSON.parse(state.toolDefinitionTest.argumentsText || "{}");
+    if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("参数必须是 JSON object");
+  } catch (error) {
+    state.toolDefinitionTest.error = `参数 JSON 无效：${error.message || error}`;
+    state.toolDefinitionTest.result = null;
+    renderManageToolModule();
+    return;
+  }
+  state.toolDefinitionTest = {
+    ...state.toolDefinitionTest,
+    toolId,
+    busy: true,
+    error: "",
+    result: null,
+  };
+  renderManageToolModule();
+  try {
+    const payload = await fetchJson(`/api/tool-definitions/${encodeURIComponent(toolId)}/test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workspace_id: state.toolDefinitionTest.workspaceId || "",
+        arguments: args,
+      }),
+    });
+    state.toolDefinitionTest.result = payload.test || payload;
+    setWorkspaceManageMessage("工具安全测试已完成。");
+  } catch (error) {
+    state.toolDefinitionTest.error = error.message || String(error);
+  } finally {
+    state.toolDefinitionTest.busy = false;
+    renderManageToolModule();
+  }
+}
+
+function stableJsonText(value) {
+  return JSON.stringify(value ?? {}, null, 2);
+}
+
+function currentAgentDebugTranscript(scope = "") {
+  const normalizedScope = String(scope || "").trim();
+  if (normalizedScope === "manage" && state.manageAgentDebug?.result?.debug) {
+    return state.manageAgentDebug.result.debug;
+  }
+  if (normalizedScope === "workspace" && state.workspaceAgentDebug?.result) {
+    return state.workspaceAgentDebug.result;
+  }
+  if (state.manageAgentDebug?.result?.debug) return state.manageAgentDebug.result.debug;
+  if (state.workspaceAgentDebug?.result) return state.workspaceAgentDebug.result;
+  return null;
+}
+
+async function copyAgentDebugTranscript(scope = "") {
+  const transcript = currentAgentDebugTranscript(scope);
+  if (!transcript) throw new Error("还没有可复制的 Agent 调试结果。");
+  await copyTextToClipboard(stableJsonText(transcript));
+}
+
+async function copyToolTestResult() {
+  const result = state.toolDefinitionTest?.result;
+  if (!result) throw new Error("还没有可复制的工具测试结果。");
+  await copyTextToClipboard(stableJsonText(result));
 }
 
 async function saveManageProviderProfile() {
@@ -19638,6 +20372,13 @@ function upsertJobInState(job = {}) {
   else state.jobs.unshift(job);
 }
 
+function mergeJobsInState(jobs = []) {
+  const items = Array.isArray(jobs) ? jobs : [];
+  items.forEach((job) => {
+    if (job && typeof job === "object") upsertJobInState(job);
+  });
+}
+
 function mergeWorkspaceChatMessages(workspaceId, messages = []) {
   const id = String(workspaceId || "").trim();
   const workspace = workspaceById(id);
@@ -19648,7 +20389,15 @@ function mergeWorkspaceChatMessages(workspaceId, messages = []) {
     const messageId = String(normalized.id || "").trim();
     if (!messageId) return;
     const existingIndex = chat.findIndex((item) => String(item?.id || "") === messageId);
-    if (existingIndex >= 0) chat.splice(existingIndex, 1, { ...chat[existingIndex], ...normalized });
+    if (existingIndex >= 0) {
+      const existing = chat[existingIndex] || {};
+      chat.splice(existingIndex, 1, {
+        ...existing,
+        ...normalized,
+        agent_execution: Object.keys(normalized.agent_execution || {}).length ? normalized.agent_execution : existing.agent_execution,
+        context_reflection: normalized.context_reflection || existing.context_reflection || null,
+      });
+    }
     else chat.push(normalized);
   });
   const next = { ...workspace, chat };
@@ -19779,28 +20528,9 @@ function applyWorkspaceStreamEvent(rawEvent = {}) {
   const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
   const workspaceId = String(event.workspace_id || payload.workspace_id || payload.workspace?.id || state.selectedWorkspaceId || "").trim();
   if (!workspaceId) return;
-  if (payload.workspace && typeof payload.workspace === "object") {
-    upsertWorkspaceInState(payload.workspace);
-  }
-  if (payload.job && typeof payload.job === "object") {
-    upsertJobInState(payload.job);
-  }
-  if (payload.run && typeof payload.run === "object") {
-    mergeWorkspaceRunDetailPayload(workspaceId, { workspace_id: workspaceId, run: payload.run });
-  }
-  const chatMessages = [];
-  if (payload.message && typeof payload.message === "object") chatMessages.push(payload.message);
-  if (Array.isArray(payload.messages)) {
-    payload.messages.forEach((message) => {
-      if (message && typeof message === "object") chatMessages.push(message);
-    });
-  }
-  if (chatMessages.length) mergeWorkspaceChatMessages(workspaceId, chatMessages);
+  mergeWorkspaceExecutionResultPayload(workspaceId, payload);
   if (eventType.startsWith("agent.")) {
     mergeWorkspaceAgentStreamEvent(workspaceId, event, payload);
-  }
-  if (payload.cockpit || payload.automation || payload.execution) {
-    mergeWorkspaceCockpitPayload(workspaceId, payload);
   }
   if (workspaceId === state.selectedWorkspaceId) {
     renderWorkspaces();
@@ -19894,6 +20624,45 @@ function mergeWorkspaceRunDetailPayload(workspaceId, payload = {}) {
   return run;
 }
 
+function mergeWorkspaceRunsPayload(workspaceId, runs = []) {
+  const items = Array.isArray(runs) ? runs : [];
+  let merged = null;
+  items.forEach((run) => {
+    if (run && typeof run === "object") merged = mergeWorkspaceRunDetailPayload(workspaceId, { workspace_id: workspaceId, run }) || merged;
+  });
+  return merged;
+}
+
+function mergeWorkspaceExecutionResultPayload(workspaceId, payload = {}) {
+  const data = payload && typeof payload === "object" ? payload : {};
+  let id = String(workspaceId || data.workspace_id || data.workspace?.id || data.run?.workspace_id || "").trim();
+  if (data.workspace && typeof data.workspace === "object") {
+    upsertWorkspaceInState(data.workspace);
+    id = String(id || data.workspace.id || "").trim();
+  }
+  if (!id) id = String(state.selectedWorkspaceId || "").trim();
+  if (data.job && typeof data.job === "object") mergeJobsInState([data.job]);
+  if (Array.isArray(data.jobs)) mergeJobsInState(data.jobs);
+  if (id && data.run && typeof data.run === "object") {
+    mergeWorkspaceRunDetailPayload(id, { workspace_id: id, run: data.run });
+  }
+  if (id && Array.isArray(data.runs)) {
+    mergeWorkspaceRunsPayload(id, data.runs);
+  }
+  const chatMessages = [];
+  if (data.message && typeof data.message === "object") chatMessages.push(data.message);
+  if (Array.isArray(data.messages)) {
+    data.messages.forEach((message) => {
+      if (message && typeof message === "object") chatMessages.push(message);
+    });
+  }
+  if (id && chatMessages.length) mergeWorkspaceChatMessages(id, chatMessages);
+  if (id && (data.cockpit || data.automation || data.execution)) {
+    mergeWorkspaceCockpitPayload(id, data);
+  }
+  return id ? workspaceById(id) : null;
+}
+
 async function refreshWorkspaceRunDetail(runId, options = {}) {
   const workspace = selectedWorkspace();
   const id = String(runId || "").trim();
@@ -19919,6 +20688,64 @@ async function openWorkspaceRunDetail(runId) {
     return;
   }
   setWorkspaceMessage(`运行详情已刷新：${workspaceRunKindLabel(run.kind)} · ${zhStatus(run.status || "pending")}。`);
+}
+
+async function copyWorkspaceRunReplay(runId) {
+  const workspace = selectedWorkspace();
+  const id = String(runId || "").trim();
+  if (!workspace?.id || !id) {
+    setWorkspaceMessage("还没有可复制的运行回放。", true);
+    return;
+  }
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/runs/${encodeURIComponent(id)}/replay`);
+    const replay = payload.replay && typeof payload.replay === "object" ? payload.replay : payload;
+    await copyTextToClipboard(JSON.stringify(replay, null, 2));
+    setWorkspaceMessage("运行回放 JSON 已复制，可用于复盘、对比或导出。");
+  } catch (error) {
+    setWorkspaceMessage(error.message || "复制运行回放失败。", true);
+  }
+}
+
+function setWorkspaceRunCompareBase(runId) {
+  const id = String(runId || "").trim();
+  if (!id) {
+    setWorkspaceMessage("还没有可作为基准的运行记录。", true);
+    return;
+  }
+  state.ui.workspaceRunCompareBaseId = id;
+  renderWorkspaceRuns();
+  setWorkspaceMessage("已设置运行对比基准。再点另一条运行记录的“对比”即可复制差异 JSON。");
+}
+
+async function compareWorkspaceRunToBase(runId) {
+  const workspace = selectedWorkspace();
+  const targetId = String(runId || "").trim();
+  const baseId = String(state.ui.workspaceRunCompareBaseId || "").trim();
+  if (!workspace?.id || !baseId || !targetId) {
+    setWorkspaceMessage("请先设置一条运行记录作为对比基准。", true);
+    return;
+  }
+  if (baseId === targetId) {
+    setWorkspaceMessage("请选择另一条运行记录进行对比。", true);
+    return;
+  }
+  try {
+    const payload = await fetchJson(
+      `/api/workspaces/${encodeURIComponent(workspace.id)}/runs/compare?base=${encodeURIComponent(baseId)}&target=${encodeURIComponent(targetId)}`,
+    );
+    const compare = payload.compare && typeof payload.compare === "object" ? payload.compare : payload;
+    await copyTextToClipboard(JSON.stringify(compare, null, 2));
+    const delta = compare.diff?.metric_delta || {};
+    const summary = [
+      `步骤 ${Number(delta.step_count || 0) >= 0 ? "+" : ""}${Number(delta.step_count || 0)}`,
+      `失败 ${Number(delta.failed_step_count || 0) >= 0 ? "+" : ""}${Number(delta.failed_step_count || 0)}`,
+      `产物 ${Number(delta.artifact_count || 0) >= 0 ? "+" : ""}${Number(delta.artifact_count || 0)}`,
+    ].join(" · ");
+    setWorkspaceMessage(`运行对比 JSON 已复制：${summary}。`);
+  } catch (error) {
+    setWorkspaceMessage(error.message || "运行对比失败。", true);
+  }
 }
 
 function resetWorkspaceAgentDebug(agent = selectedWorkspaceAgent(), options = {}) {
@@ -20360,9 +21187,9 @@ async function runWorkspaceNode(nodeId, options = {}) {
         body: JSON.stringify({ prefer: normalizedPrefer, executor_mode: normalizedPrefer }),
       },
     );
-    if (payload.workspace) {
-      upsertWorkspaceInState(payload.workspace);
-      selectWorkspace(payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: node.id,
         selectedExecutionNodeId: node.id,
@@ -20405,9 +21232,9 @@ async function runWorkspaceToNode(nodeId) {
         until_node_id: node.id,
       }),
     });
-    if (payload.workspace) {
-      upsertWorkspaceInState(payload.workspace);
-      selectWorkspace(payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId: node.id,
@@ -20425,9 +21252,9 @@ async function runWorkspaceToNode(nodeId) {
       await showLog(payload.jobs[0].id);
     }
   } catch (error) {
-    if (error?.payload?.workspace) {
-      upsertWorkspaceInState(error.payload.workspace);
-      selectWorkspace(error.payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, error?.payload || {});
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId: node.id,
@@ -20456,9 +21283,9 @@ async function runWorkspaceWorkflow() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ auto_apply: true, apply_evidence: true }),
     });
-    if (payload.workspace) {
-      upsertWorkspaceInState(payload.workspace);
-      selectWorkspace(payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId,
@@ -20479,9 +21306,9 @@ async function runWorkspaceWorkflow() {
       await showLog(payload.jobs[0].id);
     }
   } catch (error) {
-    if (error?.payload?.workspace) {
-      upsertWorkspaceInState(error.payload.workspace);
-      selectWorkspace(error.payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, error?.payload || {});
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId,
@@ -20541,9 +21368,9 @@ async function advanceWorkspaceAutomation() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    if (payload.workspace) {
-      upsertWorkspaceInState(payload.workspace);
-      selectWorkspace(payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId,
@@ -20556,9 +21383,9 @@ async function advanceWorkspaceAutomation() {
     await loadStatus(true, { renderWorkspace: true });
     if (firstJobId) await showLog(firstJobId);
   } catch (error) {
-    if (error?.payload?.workspace) {
-      upsertWorkspaceInState(error.payload.workspace);
-      selectWorkspace(error.payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, error?.payload || {});
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId,
@@ -20587,9 +21414,9 @@ async function runWorkspaceDiscovery() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apply_defaults: true, include_source: true }),
     });
-    if (payload.workspace) {
-      upsertWorkspaceInState(payload.workspace);
-      selectWorkspace(payload.workspace.id, {
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId,
@@ -21071,6 +21898,7 @@ function applyStatusPayload(payload = {}, options = {}) {
   state.workflowTemplates = payload.workflow_templates || [];
   state.agentDefinitions = payload.agent_definitions || [];
   state.toolDefinitions = payload.tool_definitions || [];
+  state.providerRouteHealth = payload.provider_route_health || state.providerRouteHealth || null;
   if (!preserveWorkspaceUi) {
     if (state.selectedWorkspaceId && !state.workspaces.some((item) => item.id === state.selectedWorkspaceId)) {
       state.selectedWorkspaceId = "";
@@ -22660,6 +23488,7 @@ function handleWorkspaceAutomationAction(button) {
   }
   if (action === "open-workspace-details") {
     const targetId = String(button.dataset.targetId || "").trim();
+    switchWorkspaceMode("use");
     const details = targetId ? $(targetId) : button.closest("details");
     if (details) {
       details.open = true;
@@ -22698,8 +23527,10 @@ function handleWorkspaceAutomationAction(button) {
     return true;
   }
   if (action === "switch-workspace-tab") {
+    const nextTab = button.dataset.tab || "home";
     if (button.dataset.mode) switchWorkspaceMode(button.dataset.mode);
-    switchWorkspaceTab(button.dataset.tab || "home");
+    else switchWorkspaceMode("use");
+    switchWorkspaceTab(nextTab);
     return true;
   }
   if (action === "select-flow-node" && button.dataset.nodeId) {
@@ -22766,6 +23597,11 @@ function handleWorkspaceAutomationAction(button) {
     return true;
   }
   if (action === "run-selected-workspace") {
+    if (!workspaceExecutionBundleReady(selectedWorkspace())) {
+      setWorkspaceMessage("执行包未就绪，先自动推进补齐门禁。");
+      void advanceWorkspaceAutomation();
+      return true;
+    }
     void runWorkspaceWorkflow();
     return true;
   }
@@ -22806,6 +23642,10 @@ function handleWorkspaceAutomationAction(button) {
     const jobId = String(button.dataset.jobId || workspace?.execution?.last_job_id || "").trim();
     if (jobId) void showLog(jobId);
     else setWorkspaceUseMessage("当前实例还没有最近任务输出。", true);
+    return true;
+  }
+  if (action === "accept-chat-context-reflection" && button.dataset.messageId) {
+    void acceptWorkspaceChatContextReflection(button);
     return true;
   }
   if (action === "fill-job-from-selected-workspace") {
@@ -23070,6 +23910,10 @@ function bindEvents() {
   $("workspaceUseChatSendBtn")?.addEventListener("click", () => {
     void submitWorkspaceUseChat();
   });
+  $("workspaceUseChatList")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (button) handleWorkspaceAutomationAction(button);
+  });
   $("workspaceUseChatInput")?.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
@@ -23133,6 +23977,10 @@ function bindEvents() {
   $("workspaceFillJobBtn")?.addEventListener("click", fillJobFormFromWorkspace);
   $("workspaceChatSendBtn")?.addEventListener("click", () => {
     void submitWorkspaceChat();
+  });
+  $("workspaceChatList")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (button) handleWorkspaceAutomationAction(button);
   });
   $("workspaceChatInput")?.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
@@ -23245,6 +24093,15 @@ function bindEvents() {
   $("workspaceSaveTemplateBtn")?.addEventListener("click", () => {
     void saveWorkflowTemplate();
   });
+  $("workspacePreviewTemplateBtn")?.addEventListener("click", async () => {
+    setWorkspaceManageMessage("正在校验模板...");
+    try {
+      const result = await previewWorkflowTemplate();
+      setWorkspaceManageMessage(`模板校验：${workflowTemplateValidationSummary(result?.validation)}`, result?.validation?.status === "blocked");
+    } catch (error) {
+      setWorkspaceManageMessage(error.message || "模板校验失败。", true);
+    }
+  });
   document.querySelectorAll(".workspace-template-seeds [data-seed]").forEach((button) => {
     button.addEventListener("click", () => newWorkflowTemplateDraft(button.dataset.seed || "repo"));
   });
@@ -23277,13 +24134,13 @@ function bindEvents() {
         idea_text: draft.source?.idea_text || draft.brief || "",
         workspace_dir: draft.workspace_dir || "",
         env_name: draft.env?.name || "",
-        env_manager: draft.env?.manager || "conda",
+        env_manager: draft.env?.manager || "",
         python_version: draft.env?.python || "",
       }),
     }));
   });
   $("templateEnvManagerSelect")?.addEventListener("change", (event) => {
-    updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), manager: event.target.value || "conda" } }));
+    updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), manager: event.target.value || "" } }));
   });
   $("templateProviderProfileSelect")?.addEventListener("change", (event) => {
     updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), provider_profile_id: event.target.value || "" } }));
@@ -23361,21 +24218,25 @@ function bindEvents() {
       updateAgentDefinitionDraft({ [key]: key === "tools" ? parseTagList(target.value || "") : target.value || "" });
       return;
     }
+    if (target.matches("[data-manage-agent-number]")) {
+      updateAgentDefinitionDraft({ [target.dataset.manageAgentNumber]: positiveNumberOrBlank(target.value) });
+      return;
+    }
     if (target.id === "manageAgentDebugInput") {
       state.manageAgentDebug.input = target.value || "";
     }
   });
-	  $("manageAgentEditor")?.addEventListener("change", (event) => {
-	    const target = event.target;
-	    if (target.id === "manageAgentDebugExecuteLlm") {
-	      state.manageAgentDebug.executeLlm = Boolean(target.checked);
-	      state.manageAgentDebug.result = null;
-	      state.manageAgentDebug.error = "";
-	      return;
-	    }
-	    if (target.matches("[data-manage-agent-checkbox]")) {
-	      updateAgentDefinitionDraft({ [target.dataset.manageAgentCheckbox]: Boolean(target.checked) });
-	      return;
+  $("manageAgentEditor")?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (target.id === "manageAgentDebugExecuteLlm") {
+      state.manageAgentDebug.executeLlm = Boolean(target.checked);
+      state.manageAgentDebug.result = null;
+      state.manageAgentDebug.error = "";
+      return;
+    }
+    if (target.matches("[data-manage-agent-checkbox]")) {
+      updateAgentDefinitionDraft({ [target.dataset.manageAgentCheckbox]: Boolean(target.checked) });
+      return;
     }
     if (target.id === "manageAgentDebugTemplateSelect") {
       state.manageAgentDebug.templateId = target.value || "";
@@ -23384,6 +24245,10 @@ function bindEvents() {
     if (target.matches("[data-manage-agent-field]")) {
       const key = target.dataset.manageAgentField;
       updateAgentDefinitionDraft({ [key]: key === "tools" ? parseTagList(target.value || "") : target.value || "" });
+      return;
+    }
+    if (target.matches("[data-manage-agent-number]")) {
+      updateAgentDefinitionDraft({ [target.dataset.manageAgentNumber]: positiveNumberOrBlank(target.value) });
     }
   });
   $("manageAgentEditor")?.addEventListener("click", (event) => {
@@ -23395,6 +24260,10 @@ function bindEvents() {
       void deleteGlobalAgentDefinition();
     } else if (button.dataset.action === "run-global-agent-debug") {
       void runGlobalAgentDebug();
+    } else if (button.dataset.action === "copy-agent-debug-transcript") {
+      void copyAgentDebugTranscript(button.dataset.debugScope || "manage")
+        .then(() => setWorkspaceManageMessage("Agent 调试结果已复制。"))
+        .catch((error) => setWorkspaceManageMessage(error.message || "复制 Agent 调试结果失败。", true));
     }
   });
   $("workspaceNewToolBtn")?.addEventListener("click", newGlobalToolDraft);
@@ -23406,10 +24275,20 @@ function bindEvents() {
     const target = event.target;
     if (target.matches("[data-manage-tool-field]")) {
       updateToolDefinitionDraft({ [target.dataset.manageToolField]: target.value || "" });
+      return;
+    }
+    if (target.id === "manageToolTestArguments") {
+      state.toolDefinitionTest.argumentsText = target.value || "";
     }
   });
   $("manageToolEditor")?.addEventListener("change", (event) => {
     const target = event.target;
+    if (target.id === "manageToolTestWorkspaceSelect") {
+      state.toolDefinitionTest.workspaceId = target.value || "";
+      state.toolDefinitionTest.result = null;
+      state.toolDefinitionTest.error = "";
+      return;
+    }
     if (target.matches("[data-manage-tool-checkbox]")) {
       updateToolDefinitionDraft({ [target.dataset.manageToolCheckbox]: Boolean(target.checked) });
       return;
@@ -23425,6 +24304,14 @@ function bindEvents() {
       void saveGlobalToolDefinition();
     } else if (button.dataset.action === "delete-global-tool") {
       void deleteGlobalToolDefinition();
+    } else if (button.dataset.action === "reset-global-tool-test") {
+      resetGlobalToolTest();
+    } else if (button.dataset.action === "run-global-tool-test") {
+      void runGlobalToolTest();
+    } else if (button.dataset.action === "copy-tool-test-result") {
+      void copyToolTestResult()
+        .then(() => setWorkspaceManageMessage("工具测试结果已复制。"))
+        .catch((error) => setWorkspaceManageMessage(error.message || "复制工具测试结果失败。", true));
     }
   });
   $("workspaceManageAddProviderBtn")?.addEventListener("click", addManageProviderProfile);
@@ -23494,6 +24381,15 @@ function bindEvents() {
       void saveWorkflowTemplate();
     }
   });
+  $("workspaceManageRunsPanel")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    if (button.dataset.action === "refresh-execution-overview") {
+      void loadExecutionOverview({ render: true });
+    } else if (button.dataset.action === "open-overview-workspace") {
+      openWorkspaceFromExecutionOverview(button.dataset.workspaceId || "");
+    }
+  });
   $("workspaceAddProviderBtn")?.addEventListener("click", addProviderProfile);
   $("workspaceAddNodeBtn")?.addEventListener("click", () => insertWorkspaceNode($("workspaceNodeKindSelect")?.value || "custom.step"));
   $("workspaceRebuildGraphBtn")?.addEventListener("click", rebuildWorkspaceStarterChain);
@@ -23545,6 +24441,11 @@ function bindEvents() {
     }
     if (button.dataset.action === "run-workspace-agent-debug" && button.dataset.agentId) {
       void debugWorkspaceAgent(button.dataset.agentId);
+    }
+    if (button.dataset.action === "copy-agent-debug-transcript") {
+      void copyAgentDebugTranscript(button.dataset.debugScope || "workspace")
+        .then(() => setWorkspaceMessage("Agent 调试结果已复制。"))
+        .catch((error) => setWorkspaceMessage(error.message || "复制 Agent 调试结果失败。", true));
     }
   });
   $("workspaceToolList")?.addEventListener("click", (event) => {
@@ -23635,6 +24536,21 @@ function bindEvents() {
     if (button?.dataset.action === "retry-agent-step" && button.dataset.nodeId) {
       consumeClick(event);
       void runWorkspaceNode(button.dataset.nodeId, { prefer: "agent" });
+      return;
+    }
+    if (button?.dataset.action === "copy-workspace-run-replay" && button.dataset.runId) {
+      consumeClick(event);
+      void copyWorkspaceRunReplay(button.dataset.runId);
+      return;
+    }
+    if (button?.dataset.action === "set-workspace-run-compare-base" && button.dataset.runId) {
+      consumeClick(event);
+      setWorkspaceRunCompareBase(button.dataset.runId);
+      return;
+    }
+    if (button?.dataset.action === "compare-workspace-run" && button.dataset.runId) {
+      consumeClick(event);
+      void compareWorkspaceRunToBase(button.dataset.runId);
       return;
     }
     if (button?.dataset.jobId) {
@@ -24272,7 +25188,10 @@ async function loadAdminServers() {
     }
     void aliases;
   } catch (error) {
-    list.innerHTML = `<div class="empty error-text">${escapeHtml(error.message)}</div>`;
+    const message = humanizeFetchError(error, "加载服务器配置");
+    list.innerHTML = `<div class="empty error-text">${escapeHtml(message)}</div>`;
+    $("adminServerMessage").textContent = message;
+    $("adminServerMessage").classList.add("error");
   }
 }
 

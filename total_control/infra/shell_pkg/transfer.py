@@ -65,6 +65,16 @@ def rsync_remote_shell(server: ServerConfig | None, has_password: bool) -> str:
     parts = ["ssh"]
     if server and server.ssh_config_path:
         parts.extend(["-F", server.ssh_config_path])
+    parts.extend(
+        [
+            "-o",
+            "ClearAllForwardings=yes",
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "ServerAliveCountMax=6",
+        ]
+    )
     if has_password:
         parts.extend(
             [

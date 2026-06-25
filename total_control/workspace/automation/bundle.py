@@ -1,7 +1,23 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import uuid
+
 from ._deps import *  # noqa: F403
 from ...infra.shell_pkg.jobs import conda_bootstrap
+
+
+def make_execution_package_id(workspace_id: str = "") -> str:
+    prefix = re.sub(r"[^a-zA-Z0-9-]", "", str(workspace_id or "").strip())[:12] or "ws"
+    return f"pkg-{prefix}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+
+
+def make_stable_execution_package_id(workspace_id: str = "", seed: dict[str, Any] | None = None) -> str:
+    prefix = re.sub(r"[^a-zA-Z0-9-]", "", str(workspace_id or "").strip())[:12] or "ws"
+    body = json.dumps(seed or {}, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+    return f"pkg-{prefix}-{digest}"
 
 
 def workspace_execution_bundle_step(
@@ -207,8 +223,11 @@ def workspace_execution_package_manifest(
     paths: dict[str, Any],
     evidence: dict[str, Any],
     scheduler: dict[str, Any],
+    provenance: dict[str, Any] | None = None,
     dataset_discovery: dict[str, Any] | None = None,
     deployment_plan: dict[str, Any] | None = None,
+    package_id: str = "",
+    selected_nodes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     selected = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
     candidates = scheduler.get("candidates") if isinstance(scheduler.get("candidates"), list) else []
@@ -216,6 +235,7 @@ def workspace_execution_package_manifest(
     deploy_plan = deployment_plan if isinstance(deployment_plan, dict) else {}
     return {
         "schema": "relaygraph.execution_package.v1",
+        "package_id": str(package_id or "").strip(),
         "workspace": {
             "id": str(workspace.get("id") or "").strip(),
             "name": str(workspace.get("name") or "").strip(),
@@ -230,6 +250,7 @@ def workspace_execution_package_manifest(
         "target": copy.deepcopy(target),
         "commands": copy.deepcopy(commands),
         "paths": copy.deepcopy(paths),
+        "provenance": copy.deepcopy(provenance or {}),
         "dataset_discovery": {
             "status": str(dataset_plan.get("status") or "").strip(),
             "summary": str(dataset_plan.get("summary") or "").strip(),
@@ -237,9 +258,11 @@ def workspace_execution_package_manifest(
             "local_roots": copy.deepcopy(dataset_plan.get("local_roots") if isinstance(dataset_plan.get("local_roots"), list) else []),
             "source_refs": copy.deepcopy(dataset_plan.get("source_refs") if isinstance(dataset_plan.get("source_refs"), list) else []),
             "expected_layout": str(dataset_plan.get("expected_layout") or "").strip(),
+            "root_verification": copy.deepcopy(dataset_plan.get("root_verification") if isinstance(dataset_plan.get("root_verification"), list) else []),
             "next_action": copy.deepcopy(dataset_plan.get("next_action") if isinstance(dataset_plan.get("next_action"), dict) else {}),
         },
         "steps": copy.deepcopy(steps),
+        "selected_nodes": copy.deepcopy(selected_nodes or []),
         "missing": copy.deepcopy(missing),
         "evidence": copy.deepcopy(evidence),
         "scheduler": {
@@ -392,6 +415,7 @@ def workspace_execution_bundle_result(automation: dict[str, Any], jobs: list[dic
     return {
         "status": str(bundle.get("status") or "").strip(),
         "ready_to_execute": bool(bundle.get("ready_to_execute")),
+        "package_id": str(bundle.get("package_id") or package_manifest.get("package_id") or "").strip(),
         "target": copy.deepcopy(bundle.get("target") if isinstance(bundle.get("target"), dict) else {}),
         "script": {
             "shell": str(command_script.get("shell") or "bash").strip(),

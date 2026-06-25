@@ -5009,6 +5009,22 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.workspace-chat-reflection {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.workspace-chat-reflection > span:nth-child(2) {
+  flex: 1 1 180px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .workspace-chat-composer {
   display: grid;
   gap: 10px;
@@ -5495,11 +5511,16 @@ input.invalid, select.invalid, textarea.invalid {
 }
 
 .workspace-agent-debug-toolbar,
+.workspace-agent-debug-actions,
 .workspace-agent-debug-chip-row {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.workspace-agent-debug-actions {
+  justify-content: flex-end;
 }
 
 .workspace-agent-debug-summary {
@@ -10873,6 +10894,59 @@ button.workspace-execution-bundle-step:focus-visible {
   color: #425166;
 }
 
+.workspace-template-validation-card {
+  grid-column: span 2;
+}
+
+.workspace-template-validation-card em {
+  margin: 0;
+  color: #425166;
+  font-size: 12px;
+  line-height: 1.35;
+  font-style: normal;
+}
+
+.workspace-template-validation-issues {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.workspace-template-validation-issue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.workspace-template-validation-issue span {
+  padding: 2px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #fff;
+  color: #5d6b7d;
+  font-weight: 800;
+}
+
+.workspace-template-validation-issue strong {
+  color: #273244;
+  font-size: 11px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-template-validation-empty,
+.workspace-template-validation-more {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .workspace-manage-focus {
   display: grid;
   gap: 4px;
@@ -14263,6 +14337,14 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   min-width: 0;
 }
 
+.workspace-execution-run-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: max-content;
+}
+
 .workspace-execution-run-item-head span,
 .workspace-execution-run-item-head em {
   color: var(--muted);
@@ -14646,6 +14728,93 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 .workspace-run-package.status-failed {
   border-left-color: #d94c4c;
   background: #fffafa;
+}
+
+.workspace-run-delivery-closure {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid #e5ebf3;
+  border-left-width: 3px;
+  border-radius: 7px;
+  background: #fbfcfe;
+}
+
+.workspace-run-report-artifacts {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspace-run-report-artifacts article {
+  display: grid;
+  grid-template-columns: minmax(60px, auto) minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid #eef2f6;
+}
+
+.workspace-run-report-artifacts strong,
+.workspace-run-report-artifacts span,
+.workspace-run-report-artifacts em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-run-report-artifacts strong {
+  color: #162132;
+  font-size: 11px;
+}
+
+.workspace-run-report-artifacts span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.workspace-run-report-artifacts em {
+  grid-column: 1 / -1;
+  color: #40536c;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.workspace-run-delivery-closure span,
+.workspace-run-delivery-closure em {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-run-delivery-closure strong {
+  color: #162132;
+  font-size: 11px;
+}
+
+.workspace-run-delivery-closure.status-ready,
+.workspace-run-delivery-closure.status-done {
+  border-left-color: #1f9d55;
+}
+
+.workspace-run-delivery-closure.status-warning,
+.workspace-run-delivery-closure.status-draft {
+  border-left-color: #d89a22;
+}
+
+.workspace-run-delivery-closure.status-blocked,
+.workspace-run-delivery-closure.status-failed {
+  border-left-color: #d94c4c;
 }
 
 .workspace-run-item-command,

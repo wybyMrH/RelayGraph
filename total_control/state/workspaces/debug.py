@@ -13,6 +13,13 @@ class DebugMixin:
         requested_node_kind = str(requested_payload.get("node_kind") or "").strip()
         requested_tool_ids = parse_tag_list(requested_payload.get("tool_ids", []))
         execute_llm = bool(requested_payload.get("execute_llm") or False)
+        output_format = str(requested_payload.get("output_format") or "").strip().lower()
+        if output_format not in {"", "text", "json"}:
+            output_format = ""
+        max_iterations_raw = requested_payload.get("max_iterations")
+        max_iterations = safe_int(max_iterations_raw, 0) if max_iterations_raw not in (None, "") else 0
+        timeout_raw = requested_payload.get("timeout_seconds")
+        timeout_seconds = float(timeout_raw) if timeout_raw not in (None, "") and safe_int(timeout_raw, 0) > 0 else 0.0
 
         with self.lock:
             agent = self.agent_definition_by_id(requested_agent_id)
@@ -103,6 +110,11 @@ class DebugMixin:
             "debug": debug,
             "workspace": preview_workspace_public,
             "agent_definition": copy.deepcopy(agent),
+            "effective_config": {
+                "max_iterations": max_iterations or safe_int(agent.get("max_iterations"), 0),
+                "timeout_seconds": timeout_seconds or float(agent.get("timeout_seconds") or 0),
+                "output_format": output_format or str(agent.get("output_format") or "").strip(),
+            },
         }
 
         if execute_llm and input_text:
@@ -134,16 +146,22 @@ class DebugMixin:
                         jobs=copy.deepcopy(self.jobs),
                     )
                     executor = AgentExecutor(
-                        agent=agent,
+                        agent={**agent, **({"max_iterations": max_iterations} if max_iterations > 0 else {})},
                         llm_client=llm_client,
                         tools=allowed_tools,
                         tool_executor=tool_executor,
+                        timeout_seconds=timeout_seconds or float(agent.get("timeout_seconds") or 0) or None,
                     )
-                    execution_result = executor.run(input_text, context={
-                        "workspace_id": str(preview_workspace_public.get("id") or "").strip(),
-                        "workspace_name": preview_workspace_public.get("name", ""),
-                        "source_type": preview_workspace_public.get("source", {}).get("type", ""),
-                    })
+                    execution_result = executor.run(
+                        input_text,
+                        context={
+                            "workspace_id": str(preview_workspace_public.get("id") or "").strip(),
+                            "workspace_name": preview_workspace_public.get("name", ""),
+                            "source_type": preview_workspace_public.get("source", {}).get("type", ""),
+                            "node_kind": requested_node_kind,
+                            "output_format": output_format or str(agent.get("output_format") or "").strip(),
+                        },
+                    )
                     result["execution"] = execution_result.to_dict()
                 else:
                     result["execution"] = {

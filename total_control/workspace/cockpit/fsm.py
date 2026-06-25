@@ -34,6 +34,36 @@ def workspace_workflow_blocking_checks(automation: dict[str, Any]) -> list[dict[
         and str(check.get("status") or "") in {"blocked", "failed"}
     ]
 
+def workspace_execution_package_blocking_checks(
+    automation: dict[str, Any],
+    *,
+    full_workflow: bool = True,
+) -> list[dict[str, Any]]:
+    if not full_workflow:
+        return []
+    manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
+    bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}
+    if bundle.get("ready_to_execute"):
+        return []
+    missing = bundle.get("missing") if isinstance(bundle.get("missing"), list) else []
+    blocked = [
+        item for item in missing
+        if isinstance(item, dict) and str(item.get("status") or "") == "blocked"
+    ]
+    first = blocked[0] if blocked else (missing[0] if missing else {})
+    fix = first.get("fix_action") if isinstance(first.get("fix_action"), dict) else {}
+    detail = str(first.get("action") or first.get("label") or "补齐执行包缺项后再提交完整工作流。").strip()
+    return [{
+        "id": "execution_package",
+        "label": "执行包",
+        "status": "blocked",
+        "title": "执行包未就绪",
+        "detail": detail,
+        "action": detail,
+        "node_kind": str(first.get("node_kind") or fix.get("node_kind") or "").strip(),
+        "node_id": str(first.get("node_id") or fix.get("node_id") or "").strip(),
+    }]
+
 def workspace_readiness_message(blocked_checks: list[dict[str, Any]]) -> str:
     labels = [
         str(check.get("label") or check.get("title") or check.get("id") or "").strip()

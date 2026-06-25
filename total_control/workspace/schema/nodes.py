@@ -10,7 +10,7 @@ from ...utils import *  # noqa: F403
 from ..errors import WorkspaceWorkflowReadinessError
 from ...orchestration.node_runner import AGENT_EXECUTABLE_KINDS
 from .agents_tools import workspace_default_agents
-from .recipe import normalize_workspace_handler, normalize_workspace_runtime
+from .recipe import clean_workspace_config_default, normalize_workspace_handler, normalize_workspace_runtime
 from ..automation import (
     workspace_has_explicit_input_mapping,
     workspace_io_contract_for_kind,
@@ -320,7 +320,7 @@ def workspace_node_default_config(
         },
         "research.search": {
             "query": search_query,
-            "goal": "检索相关代码仓库、依赖和运行方式",
+            "goal": "",
             "repo_url": repo_url,
             "paper_url": paper_url,
         },
@@ -332,12 +332,12 @@ def workspace_node_default_config(
         "path.resolve": {
             "workspace_dir": workspace_dir,
             "data_roots": "",
-            "output_roots": "runs\noutputs\ncheckpoints\nlogs",
+            "output_roots": "",
         },
         "repo.inspect": {
             "workspace_dir": workspace_dir,
             "focus_paths": "",
-            "questions": "入口、依赖、默认配置、结果目录",
+            "questions": "",
         },
         "dataset.find": {
             "query": search_query,
@@ -347,7 +347,7 @@ def workspace_node_default_config(
         },
         "env.infer": {
             "workspace_dir": workspace_dir,
-            "manifest_paths": "requirements.txt, pyproject.toml, environment.yml, setup.py",
+            "manifest_paths": "",
             "env_name": env_name,
             "python_version": python_version,
         },
@@ -360,7 +360,7 @@ def workspace_node_default_config(
         },
         "gpu.allocate": {
             "server_id": "",
-            "gpu_policy": "auto",
+            "gpu_policy": "",
             "gpu_index": "",
             "min_free_memory_gib": "",
             "notes": "",
@@ -369,7 +369,7 @@ def workspace_node_default_config(
             "workspace_dir": workspace_dir,
             "env_name": env_name,
             "server_id": "",
-            "gpu_policy": "auto",
+            "gpu_policy": "",
             "gpu_index": "",
             "min_free_memory_gib": "",
             "run_command": str(recipe.get("run_command") or "").strip(),
@@ -377,7 +377,7 @@ def workspace_node_default_config(
         },
         "artifact.collect": {
             "workspace_dir": workspace_dir,
-            "artifact_paths": "runs\noutputs\ncheckpoints\nlogs",
+            "artifact_paths": "",
             "metric_paths": "",
             "notes": str(recipe.get("notes") or "").strip(),
         },
@@ -487,6 +487,10 @@ def normalize_workspace_nodes(
             config.update(existing["config"])
         if isinstance(raw.get("config"), dict):
             config.update(raw["config"])
+        config = {
+            key: clean_workspace_config_default(raw_kind, key, value)
+            for key, value in config.items()
+        }
         node = make_workspace_node(
             raw_kind,
             str(raw.get("title") or existing.get("title") or definition.get("title") or raw_kind).strip() or raw_kind,
@@ -671,11 +675,6 @@ def sync_workspace_nodes_with_overview(
         )
         sync_recipe_command(config, "setup_command")
         synced[env_index]["config"] = config
-    if gpu_index >= 0:
-        config = synced[gpu_index].get("config") if isinstance(synced[gpu_index].get("config"), dict) else {}
-        if not str(config.get("gpu_policy") or "").strip():
-            config["gpu_policy"] = "auto"
-        synced[gpu_index]["config"] = config
     if run_index >= 0:
         config = synced[run_index].get("config") if isinstance(synced[run_index].get("config"), dict) else {}
         config.update(

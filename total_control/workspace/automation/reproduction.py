@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 from .bundle import (
+    make_stable_execution_package_id,
     workspace_checkout_command,
     workspace_execution_bundle_command_script,
     workspace_execution_bundle_missing_item,
@@ -438,6 +439,23 @@ def derive_workspace_reproduction_manifest(
                 target_id="workspaceCockpitOperations",
             )
         )
+    scheduler = resource_orchestration.get("scheduler") if isinstance(resource_orchestration.get("scheduler"), dict) else {}
+    selected_gpu = scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}
+    snapshot_age = safe_int(selected_gpu.get("snapshot_age_seconds"), 0)
+    if recommended_server_id not in {"", "auto"} and snapshot_age > 120:
+        bundle_missing.append(
+            workspace_execution_bundle_missing_item(
+                "scheduler_binding",
+                "GPU 绑定快照",
+                "warning",
+                f"资源快照已 {snapshot_age}s 未刷新，提交前建议刷新 GPU/服务器状态。",
+                node_kind="gpu.allocate",
+                node_id=gpu_node_id,
+                button_label="刷新资源",
+                button_action="refresh-workspace-resources",
+                target_id="workspaceCockpitOperations",
+            )
+        )
     bundle_status = "blocked" if any(item["status"] == "blocked" for item in bundle_missing) else "warning" if bundle_missing else "ready"
     first_missing = bundle_missing[0] if bundle_missing else {}
     missing_field = str(first_missing.get("field") or "").strip()
@@ -541,6 +559,128 @@ def derive_workspace_reproduction_manifest(
         "artifact_paths": artifact_paths[:8],
         "metric_paths": metric_paths[:8],
     }
+    scheduler_for_package = resource_orchestration.get("scheduler") if isinstance(resource_orchestration.get("scheduler"), dict) else {}
+    selected_scheduler = scheduler_for_package.get("selected") if isinstance(scheduler_for_package.get("selected"), dict) else {}
+    package_scheduler_seed = {
+        "status": str(scheduler_for_package.get("status") or "").strip(),
+        "mode": str(scheduler_for_package.get("mode") or "").strip(),
+        "policy": str(scheduler_for_package.get("policy") or "").strip(),
+        "requested_server_id": str(scheduler_for_package.get("requested_server_id") or "").strip(),
+        "requested_gpu_index": str(scheduler_for_package.get("requested_gpu_index") or "").strip(),
+        "min_free_memory_mib": safe_int(scheduler_for_package.get("min_free_memory_mib"), 0),
+        "selected": {
+            "id": str(selected_scheduler.get("id") or "").strip(),
+            "status": str(selected_scheduler.get("status") or "").strip(),
+            "mode": str(selected_scheduler.get("mode") or "").strip(),
+            "server_id": str(selected_scheduler.get("server_id") or "").strip(),
+            "server_name": str(selected_scheduler.get("server_name") or "").strip(),
+            "gpu_index": str(selected_scheduler.get("gpu_index") if selected_scheduler.get("gpu_index") is not None else "").strip(),
+            "gpu_name": str(selected_scheduler.get("gpu_name") or "").strip(),
+            "gpu_state": str(selected_scheduler.get("gpu_state") or "").strip(),
+            "memory_free_mib": safe_int(selected_scheduler.get("memory_free_mib"), 0),
+            "memory_total_mib": safe_int(selected_scheduler.get("memory_total_mib"), 0),
+            "gpu_util": safe_int(selected_scheduler.get("gpu_util"), 0),
+            "process_count": safe_int(selected_scheduler.get("process_count"), 0),
+            "score": safe_int(selected_scheduler.get("score"), 0),
+            "collected_at": str(selected_scheduler.get("collected_at") or "").strip(),
+        },
+    }
+    root_verification = dataset_plan.get("root_verification") if isinstance(dataset_plan.get("root_verification"), list) else []
+    root_counts: dict[str, int] = {}
+    for item in root_verification:
+        if isinstance(item, dict):
+            status_value = str(item.get("status") or "hint").strip() or "hint"
+            root_counts[status_value] = root_counts.get(status_value, 0) + 1
+    package_provenance = {
+        "target.workspace_dir": {
+            "source": "workspace.workspace_dir",
+            "status": "ready" if workspace_dir else "blocked",
+            "value": workspace_dir,
+        },
+        "target.server_id": {
+            "source": "scheduler.selected.server_id",
+            "status": str(scheduler_for_package.get("status") or "draft").strip(),
+            "value": recommended_server_id,
+            "selected_name": str(selected_scheduler.get("server_name") or "").strip(),
+        },
+        "target.gpu_index": {
+            "source": "scheduler.selected.gpu_index",
+            "status": str(selected_scheduler.get("status") or scheduler_for_package.get("status") or "draft").strip(),
+            "value": recommended_gpu_index or "auto",
+            "policy": gpu_policy,
+            "min_free_memory_gib": str(run_config.get("min_free_memory_gib") or gpu_config.get("min_free_memory_gib") or "").strip(),
+        },
+        "target.env_name": {
+            "source": "workspace.env.name",
+            "status": "ready" if str(env.get("name") or "").strip() else "warning",
+            "value": str(env.get("name") or "").strip(),
+        },
+        "commands.setup_command": {
+            "source": "env.prepare.config.setup_command",
+            "status": "ready" if setup_command else "warning",
+            "value": compact_workspace_command(setup_command, limit=160),
+        },
+        "commands.run_command": {
+            "source": "run.command.config.run_command",
+            "status": "ready" if run_command else "blocked",
+            "value": compact_workspace_command(run_command, limit=160),
+        },
+        "commands.report_command": {
+            "source": "eval.report.config.report_command",
+            "status": "ready" if report_command else "warning",
+            "value": compact_workspace_command(report_command, limit=160),
+        },
+        "paths.data_roots": {
+            "source": "path.resolve.config.data_roots + dataset.find.config.data_roots",
+            "status": "ready" if data_roots else "warning",
+            "count": len(data_roots),
+            "values": data_roots[:6],
+        },
+        "paths.artifacts": {
+            "source": "artifact.collect/eval.report config",
+            "status": "ready" if artifact_paths or metric_paths else "warning",
+            "artifact_count": len(artifact_paths),
+            "metric_count": len(metric_paths),
+        },
+        "dataset.root_verification": {
+            "source": "dataset.find/path.resolve inputs and local filesystem check",
+            "status": "ready" if root_counts.get("verified") or root_counts.get("found") else "warning" if root_verification else "draft",
+            "counts": root_counts,
+        },
+        "scheduler.selection": {
+            "source": "server/GPU status snapshot",
+            "status": str(scheduler_for_package.get("status") or "draft").strip(),
+            "reasons": copy.deepcopy(selected_scheduler.get("reasons") if isinstance(selected_scheduler.get("reasons"), list) else []),
+            "warnings": copy.deepcopy(selected_scheduler.get("warnings") if isinstance(selected_scheduler.get("warnings"), list) else []),
+        },
+    }
+    selected_nodes = [
+        {
+            "id": str(node.get("id") or "").strip(),
+            "kind": str(node.get("kind") or "").strip(),
+            "title": str(node.get("title") or node.get("kind") or "").strip(),
+        }
+        for node in nodes
+        if isinstance(node, dict) and str(node.get("kind") or "").strip()
+    ]
+    package_id = make_stable_execution_package_id(
+        str(workspace.get("id") or ""),
+        {
+            "schema": "relaygraph.execution_package.v1",
+            "workspace_id": str(workspace.get("id") or "").strip(),
+            "intent": intent,
+            "delivery_contract": delivery_contract,
+            "target": bundle_target,
+            "commands": manifest_commands,
+            "paths": manifest_paths,
+            "steps": bundle_steps,
+            "missing": bundle_missing,
+            "scheduler": package_scheduler_seed,
+            "dataset_discovery": dataset_plan,
+            "deployment_plan": deployment_plan,
+            "selected_nodes": selected_nodes,
+        },
+    )
     package_manifest = workspace_execution_package_manifest(
         workspace,
         intent,
@@ -552,13 +692,17 @@ def derive_workspace_reproduction_manifest(
         commands=manifest_commands,
         paths=manifest_paths,
         evidence=bundle_evidence,
-        scheduler=resource_orchestration.get("scheduler") if isinstance(resource_orchestration.get("scheduler"), dict) else {},
+        scheduler=scheduler_for_package,
+        provenance=package_provenance,
         dataset_discovery=dataset_plan,
         deployment_plan=deployment_plan,
+        package_id=package_id,
+        selected_nodes=selected_nodes,
     )
     execution_bundle = {
         "status": bundle_status,
         "ready_to_execute": ready_to_execute,
+        "package_id": str(package_manifest.get("package_id") or "").strip(),
         "next_action": bundle_next_action,
         "target": bundle_target,
         "steps": bundle_steps,

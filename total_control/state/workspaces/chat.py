@@ -5,6 +5,31 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 
 class ChatMixin:
+    CONTEXT_REFLECTION_TRIGGERS = (
+        "必须",
+        "不要",
+        "不能",
+        "只负责",
+        "保持",
+        "注意",
+        "边界",
+        "约束",
+        "后续",
+        "以后",
+        "真机",
+        "简洁",
+        "冗余",
+        "配置",
+        "驾驶舱",
+        "must",
+        "should",
+        "only",
+        "keep",
+        "avoid",
+        "do not",
+        "don't",
+    )
+
     def _chat_agent_execution_trace(
         self,
         execution_id: str,
@@ -25,6 +50,137 @@ class ChatMixin:
             trace_events=execution_info.get("trace_events") if isinstance(execution_info.get("trace_events"), list) else [],
             agent_steps=execution_info.get("steps") if isinstance(execution_info.get("steps"), list) else [],
         )
+
+    def _workspace_chat_context_reflection(
+        self,
+        workspace: dict[str, Any],
+        user_text: str,
+        assistant_text: str,
+        *,
+        assistant_message_id: str,
+        user_message_id: str = "",
+        agent_execution_id: str = "",
+    ) -> dict[str, Any]:
+        del assistant_text
+        inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
+        existing_blocks = {
+            str(item or "").strip()
+            for item in (inputs.get("context_blocks") if isinstance(inputs.get("context_blocks"), list) else [])
+            if str(item or "").strip()
+        }
+        candidates: list[str] = []
+        for raw in re.split(r"[\r\n]+|(?<=[。！？!?；;])\s*", str(user_text or "")):
+            line = re.sub(r"^[\s\-*•·0-9.、]+", "", str(raw or "").strip())
+            if len(line) < 8:
+                continue
+            lower = line.lower()
+            if not any(trigger in lower or trigger in line for trigger in self.CONTEXT_REFLECTION_TRIGGERS):
+                continue
+            if line in existing_blocks:
+                continue
+            candidates.append(compact_workspace_command(line, limit=180))
+            if len(candidates) >= 3:
+                break
+        if not candidates:
+            return {}
+        summary = "；".join(candidates)
+        if summary in existing_blocks:
+            return {}
+        high_confidence_markers = {"必须", "不要", "不能", "只负责", "must", "only", "do not", "don't"}
+        confidence = 0.82 if any(marker in summary.lower() or marker in summary for marker in high_confidence_markers) else 0.68
+        return normalize_workspace_context_reflection(
+            {
+                "summary": summary,
+                "status": "suggested",
+                "confidence": confidence,
+                "source": {
+                    "type": "chat",
+                    "message_id": assistant_message_id,
+                    "user_message_id": user_message_id,
+                    "agent_execution_id": agent_execution_id,
+                },
+                "created_at": now_iso(),
+            }
+        )
+
+    def accept_workspace_context_reflection(
+        self,
+        workspace_id: str,
+        message_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        message_id = str(message_id or "").strip()
+        requested = payload if isinstance(payload, dict) else {}
+        if not workspace_id or not message_id:
+            raise ValueError("workspace_id and message_id are required")
+        with self.lock:
+            current = self.workspace_by_id(workspace_id)
+            if not current:
+                raise ValueError("workspace not found")
+            chat = normalize_workspace_chat(current.get("chat"), existing=current.get("chat"))
+            target_index = next((idx for idx, item in enumerate(chat) if str(item.get("id") or "") == message_id), -1)
+            if target_index < 0:
+                raise ValueError("chat message not found")
+            target = chat[target_index]
+            reflection = normalize_workspace_context_reflection(target.get("context_reflection"))
+            summary = str(requested.get("summary") or reflection.get("summary") or "").strip()
+            if not summary:
+                raise ValueError("context reflection not found")
+            inputs = normalize_workspace_inputs(current.get("inputs"), existing=current.get("inputs"))
+            context_blocks = [
+                str(item or "").strip()
+                for item in (inputs.get("context_blocks") if isinstance(inputs.get("context_blocks"), list) else [])
+                if str(item or "").strip()
+            ]
+            if summary not in context_blocks:
+                context_blocks.append(summary)
+            inputs["context_blocks"] = context_blocks
+            accepted_reflection = normalize_workspace_context_reflection(
+                {
+                    **reflection,
+                    "summary": summary,
+                    "status": "accepted",
+                    "accepted_at": now_iso(),
+                    "accepted_context_block": summary,
+                },
+                existing=reflection,
+            )
+            updated_message = normalize_workspace_chat_message(
+                {
+                    **target,
+                    "context_reflection": accepted_reflection,
+                    "updated_at": now_iso(),
+                },
+                existing=target,
+            )
+            chat[target_index] = updated_message
+            merged = copy.deepcopy(current)
+            merged["inputs"] = inputs
+            merged["chat"] = chat
+            updated = normalize_workspace_payload(merged, existing=current)
+            index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+            if index < 0:
+                raise ValueError("workspace not found")
+            self.workspaces[index] = updated
+            result_workspace = self.workspace_public_payload(updated)
+
+        self.save_workspaces()
+        self.publish_event(
+            "workspace.updated",
+            workspace_id=workspace_id,
+            payload={
+                "workspace": copy.deepcopy(result_workspace),
+                "message": copy.deepcopy(updated_message),
+                "context_reflection": copy.deepcopy(accepted_reflection),
+            },
+        )
+        return {
+            "workspace": result_workspace,
+            "message": updated_message,
+            "context_reflection": accepted_reflection,
+            "context_block": summary,
+        }
 
     def append_workspace_chat(self, workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
@@ -219,6 +375,22 @@ class ChatMixin:
                 },
                 existing=assistant_message,
             )
+        reflection = self._workspace_chat_context_reflection(
+            preview_workspace,
+            text,
+            reply_text,
+            assistant_message_id=str(assistant_message.get("id") or ""),
+            user_message_id=str(user_message.get("id") or ""),
+            agent_execution_id=str((execution_info or {}).get("id") or ""),
+        )
+        if reflection:
+            assistant_message = normalize_workspace_chat_message(
+                {
+                    **assistant_message,
+                    "context_reflection": reflection,
+                },
+                existing=assistant_message,
+            )
 
         with self.lock:
             merged = copy.deepcopy(current)
@@ -314,7 +486,7 @@ class ChatMixin:
 
         thread = threading.Thread(
             target=self._complete_workspace_chat_stream,
-            args=(workspace_id, str(assistant_message.get("id") or ""), text, agent_id, use_llm),
+            args=(workspace_id, str(assistant_message.get("id") or ""), str(user_message.get("id") or ""), text, agent_id, use_llm),
             daemon=True,
         )
         thread.start()
@@ -538,6 +710,7 @@ class ChatMixin:
         self,
         workspace_id: str,
         assistant_message_id: str,
+        user_message_id: str,
         text: str,
         agent_id: str,
         use_llm: bool,
@@ -599,6 +772,17 @@ class ChatMixin:
                             provider_profile_id=effective_profile_id if use_llm and agent_id else "",
                             success=bool(execution_info.get("success")),
                         )
+                    if status == "completed":
+                        reflection = self._workspace_chat_context_reflection(
+                            current,
+                            text,
+                            reply_text,
+                            assistant_message_id=assistant_message_id,
+                            user_message_id=user_message_id,
+                            agent_execution_id=str((execution_info or {}).get("id") or ""),
+                        )
+                        if reflection:
+                            next_message["context_reflection"] = reflection
                     updated_message = normalize_workspace_chat_message(next_message, existing=message)
                     updated_chat.append(updated_message)
                 else:

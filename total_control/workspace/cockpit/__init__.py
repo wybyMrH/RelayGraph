@@ -3,6 +3,7 @@
 from .fsm import (
     attach_workspace_cockpit,
     workspace_workflow_blocking_checks,
+    workspace_execution_package_blocking_checks,
     workspace_readiness_message,
     _workspace_cockpit_facts,
     resolve_workspace_advance_fsm,
@@ -69,12 +70,14 @@ from .evidence import (
 from .payload import (
     apply_workspace_automation_defaults_to_payload,
     apply_workspace_job_runtime,
+    clean_workspace_placeholder_config_values,
     normalize_workspace_payload,
 )
 
 __all__ = [
     "attach_workspace_cockpit",
     "workspace_workflow_blocking_checks",
+    "workspace_execution_package_blocking_checks",
     "workspace_readiness_message",
     "_workspace_cockpit_facts",
     "resolve_workspace_advance_fsm",
@@ -123,5 +126,6 @@ __all__ = [
     "apply_workspace_evidence_backfill_item_to_payload",
     "apply_workspace_automation_defaults_to_payload",
     "apply_workspace_job_runtime",
+    "clean_workspace_placeholder_config_values",
     "normalize_workspace_payload",
 ]

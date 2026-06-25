@@ -12,6 +12,42 @@ from ..execution.agent_trace import normalize_agent_execution_trace
 from .agents_tools import normalize_workspace_tool
 
 
+def normalize_workspace_context_reflection(
+    value: Any,
+    *,
+    existing: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    current = value if isinstance(value, dict) else {}
+    previous = existing if isinstance(existing, dict) else {}
+    summary = str(current.get("summary") or current.get("text") or previous.get("summary") or "").strip()
+    if not summary:
+        return {}
+    status = str(current.get("status") or previous.get("status") or "suggested").strip().lower()
+    if status not in {"suggested", "accepted", "dismissed"}:
+        status = "suggested"
+    source = current.get("source") if isinstance(current.get("source"), dict) else previous.get("source") if isinstance(previous.get("source"), dict) else {}
+    confidence = safe_float(current.get("confidence") if current.get("confidence") is not None else previous.get("confidence"), 0.0)
+    if confidence < 0:
+        confidence = 0.0
+    if confidence > 1:
+        confidence = 1.0
+    return {
+        "id": str(current.get("id") or previous.get("id") or f"ctxref-{uuid.uuid4().hex[:8]}").strip(),
+        "summary": summary[:500],
+        "status": status,
+        "confidence": round(confidence, 2),
+        "source": {
+            "type": str(source.get("type") or "chat").strip() or "chat",
+            "message_id": str(source.get("message_id") or "").strip(),
+            "user_message_id": str(source.get("user_message_id") or "").strip(),
+            "agent_execution_id": str(source.get("agent_execution_id") or "").strip(),
+        },
+        "created_at": str(current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
+        "accepted_at": str(current.get("accepted_at") or previous.get("accepted_at") or "").strip(),
+        "accepted_context_block": str(current.get("accepted_context_block") or previous.get("accepted_context_block") or "").strip(),
+    }
+
+
 
 def normalize_workspace_chat_message(
     value: Any,
@@ -40,6 +76,10 @@ def normalize_workspace_chat_message(
         "agent_execution": normalize_agent_execution_trace(
             current.get("agent_execution"),
             existing=previous.get("agent_execution") if isinstance(previous.get("agent_execution"), dict) else None,
+        ),
+        "context_reflection": normalize_workspace_context_reflection(
+            current.get("context_reflection"),
+            existing=previous.get("context_reflection") if isinstance(previous.get("context_reflection"), dict) else None,
         ),
         "created_at": str(current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
         "updated_at": str(current.get("updated_at") or previous.get("updated_at") or current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
