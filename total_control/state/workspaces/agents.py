@@ -666,6 +666,10 @@ class AgentsMixin:
                 result["controlled"] = True
                 result["runtime_control"] = "workspace_job_queue"
                 result["runtime_side_effect"] = "workspace_job"
+                with self.lock:
+                    persisted = self.workspace_by_id(workspace_id)
+                    if persisted and isinstance(persisted.get("runs"), list):
+                        workspace["runs"] = copy.deepcopy(persisted["runs"])
             return result
         except Exception as exc:  # noqa: BLE001 - tools report errors inside the agent loop.
             return {"status": "error", "tool": tool, "controlled": True, "error": str(exc)}

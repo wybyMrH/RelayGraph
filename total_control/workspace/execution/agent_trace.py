@@ -44,6 +44,16 @@ def tool_observation_failed(observation: str) -> bool:
         return False
     if text.startswith("Error"):
         return True
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        status = str(payload.get("status") or "").strip().lower()
+        if status in {"error", "blocked", "failed", "stopped", "timeout"}:
+            return True
+        if status:
+            return False
     lowered = text.lower()
     return (
         '"status": "error"' in lowered
