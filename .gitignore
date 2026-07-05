@@ -27,6 +27,7 @@ data/provider_profiles.json
 data/.master_key
 data/logs/
 data/preview_cache_settings.json
+data/runtime_storage_settings.json
 
 # Local/private planning docs and scratch space
 docs/

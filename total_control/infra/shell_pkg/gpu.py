@@ -64,6 +64,7 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
         "collected_at": now_iso(),
         "elapsed_ms": 0,
         "current_user": "",
+        "current_uid": "",
         "gpus": [],
         "processes": [],
         "host_resources": {},
@@ -73,6 +74,9 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
         current_user = str(payload.get("current_user") or "").strip()
         if current_user:
             status["current_user"] = current_user
+        current_uid = str(payload.get("current_uid") or "").strip()
+        if current_uid:
+            status["current_uid"] = current_uid
 
     if not server.enabled:
         status["error"] = "disabled"
@@ -164,6 +168,7 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
                 {
                     "gpu_index": gpu_index,
                     "pid": pid,
+                    "uid": ps_row.get("uid", ""),
                     "user": ps_row.get("user", ""),
                     "process_name": row[2],
                     "used_memory_mib": safe_int(row[3]),

@@ -379,6 +379,9 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/admin/runtime-storage":
         handler.send_json(state.runtime_storage_status())
         return True
+    if parsed.path == "/api/admin/runtime-state":
+        handler.send_json(state.runtime_state_status())
+        return True
     if parsed.path.startswith("/api/servers/") and parsed.path.endswith("/tmux"):
         server_id = parsed.path.split("/")[3]
         try:

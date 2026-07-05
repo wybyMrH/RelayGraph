@@ -230,7 +230,7 @@ class ServersMixin:
         return run_server_checks(server, max(self.config.remote_timeout_seconds, 4))
 
 
-    def process_stop_context(self, server_id: str, pid: Any) -> dict[str, Any]:
+    def cached_process_stop_context(self, server_id: str, pid: Any) -> dict[str, Any]:
         target_pid = safe_int(pid, 0)
         if target_pid <= 0:
             raise ValueError("invalid pid")
@@ -242,9 +242,10 @@ class ServersMixin:
                     if str(item.get("id") or "") == str(server_id)
                 ),
                 {},
-            )
+        )
         host_resources = status.get("host_resources") if isinstance(status.get("host_resources"), dict) else {}
         current_user = str(status.get("current_user") or host_resources.get("current_user") or "").strip()
+        current_uid = str(status.get("current_uid") or host_resources.get("current_uid") or "").strip()
         process = next(
             (
                 item
@@ -253,21 +254,150 @@ class ServersMixin:
             ),
             {},
         )
+        process_exists = bool(process)
+        owner_uid = str(process.get("uid") or "").strip() if isinstance(process, dict) else ""
         owner = str(process.get("user") or "").strip() if isinstance(process, dict) else ""
         command = str(process.get("command") or process.get("process_name") or "").strip() if isinstance(process, dict) else ""
-        confirmation_required = not (current_user and owner and owner == current_user)
+        if not process_exists:
+            confirmation_required = False
+        elif current_uid and owner_uid:
+            confirmation_required = current_uid != owner_uid
+        elif current_user and owner:
+            confirmation_required = owner != current_user
+        else:
+            confirmation_required = True
         reason = ""
         if confirmation_required:
             reason = "owner_unknown" if not current_user or not owner else "not_current_user"
+        elif not process_exists:
+            reason = "process_not_found"
         return {
             "server_id": server_id,
             "pid": target_pid,
             "current_user": current_user,
+            "current_uid": current_uid,
             "owner": owner,
+            "owner_uid": owner_uid,
             "command": command,
+            "process_exists": process_exists,
             "confirmation_required": confirmation_required,
             "reason": reason,
+            "source": "monitor_cache",
         }
+
+
+    def realtime_process_stop_context(self, server: Any, pid: Any) -> dict[str, Any]:
+        target_pid = safe_int(pid, 0)
+        if target_pid <= 0:
+            raise ValueError("invalid pid")
+        script = r"""
+import getpass
+import json
+import os
+import pwd
+import subprocess
+import sys
+
+pid = str(sys.argv[1])
+payload = {
+    "pid": int(pid),
+    "current_uid": str(os.geteuid()),
+    "current_user": "",
+    "owner_uid": "",
+    "owner": "",
+    "command": "",
+    "process_exists": False,
+}
+try:
+    payload["current_user"] = pwd.getpwuid(os.geteuid()).pw_name
+except Exception:
+    payload["current_user"] = getpass.getuser()
+try:
+    result = subprocess.run(
+        ["ps", "-o", "uid=,user:32=,pid=,command=", "-p", pid],
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=False,
+    )
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 3)
+        if len(parts) >= 3 and parts[2] == pid:
+            payload["owner_uid"] = parts[0]
+            payload["owner"] = parts[1]
+            payload["command"] = parts[3] if len(parts) > 3 else ""
+            payload["process_exists"] = True
+            break
+except Exception as exc:
+    payload["error"] = str(exc)
+print(json.dumps(payload, ensure_ascii=False))
+"""
+        if server.mode == "local":
+            result = run_command(["python3", "-c", script, str(target_pid)], timeout=5)
+        else:
+            result = ssh_command(
+                server,
+                "python3 -c " + shlex.quote(script) + " " + shlex.quote(str(target_pid)),
+                timeout=min(max(self.config.remote_timeout_seconds + 2, 4), 12),
+            )
+        output = (result.stdout or "").strip()
+        payload: dict[str, Any] = {}
+        if result.returncode == 0 and output:
+            try:
+                parsed = json.loads(output.splitlines()[-1])
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except json.JSONDecodeError:
+                payload = {}
+        if not payload:
+            fallback = self.cached_process_stop_context(server.id, target_pid)
+            fallback["source"] = "monitor_cache_fallback"
+            fallback["error"] = (result.stderr.strip() or result.stdout.strip() or "process owner check failed")[-500:]
+            fallback["confirmation_required"] = True
+            fallback["reason"] = "owner_check_failed"
+            return fallback
+        process_exists = bool(payload.get("process_exists"))
+        current_uid = str(payload.get("current_uid") or "").strip()
+        owner_uid = str(payload.get("owner_uid") or "").strip()
+        current_user = str(payload.get("current_user") or "").strip()
+        owner = str(payload.get("owner") or "").strip()
+        if not process_exists:
+            confirmation_required = False
+            reason = "process_not_found"
+        elif current_uid and owner_uid:
+            confirmation_required = current_uid != owner_uid
+            reason = "not_current_user" if confirmation_required else ""
+        elif current_user and owner:
+            confirmation_required = current_user != owner
+            reason = "not_current_user" if confirmation_required else ""
+        else:
+            confirmation_required = True
+            reason = "owner_unknown"
+        return {
+            "server_id": server.id,
+            "pid": target_pid,
+            "current_user": current_user,
+            "current_uid": current_uid,
+            "owner": owner,
+            "owner_uid": owner_uid,
+            "command": str(payload.get("command") or "").strip(),
+            "process_exists": process_exists,
+            "confirmation_required": confirmation_required,
+            "reason": reason,
+            "source": "realtime",
+        }
+
+
+    def process_stop_context(self, server_id: str, pid: Any, *, realtime: bool = False) -> dict[str, Any]:
+        if not realtime:
+            return self.cached_process_stop_context(server_id, pid)
+        server = self.server_by_id(server_id)
+        if not server:
+            raise ValueError("server not found")
+        return self.realtime_process_stop_context(server, pid)
 
 
     def stop_process(self, server_id: str, pid: Any, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -277,7 +407,7 @@ class ServersMixin:
         target_pid = safe_int(pid, 0)
         if target_pid <= 0:
             raise ValueError("invalid pid")
-        context = self.process_stop_context(server_id, target_pid)
+        context = self.realtime_process_stop_context(server, target_pid)
         data = body if isinstance(body, dict) else {}
         if context["confirmation_required"] and not bool(data.get("confirm_non_owner")):
             raise PermissionError("关闭非当前用户或归属未知的进程前需要确认。")

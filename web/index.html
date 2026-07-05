@@ -131,6 +131,7 @@
             <h4>运行数据与日志</h4>
             <p class="muted runtime-storage-note">本机运行日志在 <code>data/logs</code>，远程运行日志在 <code>$HOME/.total_control/logs</code>，文件快览缓存保存在本机 <code>/tmp/total-control-file-preview</code>。</p>
             <div id="runtimeStorageStats" class="runtime-storage-stats muted">正在读取运行数据占用...</div>
+            <div id="runtimeStateStats" class="runtime-storage-stats muted">正在读取运行记录...</div>
             <div class="runtime-storage-settings">
               <label>
                 预览缓存 · 超过
@@ -166,6 +167,7 @@
                 <button id="runtimeStorageSaveBtn" class="secondary" type="button" title="保存自动清理阈值">保存设置</button>
                 <button id="runtimeStorageCleanupBtn" class="secondary" type="button" title="按当前阈值立即清理运行日志和预览缓存">按策略清理</button>
                 <button id="runtimeStoragePurgeBtn" class="secondary danger" type="button" title="清空 Total Control 自己的运行日志和预览缓存">清空运行数据</button>
+                <button id="runtimeStateCleanupBtn" class="secondary" type="button" title="清理已完成任务记录并裁剪旧运行记录，不删除日志文件">清理运行记录</button>
                 <button id="runtimeStorageResetBtn" class="secondary" type="button" title="恢复默认自动清理策略">重置默认策略</button>
               </div>
               <p id="runtimeStorageMessage" class="form-message"></p>

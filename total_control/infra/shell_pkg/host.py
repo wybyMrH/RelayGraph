@@ -210,6 +210,7 @@ def collect_local_host_resources() -> dict[str, Any]:
         "source": "local",
         "collected_at": now_iso(),
         "current_user": getpass.getuser(),
+        "current_uid": str(os.geteuid()),
         "cpu": {
             "cores": cpu_count,
             "util_percent": cpu_utilization_percent(),
@@ -421,6 +422,7 @@ payload = {
     "source": "ssh",
     "collected_at": datetime.datetime.now().isoformat(timespec="seconds"),
     "current_user": getpass.getuser(),
+    "current_uid": str(os.geteuid()),
     "cpu": {
         "cores": cpu_count,
         "util_percent": cpu_util(),

@@ -17078,6 +17078,9 @@ function showProcessCommand(serverId, pid) {
 }
 
 function processStopNeedsConfirmation(server, process) {
+  const currentUid = String(server?.current_uid || server?.host_resources?.current_uid || "").trim();
+  const ownerUid = String(process?.uid || "").trim();
+  if (currentUid && ownerUid) return currentUid !== ownerUid;
   const currentUser = String(server?.current_user || server?.host_resources?.current_user || "").trim();
   const owner = String(process?.user || "").trim();
   if (!currentUser || !owner) return true;
@@ -17087,11 +17090,18 @@ function processStopNeedsConfirmation(server, process) {
 function confirmStopProcess(server, process, pid, context = {}) {
   if (!context.force && !processStopNeedsConfirmation(server, process)) return true;
   const owner = context.owner || process?.user || "未知用户";
+  const ownerUid = context.owner_uid || process?.uid || "";
   const currentUser = context.current_user || server?.current_user || server?.host_resources?.current_user || "当前用户未知";
+  const currentUid = context.current_uid || server?.current_uid || server?.host_resources?.current_uid || "";
   const command = String(context.command || process?.command || process?.process_name || "").trim();
   const commandLine = command ? `\n命令：${command.slice(0, 220)}` : "";
+  const reason = String(context.reason || "").trim();
+  const intro = reason === "owner_unknown" || reason === "owner_check_failed"
+    ? "无法确认这个进程是否属于当前登录用户，确定要关闭吗？"
+    : "这个进程不属于当前登录用户，确定要关闭吗？";
+  const uidLine = ownerUid || currentUid ? `\n进程 UID：${ownerUid || "-"}\n当前 UID：${currentUid || "-"}` : "";
   return confirm(
-    `这个进程不属于当前登录用户，确定要关闭吗？\n\n服务器：${server?.name || server?.id || "-"}\nPID：${pid}\n进程用户：${owner}\n当前用户：${currentUser}${commandLine}`,
+    `${intro}\n\n服务器：${server?.name || server?.id || "-"}\nPID：${pid}\n进程用户：${owner}\n当前用户：${currentUser}${uidLine}${commandLine}`,
   );
 }
 
@@ -18483,6 +18493,25 @@ function renderRuntimeStoragePanel(payload = {}) {
   if (message && !message.classList.contains("error") && !message.textContent) message.textContent = "";
 }
 
+function renderRuntimeStatePanel(payload = {}) {
+  const stats = $("runtimeStateStats");
+  if (!stats) return;
+  const jobs = payload.jobs || {};
+  const workspaces = payload.workspaces || {};
+  const top = Array.isArray(workspaces.items) ? workspaces.items : [];
+  const topRuns = top
+    .filter((item) => Number(item.run_count || 0) > 0)
+    .slice(0, 3)
+    .map((item) => `${escapeHtml(item.name || item.workspace_id || "项目")} ${Number(item.run_count || 0)} 条`)
+    .join(" · ");
+  const lines = [
+    `任务记录：${Number(jobs.total || 0)} 条 · 可清理 ${Number(jobs.completed || 0)} 条 · 活跃 ${Number(jobs.active || 0)} 条`,
+    `项目运行记录：${Number(workspaces.total_runs || 0)} 条 · 活跃 ${Number(workspaces.active_runs || 0)} 条 · 事件 ${Number(workspaces.total_events || 0)} 条`,
+  ];
+  if (topRuns) lines.push(`记录较多：${topRuns}`);
+  stats.innerHTML = lines.join("<br>");
+}
+
 function runtimeStorageSettingsInputPayload() {
   const previewAgeInput = $("runtimePreviewMaxAgeHours");
   const previewSizeInput = $("runtimePreviewMaxSizeMib");
@@ -18503,8 +18532,12 @@ function runtimeStorageSettingsInputPayload() {
 async function loadRuntimeStoragePanel() {
   const message = $("runtimeStorageMessage");
   try {
-    const payload = await fetchJson("/api/admin/runtime-storage");
+    const [payload, runtimeState] = await Promise.all([
+      fetchJson("/api/admin/runtime-storage"),
+      fetchJson("/api/admin/runtime-state"),
+    ]);
     renderRuntimeStoragePanel(payload);
+    renderRuntimeStatePanel(runtimeState);
     if (message) {
       message.textContent = "";
       message.classList.remove("error");
@@ -18534,6 +18567,36 @@ async function saveRuntimeStorageSettings() {
   } catch (error) {
     if (message) {
       message.textContent = humanizeFetchError(error, "保存设置");
+      message.classList.add("error");
+    }
+  }
+}
+
+async function cleanupRuntimeStateNow() {
+  const message = $("runtimeStorageMessage");
+  if (!confirm("确定清理已完成/失败/停止的任务记录，并把每个项目的旧运行记录裁剪到最近 20 条吗？这不会删除运行日志、缓存、项目配置、聊天或密钥。")) return;
+  if (message) {
+    message.textContent = "正在清理运行记录...";
+    message.classList.remove("error");
+  }
+  try {
+    const payload = await fetchJson("/api/admin/runtime-state/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clear_completed_jobs: true,
+        prune_workspace_runs: true,
+        max_runs_per_workspace: 20,
+      }),
+    });
+    renderRuntimeStatePanel(payload.status || {});
+    if (message) {
+      message.textContent = `已清理运行记录：任务 ${Number(payload.removed_jobs || 0)} 条，项目 run ${Number(payload.removed_runs || 0)} 条，事件 ${Number(payload.removed_events || 0)} 条。日志文件没有删除。`;
+    }
+    await loadStatus(true);
+  } catch (error) {
+    if (message) {
+      message.textContent = humanizeFetchError(error, "清理运行记录");
       message.classList.add("error");
     }
   }
@@ -28023,6 +28086,7 @@ function bindEvents() {
   $("runtimeStorageSaveBtn")?.addEventListener("click", () => void saveRuntimeStorageSettings());
   $("runtimeStorageCleanupBtn")?.addEventListener("click", () => void cleanupRuntimeStorageNow(false));
   $("runtimeStoragePurgeBtn")?.addEventListener("click", () => void cleanupRuntimeStorageNow(true));
+  $("runtimeStateCleanupBtn")?.addEventListener("click", () => void cleanupRuntimeStateNow());
   $("runtimeStorageResetBtn")?.addEventListener("click", () => void resetRuntimeStorageSettings());
   $("closeModalBtn").addEventListener("click", closeServerModal);
   $("serverModal").addEventListener("click", (event) => {

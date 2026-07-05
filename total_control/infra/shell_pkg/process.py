@@ -22,23 +22,33 @@ from ..web_terminal import set_terminal_winsize
 def ps_lookup_local(pids: list[str], timeout: int) -> dict[str, dict[str, str]]:
     if not pids:
         return {}
-    result = run_command(["ps", "-o", "user=,pid=,command=", "-p", ",".join(pids)], timeout)
+    result = run_command(["ps", "-o", "uid=,user=,pid=,command=", "-p", ",".join(pids)], timeout)
     return parse_ps_output(result.stdout)
 
 def ps_lookup_remote(server: ServerConfig, pids: list[str], timeout: int) -> dict[str, dict[str, str]]:
     if not pids:
         return {}
-    cmd = "ps -o user=,pid=,command= -p " + shlex.quote(",".join(pids))
+    cmd = "ps -o uid=,user=,pid=,command= -p " + shlex.quote(",".join(pids))
     result = ssh_command(server, cmd, timeout)
     return parse_ps_output(result.stdout)
 
 def parse_ps_output(text: str) -> dict[str, dict[str, str]]:
     data: dict[str, dict[str, str]] = {}
     for line in text.splitlines():
+        parts = line.strip().split(None, 3)
+        if len(parts) >= 3 and parts[0].isdigit():
+            pid = parts[2]
+            data[pid] = {
+                "uid": parts[0],
+                "user": parts[1],
+                "command": parts[3] if len(parts) == 4 else "",
+            }
+            continue
         parts = line.strip().split(None, 2)
         if len(parts) >= 2:
             pid = parts[1]
             data[pid] = {
+                "uid": "",
                 "user": parts[0],
                 "command": parts[2] if len(parts) == 3 else "",
             }

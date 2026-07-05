@@ -135,7 +135,7 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
                 result = state.stop_process(server_id, pid, body)
                 handler.send_json(result)
             except PermissionError as exc:
-                context = state.process_stop_context(server_id, pid)
+                context = state.process_stop_context(server_id, pid, realtime=True)
                 handler.send_json(
                     {
                         "error": str(exc),
@@ -388,6 +388,9 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         return True
     if parsed.path == "/api/admin/runtime-storage/reset":
         handler.send_json(state.reset_runtime_storage(handler.read_body()))
+        return True
+    if parsed.path == "/api/admin/runtime-state/cleanup":
+        handler.send_json(state.cleanup_runtime_state_manual(handler.read_body()))
         return True
     handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
     return True

@@ -166,6 +166,155 @@ class FilesMixin:
         }
 
 
+    def runtime_state_status(self) -> dict[str, Any]:
+        terminal_statuses = {"done", "failed", "stopped"}
+        active_statuses = {"queued", "starting", "running", "blocked"}
+        with self.lock:
+            jobs = [copy.deepcopy(job) for job in getattr(self, "jobs", []) if isinstance(job, dict)]
+            workspaces = [
+                {
+                    "id": str(workspace.get("id") or "").strip(),
+                    "name": str(workspace.get("name") or workspace.get("title") or "").strip(),
+                    "runs": copy.deepcopy(workspace.get("runs")) if isinstance(workspace.get("runs"), list) else [],
+                }
+                for workspace in getattr(self, "workspaces", [])
+                if isinstance(workspace, dict)
+            ]
+        status_counts: dict[str, int] = {}
+        for job in jobs:
+            status = str(job.get("status") or "unknown").strip() or "unknown"
+            status_counts[status] = status_counts.get(status, 0) + 1
+        workspace_items: list[dict[str, Any]] = []
+        total_runs = 0
+        total_events = 0
+        active_runs = 0
+        for workspace in workspaces:
+            runs = [run for run in workspace["runs"] if isinstance(run, dict)]
+            run_events = sum(
+                len(run.get("events")) for run in runs if isinstance(run.get("events"), list)
+            )
+            active_count = sum(1 for run in runs if str(run.get("status") or "") in active_statuses)
+            total_runs += len(runs)
+            total_events += run_events
+            active_runs += active_count
+            workspace_items.append(
+                {
+                    "workspace_id": workspace["id"],
+                    "name": workspace["name"],
+                    "run_count": len(runs),
+                    "active_run_count": active_count,
+                    "event_count": run_events,
+                }
+            )
+        workspace_items.sort(key=lambda item: (int(item.get("run_count") or 0), str(item.get("name") or "")), reverse=True)
+        completed_jobs = sum(1 for job in jobs if str(job.get("status") or "") in terminal_statuses)
+        return {
+            "jobs": {
+                "total": len(jobs),
+                "active": sum(1 for job in jobs if str(job.get("status") or "") in active_statuses),
+                "completed": completed_jobs,
+                "status_counts": status_counts,
+                "deletable_statuses": sorted(terminal_statuses),
+            },
+            "workspaces": {
+                "total": len(workspaces),
+                "total_runs": total_runs,
+                "active_runs": active_runs,
+                "total_events": total_events,
+                "items": workspace_items[:20],
+            },
+            "cleanup_defaults": {
+                "clear_completed_jobs": True,
+                "prune_workspace_runs": True,
+                "max_runs_per_workspace": 20,
+            },
+        }
+
+
+    def cleanup_runtime_state_manual(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = body if isinstance(body, dict) else {}
+        clear_jobs = bool(data.get("clear_completed_jobs", True))
+        prune_runs = bool(data.get("prune_workspace_runs", True))
+        dry_run = bool(data.get("dry_run", False))
+        max_runs = max(1, min(safe_int(data.get("max_runs_per_workspace"), 20), 200))
+        requested_statuses = data.get("statuses")
+        if isinstance(requested_statuses, list) and requested_statuses:
+            deletable_statuses = {
+                str(item or "").strip()
+                for item in requested_statuses
+                if str(item or "").strip() in {"done", "failed", "stopped"}
+            }
+        else:
+            deletable_statuses = {"done", "failed", "stopped"}
+        active_statuses = {"queued", "starting", "running", "blocked"}
+        removed_jobs = 0
+        removed_runs = 0
+        removed_events = 0
+        changed_jobs = False
+        changed_workspaces = False
+
+        with self.lock:
+            if clear_jobs:
+                remaining_jobs = []
+                for job in getattr(self, "jobs", []):
+                    if not isinstance(job, dict):
+                        remaining_jobs.append(job)
+                        continue
+                    if str(job.get("status") or "") in deletable_statuses:
+                        removed_jobs += 1
+                        if dry_run:
+                            remaining_jobs.append(job)
+                        continue
+                    remaining_jobs.append(job)
+                if not dry_run and removed_jobs:
+                    self.jobs = remaining_jobs
+                    changed_jobs = True
+
+            if prune_runs:
+                for workspace in getattr(self, "workspaces", []):
+                    if not isinstance(workspace, dict) or not isinstance(workspace.get("runs"), list):
+                        continue
+                    runs = [
+                        normalize_workspace_execution_run(run, existing=run)
+                        for run in workspace.get("runs", [])
+                        if isinstance(run, dict)
+                    ]
+                    runs.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
+                    kept: list[dict[str, Any]] = []
+                    removed: list[dict[str, Any]] = []
+                    for run in runs:
+                        if str(run.get("status") or "") in active_statuses:
+                            kept.append(run)
+                            continue
+                        if len(kept) < max_runs:
+                            kept.append(run)
+                            continue
+                        removed.append(run)
+                    if not removed:
+                        continue
+                    removed_runs += len(removed)
+                    removed_events += sum(
+                        len(run.get("events")) for run in removed if isinstance(run.get("events"), list)
+                    )
+                    if not dry_run:
+                        workspace["runs"] = normalize_workspace_execution_runs(kept, limit=max(len(kept), 1))
+                        changed_workspaces = True
+
+            if changed_jobs:
+                self.save_jobs()
+            if changed_workspaces:
+                self.save_workspaces()
+
+        return {
+            "dry_run": dry_run,
+            "removed_jobs": removed_jobs,
+            "removed_runs": removed_runs,
+            "removed_events": removed_events,
+            "max_runs_per_workspace": max_runs,
+            "status": self.runtime_state_status(),
+        }
+
+
     def update_runtime_storage_settings(self, body: dict[str, Any]) -> dict[str, Any]:
         settings = save_runtime_storage_settings(body or {})
         return {**self.runtime_storage_status(), "settings": settings}
