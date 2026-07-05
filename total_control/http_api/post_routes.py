@@ -5,8 +5,24 @@ from http import HTTPStatus
 from typing import Any
 
 from ..infra.shell import check_transfer_conflicts
-from ..utils import safe_int
+from ..utils import public_job_payload, safe_int
 from ..workspace.errors import WorkspaceWorkflowReadinessError
+
+
+def _public_job_response(payload: Any) -> Any:
+    if isinstance(payload, list):
+        return [public_job_payload(item) if isinstance(item, dict) else item for item in payload]
+    if not isinstance(payload, dict):
+        return payload
+    result = dict(payload)
+    if isinstance(result.get("job"), dict):
+        result["job"] = public_job_payload(result["job"])
+    if isinstance(result.get("jobs"), list):
+        result["jobs"] = [
+            public_job_payload(item) if isinstance(item, dict) else item
+            for item in result.get("jobs", [])
+        ]
+    return result
 
 
 def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
@@ -68,7 +84,7 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         return True
     if parsed.path == "/api/jobs":
         job = state.create_job(handler.read_body())
-        handler.send_json({"job": job}, HTTPStatus.CREATED)
+        handler.send_json({"job": public_job_payload(job)}, HTTPStatus.CREATED)
         return True
     if parsed.path == "/api/task-plans/preview":
         handler.send_json(state.task_plan_preview(handler.read_body()))
@@ -90,7 +106,7 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/task-plans/schedule":
         result = state.create_task_plan_jobs(handler.read_body())
         status = HTTPStatus.OK if result.get("dry_run") else HTTPStatus.CREATED
-        handler.send_json(result, status)
+        handler.send_json(_public_job_response(result), status)
         return True
     if parsed.path == "/api/presets/plan":
         handler.send_json(state.preset_plan(handler.read_body()))
@@ -98,17 +114,17 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/presets/schedule":
         result = state.create_preset_jobs(handler.read_body())
         status = HTTPStatus.OK if result.get("dry_run") else HTTPStatus.CREATED
-        handler.send_json(result, status)
+        handler.send_json(_public_job_response(result), status)
         return True
     if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/stop"):
         job_id = parsed.path.split("/")[3]
         job = state.stop_job(job_id)
-        handler.send_json({"job": job})
+        handler.send_json({"job": public_job_payload(job)})
         return True
     if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/retry"):
         job_id = parsed.path.split("/")[3]
         job = state.retry_job(job_id)
-        handler.send_json({"job": job}, HTTPStatus.CREATED)
+        handler.send_json({"job": public_job_payload(job)}, HTTPStatus.CREATED)
         return True
     if parsed.path.startswith("/api/agent-executions/") and parsed.path.endswith("/cancel"):
         execution_id = parsed.path.split("/")[3]
@@ -119,7 +135,7 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/copy"):
         job_id = parsed.path.split("/")[3]
         job = state.copy_job(job_id)
-        handler.send_json({"job": job}, HTTPStatus.CREATED)
+        handler.send_json({"job": public_job_payload(job)}, HTTPStatus.CREATED)
         return True
     if (
         parsed.path.startswith("/api/servers/")
@@ -149,7 +165,7 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         job_id = parsed.path.split("/")[3]
         body = handler.read_body()
         result = state.reorder_job(job_id, str(body.get("direction") or ""))
-        handler.send_json(result)
+        handler.send_json(_public_job_response(result))
         return True
     if parsed.path == "/api/terminal/open":
         result = state.terminal_open(str(handler.read_body().get("server_id") or ""))
@@ -197,7 +213,7 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
             node_id = parts[5]
             try:
                 result = state.run_workspace_node(workspace_id, node_id, handler.read_body())
-                handler.send_json(result, HTTPStatus.CREATED)
+                handler.send_json(_public_job_response(result), HTTPStatus.CREATED)
             except WorkspaceWorkflowReadinessError as exc:
                 handler.send_json(
                     {
@@ -273,21 +289,21 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         parts = parsed.path.split("/")
         workspace_id = parts[3] if len(parts) > 3 else ""
         result = state.run_workspace_discovery(workspace_id, handler.read_body())
-        handler.send_json(result, HTTPStatus.CREATED)
+        handler.send_json(_public_job_response(result), HTTPStatus.CREATED)
         return True
     if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/advance"):
         parts = parsed.path.split("/")
         workspace_id = parts[3] if len(parts) > 3 else ""
         result = state.advance_workspace_automation(workspace_id, handler.read_body())
         status = HTTPStatus.CREATED if result.get("jobs") else HTTPStatus.OK
-        handler.send_json(result, status)
+        handler.send_json(_public_job_response(result), status)
         return True
     if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/run"):
         parts = parsed.path.split("/")
         workspace_id = parts[3] if len(parts) > 3 else ""
         try:
             result = state.run_workspace_workflow(workspace_id, handler.read_body())
-            handler.send_json(result, HTTPStatus.CREATED)
+            handler.send_json(_public_job_response(result), HTTPStatus.CREATED)
         except WorkspaceWorkflowReadinessError as exc:
             handler.send_json(
                 {

@@ -6,7 +6,7 @@ from collections import deque
 from http import HTTPStatus
 from typing import Any
 
-from .utils import now_iso, safe_int
+from .utils import now_iso, public_job_payload, safe_int
 
 
 class EventBroker:
@@ -155,18 +155,7 @@ def sse_heartbeat() -> bytes:
 
 
 def public_job_event_payload(job: dict[str, Any]) -> dict[str, Any]:
-    snapshot = dict(job) if isinstance(job, dict) else {}
-    for key in (
-        "log",
-        "output",
-        "stdout",
-        "stderr",
-        "tail",
-        "content",
-        "raw_output",
-    ):
-        snapshot.pop(key, None)
-    return snapshot
+    return public_job_payload(job)
 
 
 def stream_workspace_events(

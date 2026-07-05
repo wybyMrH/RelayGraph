@@ -92,9 +92,21 @@ def _job_log_snapshot(job: dict[str, Any], *, lines: int = 200, max_bytes: int =
     text = str(snapshot.get("tail") or "")
     if not text:
         return {}
+    reasons = [
+        str(item or "").strip()
+        for item in snapshot.get("truncation_reasons", [])
+        if str(item or "").strip()
+    ] if isinstance(snapshot.get("truncation_reasons"), list) else []
     limited = text[-max(max_bytes, 0):] if max_bytes > 0 else text
+    if max_bytes > 0 and len(text) > max_bytes:
+        reasons.append("snapshot_request_limit")
     tail = "\n".join(limited.splitlines()[-max(1, int(lines or 1)):])
+    if len(limited.splitlines()) > max(1, int(lines or 1)):
+        reasons.append("line_limit")
     byte_count = len(tail.encode("utf-8"))
+    file_size = safe_int(snapshot.get("file_size"), byte_count)
+    read_bytes = safe_int(snapshot.get("read_bytes"), safe_int(snapshot.get("byte_count"), byte_count))
+    skipped_bytes = safe_int(snapshot.get("skipped_bytes"), max(file_size - read_bytes, 0) if file_size and read_bytes else 0)
     return {
         "log": tail,
         "source": "snapshot",
@@ -102,14 +114,15 @@ def _job_log_snapshot(job: dict[str, Any], *, lines: int = 200, max_bytes: int =
         "snapshot_captured_at": str(snapshot.get("captured_at") or "").strip(),
         "snapshot_schema": str(snapshot.get("schema") or "").strip(),
         "exists": False,
-        "file_size": byte_count,
+        "file_size": file_size,
         "snapshot_size": byte_count,
         "byte_count": byte_count,
         "offset": 0,
         "requested_offset": 0,
         "next_offset": byte_count,
-        "truncated": False,
-        "skipped_bytes": 0,
+        "truncated": bool(snapshot.get("truncated")) or bool(reasons) or skipped_bytes > 0,
+        "skipped_bytes": skipped_bytes,
+        "truncation_reasons": list(dict.fromkeys(reasons)),
     }
 
 

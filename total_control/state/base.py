@@ -112,11 +112,15 @@ class BaseMixin:
 
 
     def public_config(self) -> dict[str, Any]:
+        try:
+            config_display_path = str(self.config_path.resolve().relative_to(ROOT.resolve()))
+        except (OSError, ValueError):
+            config_display_path = self.config_path.name
         return {
             "poll_interval_seconds": self.config.poll_interval_seconds,
             "idle_min_free_mib": self.config.idle_min_free_mib,
             "idle_max_gpu_util": self.config.idle_max_gpu_util,
-            "config_path": str(self.config_path),
+            "config_path": config_display_path,
             "server_count": len(self.servers),
         }
 

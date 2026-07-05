@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from ...orchestration.workspace_mutations import apply_artifact_write, apply_workflow_edit
+from ...utils import remote_runtime_log_display_path, runtime_log_display_path
 from ..registry import TOOL_SIDE_EFFECTS, ToolSideEffect, tool_side_effect
 from .artifacts import execute_artifact_read
 from .helpers import split_values
@@ -271,7 +272,8 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
                 "status": "found" if latest else "draft",
                 "job_id": str(latest.get("id") or "").strip(),
                 "job_status": str(latest.get("status") or "").strip(),
-                "log_path": str(latest.get("log_path") or "").strip(),
+                "log_display_path": runtime_log_display_path(latest.get("log_path")),
+                "remote_log_display_path": remote_runtime_log_display_path(latest.get("remote_log_path")),
                 "message": "找到最近任务日志入口。" if latest else "当前工作台还没有关联任务日志。",
             },
             ensure_ascii=False,

@@ -543,7 +543,7 @@ class AgentsMixin:
             "job_status": job_status,
             "timed_out": bool(timed_out),
             "observe_seconds": round(time.monotonic() - started, 3),
-            "job": copy.deepcopy(last_job) if isinstance(last_job, dict) else {},
+            "job": public_job_payload(last_job) if isinstance(last_job, dict) else {},
             "job_id": job_id,
         }
         if run_id:
@@ -744,7 +744,7 @@ class AgentsMixin:
                 "runtime_control": "workspace_job_queue",
                 "runtime_side_effect": "workspace_job",
                 "observed": False,
-                "job": copy.deepcopy(job),
+                "job": public_job_payload(job),
                 "job_id": str(job.get("id") or "").strip(),
                 "run": copy.deepcopy(run),
                 "run_id": str(run.get("id") or "").strip(),
@@ -858,7 +858,7 @@ class AgentsMixin:
                     "tool": tool,
                     "controlled": True,
                     "runtime_control": "workspace_job_control",
-                    "job": copy.deepcopy(job),
+                    "job": public_job_payload(job),
                     "job_id": requested_job_id,
                     "message": f"任务已是 {current_status}，无需停止。",
                 }
@@ -868,7 +868,7 @@ class AgentsMixin:
                 "tool": tool,
                 "controlled": True,
                 "runtime_control": "workspace_job_control",
-                "job": copy.deepcopy(stopped),
+                "job": public_job_payload(stopped),
                 "job_id": requested_job_id,
                 "message": "任务已通过受控 job 控制停止。",
             }
@@ -893,7 +893,7 @@ class AgentsMixin:
                 "tool": tool,
                 "controlled": True,
                 "runtime_control": "workspace_job_control",
-                "job": copy.deepcopy(changed_job),
+                "job": public_job_payload(changed_job),
                 "job_id": requested_job_id,
                 "queue_position": result.get("queue_position"),
                 "total_waiting": result.get("total_waiting"),

@@ -167,7 +167,7 @@
                 <input id="runtimeRemoteCleanupEnabled" type="checkbox" checked />
                 自动清理远程运行日志
               </label>
-              <p class="muted">填 0 表示不限制该项；手动清理只删除 Total Control 自己的日志和预览缓存，正在运行任务的日志会保留，单个大日志会在任务结束后按阈值清理。</p>
+              <p class="muted">填 0 表示不限制该项；手动清理只删除 Total Control 自己的日志和预览缓存，活跃任务和保留运行证据引用的日志会保留，单个大日志会在任务结束后按阈值清理。</p>
               <div class="runtime-storage-actions">
                 <button id="runtimeStorageSaveBtn" class="secondary" type="button" title="保存自动清理阈值">保存设置</button>
                 <button id="runtimeStorageCleanupBtn" class="secondary" type="button" title="按当前阈值立即清理运行日志和预览缓存">按策略清理</button>
@@ -176,6 +176,26 @@
                 <button id="runtimeStorageResetBtn" class="secondary" type="button" title="恢复默认自动清理策略">重置默认策略</button>
               </div>
               <p id="runtimeStorageMessage" class="form-message"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="processStopConfirmModal" class="modal" hidden>
+        <div class="modal-card process-stop-confirm-card">
+          <div class="modal-head">
+            <div>
+              <h3 id="processStopConfirmTitle">确认关闭进程</h3>
+              <p id="processStopConfirmSubtitle" class="modal-subtitle">这个进程不属于当前登录用户。</p>
+            </div>
+            <button id="processStopConfirmCloseBtn" class="icon-button" type="button" title="取消关闭">×</button>
+          </div>
+          <div class="modal-body process-stop-confirm-body">
+            <div id="processStopConfirmMeta" class="process-stop-confirm-meta"></div>
+            <pre id="processStopConfirmCommand" class="process-stop-confirm-command"></pre>
+            <div class="button-row process-stop-confirm-actions">
+              <button id="processStopConfirmCancelBtn" class="secondary" type="button" title="取消关闭这个进程">取消</button>
+              <button id="processStopConfirmSubmitBtn" class="primary danger-action" type="button" title="确认发送停止信号">确认关闭</button>
             </div>
           </div>
         </div>

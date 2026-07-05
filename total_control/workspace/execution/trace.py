@@ -65,15 +65,27 @@ def workspace_node_artifacts(
     if latest_job:
         log_path = str(latest_job.get("log_path") or "").strip()
         if log_path:
-            artifacts.append(workspace_path_probe(log_path, label="最近日志", source="job"))
+            display_log_path = runtime_log_display_path(log_path)
+            if display_log_path:
+                artifacts.append(
+                    {
+                        "label": "最近日志",
+                        "path": display_log_path,
+                        "source": "job",
+                        "status": "found",
+                        "exists": True,
+                        "kind": "file",
+                    }
+                )
         remote_log_path = str(latest_job.get("remote_log_path") or "").strip()
         if remote_log_path:
+            remote_display_path = remote_runtime_log_display_path(remote_log_path)
             artifacts.append(
                 {
                     "label": "远端日志",
-                    "path": remote_log_path,
+                    "path": remote_display_path,
                     "source": "job",
-                    "status": "expected",
+                    "status": "expected" if remote_display_path else "hidden",
                 }
             )
         log_text = workspace_job_cached_log_tail(latest_job)

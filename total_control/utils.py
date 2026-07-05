@@ -779,6 +779,64 @@ def runtime_log_display_path(path: Any) -> str:
     except (ValueError, OSError, TypeError):
         return ""
 
+
+def remote_runtime_log_display_path(path: Any) -> str:
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    normalized = text
+    if normalized.startswith("~/"):
+        normalized = "$HOME/" + normalized[2:]
+    if normalized == "$HOME/.total_control/logs" or normalized.startswith("$HOME/.total_control/logs/"):
+        return normalized
+    marker = "/.total_control/logs/"
+    if marker in normalized:
+        tail = normalized.split(marker, 1)[1].lstrip("/")
+        return "$HOME/.total_control/logs/" + tail if tail else "$HOME/.total_control/logs"
+    if normalized.endswith("/.total_control/logs"):
+        return "$HOME/.total_control/logs"
+    return ""
+
+
+def public_job_payload(job: dict[str, Any]) -> dict[str, Any]:
+    snapshot = dict(job) if isinstance(job, dict) else {}
+    for key in (
+        "log",
+        "output",
+        "stdout",
+        "stderr",
+        "tail",
+        "content",
+        "raw_output",
+    ):
+        snapshot.pop(key, None)
+    log_display_path = runtime_log_display_path(snapshot.get("log_path"))
+    remote_log_display = remote_runtime_log_display_path(snapshot.get("remote_log_path"))
+    snapshot["log_display_path"] = log_display_path
+    snapshot["remote_log_display_path"] = remote_log_display
+    snapshot.pop("log_path", None)
+    snapshot.pop("remote_log_path", None)
+    snapshot_has_log = False
+    metadata = snapshot.get("metadata") if isinstance(snapshot.get("metadata"), dict) else None
+    if metadata is not None:
+        metadata = dict(metadata)
+        log_tail_snapshot = metadata.get("log_tail_snapshot") if isinstance(metadata.get("log_tail_snapshot"), dict) else None
+        if log_tail_snapshot is not None:
+            log_tail_snapshot = dict(log_tail_snapshot)
+            display_path = runtime_log_display_path(log_tail_snapshot.get("log_path"))
+            if not display_path:
+                display_path = runtime_log_display_path(log_tail_snapshot.get("display_log_path"))
+            remote_display = remote_runtime_log_display_path(log_tail_snapshot.get("remote_log_path"))
+            log_tail_snapshot["display_log_path"] = display_path
+            log_tail_snapshot["remote_log_path"] = remote_display
+            log_tail_snapshot.pop("log_path", None)
+            snapshot_has_log = bool(display_path or remote_display or str(log_tail_snapshot.get("tail") or "").strip())
+            log_tail_snapshot.pop("tail", None)
+            metadata["log_tail_snapshot"] = log_tail_snapshot
+        snapshot["metadata"] = metadata
+    snapshot["has_log"] = bool(log_display_path or remote_log_display or snapshot_has_log)
+    return snapshot
+
 def local_runtime_log_stats() -> dict[str, Any]:
     entries = iter_runtime_log_files()
     total_bytes = sum(int(item["size"]) for item in entries)

@@ -137,7 +137,7 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
         handler.send_json(state.status_payload())
         return True
     if parsed.path == "/api/jobs":
-        handler.send_json({"jobs": state.jobs})
+        handler.send_json({"jobs": [public_job_event_payload(job) for job in state.jobs]})
         return True
     if parsed.path == "/api/workspaces":
         handler.send_json(state.list_workspaces())

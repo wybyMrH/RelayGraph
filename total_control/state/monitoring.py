@@ -104,7 +104,7 @@ class MonitoringMixin:
                 "refreshed_at": self.last_refreshed_at,
                 "status_age_seconds": round(max(time.time() - self.last_refresh, 0), 1),
                 "servers": self.statuses,
-                "jobs": self.jobs,
+                "jobs": [public_job_event_payload(job) for job in self.jobs],
                 "workspaces": workspaces,
                 "workflow_templates": workflow_templates,
                 "agent_definitions": copy.deepcopy(getattr(self, "agent_definitions", [])),

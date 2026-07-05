@@ -12,7 +12,7 @@ from .log_parser import (
     parse_workspace_resources_from_log,
     workspace_dedupe_artifacts,
 )
-from .paths import workspace_job_cached_log_tail
+from .paths import workspace_job_cached_log_tail, workspace_job_cached_log_tail_payload
 from .trace import workspace_node_artifacts, workspace_node_resources, workspace_node_trace
 
 WORKSPACE_RUN_CHILD_REF_MAX = 64
@@ -1527,6 +1527,8 @@ def workspace_run_export_manifest(
         executor = str(step.get("executor") or "unknown").strip() or "unknown"
         status_counts[status] = status_counts.get(status, 0) + 1
         executor_counts[executor] = executor_counts.get(executor, 0) + 1
+    truncated_logs = [item for item in logs if isinstance(item, dict) and bool(item.get("truncated"))]
+    omitted_log_bytes = sum(safe_int(item.get("skipped_bytes"), 0) for item in truncated_logs)
     return {
         "schema": "relaygraph.run.export.manifest.v1",
         "run_id": str(run.get("id") or "").strip(),
@@ -1553,12 +1555,15 @@ def workspace_run_export_manifest(
             "linked_jobs": len(replay.get("linked_jobs") if isinstance(replay.get("linked_jobs"), list) else []),
             "agent_executions": len(replay.get("agent_execution_ids") if isinstance(replay.get("agent_execution_ids"), list) else []),
             "logs_returned": len(logs),
+            "logs_truncated": len(truncated_logs),
             "artifacts_returned": len(artifacts),
             "reports_returned": len(reports),
         },
         "limits": {
             "logs": 12,
             "log_tail_bytes_each": 12000,
+            "log_read_bytes_each": 24000,
+            "log_tail_lines_each": 80,
             "artifacts": 48,
             "reports": 12,
             "child_refs_per_step": WORKSPACE_RUN_CHILD_REF_MAX,
@@ -1568,6 +1573,8 @@ def workspace_run_export_manifest(
             "linked_runs": bool(linked_run_closure.get("truncated")),
             "linked_run_pending_count": safe_int(linked_run_closure.get("pending_count"), 0),
             "missing_linked_run_count": safe_int(linked_run_closure.get("missing_count"), 0),
+            "log_tails": len(truncated_logs),
+            "omitted_log_bytes": omitted_log_bytes,
             "child_ref_steps": sum(
                 1
                 for step in all_timeline
@@ -1606,6 +1613,8 @@ def workspace_run_export_readme(manifest: dict[str, Any]) -> str:
             f"- Linked runs truncated: {bool(truncation.get('linked_runs'))}",
             f"- Pending linked runs beyond limit: {safe_int(truncation.get('linked_run_pending_count'), 0)}",
             f"- Missing linked run references: {safe_int(truncation.get('missing_linked_run_count'), 0)}",
+            f"- Logs with truncated tails: {safe_int(truncation.get('log_tails'), 0)}",
+            f"- Omitted log bytes before included tails: {safe_int(truncation.get('omitted_log_bytes'), 0)}",
             f"- Steps with truncated child refs: {safe_int(truncation.get('child_ref_steps'), 0)}",
             "",
             "## Commands",
@@ -1668,19 +1677,20 @@ def workspace_execution_run_export_payload(
                 job = job_index.get(job_id)
                 if not job or job_id in seen_log_job_ids:
                     continue
-                log_text = workspace_job_cached_log_tail(job, max_lines=80, max_bytes=24000)
+                log_payload = workspace_job_cached_log_tail_payload(
+                    job,
+                    max_lines=80,
+                    max_bytes=24000,
+                    tail_chars=12000,
+                )
+                log_text = str(log_payload.get("tail") or "")
                 if not log_text:
                     continue
                 seen_log_job_ids.add(job_id)
-                metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
-                snapshot = metadata.get("log_tail_snapshot") if isinstance(metadata.get("log_tail_snapshot"), dict) else {}
-                log_path = normalize_allowed_local_job_log_path(job, str(job.get("log_path") or "").strip())
-                physical_log_exists = False
-                try:
-                    physical_log_exists = bool(log_path and log_path.exists() and log_path.is_file() and not log_path.is_symlink())
-                except OSError:
-                    physical_log_exists = False
-                tail_source = "file" if physical_log_exists else "snapshot"
+                tail_source = str(log_payload.get("tail_source") or "snapshot").strip() or "snapshot"
+                display_log_path = str(log_payload.get("display_log_path") or "").strip()
+                if not display_log_path:
+                    display_log_path = runtime_log_display_path(log_payload.get("log_path") or job.get("log_path"))
                 log_items.append(
                     {
                         "run_id": source_run_id,
@@ -1688,11 +1698,19 @@ def workspace_execution_run_export_payload(
                         "node_id": str(step.get("node_id") or "").strip(),
                         "node_kind": str(step.get("node_kind") or "").strip(),
                         "status": str(job.get("status") or step.get("status") or "").strip(),
-                        "log_path": str(job.get("log_path") or "").strip(),
-                        "remote_log_path": str(job.get("remote_log_path") or "").strip(),
+                        "log_path": display_log_path,
+                        "display_log_path": display_log_path,
+                        "remote_log_path": remote_runtime_log_display_path(log_payload.get("remote_log_path") or job.get("remote_log_path")),
                         "tail_source": tail_source,
-                        "snapshot_captured_at": str(snapshot.get("captured_at") or "").strip() if tail_source == "snapshot" else "",
-                        "tail": log_text[-12000:],
+                        "snapshot_captured_at": str(log_payload.get("snapshot_captured_at") or "").strip() if tail_source == "snapshot" else "",
+                        "file_size": safe_int(log_payload.get("file_size"), 0),
+                        "read_bytes": safe_int(log_payload.get("read_bytes"), 0),
+                        "tail_bytes": safe_int(log_payload.get("tail_bytes"), len(log_text.encode("utf-8", errors="replace"))),
+                        "skipped_bytes": safe_int(log_payload.get("skipped_bytes"), 0),
+                        "line_count": safe_int(log_payload.get("line_count"), len(log_text.splitlines())),
+                        "truncated": bool(log_payload.get("truncated")),
+                        "truncation_reasons": list(log_payload.get("truncation_reasons") if isinstance(log_payload.get("truncation_reasons"), list) else []),
+                        "tail": log_text,
                     }
                 )
             for artifact in source_step.get("artifacts") if isinstance(source_step.get("artifacts"), list) else []:

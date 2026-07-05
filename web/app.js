@@ -13202,6 +13202,30 @@ function setWorkspaceRunCompareBaseId(runId = "", workspaceId = state.selectedWo
   state.ui.workspaceRunCompareBaseId = id;
 }
 
+function workspaceRunEvidenceNoticeMarkup(run = {}) {
+  const steps = Array.isArray(run.steps) ? run.steps.filter((step) => step && typeof step === "object") : [];
+  if (!steps.length) return "";
+  const childRefSteps = steps.filter((step) => step.child_job_ids_truncated || step.child_run_ids_truncated);
+  const childJobTotal = steps.reduce((sum, step) => sum + Number(step.child_job_ref_count || 0), 0);
+  const childRunTotal = steps.reduce((sum, step) => sum + Number(step.child_run_ref_count || 0), 0);
+  const visibleChildJobs = steps.reduce((sum, step) => sum + (Array.isArray(step.child_job_ids) ? step.child_job_ids.length : 0), 0);
+  const visibleChildRuns = steps.reduce((sum, step) => sum + (Array.isArray(step.child_run_ids) ? step.child_run_ids.length : 0), 0);
+  const jobRefs = steps.reduce((sum, step) => sum + (String(step.job_id || "").trim() ? 1 : 0), 0);
+  const childSummary = childRefSteps.length
+    ? `子引用已截断：${visibleChildJobs + visibleChildRuns}/${childJobTotal + childRunTotal || visibleChildJobs + visibleChildRuns}`
+    : "";
+  const logSummary = childRefSteps.length && (jobRefs || visibleChildJobs) ? "导出日志为有界尾部" : "";
+  const exportSummary = childRefSteps.length ? "导出含 manifest/readme 说明证据范围" : "";
+  const parts = [childSummary, logSummary, exportSummary].filter(Boolean);
+  if (!parts.length) return "";
+  return `
+    <div class="workspace-run-evidence-notice" title="${escapeHtml(parts.join(" · "))}">
+      <span>证据范围</span>
+      <em>${escapeHtml(parts.join(" · "))}</em>
+    </div>
+  `;
+}
+
 function workspaceExecutionRunItemMarkup(run = {}) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
   const displaySteps = [...steps, ...workspaceLiveAgentSyntheticStepsForRun(run, steps)];
@@ -13233,6 +13257,7 @@ function workspaceExecutionRunItemMarkup(run = {}) {
         </div>
       </div>
       ${workspaceRunProgressMarkup(run)}
+      ${workspaceRunEvidenceNoticeMarkup(run)}
       ${deliveryMarkup}
       ${workspaceRunEventTimelineMarkup(run)}
       <div class="workspace-execution-run-steps">
@@ -17611,6 +17636,8 @@ function showProcessCommand(serverId, pid) {
   activateOutputTab(tab.key);
 }
 
+let processStopConfirmResolve = null;
+
 function processStopNeedsConfirmation(server, process) {
   const currentUid = String(server?.current_uid || server?.host_resources?.current_uid || "").trim();
   const ownerUid = String(process?.uid || "").trim();
@@ -17621,22 +17648,75 @@ function processStopNeedsConfirmation(server, process) {
   return owner !== currentUser;
 }
 
-function confirmStopProcess(server, process, pid, context = {}) {
+function closeProcessStopConfirmModal(result = false) {
+  const modal = $("processStopConfirmModal");
+  if (modal) modal.hidden = true;
+  const resolve = processStopConfirmResolve;
+  processStopConfirmResolve = null;
+  if (typeof resolve === "function") resolve(Boolean(result));
+}
+
+function openProcessStopConfirmModal(details = {}) {
+  const modal = $("processStopConfirmModal");
+  if (!modal) return Promise.resolve(false);
+  if (processStopConfirmResolve) closeProcessStopConfirmModal(false);
+  const title = $("processStopConfirmTitle");
+  const subtitle = $("processStopConfirmSubtitle");
+  const meta = $("processStopConfirmMeta");
+  const command = $("processStopConfirmCommand");
+  const reason = String(details.reason || "").trim();
+  const ownerUnknown = reason === "owner_unknown" || reason === "owner_check_failed";
+  if (title) title.textContent = ownerUnknown ? "确认关闭归属未知进程" : "确认关闭非当前用户进程";
+  if (subtitle) {
+    subtitle.textContent = ownerUnknown
+      ? "系统无法确认这个进程是否属于当前登录用户，确认后才会发送停止信号。"
+      : "这个进程不属于当前登录用户，确认后才会发送停止信号。";
+  }
+  const rows = [
+    ["服务器", details.serverName || "-"],
+    ["PID", details.pid || "-"],
+    ["进程用户", details.owner || "未知用户"],
+    ["当前用户", details.currentUser || "当前用户未知"],
+    ...(details.ownerUid || details.currentUid ? [["进程 UID", details.ownerUid || "-"], ["当前 UID", details.currentUid || "-"]] : []),
+  ];
+  if (meta) {
+    meta.innerHTML = rows.map(([label, value]) => `
+      <article>
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(String(value || "-"))}</strong>
+      </article>
+    `).join("");
+  }
+  const commandText = String(details.command || "").trim();
+  if (command) {
+    command.hidden = !commandText;
+    command.textContent = commandText || "";
+  }
+  modal.hidden = false;
+  $("processStopConfirmSubmitBtn")?.focus();
+  return new Promise((resolve) => {
+    processStopConfirmResolve = resolve;
+  });
+}
+
+async function confirmStopProcess(server, process, pid, context = {}) {
   if (!context.force && !processStopNeedsConfirmation(server, process)) return true;
   const owner = context.owner || process?.user || "未知用户";
   const ownerUid = context.owner_uid || process?.uid || "";
   const currentUser = context.current_user || server?.current_user || server?.host_resources?.current_user || "当前用户未知";
   const currentUid = context.current_uid || server?.current_uid || server?.host_resources?.current_uid || "";
   const command = String(context.command || process?.command || process?.process_name || "").trim();
-  const commandLine = command ? `\n命令：${command.slice(0, 220)}` : "";
   const reason = String(context.reason || "").trim();
-  const intro = reason === "owner_unknown" || reason === "owner_check_failed"
-    ? "无法确认这个进程是否属于当前登录用户，确定要关闭吗？"
-    : "这个进程不属于当前登录用户，确定要关闭吗？";
-  const uidLine = ownerUid || currentUid ? `\n进程 UID：${ownerUid || "-"}\n当前 UID：${currentUid || "-"}` : "";
-  return confirm(
-    `${intro}\n\n服务器：${server?.name || server?.id || "-"}\nPID：${pid}\n进程用户：${owner}\n当前用户：${currentUser}${uidLine}${commandLine}`,
-  );
+  return openProcessStopConfirmModal({
+    serverName: server?.name || server?.id || "-",
+    pid,
+    owner,
+    ownerUid,
+    currentUser,
+    currentUid,
+    command,
+    reason,
+  });
 }
 
 async function stopProcess(event, serverId, pid, options = {}) {
@@ -17647,7 +17727,7 @@ async function stopProcess(event, serverId, pid, options = {}) {
   let confirmedNonOwner = Boolean(options.confirmedNonOwner);
   const needsLocalConfirmation = !confirmedNonOwner && processStopNeedsConfirmation(server, process);
   if (needsLocalConfirmation) {
-    if (!confirmStopProcess(server, process, pid)) return;
+    if (!(await confirmStopProcess(server, process, pid))) return;
     confirmedNonOwner = true;
   }
   if (button) {
@@ -17687,7 +17767,7 @@ async function stopProcess(event, serverId, pid, options = {}) {
     }
     if (error.status === 409 && error.payload?.requires_confirmation && !confirmedNonOwner) {
       const context = error.payload.process_stop || {};
-      if (confirmStopProcess(server, process, pid, { ...context, force: true })) {
+      if (await confirmStopProcess(server, process, pid, { ...context, force: true })) {
         await stopProcess(null, serverId, pid, { button, confirmedNonOwner: true });
       }
       return;
@@ -19151,8 +19231,8 @@ async function cleanupRuntimeStorageNow(removeAll = false) {
   const remoteText = includeRemote ? "、远程 $HOME/.total_control/logs" : "";
   const actionText = removeAll ? "清空" : "按当前阈值清理";
   const safetyText = removeAll
-    ? "会删除范围内已有日志和预览缓存，但会保留正在运行任务的日志。"
-    : "会保留未超过当前时间/大小阈值的数据和正在运行任务的日志。";
+    ? "会删除范围内已有日志和预览缓存，但会保留正在运行任务和保留运行证据引用的日志。"
+    : "会保留未超过当前时间/大小阈值的数据，以及正在运行任务和保留运行证据引用的日志。";
   if (!confirm(`确定${actionText} Total Control 的运行日志和预览缓存吗？范围仅限本机 data/logs${remoteText} 与 /tmp/total-control-file-preview；${safetyText}`)) return;
   if (message) {
     message.textContent = removeAll ? "正在清空..." : "正在按策略清理...";
@@ -19177,7 +19257,7 @@ async function cleanupRuntimeStorageNow(removeAll = false) {
     const localPreserved = Number(payload.local_logs?.preserved_count || 0);
     const remotePreserved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.preserved_count || 0), 0);
     const preservedText = localPreserved || remotePreserved
-      ? ` 已保留正在运行任务日志 ${localPreserved + remotePreserved} 个。`
+      ? ` 已保留活跃任务或运行证据日志 ${localPreserved + remotePreserved} 个。`
       : "";
     if (message) {
       message.textContent = `${removeAll ? "已清空" : "已按策略清理"}：预览缓存 ${previewRemoved}，本机日志 ${localRemoved}，远程日志 ${formatBytes(remoteRemoved)}。${preservedText}`;
@@ -24443,7 +24523,14 @@ async function downloadWorkspaceRunExport(runId) {
     const filename = String(exportPayload.filename || `relaygraph-run-${safeId(workspace.id)}-${safeId(id)}.json`);
     downloadTextFile(JSON.stringify(exportPayload, null, 2), filename, "application/json;charset=utf-8");
     const summary = exportPayload.summary && typeof exportPayload.summary === "object" ? exportPayload.summary : {};
-    setWorkspaceMessage(`运行导出已下载：${Number(summary.step_count || 0)} 步 · ${Number(summary.log_count || 0)} 段日志 · ${Number(summary.report_count || 0)} 份报告。`);
+    const manifest = exportPayload.manifest && typeof exportPayload.manifest === "object" ? exportPayload.manifest : {};
+    const truncation = manifest.truncation && typeof manifest.truncation === "object" ? manifest.truncation : {};
+    const logTailCount = Number(truncation.log_tails || 0);
+    const omittedBytes = Number(truncation.omitted_log_bytes || 0);
+    const evidenceNote = logTailCount
+      ? ` · ${logTailCount} 段日志为尾部窗口${omittedBytes ? `，省略 ${formatBytes(omittedBytes)}` : ""}`
+      : "";
+    setWorkspaceMessage(`运行导出已下载：${Number(summary.step_count || 0)} 步 · ${Number(summary.log_count || 0)} 段日志 · ${Number(summary.report_count || 0)} 份报告${evidenceNote}。`);
   } catch (error) {
     setWorkspaceMessage(error.message || "下载运行导出失败。", true);
   }
@@ -29094,6 +29181,12 @@ function bindEvents() {
   $("closeModalBtn").addEventListener("click", closeServerModal);
   $("serverModal").addEventListener("click", (event) => {
     if (event.target.id === "serverModal") closeServerModal();
+  });
+  $("processStopConfirmCloseBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(false));
+  $("processStopConfirmCancelBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(false));
+  $("processStopConfirmSubmitBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(true));
+  $("processStopConfirmModal")?.addEventListener("click", (event) => {
+    if (event.target.id === "processStopConfirmModal") closeProcessStopConfirmModal(false);
   });
   $("addServerForm").addEventListener("submit", addServer);
   const cancelEditBtn = $("addServerForm").querySelector(".cancel-edit-btn");

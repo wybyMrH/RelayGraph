@@ -444,62 +444,98 @@ class FilesMixin:
                 and str(job.get("id") or "").strip() in retained_job_ids
             ]
 
-        def read_local_tail(job: dict[str, Any]) -> str:
-            path_text = str(job.get("log_path") or "").strip()
-            if not path_text:
-                return ""
-            path = normalize_allowed_local_job_log_path(job, path_text)
-            if not path:
-                return ""
-            try:
-                if not path.exists() or path.is_symlink() or path.is_dir() or not path.is_file():
-                    return ""
-                size = path.stat().st_size
-                with path.open("rb") as handle:
-                    handle.seek(max(size - max_bytes, 0))
-                    data = handle.read(max_bytes)
-            except OSError:
-                return ""
-            text = data.decode("utf-8", errors="replace")
-            return "\n".join(text.splitlines()[-max_lines:])
+        def snapshot_payload_from_log_tail(
+            job: dict[str, Any],
+            payload: dict[str, Any],
+            *,
+            source: str,
+        ) -> dict[str, Any]:
+            tail = str(payload.get("tail") or "").strip("\n")
+            if not tail:
+                return {}
+            display_log_path = str(payload.get("display_log_path") or "").strip()
+            if not display_log_path:
+                display_log_path = runtime_log_display_path(payload.get("log_path") or job.get("log_path"))
+            return {
+                "schema": "relaygraph.job.log_tail_snapshot.v1",
+                "captured_at": now_iso(),
+                "source": source,
+                "line_count": len(tail.splitlines()),
+                "file_size": safe_int(payload.get("file_size"), 0),
+                "read_bytes": safe_int(payload.get("read_bytes"), safe_int(payload.get("byte_count"), 0)),
+                "tail_bytes": safe_int(payload.get("tail_bytes"), len(tail.encode("utf-8", errors="replace"))),
+                "skipped_bytes": safe_int(payload.get("skipped_bytes"), 0),
+                "truncated": bool(payload.get("truncated")),
+                "truncation_reasons": [
+                    str(item or "").strip()
+                    for item in payload.get("truncation_reasons", [])
+                    if str(item or "").strip()
+                ],
+                "display_log_path": display_log_path,
+                "remote_log_path": remote_runtime_log_display_path(payload.get("remote_log_path") or job.get("remote_log_path")),
+                "tail": tail,
+            }
 
-        def read_remote_tail(job: dict[str, Any]) -> str:
+        def read_local_tail_payload(job: dict[str, Any]) -> dict[str, Any]:
+            payload = workspace_job_cached_log_tail_payload(
+                job,
+                max_lines=max_lines,
+                max_bytes=max_bytes,
+                tail_chars=tail_chars,
+            )
+            if str(payload.get("tail_source") or "") != "file":
+                return {}
+            return payload
+
+        def read_remote_tail_payload(job: dict[str, Any]) -> dict[str, Any]:
             if not str(job.get("remote_log_path") or "").strip():
-                return ""
+                return {}
             reader = getattr(self, "_remote_job_log_chunk", None)
             if not callable(reader):
-                return ""
+                return {}
             try:
                 chunk = reader(job, offset=0, max_bytes=max_bytes)
             except Exception:  # noqa: BLE001 - cleanup must not be blocked by one remote log.
-                return ""
+                return {}
             if chunk.get("error"):
-                return ""
+                return {}
             text = str(chunk.get("log") or "")
-            return "\n".join(text.splitlines()[-max_lines:])
+            if not text:
+                return {}
+            line_limited = "\n".join(text.splitlines()[-max(1, int(max_lines or 1)):])
+            reasons = []
+            if bool(chunk.get("truncated")) or safe_int(chunk.get("skipped_bytes"), 0) > 0:
+                reasons.append("byte_window")
+            if len(text.splitlines()) > max(1, int(max_lines or 1)):
+                reasons.append("line_limit")
+            if tail_chars > 0 and len(line_limited) > tail_chars:
+                line_limited = line_limited[-tail_chars:]
+                reasons.append("tail_char_limit")
+            return {
+                "tail": line_limited,
+                "tail_source": "remote",
+                "file_size": safe_int(chunk.get("file_size"), safe_int(chunk.get("next_offset"), 0)),
+                "read_bytes": safe_int(chunk.get("byte_count"), len(text.encode("utf-8", errors="replace"))),
+                "tail_bytes": len(line_limited.encode("utf-8", errors="replace")),
+                "skipped_bytes": safe_int(chunk.get("skipped_bytes"), 0),
+                "truncated": bool(chunk.get("truncated")) or bool(reasons),
+                "truncation_reasons": list(dict.fromkeys(reasons)),
+                "remote_log_path": remote_runtime_log_display_path(job.get("remote_log_path")),
+            }
 
         snapshots_by_id: dict[str, dict[str, Any]] = {}
         for job in retained_jobs:
             job_id = str(job.get("id") or "").strip()
             if not job_id:
                 continue
-            tail = read_local_tail(job)
-            source = "runtime_log_cache" if tail else ""
-            if not tail:
-                tail = read_remote_tail(job)
-                source = "remote_runtime_log" if tail else ""
-            if not tail:
+            local_payload = read_local_tail_payload(job)
+            snapshot = snapshot_payload_from_log_tail(job, local_payload, source="runtime_log_cache")
+            if not snapshot:
+                remote_payload = read_remote_tail_payload(job)
+                snapshot = snapshot_payload_from_log_tail(job, remote_payload, source="remote_runtime_log")
+            if not snapshot:
                 continue
-            tail = tail[-max(tail_chars, 0):] if tail_chars > 0 else tail
-            snapshots_by_id[job_id] = {
-                "schema": "relaygraph.job.log_tail_snapshot.v1",
-                "captured_at": now_iso(),
-                "source": source,
-                "line_count": len(tail.splitlines()),
-                "log_path": str(job.get("log_path") or "").strip(),
-                "remote_log_path": str(job.get("remote_log_path") or "").strip(),
-                "tail": tail,
-            }
+            snapshots_by_id[job_id] = snapshot
         if not snapshots_by_id:
             return {"captured_count": 0, "job_ids": []}
         captured_ids: list[str] = []

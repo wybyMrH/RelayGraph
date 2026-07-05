@@ -49,6 +49,7 @@ from .paths import (
     workspace_config_values,
     compact_workspace_command,
     workspace_path_probe,
+    workspace_job_cached_log_tail_payload,
     workspace_job_cached_log_tail,
 )
 
@@ -132,6 +133,7 @@ __all__ = [
     "workspace_config_values",
     "compact_workspace_command",
     "workspace_path_probe",
+    "workspace_job_cached_log_tail_payload",
     "workspace_job_cached_log_tail",
     "workspace_log_path_artifact",
     "workspace_manifest_setup_suggestion",
