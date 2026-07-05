@@ -20477,10 +20477,7 @@ function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
   const meta = workspaceNodeMeta(node.kind || "custom.step");
   const handler = node.handler && typeof node.handler === "object" ? node.handler : {};
   const agent = globalAgentById(handler.agent_id || "");
-  const contract = workspaceNodeIoContract(node.kind || "", index);
-  const outputKey = String(node.output_key || contract.output || "").trim();
-  const inputMapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
-  const inputCount = Object.keys(inputMapping).length;
+  const io = workflowTemplateNodeIoState(node, index);
   const next = nodes[index + 1] || null;
   const nextTitle = next ? next.title || workspaceNodeLabel(next.kind) : "结束";
   const agentLabel = handler.mode === "agent"
@@ -20488,12 +20485,6 @@ function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
     : handler.mode === "system"
       ? handler.name || "系统"
       : handler.name || "人工";
-  const ioStatus = outputKey && (index === 0 || inputCount) ? "ready" : outputKey ? "warning" : "blocked";
-  const ioHint = inputCount
-    ? `${inputCount} 输入 -> ${outputKey || "output"}`
-    : index === 0
-      ? `$input -> ${outputKey || "output"}`
-      : `等待 input_mapping -> ${outputKey || "output"}`;
   const canMoveUp = index > 0;
   const canMoveDown = index < nodes.length - 1;
   return `
@@ -20501,7 +20492,7 @@ function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
       class="workflow-template-flow-node workspace-flow-node status-${escapeHtml(statusClass)} tone-${escapeHtml(phaseTone)}${active}"
       data-node-id="${escapeHtml(node.id || "")}"
       data-index="${escapeHtml(String(index))}"
-      title="${escapeHtml(`${node.title || workspaceNodeLabel(node.kind)} · ${agentLabel} · ${ioHint}`)}"
+      title="${escapeHtml(`${node.title || workspaceNodeLabel(node.kind)} · ${agentLabel} · ${io.hint}`)}"
     >
       <button
         class="workspace-flow-node-select"
@@ -20520,10 +20511,10 @@ function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
         <p class="workspace-flow-node-desc">${escapeHtml(meta.description || workspaceNodeLabel(node.kind))}</p>
         <div class="workspace-flow-node-meta-row">
           <span>${escapeHtml(agentLabel)}</span>
-          <em>${escapeHtml(outputKey || "等待 output_key")}</em>
+          <em>${escapeHtml(io.outputKey || "等待 output_key")}</em>
         </div>
-        <div class="workflow-template-node-io status-${escapeHtml(ioStatus)}">
-          <span>${escapeHtml(ioHint)}</span>
+        <div class="workflow-template-node-io status-${escapeHtml(io.status)}">
+          <span>${escapeHtml(io.hint)}</span>
           <em>${escapeHtml(`交接至 ${nextTitle}`)}</em>
         </div>
       </button>
@@ -20557,6 +20548,82 @@ function workflowTemplateConnectorMarkup(leftNode = {}, rightNode = {}, rightInd
   `;
 }
 
+function workflowTemplateNodeIoState(node = {}, index = 0) {
+  const contract = workspaceNodeIoContract(node.kind || "", index);
+  const outputKey = String(node.output_key || contract.output || "").trim();
+  const inputMapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
+  const inputCount = Object.keys(inputMapping).length;
+  const status = outputKey && (index === 0 || inputCount)
+    ? "ready"
+    : outputKey
+      ? "warning"
+      : "blocked";
+  const hint = inputCount
+    ? `${inputCount} 输入 -> ${outputKey || "output"}`
+    : index === 0
+      ? `$input -> ${outputKey || "output"}`
+      : `等待 input_mapping -> ${outputKey || "output"}`;
+  return { outputKey, inputCount, status, hint };
+}
+
+function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "") {
+  const phases = Object.keys(WORKSPACE_FLOW_PHASE_TONES);
+  const buckets = new Map(phases.map((phase) => [phase, []]));
+  nodes.forEach((node, index) => {
+    const phase = workspaceStarterNodePhase(node.kind || "");
+    const bucket = buckets.get(phase) || buckets.get("其他") || [];
+    bucket.push({
+      node,
+      index,
+      io: workflowTemplateNodeIoState(node, index),
+    });
+    if (!buckets.has(phase)) buckets.set(phase, bucket);
+  });
+  return `
+    <div class="workflow-template-phase-map" aria-label="模板阶段导航">
+      ${phases.map((phase) => {
+        const items = buckets.get(phase) || [];
+        if (!items.length) return "";
+        const tone = WORKSPACE_FLOW_PHASE_TONES[phase] || "other";
+        const readyCount = items.filter((item) => item.io.status === "ready").length;
+        const phaseStatus = items.some((item) => item.io.status === "blocked")
+          ? "blocked"
+          : items.some((item) => item.io.status === "warning")
+            ? "warning"
+            : "ready";
+        const first = items[0]?.node || {};
+        return `
+          <section class="workflow-template-phase-band tone-${escapeHtml(tone)} status-${escapeHtml(phaseStatus)}">
+            <button class="workflow-template-phase-head" type="button" data-action="select-template-node" data-node-id="${escapeHtml(first.id || "")}" title="${escapeHtml(`跳到 ${phase}`)}">
+              <strong>${escapeHtml(phase)}</strong>
+              <span>${escapeHtml(`${items.length} 节点 · ${readyCount}/${items.length} I/O`)}</span>
+            </button>
+            <div class="workflow-template-phase-nodes">
+              ${items.map((item) => {
+                const node = item.node || {};
+                const title = node.title || workspaceNodeLabel(node.kind || "");
+                const active = String(node.id || "") === String(selectedNodeId || "") ? " active" : "";
+                return `
+                  <button
+                    class="workflow-template-phase-node status-${escapeHtml(item.io.status)}${active}"
+                    type="button"
+                    data-action="select-template-node"
+                    data-node-id="${escapeHtml(node.id || "")}"
+                    title="${escapeHtml(`${item.index + 1}. ${title} · ${item.io.hint}`)}"
+                  >
+                    <span>${escapeHtml(String(item.index + 1))}</span>
+                    <em>${escapeHtml(item.io.outputKey || "output")}</em>
+                  </button>
+                `;
+              }).join("")}
+            </div>
+          </section>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
 function renderWorkflowTemplateCanvas() {
   const root = $("workflowTemplateCanvas");
   if (!root) return;
@@ -20579,6 +20646,7 @@ function renderWorkflowTemplateCanvas() {
     if (index < nodes.length - 1) trackParts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1));
   });
   const edgeMarkup = workflowTemplateEdgeInspectorMarkup(nodes, selectedIndex);
+  const phaseMap = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "");
   root.innerHTML = `
     <div class="workflow-template-canvas-head">
       <div>
@@ -20591,6 +20659,7 @@ function renderWorkflowTemplateCanvas() {
         <button class="secondary mini" type="button" data-action="insert-template-node-after" data-node-id="${escapeHtml(selectedNode.id || "")}" title="在当前节点后插入左上角选择的节点类型">插入</button>
       </div>
     </div>
+    ${phaseMap}
     <div class="workflow-template-flow-viewport" aria-label="模板顺序链路画布">
       <div class="workflow-template-flow-track">
         ${trackParts.join("")}
