@@ -433,7 +433,14 @@ class RegistryMixin:
             for profile in getattr(self, "provider_profiles", [])
             if isinstance(profile, dict) and str(profile.get("id") or "").strip()
         }
+        raw_nodes = raw_payload.get("nodes") if isinstance(raw_payload.get("nodes"), list) else []
+        raw_nodes_by_id = {
+            str(item.get("id") or "").strip(): item
+            for item in raw_nodes
+            if isinstance(item, dict) and str(item.get("id") or "").strip()
+        }
         issues: list[dict[str, Any]] = []
+        output_key_mismatch_nodes: set[str] = set()
 
         def add_issue(
             severity: str,
@@ -501,9 +508,39 @@ class RegistryMixin:
                 elif tool.get("enabled") is False:
                     add_issue("blocking", "tool", "disabled_required_tool", f"{title} 需要的工具 {tool.get('label') or required_tool_id} 已停用。", node_id=node_id, tool_id=required_tool_id)
 
+            raw_node = raw_nodes_by_id.get(node_id) if node_id else None
+            if not raw_node and index < len(raw_nodes) and isinstance(raw_nodes[index], dict):
+                raw_node = raw_nodes[index]
+            raw_handler = raw_node.get("handler") if isinstance(raw_node, dict) and isinstance(raw_node.get("handler"), dict) else {}
+            raw_node_output_key = str(raw_node.get("output_key") or "").strip() if isinstance(raw_node, dict) else ""
+            raw_handler_output_key = str(raw_handler.get("output_key") or "").strip()
+            if raw_node_output_key and raw_handler_output_key and raw_node_output_key != raw_handler_output_key:
+                output_key_mismatch_nodes.add(node_id)
+                add_issue(
+                    "blocking",
+                    "contract",
+                    "output_key_mismatch",
+                    f"{title} 的 node.output_key={raw_node_output_key} 与 handler.output_key={raw_handler_output_key} 不一致。",
+                    node_id=node_id,
+                    output_key=raw_node_output_key,
+                    handler_output_key=raw_handler_output_key,
+                )
+
+            node_output_key = str(node.get("output_key") or "").strip()
+            handler_output_key = str(handler.get("output_key") or "").strip()
+            if node_id not in output_key_mismatch_nodes and node_output_key and handler_output_key and node_output_key != handler_output_key:
+                add_issue(
+                    "blocking",
+                    "contract",
+                    "output_key_mismatch",
+                    f"{title} 的 node.output_key={node_output_key} 与 handler.output_key={handler_output_key} 不一致。",
+                    node_id=node_id,
+                    output_key=node_output_key,
+                    handler_output_key=handler_output_key,
+                )
             output_key = str(
-                node.get("output_key")
-                or handler.get("output_key")
+                node_output_key
+                or handler_output_key
                 or workspace_io_contract_for_kind(kind, index).get("output_key")
                 or ""
             ).strip()
@@ -511,7 +548,7 @@ class RegistryMixin:
                 previous = output_keys.get(output_key)
                 if previous:
                     add_issue(
-                        "warning",
+                        "blocking",
                         "contract",
                         "duplicate_output_key",
                         f"{title} 的 output_key {output_key} 与上游节点重复。",
@@ -635,19 +672,37 @@ class RegistryMixin:
         issues = validation.get("issues") if isinstance(validation.get("issues"), list) else []
         output_conflicts_by_node: dict[str, list[dict[str, Any]]] = {}
         for issue in issues:
-            if not isinstance(issue, dict) or str(issue.get("code") or "").strip() != "duplicate_output_key":
+            if not isinstance(issue, dict) or str(issue.get("code") or "").strip() not in {"duplicate_output_key", "output_key_mismatch"}:
                 continue
             node_id = str(issue.get("node_id") or "").strip()
             if not node_id:
                 continue
+            code = str(issue.get("code") or "").strip()
             output_conflicts_by_node.setdefault(node_id, []).append(
                 {
-                    "code": "duplicate_output_key",
+                    "code": code,
                     "output_key": str(issue.get("output_key") or "").strip(),
+                    "handler_output_key": str(issue.get("handler_output_key") or "").strip(),
                     "upstream_node_id": str(issue.get("upstream_node_id") or "").strip(),
                     "message": str(issue.get("message") or "").strip(),
                 }
             )
+        reserved_output_keys = {
+            str(item.get("output_key") or "").strip()
+            for item in contract_nodes
+            if isinstance(item, dict) and str(item.get("output_key") or "").strip()
+        }
+
+        def unique_output_key(seed: str, index: int) -> str:
+            base = safe_id(seed) or f"step_{index + 1}"
+            candidate = f"{base}_{index + 1}"
+            suffix = 2
+            while candidate in reserved_output_keys:
+                candidate = f"{base}_{index + 1}_{suffix}"
+                suffix += 1
+            reserved_output_keys.add(candidate)
+            return candidate
+
         seen_outputs: dict[str, dict[str, Any]] = {}
         preview_nodes: list[dict[str, Any]] = []
         for index, node in enumerate(template.get("nodes") if isinstance(template.get("nodes"), list) else []):
@@ -681,15 +736,62 @@ class RegistryMixin:
                     {
                         "id": safe_id(f"map-input-{node_id}-{input_name}") or f"map-input-{index}-{len(repair_actions)}",
                         "kind": "set_input_mapping",
+                        "issue_code": code or "unmapped_required_input",
+                        "severity": "blocking",
                         "node_id": node_id,
                         "label": f"映射 {input_name}",
                         "patch": {
                             "path": ["nodes", index, "input_mapping", input_name],
                             "value": value,
                         },
+                        "patches": [
+                            {
+                                "path": ["nodes", index, "input_mapping", input_name],
+                                "value": value,
+                            }
+                        ],
                     }
                 )
             output_key = str(contract.get("output_key") or node.get("output_key") or handler.get("output_key") or "").strip()
+            output_conflicts = output_conflicts_by_node.get(node_id, [])
+            for conflict in output_conflicts:
+                if not isinstance(conflict, dict):
+                    continue
+                code = str(conflict.get("code") or "").strip()
+                if code == "duplicate_output_key":
+                    value = unique_output_key(str(conflict.get("output_key") or output_key or "step"), index)
+                    patches = [
+                        {"path": ["nodes", index, "output_key"], "value": value},
+                        {"path": ["nodes", index, "handler", "output_key"], "value": value},
+                    ]
+                    repair_actions.append(
+                        {
+                            "id": safe_id(f"set-output-key-{node_id}-{value}") or f"set-output-key-{index}",
+                            "kind": "set_output_key",
+                            "issue_code": "duplicate_output_key",
+                            "severity": "blocking",
+                            "node_id": node_id,
+                            "label": f"改为唯一 output_key {value}",
+                            "patch": patches[0],
+                            "patches": patches,
+                        }
+                    )
+                elif code == "output_key_mismatch" and output_key:
+                    patches = [
+                        {"path": ["nodes", index, "handler", "output_key"], "value": output_key},
+                    ]
+                    repair_actions.append(
+                        {
+                            "id": safe_id(f"sync-handler-output-key-{node_id}") or f"sync-handler-output-key-{index}",
+                            "kind": "sync_output_key",
+                            "issue_code": "output_key_mismatch",
+                            "severity": "blocking",
+                            "node_id": node_id,
+                            "label": f"同步 handler output_key 为 {output_key}",
+                            "patch": patches[0],
+                            "patches": patches,
+                        }
+                    )
             preview_nodes.append(
                 {
                     "id": node_id,
@@ -711,7 +813,7 @@ class RegistryMixin:
                     "missing_inputs": copy.deepcopy(missing_inputs),
                     "unmapped_required_inputs": copy.deepcopy(contract.get("unmapped_required_inputs") if isinstance(contract.get("unmapped_required_inputs"), list) else []),
                     "input_gap_count": safe_int(contract.get("input_gap_count"), 0),
-                    "output_conflicts": output_conflicts_by_node.get(node_id, []),
+                    "output_conflicts": output_conflicts,
                     "repair_actions": repair_actions,
                     "tools": copy.deepcopy(contract.get("tools") if isinstance(contract.get("tools"), list) else []),
                     "model": copy.deepcopy(contract.get("model") if isinstance(contract.get("model"), dict) else {}),

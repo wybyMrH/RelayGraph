@@ -12138,6 +12138,33 @@ button.workspace-execution-bundle-step:focus-visible {
   line-height: 1.35;
 }
 
+.workspace-template-validation-repairs {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.workspace-template-validation-repairs > div:first-child,
+.workspace-template-validation-repair-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workspace-template-validation-repairs span {
+  color: #415066;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.workspace-template-validation-repairs em {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .workspace-manage-focus {
   display: grid;
   gap: 4px;

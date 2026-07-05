@@ -2796,6 +2796,7 @@ function normalizeWorkspaceDraftNode(node, index = 0, formData = {}) {
       agent_id: String(node?.handler?.agent_id || ""),
       name: String(node?.handler?.name || ""),
       handoff: String(node?.handler?.handoff || ""),
+      output_key: String(node?.handler?.output_key || ""),
     },
     notes: String(node?.notes || ""),
     runtime: node?.runtime && typeof node.runtime === "object" ? {
@@ -3144,6 +3145,58 @@ function workflowTemplateValidationIssueMarkup(validation = null, { limit = 4 } 
   `;
 }
 
+function workflowTemplateRepairActions(response = state.workflowTemplateValidation, { limit = 4 } = {}) {
+  const preview = response?.preview && typeof response.preview === "object" ? response.preview : {};
+  const nodes = Array.isArray(preview.nodes) ? preview.nodes : [];
+  const actions = [];
+  nodes.forEach((node) => {
+    const nodeActions = Array.isArray(node.repair_actions) ? node.repair_actions : [];
+    nodeActions.forEach((action) => {
+      if (!action || typeof action !== "object") return;
+      const id = String(action.id || "").trim();
+      if (!id) return;
+      actions.push({
+        ...action,
+        node_id: String(action.node_id || node.id || "").trim(),
+        node_title: String(node.title || node.kind || node.id || "").trim(),
+        node_index: Number(node.index || 0),
+      });
+    });
+  });
+  return Number.isFinite(limit) ? actions.slice(0, Math.max(0, limit)) : actions;
+}
+
+function workflowTemplateValidationRepairMarkup(response = state.workflowTemplateValidation) {
+  const actions = workflowTemplateRepairActions(response, { limit: 4 });
+  if (!actions.length) return "";
+  const allCount = workflowTemplateRepairActions(response, { limit: Infinity }).length;
+  return `
+    <div class="workspace-template-validation-repairs">
+      <div>
+        <span>建议修复</span>
+        <em>${allCount > actions.length ? `显示 ${actions.length}/${allCount}` : `${actions.length} 项`}</em>
+      </div>
+      <div class="workspace-template-validation-repair-actions">
+        ${allCount > 1 ? '<button class="secondary mini" type="button" data-action="apply-template-repair-all" title="按当前后端预览给出的顺序应用全部可安全修复项">全部应用</button>' : ""}
+        ${actions.map((action) => {
+          const value = action.patch?.value == null ? "" : String(action.patch.value);
+          const title = [action.node_title, action.label || action.kind || "应用修复", value].filter(Boolean).join(" · ");
+          return `
+            <button
+              class="secondary mini"
+              type="button"
+              data-action="apply-template-repair"
+              data-repair-id="${escapeHtml(action.id)}"
+              data-node-id="${escapeHtml(action.node_id)}"
+              title="${escapeHtml(title)}"
+            >${escapeHtml(action.label || "应用修复")}</button>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
 function workflowTemplateValidationMarkup(validation = state.workflowTemplateValidation?.validation || null) {
   const status = String(validation?.status || "").trim() || "draft";
   const blocking = Number(validation?.blocking_count || 0);
@@ -3155,8 +3208,118 @@ function workflowTemplateValidationMarkup(validation = state.workflowTemplateVal
       <p title="${escapeHtml(workflowTemplateValidationSummary(validation))}">${escapeHtml(workflowTemplateValidationSummary(validation))}</p>
       <em>${blocking ? `${blocking} 个阻塞会阻止保存` : warnings ? `${warnings} 个警告，可保存但建议处理` : "保存前会自动校验"}</em>
       ${workflowTemplateValidationIssueMarkup(validation)}
+      ${workflowTemplateValidationRepairMarkup()}
     </article>
   `;
+}
+
+function workflowTemplateRepairActionById(repairId = "", nodeId = "") {
+  const id = String(repairId || "").trim();
+  const targetNodeId = String(nodeId || "").trim();
+  return workflowTemplateRepairActions(state.workflowTemplateValidation, { limit: Infinity })
+    .find((action) => action.id === id && (!targetNodeId || action.node_id === targetNodeId)) || null;
+}
+
+function applyWorkflowTemplateRepairPatchToNodes(nextNodes = [], action = {}, patch = {}) {
+  const path = Array.isArray(patch.path) ? patch.path : [];
+  if (path[0] !== "nodes") return false;
+  let index = Number(path[1]);
+  const nodeId = String(action.node_id || "").trim();
+  const idIndex = nodeId ? nextNodes.findIndex((node) => String(node.id || "") === nodeId) : -1;
+  if (idIndex >= 0) index = idIndex;
+  if (!Number.isInteger(index) || index < 0 || index >= nextNodes.length) return false;
+  const value = patch.value == null ? "" : String(patch.value);
+  const field = String(path[2] || "").trim();
+  const target = nextNodes[index];
+  if (!target || typeof target !== "object") return false;
+  if (field === "input_mapping" && path.length === 4) {
+    const inputName = String(path[3] || "").trim();
+    if (!inputName) return false;
+    target.input_mapping = {
+      ...(target.input_mapping && typeof target.input_mapping === "object" ? target.input_mapping : {}),
+      [inputName]: value,
+    };
+  } else if (field === "output_key" && path.length === 3) {
+    if (!value.trim()) return false;
+    target.output_key = value.trim();
+    if (target.handler && typeof target.handler === "object" && String(target.handler.output_key || "").trim()) {
+      target.handler = { ...target.handler, output_key: value.trim() };
+    }
+  } else if (field === "handler" && path.length === 4 && String(path[3] || "") === "output_key") {
+    if (!value.trim()) return false;
+    target.handler = {
+      ...(target.handler && typeof target.handler === "object" ? target.handler : {}),
+      output_key: value.trim(),
+    };
+  } else {
+    return false;
+  }
+  state.selectedTemplateNodeId = String(target.id || state.selectedTemplateNodeId || "").trim();
+  return true;
+}
+
+function applyWorkflowTemplateRepairPatch(action = {}) {
+  const currentNodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  const nextNodes = currentNodes.map((node) => deepClone(node, node));
+  const patches = Array.isArray(action.patches) && action.patches.length
+    ? action.patches
+    : action.patch && typeof action.patch === "object"
+      ? [action.patch]
+      : [];
+  let applied = 0;
+  patches.forEach((patch) => {
+    if (applyWorkflowTemplateRepairPatchToNodes(nextNodes, action, patch)) applied += 1;
+  });
+  if (!applied) return false;
+  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: nextNodes }));
+  return true;
+}
+
+async function applyWorkflowTemplateRepairAction(repairId = "", nodeId = "") {
+  const action = workflowTemplateRepairActionById(repairId, nodeId);
+  if (!action) {
+    setWorkspaceManageMessage("修复动作已过期，请重新校验模板。", true);
+    return null;
+  }
+  if (!applyWorkflowTemplateRepairPatch(action)) {
+    setWorkspaceManageMessage("这个修复动作无法安全应用到当前草稿。", true);
+    return null;
+  }
+  try {
+    const response = await previewWorkflowTemplate({ render: true });
+    setWorkspaceManageMessage(`已应用：${action.label || action.kind || "修复动作"}。${workflowTemplateValidationSummary(response?.validation)}`, response?.validation?.status === "blocked");
+    return response;
+  } catch (error) {
+    setWorkspaceManageMessage(error.message || "修复已应用，但重新校验失败。", true);
+    return null;
+  }
+}
+
+async function applyAllWorkflowTemplateRepairActions() {
+  const actions = workflowTemplateRepairActions(state.workflowTemplateValidation, { limit: Infinity });
+  if (!actions.length) {
+    setWorkspaceManageMessage("当前校验结果没有可应用的修复动作。", true);
+    return null;
+  }
+  let applied = 0;
+  let firstNodeId = "";
+  actions.forEach((action) => {
+    if (!firstNodeId) firstNodeId = String(action.node_id || "").trim();
+    if (applyWorkflowTemplateRepairPatch(action)) applied += 1;
+  });
+  if (!applied) {
+    setWorkspaceManageMessage("没有修复动作能安全应用到当前草稿。", true);
+    return null;
+  }
+  if (firstNodeId) state.selectedTemplateNodeId = firstNodeId;
+  try {
+    const response = await previewWorkflowTemplate({ render: true });
+    setWorkspaceManageMessage(`已应用 ${applied} 项修复。${workflowTemplateValidationSummary(response?.validation)}`, response?.validation?.status === "blocked");
+    return response;
+  } catch (error) {
+    setWorkspaceManageMessage(error.message || "修复已应用，但重新校验失败。", true);
+    return null;
+  }
 }
 
 function workflowTemplateVersionModeLabel(mode = "") {
@@ -26825,12 +26988,28 @@ function bindEvents() {
     if (button?.dataset.tab) switchWorkspaceManageTab(button.dataset.tab);
   });
   $("workflowTemplateStudioOverview")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='copy-template-version-history']");
+    const button = event.target.closest("[data-action]");
     if (!button) return;
-    consumeClick(event);
-    void copyWorkflowTemplateVersionHistory().catch((error) => {
-      setWorkspaceManageMessage(error.message || "复制模板版本历史失败。", true);
-    });
+    if (button.dataset.action === "copy-template-version-history") {
+      consumeClick(event);
+      void copyWorkflowTemplateVersionHistory().catch((error) => {
+        setWorkspaceManageMessage(error.message || "复制模板版本历史失败。", true);
+      });
+      return;
+    }
+    if (button.dataset.action === "apply-template-repair") {
+      consumeClick(event);
+      void applyWorkflowTemplateRepairAction(button.dataset.repairId || "", button.dataset.nodeId || "").catch((error) => {
+        setWorkspaceManageMessage(error.message || "应用模板修复失败。", true);
+      });
+      return;
+    }
+    if (button.dataset.action === "apply-template-repair-all") {
+      consumeClick(event);
+      void applyAllWorkflowTemplateRepairActions().catch((error) => {
+        setWorkspaceManageMessage(error.message || "批量应用模板修复失败。", true);
+      });
+    }
   });
   $("workspaceManageTemplateDiff")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");

@@ -228,8 +228,8 @@ def finalize_agent_executable_nodes(
             handler = build_recommended_handler(kind, agent_defs)
         contract = workspace_io_contract_for_kind(kind, index)
         output_key = str(
-            handler.get("output_key")
-            or node.get("output_key")
+            node.get("output_key")
+            or handler.get("output_key")
             or contract.get("output_key")
             or ""
         ).strip()
