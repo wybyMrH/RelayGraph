@@ -558,7 +558,7 @@ class RegistryMixin:
             )
             public = self.workflow_template_public_payload(template)
             validation = self._workflow_template_validation_payload(template, body)
-            preview = self._workflow_template_preview_payload(template, validation)
+            preview = self._workflow_template_preview_payload(template, validation, body)
         return {
             "workflow_template": public,
             "validation": validation,
@@ -818,6 +818,7 @@ class RegistryMixin:
         self,
         template: dict[str, Any],
         validation: dict[str, Any],
+        raw_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         contract_nodes = validation.get("contract", {}).get("nodes") if isinstance(validation.get("contract"), dict) else []
         contract_by_id = {
@@ -979,6 +980,14 @@ class RegistryMixin:
                 seen_outputs[output_key] = {"node_id": node_id, "index": index}
         source = template.get("source") if isinstance(template.get("source"), dict) else {}
         model = template.get("model") if isinstance(template.get("model"), dict) else {}
+        raw = raw_payload if isinstance(raw_payload, dict) else {}
+        topology_links = raw.get("links") if isinstance(raw.get("links"), list) else template.get("links")
+        topology_preview = workflow_template_topology_preview(
+            template.get("nodes") if isinstance(template.get("nodes"), list) else [],
+            topology_links if isinstance(topology_links, list) else [],
+            contract_nodes=contract_nodes,
+            issues=issues,
+        )
         return {
             "source_type": str(source.get("type") or "").strip(),
             "template_id": str(template.get("id") or "").strip(),
@@ -990,6 +999,7 @@ class RegistryMixin:
             "provider_profile_id": str(model.get("provider_profile_id") or "").strip(),
             "chat_agent_id": str(model.get("chat_agent_id") or "").strip(),
             "nodes": preview_nodes,
+            "topology_preview": topology_preview,
         }
 
 

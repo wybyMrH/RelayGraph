@@ -453,6 +453,252 @@ def build_template_snapshot(
         "created_at": now_iso(),
     }
 
+def workflow_template_topology_preview(
+    nodes: Any,
+    links: Any,
+    *,
+    contract_nodes: Any = None,
+    issues: Any = None,
+) -> dict[str, Any]:
+    node_items = [copy.deepcopy(item) for item in nodes if isinstance(item, dict)] if isinstance(nodes, list) else []
+    node_order: dict[str, int] = {}
+    node_ids: list[str] = []
+    for index, node in enumerate(node_items):
+        node_id = _snapshot_node_key(node)
+        if not node_id or node_id in node_order:
+            continue
+        node_order[node_id] = index
+        node_ids.append(node_id)
+    node_id_set = set(node_ids)
+    issue_status_by_node: dict[str, str] = {}
+    for issue in issues if isinstance(issues, list) else []:
+        if not isinstance(issue, dict):
+            continue
+        node_id = str(issue.get("node_id") or issue.get("from_node_id") or issue.get("to_node_id") or "").strip()
+        severity = str(issue.get("severity") or "").strip()
+        if not node_id or node_id not in node_id_set:
+            continue
+        if severity == "blocking":
+            issue_status_by_node[node_id] = "blocked"
+        elif severity == "warning" and issue_status_by_node.get(node_id) != "blocked":
+            issue_status_by_node[node_id] = "warning"
+    contract_status_by_node = {
+        str(item.get("id") or "").strip(): str(item.get("input_status") or "").strip()
+        for item in contract_nodes
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    } if isinstance(contract_nodes, list) else {}
+
+    control_edges: list[dict[str, Any]] = []
+    seen_edges: set[tuple[str, str]] = set()
+    dangling_links: list[dict[str, Any]] = []
+    for index, link in enumerate(links if isinstance(links, list) else []):
+        if not isinstance(link, dict):
+            continue
+        from_id = str(link.get("from") or "").strip()
+        to_id = str(link.get("to") or "").strip()
+        if not from_id or not to_id or from_id not in node_id_set or to_id not in node_id_set or from_id == to_id:
+            dangling_links.append(
+                {
+                    "id": str(link.get("id") or "").strip(),
+                    "index": index,
+                    "from": from_id,
+                    "to": to_id,
+                }
+            )
+            continue
+        edge = (from_id, to_id)
+        if edge in seen_edges:
+            continue
+        seen_edges.add(edge)
+        control_edges.append(
+            {
+                "id": str(link.get("id") or "").strip() or safe_id(f"{from_id}-{to_id}") or f"edge-{len(control_edges) + 1}",
+                "index": len(control_edges),
+                "kind": "control_link",
+                "from": from_id,
+                "to": to_id,
+                "from_index": node_order.get(from_id, 0),
+                "to_index": node_order.get(to_id, 0),
+                "status": "ready",
+            }
+        )
+
+    incoming: dict[str, list[str]] = {node_id: [] for node_id in node_ids}
+    outgoing: dict[str, list[str]] = {node_id: [] for node_id in node_ids}
+    for edge in control_edges:
+        from_id = str(edge.get("from") or "")
+        to_id = str(edge.get("to") or "")
+        outgoing.setdefault(from_id, []).append(to_id)
+        incoming.setdefault(to_id, []).append(from_id)
+
+    indegree = {node_id: len(incoming.get(node_id, [])) for node_id in node_ids}
+    queue = [node_id for node_id in node_ids if indegree.get(node_id, 0) == 0]
+    queue.sort(key=lambda node_id: node_order.get(node_id, 0))
+    layer_by_node = {node_id: 0 for node_id in node_ids}
+    visited: list[str] = []
+    while queue:
+        node_id = queue.pop(0)
+        visited.append(node_id)
+        for target_id in sorted(outgoing.get(node_id, []), key=lambda item: node_order.get(item, 0)):
+            layer_by_node[target_id] = max(layer_by_node.get(target_id, 0), layer_by_node.get(node_id, 0) + 1)
+            indegree[target_id] = indegree.get(target_id, 0) - 1
+            if indegree[target_id] == 0:
+                queue.append(target_id)
+                queue.sort(key=lambda item: (layer_by_node.get(item, 0), node_order.get(item, 0)))
+    cycle_node_ids = [node_id for node_id in node_ids if node_id not in set(visited)]
+    if cycle_node_ids:
+        for node_id in cycle_node_ids:
+            layer_by_node[node_id] = max(layer_by_node.values(), default=0) + 1
+
+    layer_groups: dict[int, list[str]] = {}
+    for node_id in node_ids:
+        layer_groups.setdefault(layer_by_node.get(node_id, 0), []).append(node_id)
+    layers = []
+    lane_by_node: dict[str, int] = {}
+    for layer_index in sorted(layer_groups):
+        ids = sorted(layer_groups[layer_index], key=lambda node_id: node_order.get(node_id, 0))
+        for lane, node_id in enumerate(ids):
+            lane_by_node[node_id] = lane
+        layers.append({"index": layer_index, "node_ids": ids, "count": len(ids)})
+
+    synthetic_sequence_edges = [(node_ids[index], node_ids[index + 1]) for index in range(max(0, len(node_ids) - 1))]
+    valid_edge_pairs = [(str(edge.get("from") or ""), str(edge.get("to") or "")) for edge in control_edges]
+    is_sequential = valid_edge_pairs == synthetic_sequence_edges
+    branch_count = sum(1 for node_id in node_ids if len(outgoing.get(node_id, [])) > 1)
+    join_count = sum(1 for node_id in node_ids if len(incoming.get(node_id, [])) > 1)
+    disconnected_count = sum(
+        1
+        for node_id in node_ids
+        if len(node_ids) > 1 and not incoming.get(node_id) and not outgoing.get(node_id)
+    )
+    if not node_ids:
+        layout_mode = "empty"
+    elif cycle_node_ids:
+        layout_mode = "cyclic"
+    elif branch_count or join_count:
+        layout_mode = "branch"
+    elif is_sequential:
+        layout_mode = "sequence"
+    elif control_edges:
+        layout_mode = "graph"
+    else:
+        layout_mode = "isolated"
+
+    spacing = {"x": 220, "y": 76, "node_width": 170, "node_height": 46}
+    preview_nodes: list[dict[str, Any]] = []
+    for node_id in node_ids:
+        node = node_items[node_order[node_id]]
+        status = issue_status_by_node.get(node_id) or contract_status_by_node.get(node_id) or "ready"
+        if status not in {"ready", "warning", "blocked"}:
+            status = "ready"
+        x = layer_by_node.get(node_id, 0) * spacing["x"]
+        y = lane_by_node.get(node_id, 0) * spacing["y"]
+        preview_nodes.append(
+            {
+                "id": node_id,
+                "index": node_order[node_id] + 1,
+                "layer": layer_by_node.get(node_id, 0),
+                "lane": lane_by_node.get(node_id, 0),
+                "x": x,
+                "y": y,
+                "position": {"x": x, "y": y},
+                "kind": str(node.get("kind") or "").strip(),
+                "title": str(node.get("title") or node.get("kind") or node_id).strip(),
+                "status": status,
+                "incoming_count": len(incoming.get(node_id, [])),
+                "outgoing_count": len(outgoing.get(node_id, [])),
+                "incoming": incoming.get(node_id, [])[:8],
+                "outgoing": outgoing.get(node_id, [])[:8],
+            }
+        )
+
+    node_position = {
+        str(item.get("id") or ""): {
+            "x": safe_int(item.get("x"), 0),
+            "y": safe_int(item.get("y"), 0),
+        }
+        for item in preview_nodes
+    }
+    data_edges: list[dict[str, Any]] = []
+    seen_data_edges: set[tuple[str, str, str]] = set()
+    for contract_node in contract_nodes if isinstance(contract_nodes, list) else []:
+        if not isinstance(contract_node, dict):
+            continue
+        target_id = str(contract_node.get("id") or "").strip()
+        if target_id not in node_id_set:
+            continue
+        for ref in contract_node.get("input_refs") if isinstance(contract_node.get("input_refs"), list) else []:
+            if not isinstance(ref, dict):
+                continue
+            source_id = str(ref.get("upstream_node_id") or "").strip()
+            if not source_id or source_id not in node_id_set or source_id == target_id:
+                continue
+            input_name = str(ref.get("name") or "").strip()
+            key = (source_id, target_id, input_name)
+            if key in seen_data_edges:
+                continue
+            seen_data_edges.add(key)
+            status = str(ref.get("status") or "").strip()
+            if status not in {"ready", "warning", "blocked", "failed", "draft", "pending"}:
+                status = "ready"
+            data_edges.append(
+                {
+                    "id": safe_id(f"data-{source_id}-{target_id}-{input_name}") or f"data-{len(data_edges) + 1}",
+                    "index": len(data_edges),
+                    "kind": "data_ref",
+                    "from": source_id,
+                    "to": target_id,
+                    "from_index": node_order.get(source_id, 0),
+                    "to_index": node_order.get(target_id, 0),
+                    "input_name": input_name,
+                    "source": str(ref.get("source") or "").strip(),
+                    "output_key": str(ref.get("upstream_output_key") or "").strip(),
+                    "status": "blocked" if status in {"blocked", "failed"} else "warning" if status in {"warning", "draft", "pending"} else "ready",
+                    "code": str(ref.get("code") or "").strip(),
+                }
+            )
+
+    edges = [*control_edges, *data_edges]
+    for edge in edges:
+        source_pos = node_position.get(str(edge.get("from") or ""), {"x": 0, "y": 0})
+        target_pos = node_position.get(str(edge.get("to") or ""), {"x": 0, "y": 0})
+        edge["points"] = [
+            {"x": source_pos["x"] + spacing["node_width"], "y": source_pos["y"] + spacing["node_height"] // 2},
+            {"x": target_pos["x"], "y": target_pos["y"] + spacing["node_height"] // 2},
+        ]
+    bounds_width = (
+        max((safe_int(item.get("x"), 0) for item in preview_nodes), default=0)
+        + spacing["node_width"]
+    )
+    bounds_height = (
+        max((safe_int(item.get("y"), 0) for item in preview_nodes), default=0)
+        + spacing["node_height"]
+    )
+
+    return {
+        "schema": "relaygraph.workflow_template.topology_preview.v1",
+        "layout_mode": layout_mode,
+        "node_count": len(node_ids),
+        "edge_count": len(edges),
+        "control_edge_count": len(control_edges),
+        "data_edge_count": len(data_edges),
+        "layer_count": len(layers),
+        "branch_count": branch_count,
+        "join_count": join_count,
+        "disconnected_count": disconnected_count,
+        "cycle_detected": bool(cycle_node_ids),
+        "cycle_node_ids": cycle_node_ids[:12],
+        "dangling_link_count": len(dangling_links),
+        "dangling_links": dangling_links[:12],
+        "spacing": spacing,
+        "bounds": {"width": bounds_width, "height": bounds_height},
+        "layers": layers,
+        "nodes": preview_nodes,
+        "edges": edges,
+        "control_edges": control_edges,
+        "data_edges": data_edges,
+    }
+
 def _snapshot_node_key(node: dict[str, Any]) -> str:
     return str(node.get("id") or node.get("kind") or node.get("title") or "").strip()
 
@@ -932,6 +1178,14 @@ def workflow_template_snapshot_diff(
         "current_count": len(current_link_list),
         "truncated": len(previous_link_list) > 40 or len(current_link_list) > 40,
     }
+    previous_topology = workflow_template_topology_preview(previous_node_list, previous.get("links"))
+    current_topology = workflow_template_topology_preview(current_node_list, current.get("links"))
+    topology_preview = {
+        "schema": "relaygraph.workflow_template.topology_diff_preview.v1",
+        "layout_changed": previous_topology.get("layout_mode") != current_topology.get("layout_mode"),
+        "previous": previous_topology,
+        "current": current_topology,
+    }
     return {
         "schema": "relaygraph.workflow_template.snapshot_diff.v1",
         "status": status,
@@ -978,6 +1232,7 @@ def workflow_template_snapshot_diff(
         "migration_plan": migration_plan,
         "structure_preview": structure_preview,
         "link_preview": link_preview,
+        "topology_preview": topology_preview,
     }
 
 def normalize_workspace_instance_from_template(

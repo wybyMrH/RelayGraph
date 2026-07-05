@@ -21555,6 +21555,180 @@ function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "", ioState
   `;
 }
 
+function workflowTemplateTopologyPreviewFromState(nodes = [], ioStates = []) {
+  const backend = state.workflowTemplateValidation?.preview?.topology_preview;
+  if (
+    backend &&
+    typeof backend === "object" &&
+    backend.schema === "relaygraph.workflow_template.topology_preview.v1" &&
+    Number(backend.node_count || 0) === nodes.length
+  ) {
+    return backend;
+  }
+  const spacing = { x: 220, y: 76, node_width: 170, node_height: 46 };
+  const links = workspaceLinksFromNodes(nodes);
+  const topologyNodes = nodes.map((node, index) => {
+    const io = ioStates[index] || workflowTemplateNodeIoState(node, index, nodes);
+    return {
+      id: String(node.id || "").trim(),
+      index: index + 1,
+      layer: index,
+      lane: 0,
+      x: index * spacing.x,
+      y: 0,
+      position: { x: index * spacing.x, y: 0 },
+      kind: String(node.kind || "").trim(),
+      title: String(node.title || workspaceNodeLabel(node.kind || "") || `节点 ${index + 1}`).trim(),
+      status: io.status || "ready",
+      incoming_count: index > 0 ? 1 : 0,
+      outgoing_count: index < nodes.length - 1 ? 1 : 0,
+      incoming: index > 0 ? [String(nodes[index - 1]?.id || "")] : [],
+      outgoing: index < nodes.length - 1 ? [String(nodes[index + 1]?.id || "")] : [],
+    };
+  });
+  const nodePosition = new Map(topologyNodes.map((node) => [node.id, node]));
+  const controlEdges = links.map((link, index) => {
+    const fromNode = nodePosition.get(String(link.from || "")) || {};
+    const toNode = nodePosition.get(String(link.to || "")) || {};
+    return {
+      id: String(link.id || `edge-${index + 1}`),
+      index,
+      kind: "control_link",
+      from: String(link.from || ""),
+      to: String(link.to || ""),
+      status: "ready",
+      points: [
+        { x: Number(fromNode.x || 0) + spacing.node_width, y: Number(fromNode.y || 0) + spacing.node_height / 2 },
+        { x: Number(toNode.x || 0), y: Number(toNode.y || 0) + spacing.node_height / 2 },
+      ],
+    };
+  });
+  return {
+    schema: "relaygraph.workflow_template.topology_preview.v1",
+    layout_mode: nodes.length ? "sequence" : "empty",
+    node_count: topologyNodes.length,
+    edge_count: controlEdges.length,
+    control_edge_count: controlEdges.length,
+    data_edge_count: 0,
+    layer_count: topologyNodes.length,
+    branch_count: 0,
+    join_count: 0,
+    disconnected_count: topologyNodes.length > 1 ? 0 : 0,
+    cycle_detected: false,
+    cycle_node_ids: [],
+    dangling_link_count: 0,
+    dangling_links: [],
+    spacing,
+    bounds: {
+      width: Math.max(spacing.node_width, (topologyNodes.length - 1) * spacing.x + spacing.node_width),
+      height: spacing.node_height,
+    },
+    layers: topologyNodes.map((node) => ({ index: node.layer, node_ids: [node.id], count: 1 })),
+    nodes: topologyNodes,
+    edges: controlEdges,
+    control_edges: controlEdges,
+    data_edges: [],
+  };
+}
+
+function workflowTemplateTopologyLayoutLabel(mode = "") {
+  const value = String(mode || "").trim();
+  if (value === "sequence") return "顺序链";
+  if (value === "branch") return "分支/汇合";
+  if (value === "graph") return "图结构";
+  if (value === "cyclic") return "存在环";
+  if (value === "isolated") return "未连接";
+  if (value === "empty") return "空模板";
+  return "拓扑";
+}
+
+function workflowTemplateTopologyPreviewMarkup(nodes = [], ioStates = [], search = null) {
+  const topology = workflowTemplateTopologyPreviewFromState(nodes, ioStates);
+  const topologyNodes = Array.isArray(topology.nodes) ? topology.nodes : [];
+  if (!topologyNodes.length) return "";
+  const nodeById = new Map(nodes.map((node, index) => [String(node?.id || ""), { node, index }]));
+  const matchIndexes = search?.matchIndexes instanceof Set ? search.matchIndexes : new Set();
+  const query = String(search?.query || "").trim();
+  const spacing = topology.spacing && typeof topology.spacing === "object"
+    ? topology.spacing
+    : { x: 220, y: 76, node_width: 170, node_height: 46 };
+  const bounds = topology.bounds && typeof topology.bounds === "object" ? topology.bounds : {};
+  const padding = 12;
+  const width = Math.max(320, Number(bounds.width || 0) + padding * 2);
+  const height = Math.max(70, Number(bounds.height || 0) + padding * 2);
+  const selectedId = String(state.selectedTemplateNodeId || "").trim();
+  const edges = Array.isArray(topology.edges) ? topology.edges.slice(0, 160) : [];
+  const lines = edges.map((edge) => {
+    const points = Array.isArray(edge.points) ? edge.points : [];
+    const p1 = points[0] || {};
+    const p2 = points[1] || {};
+    const status = String(edge.status || "ready").trim() || "ready";
+    const kind = String(edge.kind || "control_link").trim() || "control_link";
+    return `<line class="workflow-template-layout-edge kind-${escapeHtml(kind)} status-${escapeHtml(status)}" x1="${Number(p1.x || 0) + padding}" y1="${Number(p1.y || 0) + padding}" x2="${Number(p2.x || 0) + padding}" y2="${Number(p2.y || 0) + padding}" />`;
+  }).join("");
+  const nodeMarkup = topologyNodes.map((item) => {
+    const id = String(item.id || "").trim();
+    const source = nodeById.get(id) || {};
+    const node = source.node || {};
+    const index = Number.isFinite(source.index) ? source.index : Math.max(0, Number(item.index || 1) - 1);
+    const phase = workspaceStarterNodePhase(item.kind || node.kind || "");
+    const tone = WORKSPACE_FLOW_PHASE_TONES[phase] || "other";
+    const matched = !query || matchIndexes.has(index);
+    const searchClass = query ? (matched ? " search-match" : " search-dim") : "";
+    const active = id && id === selectedId ? " active" : "";
+    const status = String(item.status || ioStates[index]?.status || "ready").trim() || "ready";
+    const x = Number(item.x ?? item.position?.x ?? index * Number(spacing.x || 220)) + padding;
+    const y = Number(item.y ?? item.position?.y ?? 0) + padding;
+    const label = String(item.title || node.title || workspaceNodeLabel(item.kind || node.kind || "") || id || `节点 ${index + 1}`).trim();
+    const detail = [
+      phase,
+      item.outgoing_count > 1 ? `${Number(item.outgoing_count || 0)} 出` : "",
+      item.incoming_count > 1 ? `${Number(item.incoming_count || 0)} 入` : "",
+      ioStates[index]?.hint || "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <button
+        class="workflow-template-layout-node tone-${escapeHtml(tone)} status-${escapeHtml(status)}${active}${searchClass}"
+        type="button"
+        data-action="select-template-node"
+        data-node-id="${escapeHtml(id)}"
+        style="left:${x}px;top:${y}px;width:${Number(spacing.node_width || 170)}px;height:${Number(spacing.node_height || 46)}px"
+        title="${escapeHtml(`${label} · ${detail}`)}"
+      >
+        <span>${escapeHtml(String(index + 1))}</span>
+        <strong>${escapeHtml(label)}</strong>
+        <em>${escapeHtml(detail || workspaceStatusLabel(status))}</em>
+      </button>
+    `;
+  }).join("");
+  const badges = [
+    workflowTemplateTopologyLayoutLabel(topology.layout_mode),
+    `${Number(topology.node_count || topologyNodes.length)} 节点`,
+    `${Number(topology.control_edge_count || 0)} 控制边`,
+    Number(topology.data_edge_count || 0) ? `${Number(topology.data_edge_count || 0)} 数据边` : "",
+    Number(topology.branch_count || 0) ? `${Number(topology.branch_count || 0)} 分支` : "",
+    Number(topology.join_count || 0) ? `${Number(topology.join_count || 0)} 汇合` : "",
+    Number(topology.dangling_link_count || 0) ? `${Number(topology.dangling_link_count || 0)} 悬空边` : "",
+  ].filter(Boolean);
+  const topologyStatus = topology.cycle_detected || Number(topology.dangling_link_count || 0) ? "warning" : "ready";
+  return `
+    <div class="workflow-template-layout-preview status-${escapeHtml(topologyStatus)}">
+      <div class="workflow-template-layout-head">
+        <strong>${escapeHtml("拓扑预览")}</strong>
+        <span>${badges.map((item) => `<em>${escapeHtml(item)}</em>`).join("")}</span>
+      </div>
+      <div class="workflow-template-layout-rail" aria-label="模板拓扑布局预览">
+        <div class="workflow-template-layout-stage" style="width:${width}px;height:${height}px">
+          <svg class="workflow-template-layout-edges" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">
+            ${lines}
+          </svg>
+          ${nodeMarkup}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderWorkflowTemplateCanvas() {
   const root = $("workflowTemplateCanvas");
   if (!root) return;
@@ -21576,6 +21750,7 @@ function renderWorkflowTemplateCanvas() {
   });
   const edgeMarkup = workflowTemplateEdgeInspectorMarkup(nodes, selectedIndex);
   const phaseMap = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates, search);
+  const topologyPreview = workflowTemplateTopologyPreviewMarkup(nodes, ioStates, search);
   root.innerHTML = `
     <div class="workflow-template-canvas-head">
       <div>
@@ -21590,6 +21765,7 @@ function renderWorkflowTemplateCanvas() {
       </div>
     </div>
     ${workflowTemplateCanvasSearchToolsMarkup(search)}
+    ${topologyPreview}
     ${phaseMap}
     <div class="workflow-template-flow-viewport" aria-label="模板顺序链路画布">
       <div class="workflow-template-flow-track">
@@ -21623,6 +21799,12 @@ function refreshWorkflowTemplateCanvasFlowSummary() {
     const replacement = document.createElement("div");
     replacement.innerHTML = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates, search).trim();
     phaseMap.replaceWith(replacement.firstElementChild);
+  }
+  const topologyPreview = root.querySelector(".workflow-template-layout-preview");
+  if (topologyPreview) {
+    const replacement = document.createElement("div");
+    replacement.innerHTML = workflowTemplateTopologyPreviewMarkup(nodes, ioStates, search).trim();
+    topologyPreview.replaceWith(replacement.firstElementChild);
   }
   const track = root.querySelector(".workflow-template-flow-track");
   if (track) {
@@ -21659,6 +21841,13 @@ function refreshWorkflowTemplateCanvasSearchDecorations() {
     nodeEl.classList.toggle("search-dim", Boolean(search.query && !matched));
   });
   root.querySelectorAll(".workflow-template-phase-node").forEach((nodeEl) => {
+    const nodeId = String(nodeEl.dataset.nodeId || "").trim();
+    const index = nodes.findIndex((node) => String(node?.id || "") === nodeId);
+    const matched = !search.query || search.matchIndexes.has(index);
+    nodeEl.classList.toggle("search-match", Boolean(search.query && matched));
+    nodeEl.classList.toggle("search-dim", Boolean(search.query && !matched));
+  });
+  root.querySelectorAll(".workflow-template-layout-node").forEach((nodeEl) => {
     const nodeId = String(nodeEl.dataset.nodeId || "").trim();
     const index = nodes.findIndex((node) => String(node?.id || "") === nodeId);
     const matched = !search.query || search.matchIndexes.has(index);
