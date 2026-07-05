@@ -78,7 +78,213 @@ class AgentsMixin:
             return "host.exec 默认拒绝递归放开根目录权限。"
         if re.search(r"(^|[;&|]\s*)(sudo\s+)?chown\s+-r\s+[^;&|]+\s+/", compact):
             return "host.exec 默认拒绝递归改写根目录属主。"
+        diagnostic_reason = self.workspace_tool_host_exec_diagnostic_block_reason(text)
+        if diagnostic_reason:
+            return diagnostic_reason
         return ""
+
+
+    def workspace_tool_host_exec_diagnostic_block_reason(self, command: str) -> str:
+        text = str(command or "").strip()
+        if not text:
+            return ""
+        if re.search(r"[\n\r;&|<>`]", text) or "$(" in text:
+            return "host.exec 仅允许单条只读诊断命令；复杂 shell、管道或重定向请放到配置化 job.run。"
+        try:
+            parts = shlex.split(text, posix=True)
+        except ValueError as exc:
+            return f"host.exec 命令无法安全解析：{exc}"
+        if not parts:
+            return ""
+
+        executable = os.path.basename(str(parts[0] or "").strip()).lower()
+        args = [str(item or "").strip() for item in parts[1:]]
+        if executable in {"sudo", "su", "sh", "bash", "zsh", "fish", "powershell", "pwsh"}:
+            return "host.exec 不允许通过提权或 shell 包装器执行；请改用人工确认后的配置化工作流。"
+        if executable in {"python", "python3", "python.exe", "python3.exe", "node", "perl", "ruby", "php"}:
+            if self.workspace_tool_host_exec_version_only(executable, args):
+                return ""
+            return "host.exec 的解释器命令只允许版本探测；脚本执行请走配置化 job.run。"
+
+        sensitive_pattern = re.compile(
+            r"(^|/)(\.ssh|\.gnupg|\.aws|\.azure|\.config/gcloud)(/|$)|"
+            r"(^|/)(id_rsa|id_ed25519|known_hosts|authorized_keys|\.master_key)(\s|$)|"
+            r"(api[_-]?key|access[_-]?token|secret|password)",
+            re.IGNORECASE,
+        )
+        for arg in parts:
+            if sensitive_pattern.search(str(arg or "")):
+                return "host.exec 诊断命令不允许读取或枚举密钥、令牌、SSH 配置等敏感路径。"
+
+        allowed_simple = {
+            "pwd",
+            "whoami",
+            "id",
+            "hostname",
+            "uname",
+            "date",
+            "uptime",
+            "df",
+            "du",
+            "free",
+            "nvidia-smi",
+            "ls",
+            "stat",
+            "wc",
+            "ps",
+            "pgrep",
+            "lscpu",
+            "lsmem",
+            "lsblk",
+            "lspci",
+            "ip",
+            "ss",
+            "netstat",
+            "mount",
+            "printenv",
+            "which",
+            "whereis",
+        }
+        if executable in allowed_simple:
+            return self.workspace_tool_host_exec_option_block_reason(executable, args)
+        if executable == "top":
+            if self.workspace_tool_host_exec_top_is_bounded(args):
+                return ""
+            return "host.exec 只允许有界 top 诊断，例如 top -b -n 1。"
+        if executable == "systemctl":
+            return self.workspace_tool_host_exec_systemctl_block_reason(args)
+        if executable == "git":
+            return self.workspace_tool_host_exec_git_block_reason(args)
+        if executable == "conda":
+            return self.workspace_tool_host_exec_conda_block_reason(args)
+        if executable in {"pip", "pip3"}:
+            if self.workspace_tool_host_exec_version_only(executable, args):
+                return ""
+            return "host.exec 的 pip 命令只允许版本探测；安装/卸载请走配置化 env.prepare。"
+        if executable == "docker":
+            return self.workspace_tool_host_exec_docker_block_reason(args)
+        return "host.exec 仅允许主机/环境诊断命令；运行程序、训练或环境变更请使用配置化 job.run/env.prepare。"
+
+
+    def workspace_tool_host_exec_option_block_reason(self, executable: str, args: list[str]) -> str:
+        lowered = [arg.lower() for arg in args]
+        blocked_tokens = {
+            "-delete",
+            "-exec",
+            "-execdir",
+            "-ok",
+            "-okdir",
+            "--remove",
+            "--delete",
+            "--in-place",
+            "--follow",
+        }
+        for arg in lowered:
+            if arg in blocked_tokens or arg.startswith("--output="):
+                return f"host.exec 诊断命令不允许 {arg} 这类会修改、持续跟随或写出文件的参数。"
+        if executable == "date":
+            if any(arg in {"-s", "--set"} or arg.startswith("--set=") for arg in lowered):
+                return "host.exec 诊断命令不允许修改系统时间。"
+        if executable == "hostname":
+            allowed = {"", "-i", "-I".lower(), "-f", "--fqdn", "-s", "--short", "--all-ip-addresses"}
+            if any(arg not in allowed for arg in lowered):
+                return "host.exec 诊断命令不允许修改主机名。"
+        if executable == "mount":
+            if any(arg and not arg.startswith("-") for arg in lowered):
+                return "host.exec 的 mount 只允许查看挂载状态，不允许挂载/卸载路径。"
+        if executable == "ip":
+            mutating = {"set", "add", "del", "delete", "flush", "replace", "change", "append", "save", "restore", "monitor"}
+            if any(arg in mutating for arg in lowered):
+                return "host.exec 的 ip 只允许网络状态查询，不允许修改网络配置或持续监听。"
+        if executable == "nvidia-smi":
+            mutating_prefixes = (
+                "-pm",
+                "--persistence-mode",
+                "-pl",
+                "--power-limit",
+                "--gpu-reset",
+                "--reset-gpu",
+                "-r",
+                "-rac",
+                "-gom",
+                "-c",
+                "--compute-mode",
+            )
+            if any(any(arg == prefix or arg.startswith(prefix + "=") for prefix in mutating_prefixes) for arg in lowered):
+                return "host.exec 的 nvidia-smi 只允许查询，不允许修改 GPU 状态。"
+        if executable in {"tail"} and any(arg in {"-f", "--follow"} for arg in lowered):
+            return "host.exec 诊断命令不允许持续跟随日志；请使用日志接口或受控 job 输出。"
+        if executable == "printenv":
+            secret_terms = ("key", "token", "secret", "password", "credential")
+            for arg in lowered:
+                if any(term in arg for term in secret_terms):
+                    return "host.exec 诊断命令不允许直接打印疑似密钥或令牌环境变量。"
+        return ""
+
+
+    def workspace_tool_host_exec_top_is_bounded(self, args: list[str]) -> bool:
+        lowered = [arg.lower() for arg in args]
+        has_batch = any(arg == "-b" or arg.startswith("-b") for arg in lowered)
+        if not has_batch:
+            return False
+        for index, arg in enumerate(lowered):
+            if arg == "-n" and index + 1 < len(lowered) and lowered[index + 1] == "1":
+                return True
+            if arg.startswith("-n") and arg[2:] == "1":
+                return True
+        return False
+
+
+    def workspace_tool_host_exec_systemctl_block_reason(self, args: list[str]) -> str:
+        if not args:
+            return "host.exec 的 systemctl 只允许状态查询子命令。"
+        subcommand = args[0].lower()
+        allowed = {"status", "is-active", "is-enabled", "list-units", "list-unit-files", "show"}
+        if subcommand not in allowed:
+            return "host.exec 的 systemctl 只允许状态查询；启动、停止或重载服务请走人工确认后的工作流。"
+        return self.workspace_tool_host_exec_option_block_reason("systemctl", args)
+
+
+    def workspace_tool_host_exec_git_block_reason(self, args: list[str]) -> str:
+        if not args:
+            return "host.exec 的 git 只允许只读查询子命令。"
+        subcommand = args[0].lower()
+        allowed = {"status", "diff", "log", "show", "branch", "rev-parse", "remote", "describe"}
+        if subcommand not in allowed:
+            return "host.exec 的 git 只允许只读查询；clone/pull/checkout 等变更请走配置化工具或工作流。"
+        return self.workspace_tool_host_exec_option_block_reason("git", args)
+
+
+    def workspace_tool_host_exec_conda_block_reason(self, args: list[str]) -> str:
+        if not args:
+            return "host.exec 的 conda 只允许环境查询子命令。"
+        subcommand = args[0].lower()
+        if subcommand in {"--version", "-v"}:
+            return ""
+        if subcommand in {"info", "list"}:
+            return self.workspace_tool_host_exec_option_block_reason("conda", args)
+        if subcommand == "env" and len(args) >= 2 and args[1].lower() in {"list", "export"}:
+            return self.workspace_tool_host_exec_option_block_reason("conda", args)
+        return "host.exec 的 conda 只允许 info/list/env list/env export；创建或安装请走配置化 env.prepare。"
+
+
+    def workspace_tool_host_exec_docker_block_reason(self, args: list[str]) -> str:
+        if not args:
+            return "host.exec 的 docker 只允许状态查询子命令。"
+        subcommand = args[0].lower()
+        allowed = {"ps", "images", "info", "version"}
+        if subcommand == "stats":
+            if "--no-stream" in {arg.lower() for arg in args[1:]}:
+                return ""
+            return "host.exec 的 docker stats 必须使用 --no-stream。"
+        if subcommand not in allowed:
+            return "host.exec 的 docker 只允许状态查询；启动/停止容器请走配置化工作流。"
+        return self.workspace_tool_host_exec_option_block_reason("docker", args)
+
+
+    def workspace_tool_host_exec_version_only(self, executable: str, args: list[str]) -> bool:
+        _ = executable
+        return len(args) == 1 and args[0].lower() in {"--version", "-v"}
 
 
     def workspace_tool_runtime_node_kind(self, tool_id: str) -> str:
@@ -113,6 +319,153 @@ class AgentsMixin:
         if python_version:
             command_parts.append("python=" + shlex.quote(python_version))
         return " ".join(command_parts)
+
+
+    def workspace_tool_observe_options(self, args: dict[str, Any]) -> dict[str, Any]:
+        data = args if isinstance(args, dict) else {}
+        requested = bool(
+            data.get("wait_for_completion")
+            or data.get("wait_until_complete")
+            or data.get("observe")
+            or data.get("observe_job")
+        )
+        seconds = safe_float(data.get("observe_seconds"), 0.0)
+        if seconds <= 0:
+            seconds = safe_float(data.get("wait_timeout_seconds"), 0.0)
+        if seconds <= 0 and requested:
+            seconds = 30.0
+        seconds = min(max(seconds, 0.0), 300.0)
+        poll_interval = safe_float(data.get("poll_interval_seconds"), 0.5)
+        poll_interval = min(max(poll_interval, 0.05), 5.0)
+        log_tail_lines = safe_int(data.get("log_tail_lines"), 120)
+        log_tail_lines = min(max(log_tail_lines, 0), 2000)
+        return {
+            "enabled": requested or seconds > 0,
+            "seconds": seconds,
+            "poll_interval": poll_interval,
+            "log_tail_lines": log_tail_lines,
+        }
+
+
+    def workspace_tool_job_snapshot(self, job_id: str) -> dict[str, Any] | None:
+        target = str(job_id or "").strip()
+        if not target:
+            return None
+        with self.lock:
+            job = next((item for item in self.jobs if str(item.get("id") or "").strip() == target), None)
+            return copy.deepcopy(job) if isinstance(job, dict) else None
+
+
+    def workspace_tool_run_snapshot(self, workspace_id: str, run_id: str) -> dict[str, Any] | None:
+        workspace_id = str(workspace_id or "").strip()
+        run_id = str(run_id or "").strip()
+        if not workspace_id or not run_id:
+            return None
+        with self.lock:
+            workspace = self.workspace_by_id(workspace_id)
+            runs = workspace.get("runs") if isinstance(workspace, dict) and isinstance(workspace.get("runs"), list) else []
+            run = next((item for item in runs if str(item.get("id") or "").strip() == run_id), None)
+            return copy.deepcopy(run) if isinstance(run, dict) else None
+
+
+    def observe_workspace_tool_job(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        run_id: str,
+        options: dict[str, Any],
+    ) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        job_id = str(job_id or "").strip()
+        run_id = str(run_id or "").strip()
+        seconds = safe_float(options.get("seconds"), 0.0)
+        poll_interval = safe_float(options.get("poll_interval"), 0.5)
+        log_tail_lines = safe_int(options.get("log_tail_lines"), 120)
+        terminal_statuses = {"done", "failed", "stopped"}
+        started = time.monotonic()
+        deadline = started + seconds
+        timed_out = False
+        last_job = self.workspace_tool_job_snapshot(job_id)
+
+        while True:
+            if last_job and str(last_job.get("status") or "").strip() in terminal_statuses:
+                break
+            if time.monotonic() > deadline:
+                timed_out = True
+                break
+            try:
+                self.refresh_status()
+                self.monitor_jobs()
+            except Exception as exc:  # noqa: BLE001 - observation reports scheduler issues in-band.
+                return {
+                    "observed": True,
+                    "status": "error",
+                    "runtime_status": "error",
+                    "job_status": str((last_job or {}).get("status") or "").strip(),
+                    "error": f"job observation failed: {exc}",
+                    "observe_seconds": round(time.monotonic() - started, 3),
+                }
+            last_job = self.workspace_tool_job_snapshot(job_id)
+            if last_job and str(last_job.get("status") or "").strip() in terminal_statuses:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            wait_for = min(max(poll_interval, 0.05), remaining)
+            stop_event = getattr(self, "stop_event", None)
+            if stop_event is not None and stop_event.wait(wait_for):
+                timed_out = True
+                break
+            if stop_event is None:
+                time.sleep(wait_for)
+
+        if workspace_id:
+            self.sync_workspace_execution_runs_from_jobs(workspace_id)
+        last_job = self.workspace_tool_job_snapshot(job_id) or last_job or {}
+        job_status = str(last_job.get("status") or "").strip()
+        result_status = job_status if job_status in terminal_statuses else "timeout" if timed_out else job_status or "unknown"
+        log_tail = ""
+        log_error = ""
+        if log_tail_lines > 0 and last_job:
+            try:
+                if hasattr(self, "job_log_payload"):
+                    payload = self.job_log_payload(last_job, lines=log_tail_lines)
+                    log_tail = str(payload.get("log") or "")
+                else:
+                    log_tail = str(self.tail_log(last_job, lines=log_tail_lines))
+            except Exception as exc:  # noqa: BLE001 - log tail should not hide job status.
+                log_error = str(exc)
+        if len(log_tail) > 12000:
+            log_tail = log_tail[-12000:]
+        observed_run = self.workspace_tool_run_snapshot(workspace_id, run_id)
+        payload: dict[str, Any] = {
+            "observed": True,
+            "status": result_status,
+            "runtime_status": result_status,
+            "job_status": job_status,
+            "timed_out": bool(timed_out),
+            "observe_seconds": round(time.monotonic() - started, 3),
+            "job": copy.deepcopy(last_job) if isinstance(last_job, dict) else {},
+            "job_id": job_id,
+        }
+        if run_id:
+            payload["run_id"] = run_id
+        if observed_run:
+            payload["run"] = observed_run
+        if log_tail:
+            payload["log_tail"] = log_tail
+            payload["log_line_count"] = len(log_tail.splitlines())
+        if log_error:
+            payload["log_error"] = log_error
+        if result_status in {"failed", "stopped"}:
+            payload["error"] = str(last_job.get("error") or f"job {result_status}").strip()
+        elif result_status == "timeout":
+            payload["message"] = "观察窗口已结束，任务仍在队列或运行中；后续状态会继续通过 run/job 事件同步。"
+        elif result_status == "done":
+            payload["message"] = "任务已完成，观察结果和日志尾部已返回。"
+        return payload
 
 
     def submit_workspace_tool_job(
@@ -255,6 +608,17 @@ class AgentsMixin:
                 job_payload["command_display"] = command
             if "wait_for_idle" in args:
                 job_payload["wait_for_idle"] = bool(args.get("wait_for_idle"))
+            if tool == "host.exec":
+                job_payload["gpu_index"] = "none"
+                metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}
+                metadata["execution_mode"] = "cpu"
+                runtime_binding = metadata.get("runtime_binding") if isinstance(metadata.get("runtime_binding"), dict) else {}
+                runtime_binding["gpu_policy"] = "cpu"
+                runtime_binding["gpu_index"] = "none"
+                runtime_binding["execution_mode"] = "cpu"
+                metadata["runtime_binding"] = runtime_binding
+                job_payload["metadata"] = metadata
+            observe_options = self.workspace_tool_observe_options(args)
             metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}
             metadata.update(
                 {
@@ -277,17 +641,32 @@ class AgentsMixin:
                 persisted = self.workspace_by_id(workspace_id)
                 if persisted and isinstance(persisted.get("runs"), list):
                     workspace["runs"] = copy.deepcopy(persisted["runs"])
-            return {
+            result = {
                 "status": "submitted",
                 "tool": tool,
                 "controlled": True,
                 "runtime_control": "workspace_job_queue",
+                "runtime_side_effect": "workspace_job",
+                "observed": False,
                 "job": copy.deepcopy(job),
                 "job_id": str(job.get("id") or "").strip(),
                 "run": copy.deepcopy(run),
                 "run_id": str(run.get("id") or "").strip(),
                 "message": "任务已通过受控 workspace job 队列提交。",
             }
+            if observe_options.get("enabled") and safe_float(observe_options.get("seconds"), 0.0) > 0:
+                observation = self.observe_workspace_tool_job(
+                    workspace_id=workspace_id,
+                    job_id=str(job.get("id") or "").strip(),
+                    run_id=str(run.get("id") or "").strip(),
+                    options=observe_options,
+                )
+                result.update(observation)
+                result["tool"] = tool
+                result["controlled"] = True
+                result["runtime_control"] = "workspace_job_queue"
+                result["runtime_side_effect"] = "workspace_job"
+            return result
         except Exception as exc:  # noqa: BLE001 - tools report errors inside the agent loop.
             return {"status": "error", "tool": tool, "controlled": True, "error": str(exc)}
 
@@ -315,70 +694,22 @@ class AgentsMixin:
         gpu_index = str(selected.get("gpu_index") if selected.get("gpu_index") is not None else "").strip()
         min_free_mib = safe_int(args.get("min_free_mib"), 0)
         min_free_gib = round(min_free_mib / 1024, 2) if min_free_mib else 0
-        updated_kinds: list[str] = []
-
-        def apply_binding(nodes: Any) -> list[str]:
-            changed: list[str] = []
-            for node in (nodes if isinstance(nodes, list) else []):
-                if not isinstance(node, dict):
-                    continue
-                kind = str(node.get("kind") or "").strip()
-                if kind not in {"gpu.allocate", "run.command"}:
-                    continue
-                config = node.get("config") if isinstance(node.get("config"), dict) else {}
-                config["server_id"] = server_id
-                config["gpu_policy"] = "auto"
-                config["gpu_index"] = gpu_index
-                if kind == "gpu.allocate" and min_free_gib:
-                    config["min_free_memory_gib"] = str(min_free_gib)
-                node["config"] = config
-                changed.append(kind)
-            return changed
-
-        nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
-        updated_kinds.extend(apply_binding(nodes))
-        execution = workspace.get("execution") if isinstance(workspace.get("execution"), dict) else {}
-        updated_kinds.extend(apply_binding(execution.get("nodes") if isinstance(execution, dict) else []))
-
-        persisted = False
-        persisted_workspace: dict[str, Any] | None = None
-        workspace_id = str(workspace.get("id") or "").strip()
-        if workspace_id:
-            with self.lock:
-                index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
-                if index >= 0:
-                    persisted_workspace = self.workspaces[index]
-                    persisted_kinds: list[str] = []
-                    persisted_kinds.extend(apply_binding(persisted_workspace.get("nodes")))
-                    persisted_execution = persisted_workspace.get("execution") if isinstance(persisted_workspace.get("execution"), dict) else {}
-                    persisted_kinds.extend(apply_binding(persisted_execution.get("nodes") if isinstance(persisted_execution, dict) else []))
-                    if persisted_kinds:
-                        persisted_workspace["updated_at"] = now_iso()
-                        persisted = True
-                        updated_kinds.extend(persisted_kinds)
-            if persisted:
-                self.save_workspaces()
-                with self.lock:
-                    current = self.workspace_by_id(workspace_id)
-                    if current:
-                        persisted_workspace = self.workspace_public_payload(current)
-                if persisted_workspace:
-                    self.publish_event(
-                        "workspace.updated",
-                        workspace_id=workspace_id,
-                        payload={"workspace": copy.deepcopy(persisted_workspace)},
-                    )
-
-        unique_updated_kinds = list(dict.fromkeys(updated_kinds))
         return {
-            "status": "bound",
+            "status": "planned",
             "tool": "gpu.allocate",
             "controlled": True,
+            "runtime_control": "scheduler_plan",
             "runtime_side_effect": "none",
+            "plan_only": True,
             "selected": copy.deepcopy(selected),
-            "persisted": persisted,
-            "updated_node_kinds": unique_updated_kinds,
-            "message": "GPU 候选已绑定到 gpu.allocate/run.command 配置；实际执行仍走 job 队列。",
+            "recommended_binding": {
+                "server_id": server_id,
+                "gpu_policy": "auto",
+                "gpu_index": gpu_index,
+                "min_free_memory_gib": str(min_free_gib) if min_free_gib else "",
+            },
+            "persisted": False,
+            "message": "已生成 GPU 候选和绑定建议；未修改配置。需要持久化时请在配置中心应用调度目标，实际执行仍走 job 队列。",
         }
 
 
@@ -486,8 +817,10 @@ class AgentsMixin:
         output_format: str = "",
         max_iterations: int | None = None,
         timeout_seconds: float | None = None,
+        run_id: str = "",
     ) -> dict[str, Any]:
         workspace_id = str(workspace.get("id") or "").strip()
+        execution_run_id = str(run_id or "").strip()
         tools = normalize_workspace_tools(workspace.get("tools"), existing=workspace.get("tools"))
         model_config = workspace.get("model") if isinstance(workspace.get("model"), dict) else {}
         routing_mode = str(model_config.get("routing_mode") or "workspace_default").strip() or "workspace_default"
@@ -510,10 +843,25 @@ class AgentsMixin:
                 "final_answer": "",
             }
         profile = self.provider_profile_by_id(effective_profile_id)
-        if not profile or not profile.get("api_key"):
+        if not profile:
             return {
                 "success": False,
-                "error": "Provider profile not found or API key not configured",
+                "error": "Provider profile not found",
+                "final_answer": "",
+            }
+        from ..registry import provider_profile_health
+
+        health = provider_profile_health(profile)
+        if not health.get("ready"):
+            missing_fields = [
+                str(item or "").strip()
+                for item in (health.get("missing_fields") if isinstance(health.get("missing_fields"), list) else [])
+                if str(item or "").strip()
+            ]
+            detail = ", ".join(missing_fields) if missing_fields else "profile is not ready"
+            return {
+                "success": False,
+                "error": f"Provider profile is not ready: {detail}",
                 "final_answer": "",
             }
 
@@ -544,6 +892,7 @@ class AgentsMixin:
             self.publish_event(
                 event_type,
                 workspace_id=workspace_id,
+                run_id=execution_run_id,
                 agent_execution_id=execution_id,
                 payload={
                     **(event_payload if isinstance(event_payload, dict) else {}),
@@ -559,6 +908,7 @@ class AgentsMixin:
             self.publish_event(
                 "agent.step.created",
                 workspace_id=workspace_id,
+                run_id=execution_run_id,
                 agent_execution_id=execution_id,
                 payload={
                     "step": copy.deepcopy(step_payload) if isinstance(step_payload, dict) else {},
@@ -574,6 +924,7 @@ class AgentsMixin:
             self.publish_event(
                 "agent.message.delta",
                 workspace_id=workspace_id,
+                run_id=execution_run_id,
                 agent_execution_id=execution_id,
                 payload={
                     "delta": str(delta or ""),
@@ -643,6 +994,7 @@ class AgentsMixin:
         self.publish_event(
             "agent.completed" if execution_result.success else "agent.failed",
             workspace_id=workspace_id,
+            run_id=execution_run_id,
             agent_execution_id=execution_id,
             payload={
                 "execution": copy.deepcopy(result),
@@ -742,6 +1094,7 @@ class AgentsMixin:
                 output_format=output_format,
                 max_iterations=max_iterations,
                 timeout_seconds=timeout_seconds,
+                run_id=context.run_id,
             )
             return {"execution": execution}
 

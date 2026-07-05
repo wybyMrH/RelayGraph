@@ -296,7 +296,12 @@ def derive_workspace_dataset_discovery_plan(
         "hints": hints[:12],
         "expected_layout": expected_layout,
         "found_datasets": found_datasets[:12],
-        "root_verification": workspace_dataset_root_verification(local_roots, found_datasets, hints),
+        "root_verification": workspace_dataset_root_verification(
+            local_roots,
+            found_datasets,
+            hints,
+            workspace_dir=str(workspace.get("workspace_dir") or "").strip(),
+        ),
         "evidence_count": safe_int(evidence_group.get("count"), 0),
         "actions": actions,
         "next_action": next_action,
@@ -306,15 +311,25 @@ def workspace_dataset_root_verification(
     local_roots: list[str],
     found_datasets: list[str],
     hints: list[str],
+    *,
+    workspace_dir: str = "",
 ) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     seen: set[str] = set()
+    workspace_path = Path(workspace_dir).expanduser() if workspace_dir else None
+
+    def resolve_root(value: str) -> Path:
+        path = Path(value).expanduser()
+        if not path.is_absolute() and workspace_path:
+            return workspace_path / path
+        return path
+
     for raw in local_roots:
         value = str(raw or "").strip()
         if not value or value in seen:
             continue
         seen.add(value)
-        path = Path(value).expanduser()
+        path = resolve_root(value)
         if path.exists() and path.is_dir():
             items.append({"path": value, "status": "verified"})
         else:
@@ -324,9 +339,9 @@ def workspace_dataset_root_verification(
         if not value or value in seen:
             continue
         seen.add(value)
-        path = Path(value).expanduser()
-        if path.exists():
-            items.append({"path": value, "status": "found" if path.is_dir() else "verified"})
+        path = resolve_root(value)
+        if path.exists() and path.is_dir():
+            items.append({"path": value, "status": "found"})
         else:
             items.append({"path": value, "status": "hint"})
     return items[:24]

@@ -121,6 +121,10 @@ class FilesMixin:
 
     def update_preview_cache_settings(self, body: dict[str, Any]) -> dict[str, Any]:
         settings = save_preview_cache_settings(body or {})
+        runtime_settings = load_runtime_storage_settings()
+        runtime_settings["preview_max_age_hours"] = settings["max_age_hours"]
+        runtime_settings["preview_max_size_mib"] = settings["max_size_mib"]
+        save_runtime_storage_settings(runtime_settings)
         return {"settings": settings, **self.preview_cache_status()}
 
 
@@ -142,6 +146,210 @@ class FilesMixin:
         self.last_preview_cache_cleanup = now
         result = cleanup_preview_cache(max_age_hours=max_age_hours, max_size_mib=max_size_mib)
         self.prune_preview_cache_index()
+        return result
+
+
+    def runtime_storage_status(self, *, include_remote: bool = True) -> dict[str, Any]:
+        settings = load_runtime_storage_settings()
+        preview = self.preview_cache_status()
+        logs = local_runtime_log_stats()
+        return {
+            "settings": settings,
+            "paths": {
+                "local_logs": "data/logs",
+                "remote_logs": "$HOME/.total_control/logs",
+                "preview_cache": preview.get("cache_dir") or str(FILE_PREVIEW_CACHE_DIR),
+            },
+            "preview_cache": preview,
+            "local_logs": logs,
+            "remote_logs": self.remote_runtime_log_statuses() if include_remote else [],
+        }
+
+
+    def update_runtime_storage_settings(self, body: dict[str, Any]) -> dict[str, Any]:
+        settings = save_runtime_storage_settings(body or {})
+        return {**self.runtime_storage_status(), "settings": settings}
+
+
+    def active_runtime_log_paths(self) -> dict[str, Any]:
+        active_statuses = {"queued", "starting", "running", "blocked"}
+        with self.lock:
+            jobs = [
+                copy.deepcopy(job)
+                for job in getattr(self, "jobs", [])
+                if str(job.get("status") or "") in active_statuses
+            ]
+        local_paths: list[str] = []
+        remote_by_server: dict[str, list[str]] = {}
+        for job in jobs:
+            log_path = str(job.get("log_path") or "").strip()
+            if log_path:
+                local_paths.append(log_path)
+            remote_path = str(job.get("remote_log_path") or "").strip()
+            server_id = str(job.get("server_id") or "").strip()
+            if remote_path and server_id:
+                remote_by_server.setdefault(server_id, []).append(remote_path)
+        return {"local": local_paths, "remote_by_server": remote_by_server}
+
+
+    def reset_runtime_storage(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        settings = reset_runtime_storage_settings()
+        payload: dict[str, Any] = {"settings": settings, **self.runtime_storage_status()}
+        if isinstance(body, dict) and body.get("cleanup"):
+            payload["cleanup"] = self.cleanup_runtime_storage_manual(
+                {
+                    "include_preview": True,
+                    "include_logs": True,
+                    "include_remote": bool(body.get("include_remote", True)),
+                    "remove_all": True,
+                }
+            )
+        return payload
+
+
+    def remote_runtime_log_statuses(
+        self,
+        *,
+        cleanup: bool = False,
+        max_age_hours: int = 0,
+        max_size_mib: int = 0,
+        remove_all: bool = False,
+        preserve_paths_by_server: dict[str, list[str]] | None = None,
+    ) -> list[dict[str, Any]]:
+        with self.lock:
+            servers = [copy.deepcopy(server) for server in self.servers if server.mode != "local" and server.enabled]
+            statuses_by_id = {
+                str(status.get("id") or ""): copy.deepcopy(status)
+                for status in self.statuses
+                if isinstance(status, dict)
+            }
+            timeout = min(max(int(self.config.remote_timeout_seconds or 4) + 2, 4), 10)
+        results: list[dict[str, Any]] = []
+        for server in servers:
+            cached = statuses_by_id.get(server.id) or {}
+            if not cached:
+                results.append(
+                    {
+                        "server_id": server.id,
+                        "server_name": server.name,
+                        "log_dir": "$HOME/.total_control/logs",
+                        "error": "等待监控快照，未读取远程日志",
+                        "skipped": True,
+                    }
+                )
+                continue
+            if cached and not cached.get("reachable") and not cached.get("online"):
+                results.append(
+                    {
+                        "server_id": server.id,
+                        "server_name": server.name,
+                        "log_dir": "$HOME/.total_control/logs",
+                        "error": runtime_storage_error_summary(cached.get("error") or "server unreachable"),
+                        "skipped": True,
+                    }
+                )
+                continue
+            try:
+                results.append(
+                    remote_runtime_log_payload(
+                        server,
+                        timeout=timeout,
+                        cleanup=cleanup,
+                        max_age_hours=max_age_hours,
+                        max_size_mib=max_size_mib,
+                        remove_all=remove_all,
+                        preserve_paths=(preserve_paths_by_server or {}).get(server.id, []),
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - one remote host should not block maintenance UI.
+                results.append(
+                    {
+                        "server_id": server.id,
+                        "server_name": server.name,
+                        "log_dir": "$HOME/.total_control/logs",
+                        "error": runtime_storage_error_summary(exc),
+                    }
+                )
+        return results
+
+
+    def cleanup_runtime_storage_manual(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = body if isinstance(body, dict) else {}
+        include_preview = bool(data.get("include_preview", True))
+        include_logs = bool(data.get("include_logs", True))
+        include_remote = bool(data.get("include_remote", True))
+        remove_all = bool(data.get("remove_all", False))
+        settings = normalize_runtime_storage_settings({**load_runtime_storage_settings(), **data})
+        protected = self.active_runtime_log_paths()
+        result: dict[str, Any] = {
+            "preview_cache": None,
+            "local_logs": None,
+            "remote_logs": [],
+        }
+        if include_preview:
+            result["preview_cache"] = cleanup_preview_cache(
+                max_age_hours=0 if remove_all else int(settings.get("preview_max_age_hours") or 0),
+                max_size_mib=0 if remove_all else int(settings.get("preview_max_size_mib") or 0),
+                remove_all=remove_all,
+            )
+            self.prune_preview_cache_index()
+        if include_logs:
+            result["local_logs"] = cleanup_runtime_logs(
+                max_age_hours=0 if remove_all else int(settings.get("log_max_age_hours") or 0),
+                max_size_mib=0 if remove_all else int(settings.get("log_max_size_mib") or 0),
+                remove_all=remove_all,
+                preserve_paths=protected.get("local") if isinstance(protected, dict) else [],
+            )
+            if include_remote:
+                result["remote_logs"] = self.remote_runtime_log_statuses(
+                    cleanup=True,
+                    max_age_hours=0 if remove_all else int(settings.get("log_max_age_hours") or 0),
+                    max_size_mib=0 if remove_all else int(settings.get("log_max_size_mib") or 0),
+                    remove_all=remove_all,
+                    preserve_paths_by_server=(
+                        protected.get("remote_by_server") if isinstance(protected, dict) else {}
+                    ),
+                )
+        result["status"] = self.runtime_storage_status(include_remote=include_remote)
+        return result
+
+
+    def maybe_auto_cleanup_runtime_storage(self, *, force: bool = False) -> dict[str, Any] | None:
+        settings = load_runtime_storage_settings()
+        preview_age = int(settings.get("preview_max_age_hours") or 0)
+        preview_size = int(settings.get("preview_max_size_mib") or 0)
+        log_age = int(settings.get("log_max_age_hours") or 0)
+        log_size = int(settings.get("log_max_size_mib") or 0)
+        if preview_age <= 0 and preview_size <= 0 and log_age <= 0 and log_size <= 0:
+            return None
+        now = time.time()
+        interval = max(300, int(settings.get("auto_cleanup_interval_minutes") or 60) * 60)
+        if not force and now - float(getattr(self, "last_runtime_storage_cleanup", 0.0) or 0.0) < interval:
+            return None
+        self.last_runtime_storage_cleanup = now
+        protected = self.active_runtime_log_paths()
+        result: dict[str, Any] = {
+            "preview_cache": cleanup_preview_cache(
+                max_age_hours=preview_age,
+                max_size_mib=preview_size,
+            ),
+            "local_logs": cleanup_runtime_logs(
+                max_age_hours=log_age,
+                max_size_mib=log_size,
+                preserve_paths=protected.get("local") if isinstance(protected, dict) else [],
+            ),
+            "remote_logs": [],
+        }
+        self.prune_preview_cache_index()
+        if settings.get("remote_log_cleanup_enabled") and (log_age > 0 or log_size > 0):
+            result["remote_logs"] = self.remote_runtime_log_statuses(
+                cleanup=True,
+                max_age_hours=log_age,
+                max_size_mib=log_size,
+                preserve_paths_by_server=(
+                    protected.get("remote_by_server") if isinstance(protected, dict) else {}
+                ),
+            )
         return result
 
 

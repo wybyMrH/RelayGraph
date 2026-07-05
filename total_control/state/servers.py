@@ -230,15 +230,61 @@ class ServersMixin:
         return run_server_checks(server, max(self.config.remote_timeout_seconds, 4))
 
 
-    def stop_process(self, server_id: str, pid: Any) -> dict[str, Any]:
+    def process_stop_context(self, server_id: str, pid: Any) -> dict[str, Any]:
+        target_pid = safe_int(pid, 0)
+        if target_pid <= 0:
+            raise ValueError("invalid pid")
+        with self.lock:
+            status = next(
+                (
+                    copy.deepcopy(item)
+                    for item in getattr(self, "statuses", [])
+                    if str(item.get("id") or "") == str(server_id)
+                ),
+                {},
+            )
+        host_resources = status.get("host_resources") if isinstance(status.get("host_resources"), dict) else {}
+        current_user = str(status.get("current_user") or host_resources.get("current_user") or "").strip()
+        process = next(
+            (
+                item
+                for item in (status.get("processes") if isinstance(status.get("processes"), list) else [])
+                if str(item.get("pid") or "") == str(target_pid)
+            ),
+            {},
+        )
+        owner = str(process.get("user") or "").strip() if isinstance(process, dict) else ""
+        command = str(process.get("command") or process.get("process_name") or "").strip() if isinstance(process, dict) else ""
+        confirmation_required = not (current_user and owner and owner == current_user)
+        reason = ""
+        if confirmation_required:
+            reason = "owner_unknown" if not current_user or not owner else "not_current_user"
+        return {
+            "server_id": server_id,
+            "pid": target_pid,
+            "current_user": current_user,
+            "owner": owner,
+            "command": command,
+            "confirmation_required": confirmation_required,
+            "reason": reason,
+        }
+
+
+    def stop_process(self, server_id: str, pid: Any, body: dict[str, Any] | None = None) -> dict[str, Any]:
         server = self.server_by_id(server_id)
         if not server:
             raise ValueError("server not found")
         target_pid = safe_int(pid, 0)
         if target_pid <= 0:
             raise ValueError("invalid pid")
-        return stop_server_process(
+        context = self.process_stop_context(server_id, target_pid)
+        data = body if isinstance(body, dict) else {}
+        if context["confirmation_required"] and not bool(data.get("confirm_non_owner")):
+            raise PermissionError("关闭非当前用户或归属未知的进程前需要确认。")
+        result = stop_server_process(
             server,
             target_pid,
             grace_seconds=10,
         )
+        result["process_stop"] = context
+        return result

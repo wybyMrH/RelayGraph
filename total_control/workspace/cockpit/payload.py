@@ -186,6 +186,7 @@ def normalize_workspace_payload(
     current = existing or {}
     source_current = current.get("source") if isinstance(current.get("source"), dict) else {}
     env_current = current.get("env") if isinstance(current.get("env"), dict) else {}
+    env_payload = payload.get("env") if isinstance(payload.get("env"), dict) else {}
     recipes_current = current.get("recipes") if isinstance(current.get("recipes"), list) else []
     recipe_existing = recipes_current[0] if recipes_current and isinstance(recipes_current[0], dict) else None
 
@@ -218,9 +219,9 @@ def normalize_workspace_payload(
     created_at = str(current.get("created_at") or "").strip() or now_iso()
     status = str(payload.get("status") or current.get("status") or "draft").strip() or "draft"
     workspace_dir = str(payload.get("workspace_dir") or current.get("workspace_dir") or "").strip()
-    env_name = str(payload.get("env_name") or env_current.get("name") or "").strip()
-    env_manager = str(payload.get("env_manager") or env_current.get("manager") or "").strip()
-    python_version = str(payload.get("python_version") or env_current.get("python") or "").strip()
+    env_name = str(payload.get("env_name") or env_payload.get("name") or env_current.get("name") or "").strip()
+    env_manager = str(payload.get("env_manager") or env_payload.get("manager") or env_current.get("manager") or "").strip()
+    python_version = str(payload.get("python_version") or env_payload.get("python") or env_current.get("python") or "").strip()
     raw_nodes = payload.get("nodes") if isinstance(payload.get("nodes"), list) else None
     raw_links = payload.get("links") if isinstance(payload.get("links"), list) else None
     raw_tools = payload.get("tools") if isinstance(payload.get("tools"), list) else None

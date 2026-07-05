@@ -6,8 +6,125 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote
 
-from ..events import stream_workspace_events
-from ..utils import safe_int
+from ..events import public_job_event_payload, stream_workspace_events
+from ..utils import now_iso, safe_int
+
+
+def _workspace_jobs_snapshot(state: Any, workspace_id: str) -> list[dict[str, Any]]:
+    jobs = getattr(state, "jobs", [])
+    items: list[dict[str, Any]] = []
+    for job in jobs if isinstance(jobs, list) else []:
+        if not isinstance(job, dict):
+            continue
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        if str(metadata.get("workspace_id") or "").strip() != workspace_id:
+            continue
+        items.append(public_job_event_payload(job))
+    return items
+
+
+def _workspace_stream_snapshot_event(state: Any, workspace_id: str, gap: dict[str, Any]) -> dict[str, Any]:
+    if hasattr(state, "sync_workspace_execution_runs_from_jobs"):
+        state.sync_workspace_execution_runs_from_jobs(workspace_id)
+    with state.lock:
+        workspace = state.workspace_by_id(workspace_id)
+        if not workspace:
+            raise ValueError("workspace not found")
+        public_workspace = state.workspace_public_payload(workspace)
+        jobs = _workspace_jobs_snapshot(state, workspace_id)
+    automation = public_workspace.get("automation") if isinstance(public_workspace.get("automation"), dict) else {}
+    cockpit = automation.get("cockpit") if isinstance(automation.get("cockpit"), dict) else {}
+    latest_id = state.event_broker.latest_event_id()
+    return {
+        "id": latest_id,
+        "type": "workspace.snapshot",
+        "workspace_id": workspace_id,
+        "run_id": "",
+        "job_id": "",
+        "agent_execution_id": "",
+        "created_at": now_iso(),
+        "payload": {
+            "workspace_id": workspace_id,
+            "workspace": public_workspace,
+            "runs": public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else [],
+            "jobs": jobs,
+            "cockpit": cockpit,
+            "execution": public_workspace.get("execution") if isinstance(public_workspace.get("execution"), dict) else {},
+            "automation": automation,
+            "snapshot_reason": str(gap.get("reason") or "event_replay_gap"),
+            "gap": copy.deepcopy(gap),
+        },
+    }
+
+
+def _workspace_events_replay_payload(
+    state: Any,
+    workspace_id: str,
+    *,
+    since_id: int = 0,
+    limit: int = 200,
+) -> dict[str, Any]:
+    workspace_id = str(workspace_id or "").strip()
+    since_id = safe_int(since_id, 0)
+    limit = min(max(safe_int(limit, 200), 1), 1000)
+    broker = state.event_broker
+    gap = broker.replay_gap(since_id, workspace_id=workspace_id)
+    latest_id = broker.latest_event_id()
+    first_retained_id = broker.first_retained_event_id(workspace_id=workspace_id)
+    if gap:
+        snapshot = _workspace_stream_snapshot_event(state, workspace_id, gap)
+        snapshot_id = safe_int(snapshot.get("id"), latest_id)
+        return {
+            "workspace_id": workspace_id,
+            "since_id": since_id,
+            "next_since_id": snapshot_id,
+            "latest_id": latest_id,
+            "first_retained_id": first_retained_id,
+            "gap": copy.deepcopy(gap),
+            "limited": False,
+            "events": [snapshot],
+            "replay_mode": "snapshot",
+        }
+
+    retained_events = broker.events_after(since_id, workspace_id=workspace_id)
+    if len(retained_events) > limit:
+        omitted_until_id = safe_int(retained_events[-limit - 1].get("id"), since_id) if limit < len(retained_events) else since_id
+        limited_gap = {
+            "reason": "replay_limit_exceeded",
+            "requested_since_id": since_id,
+            "dropped_until_id": omitted_until_id,
+            "first_retained_id": first_retained_id,
+            "latest_id": latest_id,
+            "retained_count": len(retained_events),
+            "limit": limit,
+        }
+        snapshot = _workspace_stream_snapshot_event(state, workspace_id, limited_gap)
+        snapshot_id = safe_int(snapshot.get("id"), latest_id)
+        return {
+            "workspace_id": workspace_id,
+            "since_id": since_id,
+            "next_since_id": snapshot_id,
+            "latest_id": latest_id,
+            "first_retained_id": first_retained_id,
+            "gap": limited_gap,
+            "limited": True,
+            "events": [snapshot],
+            "replay_mode": "snapshot",
+        }
+    limited = False
+    events = retained_events
+    next_since_id = safe_int(events[-1].get("id"), since_id) if events else since_id
+    return {
+        "workspace_id": workspace_id,
+        "since_id": since_id,
+        "next_since_id": next_since_id,
+        "latest_id": latest_id,
+        "first_retained_id": first_retained_id,
+        "gap": None,
+        "limited": limited,
+        "events": events,
+        "replay_mode": "events",
+    }
 
 
 def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
@@ -83,19 +200,48 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
             handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
             return True
         query = parse_qs(parsed.query)
-        since_id = safe_int((query.get("since") or [handler.headers.get("Last-Event-ID", "0")])[0], 0)
+        query_since_id = safe_int((query.get("since") or ["0"])[0], 0)
+        header_since_id = safe_int(handler.headers.get("Last-Event-ID", "0"), 0)
+        since_id = max(query_since_id, header_since_id)
+        gap = state.event_broker.replay_gap(since_id, workspace_id=workspace_id)
+        prelude_events = [_workspace_stream_snapshot_event(state, workspace_id, gap)] if gap else []
         stream_workspace_events(
             handler,
             state.event_broker,
             workspace_id,
             since_id=since_id,
             stop_event=getattr(state, "stop_event", None),
+            prelude_events=prelude_events,
+        )
+        return True
+    if parsed.path.startswith("/api/workspaces/") and len(parts) == 6 and parts[4] == "events" and parts[5] == "replay":
+        workspace_id = unquote(parts[3])
+        if not state.workspace_by_id(workspace_id):
+            handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+            return True
+        query = parse_qs(parsed.query)
+        since_id = safe_int((query.get("since") or ["0"])[0], 0)
+        limit = safe_int((query.get("limit") or ["200"])[0], 200)
+        handler.send_json(
+            _workspace_events_replay_payload(
+                state,
+                workspace_id,
+                since_id=since_id,
+                limit=limit,
+            )
         )
         return True
     if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/cockpit"):
         workspace_id = parsed.path.split("/")[3]
         try:
             handler.send_json(state.workspace_cockpit_payload(workspace_id))
+        except ValueError:
+            handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+        return True
+    if parsed.path.startswith("/api/workspaces/") and len(parts) == 5 and parts[4] == "template-diff":
+        workspace_id = unquote(parts[3])
+        try:
+            handler.send_json(state.workspace_template_diff(workspace_id))
         except ValueError:
             handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
         return True
@@ -230,6 +376,9 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/admin/preview-cache":
         handler.send_json(state.preview_cache_status())
         return True
+    if parsed.path == "/api/admin/runtime-storage":
+        handler.send_json(state.runtime_storage_status())
+        return True
     if parsed.path.startswith("/api/servers/") and parsed.path.endswith("/tmux"):
         server_id = parsed.path.split("/")[3]
         try:
@@ -282,7 +431,16 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
         if not job:
             handler.send_json({"error": "job not found"}, HTTPStatus.NOT_FOUND)
             return True
-        handler.send_json({"job_id": job_id, "log": state.tail_log(job)})
+        query = parse_qs(parsed.query)
+        lines = safe_int((query.get("lines") or ["200"])[0], 200)
+        max_bytes = safe_int((query.get("max_bytes") or ["131072"])[0], 131072)
+        offset = None
+        if "offset" in query:
+            offset = safe_int((query.get("offset") or ["0"])[0], 0)
+        if hasattr(state, "job_log_payload"):
+            handler.send_json(state.job_log_payload(job, lines=lines, offset=offset, max_bytes=max_bytes))
+        else:
+            handler.send_json({"job_id": job_id, "mode": "tail", "log": state.tail_log(job, lines=lines)})
         return True
     if parsed.path.startswith("/api/"):
         handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)

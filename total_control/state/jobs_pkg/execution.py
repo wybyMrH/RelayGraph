@@ -2,7 +2,97 @@
 
 from __future__ import annotations
 
+import base64
+
 from ._deps import *  # noqa: F403
+
+
+def _read_text_file_tail(path: Path, *, lines: int = 200, max_bytes: int = 4 * 1024 * 1024) -> str:
+    line_count = max(1, int(lines or 1))
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return ""
+    if size <= 0:
+        return ""
+
+    read_bytes = min(size, 64 * 1024)
+    max_read = max(read_bytes, min(size, max_bytes))
+    raw = b""
+    while True:
+        try:
+            with path.open("rb") as handle:
+                handle.seek(max(0, size - read_bytes))
+                raw = handle.read(read_bytes)
+        except OSError:
+            return ""
+        if read_bytes >= size or raw.count(b"\n") >= line_count or read_bytes >= max_read:
+            break
+        read_bytes = min(size, read_bytes * 2, max_read)
+
+    return "\n".join(raw.decode("utf-8", errors="replace").splitlines()[-line_count:])
+
+
+def _read_text_file_chunk(path: Path, *, offset: int = 0, max_bytes: int = 131072) -> dict[str, Any]:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return {
+            "log": "",
+            "offset": max(0, int(offset or 0)),
+            "next_offset": max(0, int(offset or 0)),
+            "file_size": 0,
+            "byte_count": 0,
+            "truncated": False,
+            "skipped_bytes": 0,
+            "exists": False,
+        }
+    start = max(0, int(offset or 0))
+    if size < start:
+        start = 0
+    limit = max(1024, min(int(max_bytes or 131072), 1024 * 1024))
+    read_from = start
+    skipped_bytes = 0
+    if size - start > limit:
+        read_from = max(0, size - limit)
+        skipped_bytes = max(0, read_from - start)
+    if size <= read_from:
+        return {
+            "log": "",
+            "offset": read_from,
+            "next_offset": size,
+            "file_size": size,
+            "byte_count": 0,
+            "truncated": skipped_bytes > 0,
+            "skipped_bytes": skipped_bytes,
+            "exists": True,
+        }
+    try:
+        with path.open("rb") as handle:
+            handle.seek(read_from)
+            raw = handle.read(limit)
+    except OSError:
+        raw = b""
+    return {
+        "log": raw.decode("utf-8", errors="replace"),
+        "offset": read_from,
+        "requested_offset": start,
+        "next_offset": size,
+        "file_size": size,
+        "byte_count": len(raw),
+        "truncated": skipped_bytes > 0,
+        "skipped_bytes": skipped_bytes,
+        "exists": True,
+    }
+
+
+def _remote_tail_path(path_text: str) -> str:
+    text = str(path_text or "").strip()
+    if text == "$HOME":
+        return '"$HOME"'
+    if text.startswith("$HOME/"):
+        return '"$HOME"/' + shlex.quote(text[6:])
+    return shlex.quote(text)
 
 
 class ExecutionJobsMixin:
@@ -86,105 +176,129 @@ class ExecutionJobsMixin:
         *,
         publish_events: bool = True,
     ) -> None:
+        with self.lock:
+            status = str(job.get("status") or "").strip()
+            if status == "running" and self.tmux_running(job):
+                return
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            launching_at = safe_float(metadata.get("_launching_at"), 0.0)
+            if launching_at and time.time() - launching_at < 30:
+                return
+            metadata["_launching_at"] = time.time()
+            job["metadata"] = metadata
         gpuless = str(job.get("gpu_index") or "").strip().lower() in {"none", "no_gpu", "cpu"}
-        if gpuless:
-            job["gpu_index"] = "none"
-            if str(job.get("server_id") or "").strip() in {"", "auto"}:
-                ok, selected_server_id, reason = self.pick_server_for_job(job)
+        try:
+            if gpuless:
+                job["gpu_index"] = "none"
+                if str(job.get("server_id") or "").strip() in {"", "auto"}:
+                    ok, selected_server_id, reason = self.pick_server_for_job(job)
+                    if not ok:
+                        job["error"] = reason
+                        return
+                    job["server_id"] = selected_server_id
+            elif not allow_busy:
+                ok, selected_server_id, gpu_index, reason = self.find_gpu(job)
                 if not ok:
                     job["error"] = reason
                     return
                 job["server_id"] = selected_server_id
-        elif not allow_busy:
-            ok, selected_server_id, gpu_index, reason = self.find_gpu(job)
-            if not ok:
-                job["error"] = reason
-                return
-            job["server_id"] = selected_server_id
-            job["gpu_index"] = gpu_index
-        elif job.get("gpu_index") == "auto":
-            ok, selected_server_id, gpu_index, _reason = self.find_gpu(job)
-            if selected_server_id:
-                job["server_id"] = selected_server_id
-            job["gpu_index"] = gpu_index if ok else 0
+                job["gpu_index"] = gpu_index
+            elif job.get("gpu_index") == "auto":
+                ok, selected_server_id, gpu_index, _reason = self.find_gpu(job)
+                if selected_server_id:
+                    job["server_id"] = selected_server_id
+                job["gpu_index"] = gpu_index if ok else 0
 
-        server = self.server_by_id(str(job.get("server_id") or ""))
-        if not server:
-            job["status"] = "failed"
-            job["error"] = "unknown server"
-            self.save_jobs()
-            self.sync_workspace_execution_runs_from_jobs()
-            if publish_events:
-                self.publish_job_event(job, "job.updated")
-            return
-        self.apply_server_paths(job, server)
-
-        runtime_command = str(job.get("command") or "")
-        runtime_display = str(job.get("command_display") or runtime_command)
-        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
-        transfer_spec = metadata.get("transfer_spec") if isinstance(metadata.get("transfer_spec"), dict) else None
-        if str(job.get("kind") or "") == "transfer" and transfer_spec:
-            try:
-                runtime_command, runtime_display = build_transfer_command(transfer_spec, self.servers)
-                job["command"] = runtime_display
-                job["command_display"] = runtime_display
-            except ValueError as exc:
+            server = self.server_by_id(str(job.get("server_id") or ""))
+            if not server:
                 job["status"] = "failed"
-                job["finished_at"] = now_iso()
-                job["error"] = str(exc)
+                job["error"] = "unknown server"
+                metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+                metadata.pop("_launching_at", None)
+                job["metadata"] = metadata
                 self.save_jobs()
                 self.sync_workspace_execution_runs_from_jobs()
                 if publish_events:
                     self.publish_job_event(job, "job.updated")
                 return
+            self.apply_server_paths(job, server)
 
-        session = job["session"]
-        if server.mode == "local":
-            log_path = str(local_log_path(server.id, job["id"]).resolve())
-            script = build_job_script(
-                job,
-                log_path,
-                remote=False,
-                server=server,
-                command_override=runtime_command,
-                command_display=runtime_display,
-            )
-            command = tmux_new_session_args(session, "bash -lc " + shlex.quote(script))
-            result = run_command(command, timeout=5)
-        else:
-            log_path = str(local_log_path(server.id, job["id"]).resolve())
-            remote_path = remote_log_path(job["id"])
-            script = build_job_script(
-                job,
-                remote_path,
-                remote=True,
-                server=server,
-                command_override=runtime_command,
-                command_display=runtime_display,
-            )
-            shell_command = "bash -lc " + shlex.quote(script)
-            remote_command = (
-                f"tmux new-session -d -s {shlex.quote(session)} "
-                f"-x {TMUX_DEFAULT_COLUMNS} -y {TMUX_DEFAULT_ROWS} "
-                f"{shlex.quote(shell_command)}"
-            )
-            result = ssh_command(server, remote_command, timeout=self.config.remote_timeout_seconds)
+            runtime_command = str(job.get("command") or "")
+            runtime_display = str(job.get("command_display") or runtime_command)
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            transfer_spec = metadata.get("transfer_spec") if isinstance(metadata.get("transfer_spec"), dict) else None
+            if str(job.get("kind") or "") == "transfer" and transfer_spec:
+                try:
+                    runtime_command, runtime_display = build_transfer_command(transfer_spec, self.servers)
+                    job["command"] = runtime_display
+                    job["command_display"] = runtime_display
+                except ValueError as exc:
+                    job["status"] = "failed"
+                    job["finished_at"] = now_iso()
+                    job["error"] = str(exc)
+                    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+                    metadata.pop("_launching_at", None)
+                    job["metadata"] = metadata
+                    self.save_jobs()
+                    self.sync_workspace_execution_runs_from_jobs()
+                    if publish_events:
+                        self.publish_job_event(job, "job.updated")
+                    return
 
-        job["log_path"] = log_path
-        if server.mode != "local":
-            job["remote_log_path"] = remote_log_path(job["id"])
-        if result.returncode == 0:
-            job["status"] = "running"
-            job["started_at"] = now_iso()
-            job["error"] = ""
-        else:
-            job["status"] = "failed"
-            job["finished_at"] = now_iso()
-            job["error"] = (result.stderr.strip() or result.stdout.strip() or "tmux start failed")[-1000:]
-        self.save_jobs()
-        self.sync_workspace_execution_runs_from_jobs()
-        if publish_events:
-            self.publish_job_event(job, "job.updated")
+            session = job["session"]
+            if server.mode == "local":
+                log_path = str(local_log_path(server.id, job["id"]).resolve())
+                script = build_job_script(
+                    job,
+                    log_path,
+                    remote=False,
+                    server=server,
+                    command_override=runtime_command,
+                    command_display=runtime_display,
+                )
+                command = tmux_new_session_args(session, "bash -lc " + shlex.quote(script))
+                result = run_command(command, timeout=5)
+            else:
+                log_path = str(local_log_path(server.id, job["id"]).resolve())
+                remote_path = remote_log_path(job["id"])
+                script = build_job_script(
+                    job,
+                    remote_path,
+                    remote=True,
+                    server=server,
+                    command_override=runtime_command,
+                    command_display=runtime_display,
+                )
+                shell_command = "bash -lc " + shlex.quote(script)
+                remote_command = (
+                    f"tmux new-session -d -s {shlex.quote(session)} "
+                    f"-x {TMUX_DEFAULT_COLUMNS} -y {TMUX_DEFAULT_ROWS} "
+                    f"{shlex.quote(shell_command)}"
+                )
+                result = ssh_command(server, remote_command, timeout=self.config.remote_timeout_seconds)
+
+            job["log_path"] = log_path
+            if server.mode != "local":
+                job["remote_log_path"] = remote_log_path(job["id"])
+            if result.returncode == 0:
+                job["status"] = "running"
+                job["started_at"] = now_iso()
+                job["error"] = ""
+            else:
+                job["status"] = "failed"
+                job["finished_at"] = now_iso()
+                job["error"] = (result.stderr.strip() or result.stdout.strip() or "tmux start failed")[-1000:]
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            metadata.pop("_launching_at", None)
+            job["metadata"] = metadata
+            self.save_jobs()
+            self.sync_workspace_execution_runs_from_jobs()
+            if publish_events:
+                self.publish_job_event(job, "job.updated")
+        finally:
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            metadata.pop("_launching_at", None)
+            job["metadata"] = metadata
 
 
     def tmux_running(self, job: dict[str, Any]) -> bool:
@@ -209,12 +323,11 @@ class ExecutionJobsMixin:
         if server.mode == "local":
             if not local_path.exists():
                 return ""
-            data = local_path.read_text(encoding="utf-8", errors="replace").splitlines()
-            return "\n".join(data[-lines:])
+            return _read_text_file_tail(local_path, lines=lines)
         remote_path = str(job.get("remote_log_path") or remote_log_path(job["id"]))
         result = ssh_command(
             server,
-            f"tail -n {int(lines)} {remote_path} 2>/dev/null || true",
+            f"tail -n {int(lines)} -- {_remote_tail_path(remote_path)} 2>/dev/null || true",
             timeout=self.config.remote_timeout_seconds,
         )
         if result.returncode == 0:
@@ -222,9 +335,190 @@ class ExecutionJobsMixin:
             local_path.write_text(result.stdout, encoding="utf-8")
             return result.stdout
         if local_path.exists():
-            data = local_path.read_text(encoding="utf-8", errors="replace").splitlines()
-            return "\n".join(data[-lines:])
+            return _read_text_file_tail(local_path, lines=lines)
         return result.stderr.strip()
+
+
+    def _remote_job_log_chunk(self, job: dict[str, Any], *, offset: int = 0, max_bytes: int = 131072) -> dict[str, Any]:
+        server = self.server_by_id(job["server_id"])
+        if not server:
+            return {"log": "unknown server", "offset": 0, "next_offset": 0, "file_size": 0, "byte_count": 0}
+        marker = "TC_JOB_LOG_CHUNK_" + uuid.uuid4().hex
+        remote_path_text = str(job.get("remote_log_path") or remote_log_path(job["id"]))
+        script = r'''
+import base64
+import json
+import os
+import sys
+
+marker = sys.argv[1]
+path_text = sys.argv[2]
+offset = max(0, int(sys.argv[3]))
+max_bytes = max(1024, min(int(sys.argv[4]), 1048576))
+root = os.path.realpath(os.path.expanduser("~/.total_control/logs"))
+
+def emit(payload):
+    print(marker + json.dumps(payload, separators=(",", ":")))
+
+def normalize(path):
+    text = str(path or "").strip()
+    if text == "$HOME" or text.startswith("$HOME/"):
+        text = os.path.join(os.path.expanduser("~"), text[6:].lstrip("/"))
+    text = os.path.expanduser(text)
+    real = os.path.realpath(text)
+    if real == root or real.startswith(root.rstrip(os.sep) + os.sep):
+        return real
+    return ""
+
+path = normalize(path_text)
+if not path:
+    emit({"error": "path outside log root", "offset": offset, "next_offset": offset, "data": ""})
+    raise SystemExit(0)
+if os.path.islink(path) or not os.path.isfile(path):
+    emit({"exists": False, "offset": offset, "next_offset": offset, "file_size": 0, "data": ""})
+    raise SystemExit(0)
+
+size = os.path.getsize(path)
+if size < offset:
+    offset = 0
+read_from = offset
+skipped = 0
+if size - offset > max_bytes:
+    read_from = max(0, size - max_bytes)
+    skipped = max(0, read_from - offset)
+if size <= read_from:
+    emit({"exists": True, "offset": read_from, "next_offset": size, "file_size": size, "data": "", "skipped_bytes": skipped, "truncated": skipped > 0})
+    raise SystemExit(0)
+with open(path, "rb") as handle:
+    handle.seek(read_from)
+    data = handle.read(max_bytes)
+emit({
+    "exists": True,
+    "offset": read_from,
+    "requested_offset": offset,
+    "next_offset": size,
+    "file_size": size,
+    "byte_count": len(data),
+    "skipped_bytes": skipped,
+    "truncated": skipped > 0,
+    "data": base64.b64encode(data).decode("ascii"),
+})
+'''
+        remote_command = (
+            "python3 - "
+            + " ".join(
+                shlex.quote(item)
+                for item in (marker, remote_path_text, str(max(0, int(offset or 0))), str(max_bytes))
+            )
+            + " <<'PY'\n"
+            + script
+            + "\nPY"
+        )
+        result = ssh_command(
+            server,
+            "bash -lc " + shlex.quote(remote_command),
+            timeout=self.config.remote_timeout_seconds,
+        )
+        if result.returncode != 0:
+            return {
+                "log": result.stderr.strip(),
+                "offset": max(0, int(offset or 0)),
+                "next_offset": max(0, int(offset or 0)),
+                "file_size": 0,
+                "byte_count": 0,
+                "error": result.stderr.strip() or "remote log read failed",
+            }
+        line = next((item for item in result.stdout.splitlines() if item.startswith(marker)), "")
+        if not line:
+            return {
+                "log": "",
+                "offset": max(0, int(offset or 0)),
+                "next_offset": max(0, int(offset or 0)),
+                "file_size": 0,
+                "byte_count": 0,
+                "error": "remote log marker missing",
+            }
+        try:
+            payload = json.loads(line[len(marker):])
+        except json.JSONDecodeError:
+            payload = {}
+        raw = b""
+        if payload.get("data"):
+            try:
+                raw = base64.b64decode(str(payload.get("data") or ""))
+            except Exception:
+                raw = b""
+        return {
+            "log": raw.decode("utf-8", errors="replace"),
+            "offset": safe_int(payload.get("offset"), offset),
+            "requested_offset": safe_int(payload.get("requested_offset"), offset),
+            "next_offset": safe_int(payload.get("next_offset"), offset),
+            "file_size": safe_int(payload.get("file_size"), 0),
+            "byte_count": safe_int(payload.get("byte_count"), len(raw)),
+            "truncated": bool(payload.get("truncated")),
+            "skipped_bytes": safe_int(payload.get("skipped_bytes"), 0),
+            "exists": bool(payload.get("exists")),
+            **({"error": str(payload.get("error") or "").strip()} if payload.get("error") else {}),
+        }
+
+
+    def job_log_payload(
+        self,
+        job: dict[str, Any],
+        *,
+        lines: int = 200,
+        offset: int | None = None,
+        max_bytes: int = 131072,
+    ) -> dict[str, Any]:
+        job_id = str(job.get("id") or "").strip()
+        if offset is None:
+            log = self.tail_log(job, lines=lines)
+            payload = {
+                "job_id": job_id,
+                "mode": "tail",
+                "log": log,
+                "line_count": len(log.splitlines()),
+            }
+            server = self.server_by_id(job["server_id"])
+            if server and server.mode == "local":
+                local_path = Path(str(job.get("log_path") or local_log_path(job["server_id"], job_id)))
+                try:
+                    file_size = local_path.stat().st_size
+                except OSError:
+                    file_size = 0
+                payload.update({"next_offset": file_size, "file_size": file_size})
+            return payload
+        server = self.server_by_id(job["server_id"])
+        if not server:
+            return {"job_id": job_id, "mode": "chunk", "log": "unknown server", "offset": 0, "next_offset": 0}
+        if server.mode == "local":
+            local_path = Path(str(job.get("log_path") or local_log_path(job["server_id"], job_id)))
+            if local_path.exists() and not local_path.is_symlink() and local_path.is_file():
+                chunk = _read_text_file_chunk(local_path, offset=offset, max_bytes=max_bytes)
+            else:
+                chunk = {
+                    "log": "",
+                    "offset": max(0, int(offset or 0)),
+                    "next_offset": max(0, int(offset or 0)),
+                    "file_size": 0,
+                    "byte_count": 0,
+                    "exists": False,
+                    "truncated": False,
+                    "skipped_bytes": 0,
+                }
+        else:
+            chunk = self._remote_job_log_chunk(job, offset=offset, max_bytes=max_bytes)
+            local_path = Path(str(job.get("log_path") or local_log_path(job["server_id"], job_id)))
+            if chunk.get("log"):
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                local_path.write_text(str(chunk.get("log") or ""), encoding="utf-8")
+        log = str(chunk.get("log") or "")
+        return {
+            "job_id": job_id,
+            "mode": "chunk",
+            **chunk,
+            "line_count": len(log.splitlines()),
+        }
 
 
     def list_tmux_sessions(self, server_id: str) -> list[dict[str, Any]]:
@@ -325,6 +619,7 @@ class ExecutionJobsMixin:
         job["finished_at"] = now_iso()
         self.save_jobs()
         self.sync_workspace_execution_runs_from_jobs()
+        self.publish_job_log_delta(job, final=True)
         self.publish_job_event(job, "job.updated")
         return job
 

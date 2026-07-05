@@ -405,6 +405,224 @@ def workspace_scheduler_binding_metadata(
         "warnings": copy.deepcopy(selected.get("warnings") if isinstance(selected.get("warnings"), list) else []),
     }
 
+def _runtime_min_free_mib(value: Any) -> int:
+    gib = safe_float(value, 0.0)
+    if gib <= 0:
+        return 0
+    return max(int(gib * 1024), 1)
+
+def workspace_execution_package_runtime_binding(
+    automation: dict[str, Any] | None,
+    node: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    *,
+    fallback: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Materialize the execution package target into runtime job fields."""
+
+    automation = automation if isinstance(automation, dict) else {}
+    config = config if isinstance(config, dict) else {}
+    fallback = fallback if isinstance(fallback, dict) else {}
+    kind = str(node.get("kind") or "").strip()
+    bundle_meta = workspace_execution_bundle_job_metadata(automation, node)
+    target = (
+        bundle_meta.get("target")
+        if bool(bundle_meta.get("ready_to_execute")) and isinstance(bundle_meta.get("target"), dict)
+        else {}
+    )
+    scheduler = workspace_scheduler_binding_metadata(automation, config)
+
+    server_id = str(
+        target.get("server_id")
+        or scheduler.get("server_id")
+        or fallback.get("server_id")
+        or "auto"
+    ).strip() or "auto"
+    gpu_policy = str(
+        target.get("gpu_policy")
+        or scheduler.get("policy")
+        or fallback.get("gpu_policy")
+        or "auto"
+    ).strip().lower() or "auto"
+    gpu_index = str(
+        target.get("gpu_index")
+        if target.get("gpu_index") is not None
+        else scheduler.get("gpu_index")
+        if scheduler.get("gpu_index") is not None
+        else fallback.get("gpu_index", "auto")
+    ).strip() or "auto"
+    cpu_mode = (
+        str(target.get("mode") or scheduler.get("mode") or "").strip().lower() == "cpu"
+        or gpu_policy in {"cpu", "none", "no_gpu"}
+        or gpu_index.lower() in {"cpu", "none", "no_gpu"}
+    )
+    if cpu_mode:
+        gpu_policy = "cpu"
+        gpu_index = "none"
+
+    cwd = str(target.get("workspace_dir") or fallback.get("cwd") or "").strip()
+    env_name = str(target.get("env_name") or fallback.get("env_name") or "").strip()
+    min_free_memory_gib = str(
+        scheduler.get("min_free_memory_gib")
+        or target.get("min_free_memory_gib")
+        or config.get("min_free_memory_gib")
+        or fallback.get("min_free_memory_gib")
+        or ""
+    ).strip()
+    min_free_mib = _runtime_min_free_mib(min_free_memory_gib)
+    wait_for_idle = bool(fallback.get("wait_for_idle", True))
+    execution_mode = "cpu" if cpu_mode else "gpu" if kind == "run.command" else str(fallback.get("execution_mode") or "cpu")
+
+    return {
+        "node_kind": kind,
+        "source": "execution_package.target" if target else "node.config",
+        "status": str(bundle_meta.get("status") or scheduler.get("status") or "").strip(),
+        "ready_to_execute": bool(bundle_meta.get("ready_to_execute")),
+        "server_id": server_id,
+        "gpu_index": gpu_index,
+        "gpu_policy": gpu_policy,
+        "execution_mode": execution_mode,
+        "cwd": cwd,
+        "env_name": env_name,
+        "wait_for_idle": wait_for_idle,
+        "min_free_memory_gib": min_free_memory_gib,
+        "min_free_mib": min_free_mib,
+        "scheduler_status": str(scheduler.get("status") or "").strip(),
+        "scheduler_summary": str(scheduler.get("summary") or "").strip(),
+        "scheduler_selected": copy.deepcopy(scheduler.get("selected") if isinstance(scheduler.get("selected"), dict) else {}),
+    }
+
+def _runtime_binding_mismatch(
+    *,
+    field: str,
+    expected: Any,
+    actual: Any,
+    label: str,
+) -> dict[str, Any] | None:
+    expected_text = str(expected if expected is not None else "").strip()
+    actual_text = str(actual if actual is not None else "").strip()
+    expected_compare = _canonical_runtime_binding_value(field, expected_text)
+    actual_compare = _canonical_runtime_binding_value(field, actual_text)
+    if not expected_text:
+        return None
+    if expected_compare == actual_compare:
+        return None
+    return {
+        "field": field,
+        "label": label,
+        "expected": expected_text,
+        "actual": actual_text,
+    }
+
+def _canonical_runtime_binding_value(field: str, value: Any) -> str:
+    text = str(value if value is not None else "").strip()
+    lower = text.lower()
+    if field == "gpu_index" and lower in {"cpu", "none", "no_gpu"}:
+        return "none"
+    if field == "gpu_policy" and lower in {"cpu", "none", "no_gpu"}:
+        return "cpu"
+    if field == "min_free_mib":
+        return str(safe_int(text, 0))
+    return text
+
+def workspace_execution_package_runtime_binding_checks(
+    automation: dict[str, Any] | None,
+    node: dict[str, Any],
+    job_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    automation = automation if isinstance(automation, dict) else {}
+    node = node if isinstance(node, dict) else {}
+    job_payload = job_payload if isinstance(job_payload, dict) else {}
+    if str(node.get("kind") or "").strip() != "run.command":
+        return []
+    manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
+    bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}
+    if not bundle or not bool(bundle.get("ready_to_execute")):
+        return []
+
+    target = bundle.get("target") if isinstance(bundle.get("target"), dict) else {}
+    package_manifest = bundle.get("package_manifest") if isinstance(bundle.get("package_manifest"), dict) else {}
+    commands = package_manifest.get("commands") if isinstance(package_manifest.get("commands"), dict) else {}
+    metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}
+    runtime_binding = metadata.get("runtime_binding") if isinstance(metadata.get("runtime_binding"), dict) else {}
+    scheduler_binding = metadata.get("scheduler_binding") if isinstance(metadata.get("scheduler_binding"), dict) else {}
+
+    mismatches = [
+        _runtime_binding_mismatch(
+            field="server_id",
+            label="执行主机",
+            expected=target.get("server_id"),
+            actual=job_payload.get("server_id"),
+        ),
+        _runtime_binding_mismatch(
+            field="gpu_index",
+            label="GPU",
+            expected=target.get("gpu_index"),
+            actual=job_payload.get("gpu_index"),
+        ),
+        _runtime_binding_mismatch(
+            field="gpu_policy",
+            label="GPU 策略",
+            expected=target.get("gpu_policy"),
+            actual=runtime_binding.get("gpu_policy"),
+        ),
+        _runtime_binding_mismatch(
+            field="cwd",
+            label="工作目录",
+            expected=target.get("workspace_dir"),
+            actual=job_payload.get("cwd"),
+        ),
+        _runtime_binding_mismatch(
+            field="env_name",
+            label="环境",
+            expected=target.get("env_name"),
+            actual=job_payload.get("env_name"),
+        ),
+    ]
+    expected_min_free = safe_int(runtime_binding.get("min_free_mib"), 0)
+    if expected_min_free > 0:
+        mismatches.append(
+            _runtime_binding_mismatch(
+                field="min_free_mib",
+                label="最小空闲显存",
+                expected=expected_min_free,
+                actual=job_payload.get("min_free_mib"),
+            )
+        )
+    expected_command = str(commands.get("run_command") or "").strip()
+    if expected_command:
+        mismatches.append(
+            _runtime_binding_mismatch(
+                field="run_command",
+                label="运行命令",
+                expected=expected_command,
+                actual=compact_workspace_command(str(job_payload.get("command") or ""), limit=180),
+            )
+        )
+    mismatches = [item for item in mismatches if item]
+    if not mismatches:
+        return []
+    package_id = str(bundle.get("package_id") or package_manifest.get("package_id") or "").strip()
+    detail = "；".join(
+        f"{item['label']} expected={item['expected']} actual={item['actual']}"
+        for item in mismatches[:6]
+    )
+    return [
+        {
+            "id": "execution_package_runtime_binding",
+            "label": "执行包运行绑定",
+            "status": "blocked",
+            "title": "执行包与真实任务不一致",
+            "detail": detail,
+            "action": "回到配置页/配置中心更新执行目标，或重新运行调度与执行包生成后再提交。",
+            "node_kind": "run.command",
+            "node_id": str(node.get("id") or "").strip(),
+            "package_id": package_id,
+            "mismatches": mismatches,
+            "scheduler_status": str(scheduler_binding.get("status") or "").strip(),
+        }
+    ]
+
 def workspace_execution_bundle_result(automation: dict[str, Any], jobs: list[dict[str, Any]]) -> dict[str, Any]:
     manifest = automation.get("reproduction_manifest") if isinstance(automation.get("reproduction_manifest"), dict) else {}
     bundle = manifest.get("execution_bundle") if isinstance(manifest.get("execution_bundle"), dict) else {}

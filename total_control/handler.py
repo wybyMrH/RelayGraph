@@ -28,34 +28,59 @@ class Handler(SimpleHTTPRequestHandler):
             return str(WEB_DIR / "index.html")
         return str(WEB_DIR / clean.lstrip("/"))
 
+    def _suppress_access_log(self, args: tuple[Any, ...]) -> bool:
+        if os.environ.get("TOTAL_CONTROL_VERBOSE_ACCESS_LOG", "").strip().lower() in {"1", "true", "yes", "on"}:
+            return False
+        request_line = str(args[0] or "") if args else ""
+        status_code = safe_int(args[1], 0) if len(args) > 1 else 0
+        if status_code >= 400:
+            return False
+        parts = request_line.split()
+        if len(parts) < 2 or parts[0].upper() not in {"GET", "HEAD"}:
+            return False
+        path = urlparse(parts[1]).path
+        if path in {"/", "/api/status", "/api/execution-overview", "/favicon.ico"}:
+            return True
+        if path.endswith("/events"):
+            return True
+        return path.endswith((".css", ".js", ".map", ".png", ".jpg", ".jpeg", ".svg", ".ico", ".webp", ".woff", ".woff2"))
+
     def log_message(self, format: str, *args: Any) -> None:
+        if self._suppress_access_log(args):
+            return
         print(f"[{now_iso()}] {self.address_string()} {format % args}", flush=True)
 
     def send_json(self, data: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def send_file(self, path: Path, *, content_type: str, disposition: str, filename: str) -> None:
         target = path.expanduser().resolve()
         stat = target.stat()
         encoded_name = quote(filename or target.name)
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", content_type or "application/octet-stream")
-        self.send_header("Content-Length", str(stat.st_size))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{encoded_name}")
-        self.end_headers()
-        with target.open("rb") as handle:
-            while True:
-                chunk = handle.read(64 * 1024)
-                if not chunk:
-                    break
-                self.wfile.write(chunk)
+        try:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type or "application/octet-stream")
+            self.send_header("Content-Length", str(stat.st_size))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Disposition", f"{disposition}; filename*=UTF-8''{encoded_name}")
+            self.end_headers()
+            with target.open("rb") as handle:
+                while True:
+                    chunk = handle.read(64 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def read_body(self) -> dict[str, Any]:
         size = safe_int(self.headers.get("Content-Length"), 0)

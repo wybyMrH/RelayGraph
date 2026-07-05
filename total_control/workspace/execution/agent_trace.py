@@ -45,7 +45,18 @@ def tool_observation_failed(observation: str) -> bool:
     if text.startswith("Error"):
         return True
     lowered = text.lower()
-    return '"status": "error"' in lowered or '"status":"error"' in lowered
+    return (
+        '"status": "error"' in lowered
+        or '"status":"error"' in lowered
+        or '"status": "blocked"' in lowered
+        or '"status":"blocked"' in lowered
+        or '"status": "failed"' in lowered
+        or '"status":"failed"' in lowered
+        or '"status": "stopped"' in lowered
+        or '"status":"stopped"' in lowered
+        or '"status": "timeout"' in lowered
+        or '"status":"timeout"' in lowered
+    )
 
 
 def make_agent_trace_event(event_type: str, **fields: Any) -> dict[str, Any]:
@@ -89,6 +100,11 @@ def normalize_agent_trace_event(value: Any) -> dict[str, Any]:
         "status",
         "side_effect",
         "error",
+        "job_id",
+        "run_id",
+        "runtime_control",
+        "runtime_side_effect",
+        "runtime_status",
     ):
         if key in source and source.get(key) not in (None, ""):
             normalized[key] = source[key]
@@ -126,6 +142,11 @@ def compact_agent_step_for_trace(step: dict[str, Any]) -> dict[str, Any]:
         "timestamp": str(step.get("timestamp") or "").strip(),
         "side_effect": str(step.get("side_effect") or "").strip(),
         "controlled": bool(step.get("controlled")),
+        "job_id": str(step.get("job_id") or "").strip(),
+        "run_id": str(step.get("run_id") or "").strip(),
+        "runtime_control": str(step.get("runtime_control") or "").strip(),
+        "runtime_side_effect": str(step.get("runtime_side_effect") or "").strip(),
+        "runtime_status": str(step.get("runtime_status") or "").strip(),
     }
 
 

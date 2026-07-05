@@ -221,8 +221,6 @@ PY"""
 
         gpu_policy = str(config.get("gpu_policy") or "auto").strip().lower()
         server_id = str(config.get("server_id") or "auto").strip() or "auto"
-        if server_id != "auto" and not self.server_by_id(server_id):
-            raise ValueError(f"unknown server: {server_id}")
         is_gpu_job = kind in {"run.command", "gpu.allocate"}
         wait_for_idle = kind in {"run.command", "gpu.allocate"} or kind in {"repo.clone", "env.prepare", "eval.report"}
         gpu_index: int | str = "auto"
@@ -245,25 +243,63 @@ PY"""
             runtime_workspace = apply_workspace_job_runtime(workspace, jobs_snapshot)
             execution = derive_workspace_execution_state(runtime_workspace, jobs_snapshot)
             automation = derive_workspace_automation_state(runtime_workspace, execution, statuses_snapshot)
+        execution_bundle_metadata = workspace_execution_bundle_job_metadata(automation, node)
+        scheduler_binding = workspace_scheduler_binding_metadata(automation, config)
+        env_name = str(config.get("env_name") or workspace_env.get("name") or "").strip()
+        runtime_binding = workspace_execution_package_runtime_binding(
+            automation,
+            node,
+            config,
+            fallback={
+                "server_id": server_id,
+                "gpu_index": str(gpu_index),
+                "gpu_policy": gpu_policy,
+                "cwd": job_cwd,
+                "env_name": env_name,
+                "wait_for_idle": wait_for_idle,
+                "execution_mode": "gpu" if is_gpu_job else "cpu",
+            },
+        )
+        target_bound = str(runtime_binding.get("source") or "") == "execution_package.target"
+        if kind == "run.command" or target_bound:
+            if target_bound or kind == "run.command":
+                server_id = str(runtime_binding.get("server_id") or server_id).strip() or "auto"
+            if is_gpu_job:
+                gpu_policy = str(runtime_binding.get("gpu_policy") or gpu_policy).strip().lower() or "auto"
+                gpu_index = str(runtime_binding.get("gpu_index") or gpu_index).strip() or "auto"
+            else:
+                runtime_binding["gpu_policy"] = gpu_policy
+                runtime_binding["gpu_index"] = str(gpu_index)
+            if target_bound and kind not in WORKSPACE_NO_CWD_NODE_KINDS and kind != "repo.clone":
+                job_cwd = str(runtime_binding.get("cwd") or job_cwd).strip()
+            elif kind == "run.command":
+                job_cwd = str(runtime_binding.get("cwd") or job_cwd).strip()
+            if target_bound and kind in {"repo.inspect", "env.prepare", "run.command", "eval.report"}:
+                env_name = str(runtime_binding.get("env_name") or env_name).strip()
+            elif kind == "run.command":
+                env_name = str(runtime_binding.get("env_name") or env_name).strip()
+            wait_for_idle = bool(runtime_binding.get("wait_for_idle", wait_for_idle))
+        else:
+            runtime_binding = {
+                "node_kind": kind,
+                "source": "node.config",
+                "server_id": server_id,
+                "gpu_index": str(gpu_index),
+                "gpu_policy": gpu_policy,
+                "cwd": job_cwd,
+                "env_name": env_name,
+                "wait_for_idle": wait_for_idle,
+            }
+        if server_id != "auto" and not self.server_by_id(server_id):
+            raise ValueError(f"unknown server: {server_id}")
         runtime_execution_mode = (
             "gpu"
             if is_gpu_job and str(gpu_index).strip().lower() not in {"none", "cpu", "no_gpu"}
             else "cpu"
         )
-        execution_bundle_metadata = workspace_execution_bundle_job_metadata(automation, node)
-        scheduler_binding = workspace_scheduler_binding_metadata(automation, config)
-        runtime_binding = {
-            "node_kind": kind,
-            "server_id": server_id,
-            "gpu_index": str(gpu_index),
-            "gpu_policy": gpu_policy,
-            "execution_mode": runtime_execution_mode,
-            "cwd": job_cwd,
-            "env_name": str(config.get("env_name") or workspace_env.get("name") or "").strip(),
-            "wait_for_idle": wait_for_idle,
-            "scheduler_status": str(scheduler_binding.get("status") or "").strip(),
-            "scheduler_summary": str(scheduler_binding.get("summary") or "").strip(),
-        }
+        runtime_binding["execution_mode"] = runtime_execution_mode
+        runtime_binding.setdefault("scheduler_status", str(scheduler_binding.get("status") or "").strip())
+        runtime_binding.setdefault("scheduler_summary", str(scheduler_binding.get("summary") or "").strip())
         payload: dict[str, Any] = {
             "name": f"{workspace.get('name') or workspace.get('id') or 'workspace'} · {name_suffix}",
             "server_id": server_id,
@@ -272,7 +308,7 @@ PY"""
             "command": command,
             "command_display": command,
             "cwd": job_cwd,
-            "env_name": str(config.get("env_name") or workspace_env.get("name") or "").strip(),
+            "env_name": env_name,
             "target_job_ids": [str(previous_job_id)] if previous_job_id else [],
             "metadata": {
                 "workspace_id": str(workspace.get("id") or "").strip(),
@@ -289,6 +325,10 @@ PY"""
             },
             "kind": "command",
         }
+        if kind == "run.command":
+            runtime_min_free_mib = safe_int(runtime_binding.get("min_free_mib"), 0)
+            if runtime_min_free_mib > 0:
+                payload["min_free_mib"] = runtime_min_free_mib
         if previous_job_id:
             payload["metadata"]["workflow_prev_job_id"] = previous_job_id
         return payload
@@ -308,6 +348,8 @@ PY"""
             workspace = self.workspace_by_id(workspace_id)
             if not workspace:
                 raise ValueError("workspace not found")
+            jobs_snapshot = copy.deepcopy(getattr(self, "jobs", []))
+            statuses_snapshot = copy.deepcopy(getattr(self, "statuses", []))
             node = next(
                 (
                     item for item in (workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else [])
@@ -317,20 +359,41 @@ PY"""
             )
             if not node:
                 raise ValueError("node not found")
+            workspace = copy.deepcopy(workspace)
             node = copy.deepcopy(node)
+        runtime_workspace = apply_workspace_job_runtime(workspace, jobs_snapshot)
+        execution = derive_workspace_execution_state(runtime_workspace, jobs_snapshot)
+        automation = derive_workspace_automation_state(runtime_workspace, execution, statuses_snapshot)
         executor_mode = resolve_node_executor_mode(node, prefer)
         node_title = str(node.get("title") or node.get("kind") or "节点").strip()
 
         if executor_mode == "agent":
-            step_result = self.execute_workspace_agent_node(workspace_id, node)
-            if step_result.status in {"completed", "warning"}:
-                run = self.register_workspace_execution_run(
-                    workspace_id,
+            agent_summary = f"Agent 节点 · {node_title}"
+            run = self.register_workspace_execution_run(
+                workspace_id,
+                kind="node",
+                trigger="user",
+                summary=agent_summary,
+                steps=[],
+            )
+            run_id = str(run.get("id") or "").strip()
+            step_result = self.execute_workspace_agent_node(
+                workspace_id,
+                node,
+                run_context=ExecutionRunContext(
+                    workspace_id=workspace_id,
+                    run_id=run_id,
                     kind="node",
                     trigger="user",
-                    summary=f"Agent 节点 · {node_title}",
-                    steps=[workspace_run_step_from_agent(node, step_result, 0)],
-                )
+                ),
+            )
+            run = self.update_workspace_execution_run_steps(
+                workspace_id,
+                run_id,
+                steps=[workspace_run_step_from_agent(node, step_result, 0)],
+                summary=agent_summary,
+            )
+            if step_result.status in {"completed", "warning"}:
                 with self.lock:
                     refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
                     payload_workspace = self.workspace_public_payload(refreshed_workspace)
@@ -338,17 +401,10 @@ PY"""
                     "executor": "agent",
                     "step": step_result.as_dict(),
                     "run": run,
-                    "run_id": run["id"],
+                    "run_id": run_id,
                     "workspace": payload_workspace,
                 }
             if prefer != "auto" or str(node.get("kind") or "").strip() not in WORKSPACE_EXECUTABLE_NODE_KINDS:
-                run = self.register_workspace_execution_run(
-                    workspace_id,
-                    kind="node",
-                    trigger="user",
-                    summary=f"Agent 节点 · {node_title}",
-                    steps=[workspace_run_step_from_agent(node, step_result, 0)],
-                )
                 with self.lock:
                     refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
                     payload_workspace = self.workspace_public_payload(refreshed_workspace)
@@ -356,11 +412,31 @@ PY"""
                     "executor": "agent",
                     "step": step_result.as_dict(),
                     "run": run,
-                    "run_id": run["id"],
+                    "run_id": run_id,
                     "workspace": payload_workspace,
                 }
 
-        job_payload = self.workspace_node_job_payload(workspace, node)
+        if workspace_nodes_require_execution_package([node]):
+            package_checks = workspace_execution_package_blocking_checks(automation, full_workflow=True)
+            if package_checks:
+                with self.lock:
+                    payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
+                raise WorkspaceWorkflowReadinessError(
+                    workspace_readiness_message(package_checks),
+                    blocked_checks=package_checks,
+                    workspace=payload_workspace,
+                )
+
+        job_payload = self.workspace_node_job_payload(workspace, node, automation=automation)
+        runtime_checks = workspace_execution_package_runtime_binding_checks(automation, node, job_payload)
+        if runtime_checks:
+            with self.lock:
+                payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
+            raise WorkspaceWorkflowReadinessError(
+                workspace_readiness_message(runtime_checks),
+                blocked_checks=runtime_checks,
+                workspace=payload_workspace,
+            )
         job = self.create_job(job_payload, publish_events=False)
         run = self.register_workspace_execution_run(
             workspace_id,

@@ -660,6 +660,454 @@ def cleanup_preview_cache(
     }
 
 
+def normalize_runtime_storage_settings(raw: Any) -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+    defaults = DEFAULT_RUNTIME_STORAGE_SETTINGS
+    return {
+        "preview_max_age_hours": max(
+            0,
+            safe_int(data.get("preview_max_age_hours"), defaults["preview_max_age_hours"]),
+        ),
+        "preview_max_size_mib": max(
+            0,
+            safe_int(data.get("preview_max_size_mib"), defaults["preview_max_size_mib"]),
+        ),
+        "log_max_age_hours": max(0, safe_int(data.get("log_max_age_hours"), defaults["log_max_age_hours"])),
+        "log_max_size_mib": max(0, safe_int(data.get("log_max_size_mib"), defaults["log_max_size_mib"])),
+        "auto_cleanup_interval_minutes": max(
+            5,
+            safe_int(
+                data.get("auto_cleanup_interval_minutes"),
+                defaults["auto_cleanup_interval_minutes"],
+            ),
+        ),
+        "remote_log_cleanup_enabled": bool(
+            data.get("remote_log_cleanup_enabled", defaults["remote_log_cleanup_enabled"])
+        ),
+    }
+
+def load_runtime_storage_settings() -> dict[str, Any]:
+    raw = read_json(RUNTIME_STORAGE_SETTINGS_PATH, None)
+    if isinstance(raw, dict):
+        return normalize_runtime_storage_settings(raw)
+    preview = load_preview_cache_settings()
+    return normalize_runtime_storage_settings(
+        {
+            **DEFAULT_RUNTIME_STORAGE_SETTINGS,
+            "preview_max_age_hours": preview.get("max_age_hours"),
+            "preview_max_size_mib": preview.get("max_size_mib"),
+        }
+    )
+
+def save_runtime_storage_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    normalized = normalize_runtime_storage_settings(settings)
+    write_json(RUNTIME_STORAGE_SETTINGS_PATH, normalized)
+    save_preview_cache_settings(
+        {
+            "max_age_hours": normalized["preview_max_age_hours"],
+            "max_size_mib": normalized["preview_max_size_mib"],
+        }
+    )
+    return normalized
+
+def reset_runtime_storage_settings() -> dict[str, Any]:
+    return save_runtime_storage_settings(dict(DEFAULT_RUNTIME_STORAGE_SETTINGS))
+
+def runtime_log_root() -> Path:
+    return Path(public_api_value("LOG_DIR", LOG_DIR)).resolve()
+
+def is_under_runtime_log_root(path: Path | str) -> bool:
+    try:
+        Path(path).expanduser().resolve().relative_to(runtime_log_root())
+        return True
+    except (ValueError, OSError):
+        return False
+
+def iter_runtime_log_files() -> list[dict[str, Any]]:
+    root = runtime_log_root()
+    if not root.exists():
+        return []
+    entries: list[dict[str, Any]] = []
+    for path in root.rglob("*.log"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        try:
+            resolved = path.resolve()
+            resolved.relative_to(root)
+            stat = resolved.stat()
+        except OSError:
+            continue
+        entries.append(
+            {
+                "path": resolved,
+                "size": int(stat.st_size),
+                "mtime": float(stat.st_mtime),
+                "server_id": resolved.parent.name if resolved.parent != root else "local",
+            }
+        )
+    return entries
+
+def runtime_log_display_path(path: Any) -> str:
+    try:
+        resolved = Path(path).expanduser().resolve()
+        relative = resolved.relative_to(runtime_log_root())
+        return str(Path("data/logs") / relative)
+    except (ValueError, OSError, TypeError):
+        return ""
+
+def local_runtime_log_stats() -> dict[str, Any]:
+    entries = iter_runtime_log_files()
+    total_bytes = sum(int(item["size"]) for item in entries)
+    by_server: dict[str, dict[str, Any]] = {}
+    for item in entries:
+        server_id = str(item.get("server_id") or "local")
+        bucket = by_server.setdefault(
+            server_id,
+            {"server_id": server_id, "file_count": 0, "total_bytes": 0, "newest_mtime": 0.0},
+        )
+        bucket["file_count"] += 1
+        bucket["total_bytes"] += int(item["size"])
+        bucket["newest_mtime"] = max(float(bucket["newest_mtime"]), float(item["mtime"]))
+    servers = []
+    for item in by_server.values():
+        servers.append(
+            {
+                **item,
+                "total_text": format_size_text(int(item["total_bytes"])),
+                "newest_at": iso_at(float(item["newest_mtime"])),
+            }
+        )
+    servers.sort(key=lambda row: str(row.get("server_id") or ""))
+    newest = max((float(item["mtime"]) for item in entries), default=0.0)
+    newest_entry = max(entries, key=lambda item: float(item["mtime"]), default=None)
+    largest = max(entries, key=lambda item: int(item["size"]), default=None)
+    return {
+        "log_dir": "data/logs",
+        "file_count": len(entries),
+        "total_bytes": total_bytes,
+        "total_text": format_size_text(total_bytes),
+        "newest_at": iso_at(newest),
+        "newest_path": runtime_log_display_path(newest_entry["path"]) if newest_entry else "",
+        "largest_bytes": int(largest["size"]) if largest else 0,
+        "largest_text": format_size_text(int(largest["size"])) if largest else "0 B",
+        "largest_path": runtime_log_display_path(largest["path"]) if largest else "",
+        "servers": servers,
+    }
+
+def runtime_storage_error_summary(error: Any) -> str:
+    text = str(error or "").strip()
+    lower = text.lower()
+    if not text:
+        return "远程日志状态读取失败"
+    if "permission denied" in lower or "authentication" in lower or "publickey" in lower:
+        return "SSH 认证失败，未读取远程日志"
+    if "connection refused" in lower:
+        return "远程主机拒绝连接，未读取远程日志"
+    if "no route to host" in lower or "network is unreachable" in lower:
+        return "远程主机网络不可达，未读取远程日志"
+    if "timed out" in lower or "timeout" in lower:
+        return "远程主机连接超时，未读取远程日志"
+    if "could not resolve hostname" in lower:
+        return "远程主机名无法解析，未读取远程日志"
+    return "远程日志状态读取失败"
+
+def cleanup_runtime_logs(
+    *,
+    max_age_hours: int = 0,
+    max_size_mib: int = 0,
+    remove_all: bool = False,
+    preserve_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    root = runtime_log_root()
+    entries = iter_runtime_log_files()
+    preserved: set[Path] = set()
+    for value in preserve_paths or []:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        try:
+            if text == "data/logs" or text.startswith("data/logs/"):
+                path = root / Path(text).relative_to("data/logs")
+            else:
+                path = Path(text).expanduser()
+                if not path.is_absolute():
+                    path = (ROOT / path).resolve()
+            resolved = path.resolve()
+            resolved.relative_to(root)
+        except (OSError, ValueError):
+            continue
+        preserved.add(resolved)
+    to_remove: list[dict[str, Any]] = []
+    if remove_all:
+        to_remove = list(entries)
+    else:
+        now = time.time()
+        remaining = list(entries)
+        if max_age_hours > 0:
+            cutoff = now - max_age_hours * 3600
+            expired = [item for item in remaining if float(item["mtime"]) < cutoff]
+            to_remove.extend(expired)
+            remaining = [item for item in remaining if item not in expired]
+        if max_size_mib > 0:
+            limit_bytes = max_size_mib * 1024 * 1024
+            total_bytes = sum(int(item["size"]) for item in remaining)
+            for item in sorted(remaining, key=lambda row: float(row["mtime"])):
+                if total_bytes <= limit_bytes:
+                    break
+                if item in to_remove:
+                    continue
+                to_remove.append(item)
+                total_bytes -= int(item["size"])
+
+    removed_count = 0
+    removed_bytes = 0
+    preserved_count = 0
+    preserved_bytes = 0
+    for item in to_remove:
+        path = Path(item["path"])
+        if path.resolve() in preserved:
+            preserved_count += 1
+            preserved_bytes += int(item["size"])
+            continue
+        if path.is_symlink() or not is_under_runtime_log_root(path):
+            continue
+        try:
+            path.relative_to(root)
+        except ValueError:
+            continue
+        removed_bytes += int(item["size"])
+        try:
+            path.unlink()
+            removed_count += 1
+        except OSError:
+            pass
+    stats = local_runtime_log_stats()
+    return {
+        "removed_count": removed_count,
+        "removed_bytes": removed_bytes,
+        "removed_text": format_size_text(removed_bytes),
+        "preserved_count": preserved_count,
+        "preserved_bytes": preserved_bytes,
+        "preserved_text": format_size_text(preserved_bytes),
+        "remaining_count": stats["file_count"],
+        "remaining_bytes": stats["total_bytes"],
+        "remaining_text": stats["total_text"],
+    }
+
+def remote_runtime_log_script() -> str:
+    return r"""
+import base64
+import json
+import os
+import sys
+import time
+
+MARKER = sys.argv[1]
+OPTIONS = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
+ROOT = os.path.expanduser("~/.total_control/logs")
+PRESERVE_PATHS = set()
+
+def safe_int(value, default=0):
+    try:
+        return int(float(str(value).strip()))
+    except Exception:
+        return default
+
+def iso_at(ts):
+    if not ts:
+        return ""
+    try:
+        import datetime
+        return datetime.datetime.fromtimestamp(float(ts)).isoformat(timespec="seconds")
+    except Exception:
+        return ""
+
+def format_size(size):
+    value = float(max(int(size or 0), 0))
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024 or unit == "TiB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+
+def under_root(path):
+    try:
+        root = os.path.realpath(ROOT)
+        real = os.path.realpath(path)
+        return real == root or real.startswith(root.rstrip(os.sep) + os.sep)
+    except Exception:
+        return False
+
+def normalize_remote_log_path(path):
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    if text == "$HOME" or text.startswith("$HOME/"):
+        text = os.path.join(os.path.expanduser("~"), text[6:].lstrip("/"))
+    text = os.path.expanduser(text)
+    try:
+        real = os.path.realpath(text)
+    except Exception:
+        return ""
+    return real if under_root(real) else ""
+
+for item in OPTIONS.get("preserve_paths") or []:
+    normalized = normalize_remote_log_path(item)
+    if normalized:
+        PRESERVE_PATHS.add(normalized)
+
+def entries():
+    result = []
+    if not os.path.isdir(ROOT):
+        return result
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [
+            name for name in dirnames
+            if not os.path.islink(os.path.join(dirpath, name))
+        ]
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            if os.path.islink(path) or not name.endswith(".log") or not under_root(path):
+                continue
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            result.append({"path": path, "size": int(stat.st_size), "mtime": float(stat.st_mtime)})
+    return result
+
+def summarize(items, removed_count=0, removed_bytes=0, preserved_count=0, preserved_bytes=0):
+    total = sum(int(item["size"]) for item in items)
+    newest = max((float(item["mtime"]) for item in items), default=0)
+    newest_item = max(items, key=lambda item: float(item["mtime"]), default=None)
+    largest = max(items, key=lambda item: int(item["size"]), default=None)
+    def display_path(item):
+        if not item:
+            return ""
+        try:
+            rel = os.path.relpath(item["path"], ROOT)
+        except Exception:
+            return "$HOME/.total_control/logs/" + os.path.basename(str(item.get("path") or ""))
+        if rel.startswith(".."):
+            return "$HOME/.total_control/logs/" + os.path.basename(str(item.get("path") or ""))
+        return "$HOME/.total_control/logs/" + rel
+    return {
+        "log_dir": "$HOME/.total_control/logs",
+        "exists": os.path.isdir(ROOT),
+        "file_count": len(items),
+        "total_bytes": total,
+        "total_text": format_size(total),
+        "newest_at": iso_at(newest),
+        "newest_path": display_path(newest_item),
+        "largest_bytes": int(largest["size"]) if largest else 0,
+        "largest_text": format_size(int(largest["size"])) if largest else "0 B",
+        "largest_path": display_path(largest),
+        "removed_count": removed_count,
+        "removed_bytes": removed_bytes,
+        "removed_text": format_size(removed_bytes),
+        "preserved_count": preserved_count,
+        "preserved_bytes": preserved_bytes,
+        "preserved_text": format_size(preserved_bytes),
+    }
+
+items = entries()
+removed_count = 0
+removed_bytes = 0
+preserved_count = 0
+preserved_bytes = 0
+if OPTIONS.get("cleanup"):
+    remove_all = bool(OPTIONS.get("remove_all"))
+    max_age_hours = safe_int(OPTIONS.get("max_age_hours"))
+    max_size_mib = safe_int(OPTIONS.get("max_size_mib"))
+    to_remove = []
+    if remove_all:
+        to_remove = list(items)
+    else:
+        now = time.time()
+        remaining = list(items)
+        if max_age_hours > 0:
+            cutoff = now - max_age_hours * 3600
+            expired = [item for item in remaining if float(item["mtime"]) < cutoff]
+            to_remove.extend(expired)
+            remaining = [item for item in remaining if item not in expired]
+        if max_size_mib > 0:
+            limit_bytes = max_size_mib * 1024 * 1024
+            total = sum(int(item["size"]) for item in remaining)
+            for item in sorted(remaining, key=lambda row: float(row["mtime"])):
+                if total <= limit_bytes:
+                    break
+                if item in to_remove:
+                    continue
+                to_remove.append(item)
+                total -= int(item["size"])
+    for item in to_remove:
+        path = item["path"]
+        if os.path.realpath(path) in PRESERVE_PATHS:
+            preserved_count += 1
+            preserved_bytes += int(item["size"])
+            continue
+        if not under_root(path) or os.path.islink(path):
+            continue
+        try:
+            os.remove(path)
+            removed_count += 1
+            removed_bytes += int(item["size"])
+        except OSError:
+            pass
+    items = entries()
+
+payload = summarize(
+    items,
+    removed_count=removed_count,
+    removed_bytes=removed_bytes,
+    preserved_count=preserved_count,
+    preserved_bytes=preserved_bytes,
+)
+encoded = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode("utf-8")).decode("ascii")
+print(MARKER + "_BEGIN")
+print(encoded)
+print(MARKER + "_END")
+"""
+
+def remote_runtime_log_payload(
+    server: Any,
+    *,
+    timeout: int,
+    cleanup: bool = False,
+    max_age_hours: int = 0,
+    max_size_mib: int = 0,
+    remove_all: bool = False,
+    preserve_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    from .infra.shell_pkg.ssh import ssh_command
+
+    marker = "__TC_RUNTIME_LOG_JSON__"
+    options = {
+        "cleanup": bool(cleanup),
+        "max_age_hours": max(0, int(max_age_hours or 0)),
+        "max_size_mib": max(0, int(max_size_mib or 0)),
+        "remove_all": bool(remove_all),
+        "preserve_paths": [str(item) for item in (preserve_paths or []) if str(item or "").strip()],
+    }
+    command = (
+        "python3 -c "
+        + shlex.quote(remote_runtime_log_script())
+        + " "
+        + shlex.quote(marker)
+        + " "
+        + shlex.quote(json.dumps(options))
+    )
+    result = ssh_command(server, command, timeout=timeout)
+    output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+    if result.returncode != 0:
+        raise ValueError((output.strip() or "远程运行日志读取失败")[-1000:])
+    payload = parse_remote_marked_json(output, marker, label="运行日志")
+    payload["server_id"] = server.id
+    payload["server_name"] = server.name
+    return payload
+
+
 def repo_name_from_url(url: str) -> str:
     text = str(url or "").strip().rstrip("/")
     if not text:

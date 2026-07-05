@@ -34,5 +34,9 @@ def handle_put(handler: Any, state: Any, parsed: Any) -> bool:
         body = handler.read_body()
         handler.send_json(state.update_preview_cache_settings(body))
         return True
+    if parsed.path == "/api/admin/runtime-storage/settings":
+        body = handler.read_body()
+        handler.send_json(state.update_runtime_storage_settings(body))
+        return True
     handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
     return True

@@ -15,6 +15,12 @@ const state = {
     busy: false,
     error: "",
   },
+  workspaceTemplateDiff: {
+    workspaceId: "",
+    busy: false,
+    error: "",
+    payload: null,
+  },
   selectedWorkspaceId: "",
   selectedWorkflowTemplateId: "",
   selectedGlobalAgentId: "",
@@ -86,6 +92,8 @@ const state = {
     pathByServer: { source: {}, target: {} },
     lastSourceServerId: "",
     lastTargetServerId: "",
+    sourceForwardStack: [],
+    targetForwardStack: [],
   },
   filePicker: {
     roots: [],
@@ -100,6 +108,7 @@ const state = {
     selectedPath: "",
     scrollAnchorPath: "",
     navStack: [],
+    forwardStack: [],
   },
   filePreview: {
     serverId: "",
@@ -180,8 +189,19 @@ const state = {
     workspaceEventWorkspaceId: "",
     workspaceEventConnected: false,
     workspaceEventLastIds: {},
+    workspaceEventFallbackTimer: null,
+    workspaceEventFallbackWorkspaceId: "",
+    workspaceEventFallbackBusy: false,
+    workspaceEventRecovering: false,
+    workspaceEventGapNotice: "",
+    workspaceEventGapAt: 0,
+    workspaceStreamRenderQueued: false,
+    workspaceStreamRenderTimer: null,
     workspaceAgentEvents: {},
     workspaceRunCompareBaseId: "",
+    executionOverviewQuery: "",
+    executionOverviewStatus: "",
+    executionOverviewKind: "all",
     workspaceUiRevision: 0,
     offlineServersOpen: true,
     workspaceToolSearch: "",
@@ -206,12 +226,14 @@ let workspaceHelpHideTimer = null;
 const $ = (id) => document.getElementById(id);
 
 const WORKSPACE_STREAM_EVENT_TYPES = [
+  "workspace.snapshot",
   "workspace.updated",
   "cockpit.updated",
   "run.created",
   "run.updated",
   "run.step.updated",
   "job.updated",
+  "job.log.delta",
   "chat.message.created",
   "chat.message.delta",
   "chat.message.completed",
@@ -227,6 +249,19 @@ const WORKSPACE_STREAM_EVENT_TYPES = [
   "agent.failed",
   "heartbeat",
 ];
+
+const WORKSPACE_RUN_TIMELINE_EVENT_TYPES = new Set([
+  "run.created",
+  "run.updated",
+  "run.step.updated",
+  "job.updated",
+  "agent.step.created",
+  "agent.tool.called",
+  "agent.tool.result",
+  "agent.tool.failed",
+  "agent.completed",
+  "agent.failed",
+]);
 
 function markWorkspaceUiInteraction() {
   state.ui.workspaceUiRevision = Number(state.ui.workspaceUiRevision || 0) + 1;
@@ -331,13 +366,14 @@ function resetWorkspaceFlowCanvasView(options = {}) {
 }
 
 function workspaceFlowNodeContext(node = {}, index = 0, options = {}) {
+  const currentNode = node && typeof node === "object" ? node : {};
   const workspace = options.workspace || selectedWorkspace();
   const template = options.template || selectedWorkflowTemplate();
   const preview = Boolean(options.preview);
   const sourceNodes = Array.isArray(workspace?.nodes) ? workspace.nodes : Array.isArray(template?.nodes) ? template.nodes : [];
-  const sourceNode = sourceNodes.find((item) => String(item?.id || "") === String(node?.id || "")) || null;
-  const io = workspaceNodeIoContractState(node, sourceNode, { workspace, template });
-  const facts = workspaceExecutionChainNodeFacts(node, index, { workspace, template, preview });
+  const sourceNode = sourceNodes.find((item) => String(item?.id || "") === String(currentNode.id || "")) || null;
+  const io = workspaceNodeIoContractState(currentNode, sourceNode || currentNode, { workspace, template });
+  const facts = workspaceExecutionChainNodeFacts(currentNode, index, { workspace, template, preview });
   const tools = Array.isArray(io.tools) ? io.tools.filter((tool) => tool.enabled !== false) : [];
   return { workspace, template, preview, sourceNode, io, facts, tools };
 }
@@ -1301,13 +1337,18 @@ const PROVIDER_VENDOR_OPTIONS = [
   { value: "siliconflow", label: "SiliconFlow (硅基流动)", base_url: "https://api.siliconflow.cn/v1" },
   // === 其他 ===
   { value: "xiaomi-mimo", label: "MiMo (小米)", base_url: "https://api.xiaomimimo.com/v1" },
-  { value: "ollama", label: "Ollama (本地)", base_url: "http://localhost:11434/v1" },
+  { value: "ollama", label: "Ollama (本地)", base_url: "http://localhost:11434/v1", key_required: false },
   { value: "custom", label: "Custom (自定义)", base_url: "" },
 ];
 
 function vendorDefaultBaseUrl(vendor = "") {
   const entry = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === String(vendor || "").trim());
   return entry?.base_url || "";
+}
+
+function providerVendorRequiresApiKey(vendor = "") {
+  const entry = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === String(vendor || "").trim());
+  return entry?.key_required !== false;
 }
 
 // A base_url counts as "this vendor's default" if it's empty or matches any
@@ -1319,14 +1360,24 @@ function baseUrlIsVendorDefault(url = "") {
 }
 
 function providerProfileIsValid(profile = {}) {
+  const keyRequired = providerProfileRequiresApiKey(profile);
   return Boolean(
     profile
     && String(profile.label || "").trim()
     && String(profile.vendor || "").trim()
     && String(profile.base_url || "").trim()
     && String(profile.model || "").trim()
-    && (String(profile.api_key || "").trim() || profile.has_api_key),
+    && (!keyRequired || String(profile.api_key || "").trim() || profile.has_api_key),
   );
+}
+
+function providerProfileRequiresApiKey(profile = {}) {
+  if (profile && profile.key_required === false) return false;
+  const vendor = String(profile?.vendor || "").trim();
+  const option = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === vendor);
+  if (option && option.key_required === false) return false;
+  const baseUrl = String(profile?.base_url || "").trim().toLowerCase();
+  return !(baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1"));
 }
 
 function providerVendorOptionsMarkup(selectedValue = "") {
@@ -1525,7 +1576,14 @@ function formStorageKey(formId) {
   return "";
 }
 
+const JOB_FORM_PERSIST_SKIP = new Set(["workspace_id", "workspace_node_id", "workspace_node_title"]);
 const TRANSFER_FORM_PERSIST_SKIP = new Set(["source", "target"]);
+
+function formPersistSkipNames(formId) {
+  if (formId === "jobForm") return JOB_FORM_PERSIST_SKIP;
+  if (formId === "transferForm") return TRANSFER_FORM_PERSIST_SKIP;
+  return null;
+}
 
 function captureFormState(form, options = {}) {
   const skipNames = options.skipNames || null;
@@ -1543,15 +1601,17 @@ function persistFormState(formId) {
   const form = $(formId);
   const key = formStorageKey(formId);
   if (!form || !key) return;
-  const skipNames = formId === "transferForm" ? TRANSFER_FORM_PERSIST_SKIP : null;
+  const skipNames = formPersistSkipNames(formId);
   saveStoredJson(key, captureFormState(form, { skipNames }));
 }
 
 function restoreFormState(formId) {
   const form = $(formId);
   const data = storedFormState(formId);
+  const skipNames = formPersistSkipNames(formId);
   if (!form || !data || typeof data !== "object") return;
   form.querySelectorAll("[name]").forEach((field) => {
+    if (skipNames?.has(field.name)) return;
     if (!(field.name in data)) return;
     if (field.type === "checkbox") field.checked = Boolean(data[field.name]);
     else field.value = data[field.name];
@@ -2252,6 +2312,8 @@ function normalizeWorkspaceContextReflection(reflection = null) {
     created_at: String(reflection.created_at || ""),
     accepted_at: String(reflection.accepted_at || ""),
     accepted_context_block: String(reflection.accepted_context_block || ""),
+    dismissed_at: String(reflection.dismissed_at || ""),
+    dismissed_reason: String(reflection.dismissed_reason || ""),
   };
 }
 
@@ -2277,6 +2339,13 @@ function normalizeWorkspaceChatMessage(message = {}, index = 0) {
   };
 }
 
+function workspaceChatStatusText(status = "") {
+  const value = String(status || "").trim();
+  if (["pending", "streaming"].includes(value)) return "生成中";
+  if (value === "failed") return "失败";
+  return "";
+}
+
 function normalizeProviderProfile(profile = {}, index = 0) {
   // Required fields are kept empty when not provided so the UI can mark them
   // red and block save, instead of silently inventing defaults.
@@ -2289,6 +2358,9 @@ function normalizeProviderProfile(profile = {}, index = 0) {
     api_key: String(profile.api_key || ""),
     api_key_masked: String(profile.api_key_masked || ""),
     has_api_key: Boolean(profile.has_api_key || profile.api_key || profile.api_key_masked),
+    key_required: profile.key_required === false ? false : providerProfileRequiresApiKey(profile),
+    status: String(profile.status || "").trim(),
+    missing_fields: Array.isArray(profile.missing_fields) ? profile.missing_fields.map((item) => String(item || "").trim()).filter(Boolean) : [],
     is_default: Boolean(profile.is_default),
     is_new: Boolean(profile.is_new),
   };
@@ -2492,6 +2564,9 @@ async function loadProviderProfiles(options = {}) {
       api_key: "",
       api_key_masked: p.api_key_masked || "",
       has_api_key: !!(p.api_key_masked || p.api_key),
+      key_required: p.key_required !== false,
+      status: p.status || "",
+      missing_fields: Array.isArray(p.missing_fields) ? p.missing_fields : [],
       is_default: p.is_default || false,
     }));
     setProviderProfiles(transformed, { render: renderProfiles });
@@ -2531,6 +2606,8 @@ async function saveProviderProfile(profile, options = {}) {
     api_key: profile.api_key || "",
     models: profile.model ? [profile.model] : [],
     is_default: profile.is_default || false,
+    vendor_id: profile.vendor || "",
+    key_required: providerProfileRequiresApiKey(profile),
   };
 
   const existing = !options.forceCreate && state.providerProfiles.some((p) => p.id === profile.id && !p.is_new);
@@ -2884,6 +2961,7 @@ function defaultWorkflowTemplateDraft(sourceType = "repo") {
     links: workspaceLinksFromNodes(defaults.nodes || []),
     tags: [],
     notes: "",
+    version_history: [],
     created_at: "",
     updated_at: "",
   };
@@ -2948,6 +3026,24 @@ function normalizeWorkflowTemplateDraft(template = {}) {
     links: workspaceLinksFromNodes(nodes),
     tags: parseTagList(template.tags || []),
     notes: String(template.notes || ""),
+    version_history: Array.isArray(template.version_history)
+      ? template.version_history.map((record) => ({
+          ...record,
+          id: String(record?.id || ""),
+          mode: String(record?.mode || "update"),
+          recorded_at: String(record?.recorded_at || ""),
+          template_id: String(record?.template_id || ""),
+          template_name: String(record?.template_name || ""),
+          from_updated_at: String(record?.from_updated_at || ""),
+          to_updated_at: String(record?.to_updated_at || ""),
+          summary: record?.summary && typeof record.summary === "object" ? { ...record.summary } : {},
+          changed_fields: Array.isArray(record?.changed_fields) ? record.changed_fields.map((item) => String(item || "")).filter(Boolean) : [],
+          added_nodes: Array.isArray(record?.added_nodes) ? record.added_nodes : [],
+          removed_nodes: Array.isArray(record?.removed_nodes) ? record.removed_nodes : [],
+          changed_nodes: Array.isArray(record?.changed_nodes) ? record.changed_nodes : [],
+          warnings: Array.isArray(record?.warnings) ? record.warnings.map((item) => String(item || "")).filter(Boolean) : [],
+        })).filter((record) => record.id || record.recorded_at).slice(0, 20)
+      : [],
     created_at: String(template.created_at || ""),
     updated_at: String(template.updated_at || ""),
   };
@@ -3043,7 +3139,7 @@ function workflowTemplateValidationIssueMarkup(validation = null, { limit = 4 } 
           <strong>${escapeHtml(issue.message || issue.code || "配置检查项")}</strong>
         </div>
       `).join("")}
-      ${issues.length > limit ? `<div class="workspace-template-validation-more">还有 ${issues.length - limit} 个检查项，可切到链路检查查看上下文。</div>` : ""}
+      ${issues.length > limit ? `<div class="workspace-template-validation-more">还有 ${issues.length - limit} 个检查项，可切到链路诊断查看上下文。</div>` : ""}
     </div>
   `;
 }
@@ -3061,6 +3157,501 @@ function workflowTemplateValidationMarkup(validation = state.workflowTemplateVal
       ${workflowTemplateValidationIssueMarkup(validation)}
     </article>
   `;
+}
+
+function workflowTemplateVersionModeLabel(mode = "") {
+  const value = String(mode || "").trim();
+  if (value === "create") return "创建";
+  if (value === "update") return "更新";
+  return "记录";
+}
+
+function workflowTemplateVersionSummary(record = {}) {
+  const summary = record.summary && typeof record.summary === "object" ? record.summary : {};
+  const bits = [
+    Number(summary.changed_count || 0) ? `${Number(summary.changed_count || 0)} 处变化` : "",
+    Number(summary.added_node_count || 0) ? `+${Number(summary.added_node_count || 0)} 节点` : "",
+    Number(summary.removed_node_count || 0) ? `-${Number(summary.removed_node_count || 0)} 节点` : "",
+    Number(summary.changed_node_count || 0) ? `${Number(summary.changed_node_count || 0)} 节点改动` : "",
+    Number(summary.added_link_count || 0) ? `+${Number(summary.added_link_count || 0)} 连接` : "",
+    Number(summary.removed_link_count || 0) ? `-${Number(summary.removed_link_count || 0)} 连接` : "",
+    summary.link_topology_changed ? "拓扑变化" : summary.link_order_changed ? "顺序变化" : "",
+  ].filter(Boolean);
+  const fields = Array.isArray(record.changed_fields) ? record.changed_fields.filter(Boolean).slice(0, 3) : [];
+  if (fields.length) bits.push(`字段 ${fields.join(", ")}`);
+  return bits.join(" · ") || "无结构变化";
+}
+
+function workflowTemplateVersionHistoryMarkup(template = state.workflowTemplateDraft || {}) {
+  const history = Array.isArray(template.version_history) ? template.version_history : [];
+  if (!history.length) {
+    return `
+      <div class="workspace-template-version-history empty-state">
+        <span class="workspace-cockpit-label">版本历史</span>
+        <strong>暂无历史记录</strong>
+        <p>保存模板后会记录轻量变更摘要，便于后续迁移审计。</p>
+      </div>
+    `;
+  }
+  return `
+    <div class="workspace-template-version-history">
+      <div class="workspace-template-version-head">
+        <span class="workspace-cockpit-label">版本历史</span>
+        <div>
+          <strong>${history.length} 条记录</strong>
+          <button class="secondary mini" type="button" data-action="copy-template-version-history" title="复制当前模板版本历史摘要 JSON，便于迁移审计和排错">复制历史</button>
+        </div>
+      </div>
+      <div class="workspace-template-version-list">
+        ${history.slice(0, 4).map((record) => `
+          <article class="workspace-template-version-item" title="${escapeHtml(workflowTemplateVersionSummary(record))}">
+            <div>
+              <strong>${escapeHtml(workflowTemplateVersionModeLabel(record.mode))}</strong>
+              <span>${escapeHtml(fmtDate(record.recorded_at || record.to_updated_at || "") || record.recorded_at || "")}</span>
+            </div>
+            <p>${escapeHtml(workflowTemplateVersionSummary(record))}</p>
+          </article>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function workflowTemplateVersionAuditPayload(template = state.workflowTemplateDraft || {}) {
+  const normalized = normalizeWorkflowTemplateDraft(template || {});
+  const history = Array.isArray(normalized.version_history) ? normalized.version_history : [];
+  return {
+    schema: "relaygraph.workflow_template.version_history.copy.v1",
+    copied_at: new Date().toISOString(),
+    template_id: normalized.id || state.selectedWorkflowTemplateId || "",
+    template_name: normalized.name || "",
+    dirty: Boolean(state.ui.workflowTemplateDirty),
+    source_type: normalized.source?.type || "repo",
+    node_count: Array.isArray(normalized.nodes) ? normalized.nodes.length : 0,
+    link_count: Array.isArray(normalized.links) ? normalized.links.length : 0,
+    updated_at: normalized.updated_at || "",
+    history_count: history.length,
+    history: history.map((record) => ({
+      id: record.id || "",
+      mode: record.mode || "update",
+      recorded_at: record.recorded_at || "",
+      from_updated_at: record.from_updated_at || "",
+      to_updated_at: record.to_updated_at || "",
+      from_node_count: Number(record.from_node_count || 0),
+      to_node_count: Number(record.to_node_count || 0),
+      summary: record.summary && typeof record.summary === "object" ? { ...record.summary } : {},
+      changed_fields: Array.isArray(record.changed_fields) ? record.changed_fields.slice(0, 12) : [],
+      added_nodes: Array.isArray(record.added_nodes) ? record.added_nodes.slice(0, 8) : [],
+      removed_nodes: Array.isArray(record.removed_nodes) ? record.removed_nodes.slice(0, 8) : [],
+      changed_nodes: Array.isArray(record.changed_nodes) ? record.changed_nodes.slice(0, 8) : [],
+      warnings: Array.isArray(record.warnings) ? record.warnings.slice(0, 12) : [],
+    })),
+  };
+}
+
+async function copyWorkflowTemplateVersionHistory() {
+  const template = state.workflowTemplateDraft && Object.keys(state.workflowTemplateDraft).length
+    ? state.workflowTemplateDraft
+    : selectedWorkflowTemplate();
+  const payload = workflowTemplateVersionAuditPayload(template || {});
+  if (!payload.history_count) {
+    setWorkspaceManageMessage("当前模板还没有可复制的版本历史。", true);
+    return;
+  }
+  await copyTextToClipboard(JSON.stringify(payload, null, 2));
+  setWorkspaceManageMessage("模板版本历史 JSON 已复制。");
+}
+
+function workspaceTemplateDiffStatusLabel(status = "") {
+  const value = String(status || "").trim();
+  if (value === "same") return "快照一致";
+  if (value === "changed") return "模板已变化";
+  if (value === "missing_template") return "模板已删除";
+  if (value === "missing_snapshot") return "缺少快照";
+  return "等待检查";
+}
+
+function workspaceTemplateDiffStatusClass(status = "") {
+  const value = String(status || "").trim();
+  if (value === "same") return "ready";
+  if (value === "changed") return "warning";
+  if (value === "missing_template" || value === "missing_snapshot") return "blocked";
+  return "draft";
+}
+
+function workspaceTemplateMigrationStatusLabel(status = "") {
+  const value = String(status || "").trim();
+  if (value === "ready") return "无需迁移";
+  if (value === "review") return "可复核同步";
+  if (value === "manual_review") return "需人工复核";
+  if (value === "blocked") return "迁移阻塞";
+  return "等待计划";
+}
+
+function workspaceTemplateMigrationStrategyLabel(strategy = "") {
+  const value = String(strategy || "").trim();
+  if (value === "no_action") return "保持当前实例";
+  if (value === "sync_safe_fields") return "同步安全字段";
+  if (value === "sync_draft_then_validate") return "草稿同步后校验";
+  if (value === "create_new_workspace") return "建议新建实例";
+  if (value === "manual_rebuild") return "手动重建";
+  return "逐项检查";
+}
+
+function workspaceTemplateMigrationStatusClass(status = "") {
+  const value = String(status || "").trim();
+  if (value === "ready") return "ready";
+  if (value === "blocked") return "blocked";
+  if (value === "manual_review" || value === "review") return "warning";
+  return "draft";
+}
+
+function workspaceTemplateStructureStatusLabel(status = "") {
+  const value = String(status || "").trim();
+  if (value === "added") return "新增";
+  if (value === "removed") return "移除";
+  if (value === "changed") return "变更";
+  if (value === "same") return "一致";
+  return "未知";
+}
+
+function workspaceTemplateStructureNodeMarkup(node = {}) {
+  const status = String(node.status || "same").trim() || "same";
+  const meta = [
+    node.kind || "",
+    node.handler_agent_id ? `Agent ${node.handler_agent_id}` : node.handler_tool_id ? `Tool ${node.handler_tool_id}` : node.handler_mode || "",
+    node.output_key ? `out:${node.output_key}` : "",
+    node.has_input_mapping ? "mapped" : "",
+  ].filter(Boolean).join(" · ");
+  return `
+    <span class="workspace-template-structure-node status-${escapeHtml(status)}" title="${escapeHtml(`${node.title || node.kind || node.id || "节点"} · ${meta || workspaceTemplateStructureStatusLabel(status)}`)}">
+      <strong>${escapeHtml(node.title || node.kind || node.id || "节点")}</strong>
+      <em>${escapeHtml(workspaceTemplateStructureStatusLabel(status))}</em>
+    </span>
+  `;
+}
+
+function workspaceTemplateStructurePreviewMarkup(preview = null) {
+  if (!preview || typeof preview !== "object") return "";
+  const previous = Array.isArray(preview.previous_nodes) ? preview.previous_nodes : [];
+  const current = Array.isArray(preview.current_nodes) ? preview.current_nodes : [];
+  if (!previous.length && !current.length) return "";
+  const visibleLimit = 18;
+  const previewTruncated =
+    Boolean(preview.truncated) ||
+    Number(preview.previous_count || previous.length) > visibleLimit ||
+    Number(preview.current_count || current.length) > visibleLimit;
+  const row = (label, nodes, count) => `
+    <div class="workspace-template-structure-row">
+      <span>${escapeHtml(label)} · ${Number(count || nodes.length)} 节点</span>
+      <div class="workspace-template-structure-track">
+        ${nodes.slice(0, visibleLimit).map((node) => workspaceTemplateStructureNodeMarkup(node)).join("")}
+        ${Number(count || nodes.length) > visibleLimit ? '<span class="workspace-template-structure-more">...</span>' : ""}
+      </div>
+    </div>
+  `;
+  return `
+    <div class="workspace-template-structure-preview">
+      ${row("实例快照", previous, preview.previous_count)}
+      ${row("当前模板", current, preview.current_count)}
+      ${previewTruncated ? '<p class="workspace-chain-inspect-summary-note">链路较长，仅显示前 18 个节点；复制迁移计划可查看完整摘要。</p>' : ""}
+    </div>
+  `;
+}
+
+function workspaceTemplateLinkStatusLabel(status = "") {
+  const value = String(status || "").trim();
+  if (value === "added") return "新增";
+  if (value === "removed") return "移除";
+  if (value === "same") return "一致";
+  return "未知";
+}
+
+function workspaceTemplateLinkItemMarkup(link = {}) {
+  const status = String(link.status || "same").trim() || "same";
+  const label = link.label || `${link.from_label || link.from || "上游"} -> ${link.to_label || link.to || "下游"}`;
+  return `
+    <span class="workspace-template-link-edge status-${escapeHtml(status)}" title="${escapeHtml(`${label} · ${workspaceTemplateLinkStatusLabel(status)}`)}">
+      <strong>${escapeHtml(link.from_label || link.from || "上游")}</strong>
+      <em>-></em>
+      <strong>${escapeHtml(link.to_label || link.to || "下游")}</strong>
+      <small>${escapeHtml(workspaceTemplateLinkStatusLabel(status))}</small>
+    </span>
+  `;
+}
+
+function workspaceTemplateLinkPreviewMarkup(preview = null) {
+  if (!preview || typeof preview !== "object") return "";
+  const previous = Array.isArray(preview.previous_links) ? preview.previous_links : [];
+  const current = Array.isArray(preview.current_links) ? preview.current_links : [];
+  if (!previous.length && !current.length) return "";
+  const visibleLimit = 16;
+  const previewTruncated =
+    Boolean(preview.truncated) ||
+    Number(preview.previous_count || previous.length) > visibleLimit ||
+    Number(preview.current_count || current.length) > visibleLimit;
+  const badges = [
+    preview.topology_changed ? "拓扑变化" : "",
+    preview.order_changed ? "顺序变化" : "",
+    preview.metadata_changed ? "连接元数据变化" : "",
+  ].filter(Boolean);
+  const row = (label, links, count) => `
+    <div class="workspace-template-link-row">
+      <span>${escapeHtml(label)} · ${Number(count || links.length)} 连接</span>
+      <div class="workspace-template-link-track">
+        ${links.slice(0, visibleLimit).map((link) => workspaceTemplateLinkItemMarkup(link)).join("")}
+        ${Number(count || links.length) > visibleLimit ? '<span class="workspace-template-link-more">...</span>' : ""}
+      </div>
+    </div>
+  `;
+  return `
+    <div class="workspace-template-link-preview">
+      <div class="workspace-template-link-head">
+        <span class="workspace-cockpit-label">连接拓扑</span>
+        <div>${badges.length ? badges.map((item) => `<strong>${escapeHtml(item)}</strong>`).join("") : "<strong>连接一致</strong>"}</div>
+      </div>
+      ${row("旧连接", previous, preview.previous_count)}
+      ${row("当前连接", current, preview.current_count)}
+      ${previewTruncated ? '<p class="workspace-chain-inspect-summary-note">连接较多，仅显示前 16 条；复制迁移计划可查看完整摘要。</p>' : ""}
+    </div>
+  `;
+}
+
+function workspaceTemplateMigrationPlanMarkup(plan = null) {
+  if (!plan || typeof plan !== "object") return "";
+  const status = String(plan.status || "draft");
+  const strategy = String(plan.strategy || "");
+  const statusClass = workspaceTemplateMigrationStatusClass(status);
+  const steps = Array.isArray(plan.steps) ? plan.steps : [];
+  const canApply = Boolean(plan.can_manual_apply);
+  const canCreateDraft = Boolean(plan.can_create_draft) && !canApply;
+  return `
+    <div class="workspace-template-diff-plan status-${escapeHtml(statusClass)}">
+      <div>
+        <span class="workspace-cockpit-label">迁移计划</span>
+        <strong>${escapeHtml(workspaceTemplateMigrationStatusLabel(status))} · ${escapeHtml(workspaceTemplateMigrationStrategyLabel(strategy))}</strong>
+        <em title="${escapeHtml(plan.recommended_action || "")}">${escapeHtml(plan.recommended_action || "复制计划后按步骤复核。")}</em>
+      </div>
+      <div class="workspace-template-diff-plan-actions">
+        <button class="secondary mini" type="button" data-action="copy-template-migration-plan" title="复制模板差异迁移计划 JSON，供迁移前审计和复核">复制计划</button>
+        <button class="secondary mini" type="button" data-action="apply-template-migration" title="${escapeHtml(canApply ? "手动应用当前模板的安全字段，并记录迁移历史" : "此差异包含结构性变化，建议新建实例或人工重建")}" ${canApply ? "" : "disabled"}>应用安全迁移</button>
+        ${canCreateDraft ? `<button class="secondary mini" type="button" data-action="create-template-migration-draft" title="从当前实例输入和当前模板创建一个新草稿，旧实例和运行历史保持不变">新建迁移草稿</button>` : ""}
+      </div>
+    </div>
+    ${steps.length ? `
+      <div class="workspace-template-diff-steps">
+        ${steps.slice(0, 4).map((step) => `
+          <span title="${escapeHtml(step.detail || step.label || "")}">${escapeHtml(step.label || step.id || "复核步骤")}</span>
+        `).join("")}
+      </div>
+    ` : ""}
+  `;
+}
+
+function workspaceTemplateDiffMarkup() {
+  const workspace = selectedWorkspace();
+  if (!workspace?.id) {
+    return '<div class="empty">选择一个实例后显示它与当前模板的快照差异。</div>';
+  }
+  const cached = state.workspaceTemplateDiff || {};
+  if (cached.busy && cached.workspaceId === workspace.id) {
+    return '<div class="empty">正在检查模板快照差异...</div>';
+  }
+  if (cached.error && cached.workspaceId === workspace.id) {
+    return `<div class="empty error">模板差异检查失败：${escapeHtml(cached.error)}</div>`;
+  }
+  const payload = cached.workspaceId === workspace.id && cached.payload ? cached.payload : null;
+  const diff = payload?.diff && typeof payload.diff === "object" ? payload.diff : null;
+  if (!diff) {
+    return '<div class="empty">尚未加载模板快照差异。</div>';
+  }
+  const status = String(diff.status || "draft");
+  const summary = diff.summary && typeof diff.summary === "object" ? diff.summary : {};
+  const details = diff.diff && typeof diff.diff === "object" ? diff.diff : {};
+  const migrationPlan = diff.migration_plan && typeof diff.migration_plan === "object" ? diff.migration_plan : null;
+  const structurePreview = diff.structure_preview && typeof diff.structure_preview === "object" ? diff.structure_preview : null;
+  const linkPreview = diff.link_preview && typeof diff.link_preview === "object" ? diff.link_preview : null;
+  const changedNodes = Array.isArray(details.changed_nodes) ? details.changed_nodes : [];
+  const addedNodes = Array.isArray(details.added_nodes) ? details.added_nodes : [];
+  const removedNodes = Array.isArray(details.removed_nodes) ? details.removed_nodes : [];
+  const changedFields = Array.isArray(details.changed_fields) ? details.changed_fields : [];
+  const changedItems = [
+    ...addedNodes.slice(0, 3).map((item) => `新增 ${item.title || item.kind || item.id}`),
+    ...removedNodes.slice(0, 3).map((item) => `移除 ${item.title || item.kind || item.id}`),
+    ...changedNodes.slice(0, 3).map((item) => `变更 ${item.title || item.kind || item.id}`),
+    ...changedFields.slice(0, 4).map((item) => `字段 ${item}`),
+  ];
+  const statusClass = workspaceTemplateDiffStatusClass(status);
+  return `
+    <div class="workspace-template-diff-summary status-${escapeHtml(statusClass)}">
+      <div>
+        <span class="workspace-cockpit-label">模板快照</span>
+        <strong>${escapeHtml(workspaceTemplateDiffStatusLabel(status))}</strong>
+        <em>${escapeHtml(payload.template_name || diff.workspace_snapshot?.template_name || workspace.template_name || "自定义实例")}</em>
+      </div>
+      <div class="workspace-template-diff-metrics">
+        <span>${Number(summary.changed_count || 0)} 处变化</span>
+        <span>${Number(summary.added_node_count || 0)} 新增</span>
+        <span>${Number(summary.removed_node_count || 0)} 移除</span>
+        <span>${Number(summary.changed_node_count || 0)} 节点变更</span>
+      </div>
+    </div>
+    ${changedItems.length ? `
+      <div class="workspace-template-diff-list">
+        ${changedItems.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
+      </div>
+    ` : '<p class="workspace-chain-inspect-summary-note">当前实例仍保持创建时的独立快照；模板变化不会自动改写它。</p>'}
+    ${workspaceTemplateStructurePreviewMarkup(structurePreview)}
+    ${workspaceTemplateLinkPreviewMarkup(linkPreview)}
+    ${workspaceTemplateMigrationPlanMarkup(migrationPlan)}
+  `;
+}
+
+async function refreshWorkspaceTemplateDiff(workspaceId = state.selectedWorkspaceId, options = {}) {
+  const id = String(workspaceId || "").trim();
+  if (!id) {
+    state.workspaceTemplateDiff = { workspaceId: "", busy: false, error: "", payload: null };
+    return null;
+  }
+  state.workspaceTemplateDiff = {
+    ...state.workspaceTemplateDiff,
+    workspaceId: id,
+    busy: true,
+    error: "",
+  };
+  if (options.render !== false && state.ui.workspaceManageTab === "inspect") renderWorkspaceChainInspectPanel();
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/template-diff`);
+    if (String(state.selectedWorkspaceId || "") === id) {
+      state.workspaceTemplateDiff = { workspaceId: id, busy: false, error: "", payload };
+      if (options.render !== false && state.ui.workspaceManageTab === "inspect") renderWorkspaceChainInspectPanel();
+    }
+    return payload;
+  } catch (error) {
+    if (String(state.selectedWorkspaceId || "") === id) {
+      state.workspaceTemplateDiff = { workspaceId: id, busy: false, error: error.message || "template diff failed", payload: null };
+      if (options.render !== false && state.ui.workspaceManageTab === "inspect") renderWorkspaceChainInspectPanel();
+    }
+    if (!options.quiet) setWorkspaceManageMessage(error.message || "模板快照差异检查失败。", true);
+    return null;
+  }
+}
+
+async function copyWorkspaceTemplateMigrationPlan() {
+  const workspace = selectedWorkspace();
+  if (!workspace?.id) {
+    setWorkspaceManageMessage("先选择一个实例，再复制模板迁移计划。", true);
+    return;
+  }
+  let payload = state.workspaceTemplateDiff?.workspaceId === workspace.id
+    ? state.workspaceTemplateDiff.payload
+    : null;
+  if (!payload?.diff?.migration_plan) {
+    payload = await refreshWorkspaceTemplateDiff(workspace.id, { quiet: true, render: true });
+  }
+  const plan = payload?.diff?.migration_plan;
+  if (!plan) {
+    setWorkspaceManageMessage("还没有可复制的模板迁移计划。", true);
+    return;
+  }
+  await copyTextToClipboard(JSON.stringify({
+    schema: "relaygraph.workflow_template.migration_plan.copy.v1",
+    workspace_id: workspace.id,
+    workspace_name: workspace.name || "",
+    template_id: payload.template_id || workspace.template_id || "",
+    template_name: payload.template_name || workspace.template_name || "",
+    diff_summary: payload.diff?.summary || {},
+    migration_plan: plan,
+  }, null, 2));
+  setWorkspaceManageMessage("模板迁移计划 JSON 已复制。");
+}
+
+async function applyWorkspaceTemplateMigration() {
+  const workspace = selectedWorkspace();
+  if (!workspace?.id) {
+    setWorkspaceManageMessage("先选择一个实例，再应用模板迁移。", true);
+    return null;
+  }
+  const payload = state.workspaceTemplateDiff?.workspaceId === workspace.id
+    ? state.workspaceTemplateDiff.payload
+    : await refreshWorkspaceTemplateDiff(workspace.id, { quiet: true, render: true });
+  const plan = payload?.diff?.migration_plan;
+  if (!plan?.can_manual_apply) {
+    setWorkspaceManageMessage("当前模板差异包含结构性变化，请新建实例或人工重建。", true);
+    return null;
+  }
+  if (!confirm("应用当前模板的安全迁移？会更新此实例的模板派生字段，并保留运行记录与迁移历史。运行前仍需重新通过链路诊断和执行包 gate。")) {
+    return null;
+  }
+  const response = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/template-migration/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
+  const merged = mergeWorkspaceExecutionResultPayload(workspace.id, response) || response.workspace || workspace;
+  state.workspaceTemplateDiff = {
+    workspaceId: workspace.id,
+    busy: false,
+    error: "",
+    payload: {
+      workspace_id: workspace.id,
+      template_id: response.template_id || response.workspace?.template_id || merged.template_id || "",
+      template_name: response.template_name || response.workspace?.template_name || merged.template_name || "",
+      diff: response.diff || null,
+    },
+  };
+  selectWorkspace(workspace.id, {
+    persist: true,
+    selectedNodeId: state.selectedWorkspaceNodeId,
+    selectedExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
+    refreshCockpit: true,
+  });
+  setWorkspaceManageMessage("模板安全迁移已应用。请重新检查链路诊断和执行包 readiness gate。");
+  return response;
+}
+
+async function createWorkspaceTemplateMigrationDraft() {
+  const workspace = selectedWorkspace();
+  if (!workspace?.id) {
+    setWorkspaceManageMessage("先选择一个实例，再创建迁移草稿。", true);
+    return null;
+  }
+  const payload = state.workspaceTemplateDiff?.workspaceId === workspace.id
+    ? state.workspaceTemplateDiff.payload
+    : await refreshWorkspaceTemplateDiff(workspace.id, { quiet: true, render: true });
+  const plan = payload?.diff?.migration_plan;
+  if (!plan?.can_create_draft) {
+    setWorkspaceManageMessage("当前模板差异不需要迁移草稿。", true);
+    return null;
+  }
+  if (!confirm("从当前实例输入和当前模板创建一个新的迁移草稿？旧实例、运行记录和任务不会被修改。")) {
+    return null;
+  }
+  const response = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/template-migration/create-draft`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: true }),
+  });
+  const draft = response.workspace && typeof response.workspace === "object" ? response.workspace : null;
+  if (draft?.id) {
+    upsertWorkspaceInState(draft);
+    state.workspaceTemplateDiff = {
+      workspaceId: draft.id,
+      busy: false,
+      error: "",
+      payload: {
+        workspace_id: draft.id,
+        template_id: draft.template_id || "",
+        template_name: draft.template_name || "",
+        diff: response.diff || null,
+      },
+    };
+    selectWorkspace(draft.id, { persist: true, refreshCockpit: true });
+  } else {
+    await loadStatus(true, { renderWorkspace: true });
+  }
+  setWorkspaceManageMessage("迁移草稿已创建。请在新实例里重新检查链路诊断和执行包 readiness gate。");
+  return response;
 }
 
 async function previewWorkflowTemplate(options = {}) {
@@ -3137,6 +3728,41 @@ function updateSelectedWorkflowTemplateNode(updater) {
     python_version: state.workflowTemplateDraft?.env?.python || "",
   }));
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
+}
+
+function setSelectedWorkflowTemplateInputMapping(mapping = {}, options = {}) {
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
+  const index = nodes.findIndex((item) => item.id === state.selectedTemplateNodeId);
+  if (index < 0) return;
+  const current = deepClone(nodes[index], nodes[index]);
+  const cleaned = workspaceInputMappingFromEntries(workspaceInputMappingEntries(mapping));
+  if (Object.keys(cleaned).length) current.input_mapping = cleaned;
+  else delete current.input_mapping;
+  nodes.splice(index, 1, normalizeWorkspaceDraftNode(current, index, {
+    source_type: workspaceChainSourceType(state.workflowTemplateDraft?.source?.type || "repo"),
+    repo_url: state.workflowTemplateDraft?.source?.repo_url || "",
+    repo_ref: state.workflowTemplateDraft?.source?.repo_ref || "",
+    paper_url: state.workflowTemplateDraft?.source?.paper_url || "",
+    idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
+    workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
+    env_name: state.workflowTemplateDraft?.env?.name || "",
+    env_manager: state.workflowTemplateDraft?.env?.manager || "",
+    python_version: state.workflowTemplateDraft?.env?.python || "",
+  }));
+  state.workflowTemplateDraft = normalizeWorkflowTemplateDraft({ ...state.workflowTemplateDraft, nodes });
+  state.workflowTemplateValidation = null;
+  state.ui.workflowTemplateDirty = true;
+  if (options.render === false && options.renderParts) {
+    renderWorkflowTemplateNodeList();
+    renderWorkflowTemplateNodeEditor();
+    renderWorkflowTemplateStudioOverview();
+  } else if (options.render === false || options.render === "canvas") {
+    renderWorkflowTemplateCanvas();
+    renderWorkflowTemplateNodeList();
+    renderWorkflowTemplateStudioOverview();
+  } else {
+    preserveActiveInput(() => renderWorkspaceWorkbench());
+  }
 }
 
 function insertWorkflowTemplateNode(kind) {
@@ -4464,18 +5090,19 @@ function focusWorkspaceCockpitFromNextAction(workspace = selectedWorkspace()) {
 }
 
 function workspaceExecutionChainNodeFacts(node = {}, index = 0, context = {}) {
+  const currentNode = node && typeof node === "object" ? node : {};
   const workspace = context.workspace || selectedWorkspace();
   const template = context.template || selectedWorkflowTemplate();
-  const io = workspaceNodeIoContractState(node, node, { workspace, template });
-  const handler = node.handler && typeof node.handler === "object" ? node.handler : {};
-  const agentId = String(io.agent?.id || handler.agent_id || node.agent_id || "").trim();
+  const io = workspaceNodeIoContractState(currentNode, currentNode, { workspace, template });
+  const handler = currentNode.handler && typeof currentNode.handler === "object" ? currentNode.handler : {};
+  const agentId = String(io.agent?.id || handler.agent_id || currentNode.agent_id || "").trim();
   const workspaceAgents = Array.isArray(workspace?.agents) ? workspace.agents : [];
   const agent = workspaceAgentById(agentId, workspaceAgents) || globalAgentById(agentId) || {};
-  const agentName = io.agent?.name || agent.name || handler.name || node.agent_name || (String(handler.mode || "") === "human" ? "你" : "未指派");
+  const agentName = io.agent?.name || agent.name || handler.name || currentNode.agent_name || (String(handler.mode || "") === "human" ? "你" : "未指派");
   const tools = Array.isArray(io.tools) ? io.tools.filter((tool) => tool.enabled !== false) : [];
-  const output = String(io.outputKey || io.output || workspaceNodeIoContract(node.kind || "", index).output || "").trim();
+  const output = String(io.outputKey || io.output || workspaceNodeIoContract(currentNode.kind || "", index).output || "").trim();
   const inputCount = Array.isArray(io.inputs) ? io.inputs.length : 0;
-  const status = String(node.status || (context.preview ? "preview" : "pending"));
+  const status = String(currentNode.status || (context.preview ? "preview" : "pending"));
   return {
     agentName,
     toolCount: tools.length,
@@ -7836,8 +8463,8 @@ function workspaceManageAction(tab = "templates", overrides = {}) {
       title: "进入 AI 层，补齐 Provider Profile、路由和聊天 Agent。",
     },
     inspect: {
-      label: "链路检查",
-      title: "查看完整链路诊断：节点链、I/O 交接、缺口与门禁。",
+      label: "链路诊断",
+      title: "查看链路门禁诊断：节点链、I/O 交接、缺口与门禁。",
     },
   };
   const base = defaults[next] || defaults.templates;
@@ -9978,10 +10605,14 @@ function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
       )
     : null;
   const latestRunStepIsAgent = latestRunStep && String(latestRunStep.executor || "") === "agent";
+  const latestRunStepLiveRecord = latestRunStepIsAgent ? workspaceLiveAgentRecordForStep(latestRunStep, latestRun, workspace?.id) : null;
+  const latestRunStepLiveStatus = latestRunStepLiveRecord ? workspaceLiveAgentStatus(latestRunStepLiveRecord) : "";
   const currentJob = !latestRunStepIsAgent && latestRunStep?.job_id
     ? jobs.find((job) => String(job.id || "") === String(latestRunStep.job_id || "")) || null
     : failedJobs[0] || blockedJobs[0] || runningJobs[0] || queuedJobs[0] || doneJobs[0] || jobs[0] || null;
-  const currentStatus = String(latestRunStepIsAgent ? latestRunStep.status : currentJob?.status || status || "draft");
+  const currentStatus = String(latestRunStepIsAgent
+    ? (latestRunStepLiveRecord && workspaceLiveAgentRecordIsActive(latestRunStepLiveRecord) ? latestRunStepLiveStatus : latestRunStep.status)
+    : currentJob?.status || status || "draft");
   const currentNode = latestRunStepIsAgent
     ? String(latestRunStep.node_title || latestRunStep.node_kind || "Agent 步骤")
     : String(currentJob?.metadata?.node_title || currentJob?.metadata?.node_kind || currentJob?.kind || "等待任务");
@@ -10000,7 +10631,17 @@ function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
         ? "还没有任务进入队列"
         : "创建实例后才会绑定运行记录";
   const latestAgentTrace = latestRunStepIsAgent
-    ? workspaceAgentStepTraceMarkup(latestRunStep.agent_steps || [], { compact: true, limit: 2 })
+    ? (
+        latestRunStepLiveRecord?.trace_events?.length
+          ? workspaceAgentFineTraceMarkup(latestRunStepLiveRecord.trace_events, { compact: true, limit: 3 })
+          : workspaceAgentStepTraceMarkup(
+              [
+                ...(Array.isArray(latestRunStep.agent_steps) ? latestRunStep.agent_steps : []),
+                ...(Array.isArray(latestRunStepLiveRecord?.steps) ? latestRunStepLiveRecord.steps : []),
+              ],
+              { compact: true, limit: 2 },
+            )
+      )
     : "";
   const currentTitle = latestRun
     ? latestRun.summary || workspaceRunKindLabel(latestRun.kind)
@@ -10010,7 +10651,10 @@ function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
         ? "等待自动推进创建运行记录"
         : "等待创建自动化实例";
   const currentDetail = latestRunStepIsAgent
-    ? String(latestRunStep.error || "").trim() || "Agent 步已完成推理与工具调用，详细 trace 在运行记录中展开。"
+    ? String(latestRunStep.error || latestRunStepLiveRecord?.error || "").trim()
+      || (latestRunStepLiveRecord && workspaceLiveAgentRecordIsActive(latestRunStepLiveRecord)
+        ? "Agent 正在实时推理/调用工具，运行记录中会同步显示最新 trace。"
+        : "Agent 步已完成推理与工具调用，详细 trace 在运行记录中展开。")
     : currentJob
     ? (
         failedJobs.includes(currentJob) || blockedJobs.includes(currentJob)
@@ -10285,6 +10929,7 @@ function renderWorkspaceChainInspectPanel() {
   const handoffRoot = $("workspaceManageInspectHandoff");
   const gapRoot = $("workspaceManageInspectGaps");
   const readinessRoot = $("workspaceManageInspectReadiness");
+  const templateDiffRoot = $("workspaceManageTemplateDiff");
   if (!chainRoot) return;
   const inputs = workspaceUseInputsPayload();
   const template = selectedWorkflowTemplate();
@@ -10298,6 +10943,9 @@ function renderWorkspaceChainInspectPanel() {
     : workspaceUseNextAction(inputs, template, workspace);
   if (summaryRoot) {
     summaryRoot.innerHTML = workspaceChainInspectSummaryMarkup(workspace, template);
+  }
+  if (templateDiffRoot) {
+    templateDiffRoot.innerHTML = workspaceTemplateDiffMarkup();
   }
   const focusNodeId = cockpitNext?.focus_node_id || state.selectedWorkspaceExecutionNodeId || "";
   chainRoot.innerHTML = workspaceCockpitChainMarkup(workspace, template, { focusNodeId });
@@ -10405,10 +11053,10 @@ function workspaceManageOverviewCards() {
     },
     {
       tab: "inspect",
-      label: "链路检查",
+      label: "链路诊断",
       title: missingHandlers ? `${missingHandlers} 处待补` : "可执行诊断",
       detail: `${draft?.nodes?.length || 0} 节点 · I/O · 缺口 · 门禁`,
-      next: "保存模板或创建实例前的完整链路只读检查",
+      next: "保存模板或创建实例前的链路门禁只读诊断",
       state: missingHandlers ? "blocked" : templates.length ? "ready" : "draft",
     },
   ];
@@ -10458,7 +11106,7 @@ function workspaceManageFocusSummary(tab = state.ui.workspaceManageTab || "templ
   if (tab === "inspect") {
     const workspace = selectedWorkspace();
     return {
-      title: "完整链路检查（只读诊断）",
+      title: "链路门禁诊断（只读）",
       detail: workspace?.id
         ? `实例 ${workspace.name || workspace.id} · 结合模板与运行态核对缺口和门禁。`
         : `模板 ${draft?.name || "未选择"} · 尚未创建实例，按模板结构做静态检查。`,
@@ -10567,7 +11215,7 @@ function renderWorkflowTemplateStudioOverview() {
       <strong>${escapeHtml(card.title)}</strong>
       <p title="${escapeHtml(card.detail)}">${escapeHtml(card.detail)}</p>
     </article>
-  `).join("") + workflowTemplateValidationMarkup();
+  `).join("") + workflowTemplateValidationMarkup() + workflowTemplateVersionHistoryMarkup(draft);
 }
 
 function hydrateWorkspaceUseInputsFromWorkspace(workspace) {
@@ -10583,6 +11231,14 @@ function ensureDirectorySlash(path) {
 
 function normalizePathForCompare(path) {
   return String(path || "").replace(/\/+$/, "");
+}
+
+function parentDirectoryPath(path) {
+  const text = String(path || "").trim().replace(/\/+$/, "");
+  if (!text || text === "/") return "";
+  const index = text.lastIndexOf("/");
+  if (index <= 0) return "/";
+  return text.slice(0, index) || "/";
 }
 
 function transferPathOnly(value) {
@@ -11726,9 +12382,19 @@ function workspaceAgentRunCompactMarkup(bundle) {
   const mappedLine = workspaceMappedInputsCompactLine(step.mapped_inputs || []);
   const outputKey = String(step.output_key || "").trim();
   const artifactCount = Number(step.artifact_count) || 0;
+  const childJobIds = (Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  const childRunIds = (Array.isArray(step.child_run_ids) ? step.child_run_ids : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  const runtimeStatus = String(step.runtime_status || "").trim();
   const parts = [];
   if (mappedLine) parts.push(`解析输入 ${mappedLine}`);
   if (outputKey) parts.push(`写出 ${outputKey}${artifactCount ? ` (${artifactCount} 产物)` : ""}`);
+  if (childJobIds.length) parts.push(`子任务 ${childJobIds[0].slice(0, 8)}${childJobIds.length > 1 ? ` +${childJobIds.length - 1}` : ""}`);
+  if (childRunIds.length) parts.push(`子运行 ${childRunIds[0].slice(0, 8)}${childRunIds.length > 1 ? ` +${childRunIds.length - 1}` : ""}`);
+  if (runtimeStatus) parts.push(`runtime ${zhStatus(runtimeStatus)}`);
   if (!parts.length) return "";
   const text = parts.join(" · ");
   return `<p class="workspace-agent-run-compact muted" title="${escapeHtml(text)}">${escapeHtml(text)}</p>`;
@@ -11809,6 +12475,11 @@ function normalizeAgentTraceEventFromPayload(eventType = "", payload = {}) {
     status: String(source.status || "").trim(),
     side_effect: String(source.side_effect || "").trim(),
     error: String(source.error || "").trim(),
+    job_id: String(source.job_id || "").trim(),
+    run_id: String(source.run_id || "").trim(),
+    runtime_control: String(source.runtime_control || "").trim(),
+    runtime_side_effect: String(source.runtime_side_effect || "").trim(),
+    runtime_status: String(source.runtime_status || "").trim(),
   };
   if (source.controlled !== undefined) event.controlled = Boolean(source.controlled);
   return event;
@@ -11849,7 +12520,14 @@ function workspaceAgentTraceEventDetail(event = {}) {
     return String(event.arguments_summary || event.tool_id || "").trim();
   }
   if (type === "agent.tool.result" || type === "agent.tool.failed") {
-    return String(event.observation_summary || event.error || "").trim();
+    const runtimeParts = [
+      event.job_id ? `任务 ${String(event.job_id).slice(0, 8)}` : "",
+      event.run_id ? `运行 ${String(event.run_id).slice(0, 8)}` : "",
+      event.runtime_status ? zhStatus(event.runtime_status) : "",
+      event.runtime_control || "",
+    ].filter(Boolean);
+    const detail = String(event.observation_summary || event.error || "").trim();
+    return [runtimeParts.join(" · "), detail].filter(Boolean).join(" · ");
   }
   if (type === "agent.answer.delta" || type === "agent.thought.delta" || type === "agent.message.delta") {
     return String(event.accumulated || event.delta || "").trim();
@@ -11891,7 +12569,17 @@ function workspaceAgentStepTraceMarkup(agentSteps = [], options = {}) {
   const items = steps.slice(0, limit).map((item) => {
     const action = String(item.action || "").trim();
     const thought = compactText(String(item.thought || "").trim(), compact ? 48 : 120);
-    const observation = compactText(String(item.observation || item.error || "").trim(), compact ? 56 : 140);
+    const runtimeParts = [
+      item.job_id ? `任务 ${String(item.job_id).slice(0, 8)}` : "",
+      item.run_id ? `运行 ${String(item.run_id).slice(0, 8)}` : "",
+      item.runtime_status ? zhStatus(item.runtime_status) : "",
+      item.runtime_control || "",
+    ].filter(Boolean);
+    const observationText = [
+      runtimeParts.join(" · "),
+      String(item.observation || item.observation_summary || item.error || "").trim(),
+    ].filter(Boolean).join(" · ");
+    const observation = compactText(observationText, compact ? 56 : 140);
     const label = action || thought || "推理步";
     const detail = action ? observation : thought;
     const badge = action ? workspaceToolPolicyBadge(item.side_effect, item.controlled) : "";
@@ -11937,20 +12625,44 @@ function workspaceAgentStreamTraceMarkup(records = []) {
 
 function workspaceRunStepItemMarkup(step = {}, run = {}) {
   const jobId = String(step.job_id || "").trim();
+  const childJobIds = (Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  const childRunIds = (Array.isArray(step.child_run_ids) ? step.child_run_ids : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
   const nodeTitle = String(step.node_title || step.node_kind || "步骤").trim();
   const status = String(step.status || "queued");
-  const errorText = String(step.error || "").trim();
   const isAgent = String(step.executor || "") === "agent";
+  const liveAgentRecord = isAgent ? workspaceLiveAgentRecordForStep(step, run) : null;
+  const liveStatus = liveAgentRecord ? workspaceLiveAgentStatus(liveAgentRecord) : "";
+  const effectiveStatus = liveAgentRecord && (
+    workspaceLiveAgentRecordIsActive(liveAgentRecord)
+    || ["failed", "stopped", "blocked"].includes(liveStatus)
+  )
+    ? liveStatus
+    : status;
+  const runtimeStatus = String(step.runtime_status || (liveAgentRecord?.status ? workspaceLiveAgentStatus(liveAgentRecord) : "") || "").trim();
+  const errorText = String(step.error || "").trim();
   const mappedInputsLine = isAgent ? workspaceMappedInputsCompactLine(step.mapped_inputs || [], 2) : "";
   const outputKey = String(step.output_key || "").trim();
   const nodeId = String(step.node_id || "").trim();
   const agentExecutionId = String(step.agent_execution_id || "").trim();
   const executionMeta = step.agent_meta && typeof step.agent_meta === "object" ? step.agent_meta : {};
   const agentTraceEvents = Array.isArray(step.trace_events) ? step.trace_events : [];
+  const liveTraceEvents = liveAgentRecord
+    ? mergeAgentTraceEvents(agentTraceEvents, liveAgentRecord.trace_events || [])
+    : agentTraceEvents;
+  const liveAgentSteps = liveAgentRecord
+    ? [
+        ...(Array.isArray(step.agent_steps) ? step.agent_steps : []),
+        ...(Array.isArray(liveAgentRecord.steps) ? liveAgentRecord.steps : []),
+      ].slice(-24)
+    : step.agent_steps || [];
   const agentTrace = isAgent
-    ? (agentTraceEvents.length
-      ? workspaceAgentFineTraceMarkup(agentTraceEvents, { compact: true, limit: 6 })
-      : workspaceAgentStepTraceMarkup(step.agent_steps || [], { compact: true, limit: 3 }))
+    ? (liveTraceEvents.length
+      ? workspaceAgentFineTraceMarkup(liveTraceEvents, { compact: true, limit: 6 })
+      : workspaceAgentStepTraceMarkup(liveAgentSteps, { compact: true, limit: 3 }))
     : "";
   const metaParts = [];
   if (isAgent && executionMeta.model) metaParts.push(executionMeta.model);
@@ -11963,8 +12675,11 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
   const validationLine = isAgent && validation.status && validation.status !== "ok"
     ? `输出校验 ${validation.status}${Array.isArray(validation.errors) && validation.errors.length ? `：${validation.errors[0]}` : ""}`
     : "";
-  const canCancelAgent = isAgent && agentExecutionId && ["running", "queued"].includes(status);
-  const canRetryAgent = isAgent && nodeId && ["failed", "stopped", "blocked"].includes(status);
+  const liveAgentLine = liveAgentRecord && workspaceLiveAgentRecordIsActive(liveAgentRecord)
+    ? `实时 Agent：${zhStatus(liveStatus)}${liveAgentRecord.total_steps ? ` · ${Number(liveAgentRecord.total_steps)} step` : ""}`
+    : "";
+  const canCancelAgent = isAgent && agentExecutionId && !agentExecutionId.startsWith("agent-") && ["running", "queued"].includes(effectiveStatus);
+  const canRetryAgent = isAgent && nodeId && ["failed", "stopped", "blocked"].includes(effectiveStatus);
   const agentActions = isAgent && (canCancelAgent || canRetryAgent)
     ? `
         <div class="workspace-execution-run-step-actions">
@@ -11973,19 +12688,35 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
         </div>
       `
     : "";
+  const childRuntimeActions = isAgent && (childJobIds.length || childRunIds.length)
+    ? `
+        <div class="workspace-execution-run-step-actions">
+          ${childJobIds.map((childJobId, index) => (
+            `<button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(childJobId)}" title="打开 Agent 触发的受控子任务日志">子任务${childJobIds.length > 1 ? ` ${index + 1}` : ""}</button>`
+          )).join("")}
+          ${childRunIds.map((childRunId, index) => (
+            `<button class="secondary mini" type="button" data-action="open-workspace-run" data-run-id="${escapeHtml(childRunId)}" title="打开 Agent 触发的子运行详情">子运行${childRunIds.length > 1 ? ` ${index + 1}` : ""}</button>`
+          )).join("")}
+        </div>
+      `
+    : "";
   return `
-    <article class="workspace-execution-run-step status-${escapeHtml(status)}${isAgent ? " executor-agent" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
+    <article class="workspace-execution-run-step status-${escapeHtml(effectiveStatus)}${isAgent ? " executor-agent" : ""}${step._live_agent_synthetic ? " live-synthetic" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
       <div class="workspace-execution-run-step-head">
         <strong>${escapeHtml(`${Number(step.index) + 1}. ${nodeTitle}`)}</strong>
-        <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+        <span class="state ${escapeHtml(effectiveStatus)}">${escapeHtml(zhStatus(effectiveStatus))}</span>
       </div>
       <div class="workspace-execution-run-step-meta">
         <span>${escapeHtml(isAgent ? "Agent" : step.node_kind || "")}</span>
         ${jobId ? `<span>任务 ${escapeHtml(jobId)}</span>` : ""}
+        ${isAgent && childJobIds.length ? `<span>子任务 ${escapeHtml(childJobIds[0])}${childJobIds.length > 1 ? ` +${childJobIds.length - 1}` : ""}</span>` : ""}
+        ${isAgent && childRunIds.length ? `<span>子运行 ${escapeHtml(childRunIds[0])}${childRunIds.length > 1 ? ` +${childRunIds.length - 1}` : ""}</span>` : ""}
+        ${isAgent && runtimeStatus ? `<span>runtime ${escapeHtml(zhStatus(runtimeStatus))}</span>` : ""}
         ${isAgent && agentExecutionId ? `<span>${escapeHtml(agentExecutionId)}</span>` : ""}
         ${isAgent && outputKey ? `<span>${escapeHtml(outputKey)}</span>` : ""}
         ${executionMetaLine ? `<span>${escapeHtml(executionMetaLine)}</span>` : ""}
       </div>
+      ${liveAgentLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(liveAgentLine)}</p>` : ""}
       ${isAgent && mappedInputsLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(mappedInputsLine)}</p>` : ""}
       ${validationLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(validationLine)}</p>` : ""}
       ${agentTrace}
@@ -11995,13 +12726,98 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
           <button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(jobId)}" title="打开这一步的任务日志">打开日志</button>
         </div>
       ` : ""}
+      ${childRuntimeActions}
       ${agentActions}
     </article>
   `;
 }
 
+function workspaceRunEventLabel(type = "") {
+  const map = {
+    "run.created": "运行创建",
+    "run.updated": "运行更新",
+    "run.step.updated": "步骤更新",
+    "job.updated": "任务更新",
+    "agent.step.created": "Agent 步骤",
+    "agent.tool.called": "调用工具",
+    "agent.tool.result": "工具结果",
+    "agent.tool.failed": "工具失败",
+    "agent.completed": "Agent 完成",
+    "agent.failed": "Agent 失败",
+  };
+  return map[String(type || "").trim()] || String(type || "事件").trim();
+}
+
+function workspaceRunEventStatus(event = {}) {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+  const step = payload.step && typeof payload.step === "object" ? payload.step : {};
+  const job = payload.job && typeof payload.job === "object" ? payload.job : {};
+  const run = payload.run && typeof payload.run === "object" ? payload.run : {};
+  const execution = payload.execution && typeof payload.execution === "object" ? payload.execution : {};
+  if (execution.error) return "failed";
+  if (execution.success) return "done";
+  return String(
+    step.status
+      || job.status
+      || run.status
+      || "",
+  ).trim();
+}
+
+function workspaceRunEventDetail(event = {}) {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+  const step = payload.step && typeof payload.step === "object" ? payload.step : {};
+  const job = payload.job && typeof payload.job === "object" ? payload.job : {};
+  const run = payload.run && typeof payload.run === "object" ? payload.run : {};
+  const execution = payload.execution && typeof payload.execution === "object" ? payload.execution : {};
+  const parts = [];
+  if (step.node_title || step.node_kind) {
+    parts.push(`${Number(step.index || 0) + 1}. ${step.node_title || workspaceCockpitStageLabel(step.node_kind)}`);
+  }
+  if (payload.tool_id) parts.push(`工具 ${payload.tool_id}`);
+  const toolSummary = String(payload.observation_summary || payload.arguments_summary || "").trim();
+  if (toolSummary) parts.push(toolSummary);
+  if (job.id || event.job_id) parts.push(`任务 ${job.id || event.job_id}`);
+  if (execution.id || event.agent_execution_id) parts.push(`Agent ${execution.id || event.agent_execution_id}`);
+  if (run.summary) parts.push(run.summary);
+  const error = String(step.error || job.error || execution.error || "").trim();
+  if (error) parts.push(error);
+  return compactText(parts.filter(Boolean).join(" · "), 150);
+}
+
+function workspaceRunEventTimelineMarkup(run = {}, limit = 6) {
+  const events = (Array.isArray(run.events) ? run.events : []).filter((item) => item && typeof item === "object");
+  if (!events.length) return "";
+  const total = events.length;
+  const visible = events.slice(-Math.max(Number(limit) || 6, 1)).reverse();
+  return `
+    <div class="workspace-run-event-timeline" aria-label="最近执行事件">
+      <div class="workspace-run-event-timeline-head">
+        <strong>最近事件</strong>
+        <span>${escapeHtml(`${total} 条`)}</span>
+      </div>
+      <ol>
+        ${visible.map((event) => {
+          const type = String(event.type || "").trim();
+          const status = workspaceRunEventStatus(event);
+          const detail = workspaceRunEventDetail(event);
+          return `
+            <li class="workspace-run-event status-${escapeHtml(status || "info")}">
+              <span>${escapeHtml(fmtDate(event.created_at || ""))}</span>
+              <strong>${escapeHtml(workspaceRunEventLabel(type))}</strong>
+              ${status ? `<em>${escapeHtml(zhStatus(status))}</em>` : ""}
+              ${detail ? `<p title="${escapeHtml(detail)}">${escapeHtml(detail)}</p>` : ""}
+            </li>
+          `;
+        }).join("")}
+      </ol>
+    </div>
+  `;
+}
+
 function workspaceExecutionRunItemMarkup(run = {}) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
+  const displaySteps = [...steps, ...workspaceLiveAgentSyntheticStepsForRun(run, steps)];
   const status = String(run.status || "pending");
   const packageId = String(run.package_id || run.package_snapshot?.package_id || "").trim();
   const delivery = run.package_snapshot?.delivery_closure && typeof run.package_snapshot.delivery_closure === "object"
@@ -12031,8 +12847,9 @@ function workspaceExecutionRunItemMarkup(run = {}) {
       </div>
       ${workspaceRunProgressMarkup(run)}
       ${deliveryMarkup}
+      ${workspaceRunEventTimelineMarkup(run)}
       <div class="workspace-execution-run-steps">
-        ${steps.map((step) => workspaceRunStepItemMarkup(step, run)).join("")}
+        ${displaySteps.map((step) => workspaceRunStepItemMarkup(step, run)).join("")}
       </div>
     </article>
   `;
@@ -12123,7 +12940,7 @@ function workspaceUseMonitorMarkup(workspace = selectedWorkspace(), options = {}
           <div class="workspace-use-monitor-actions">
             ${workspaceHomeActionButtonMarkup({ ...primary, tone: "primary" }, detail)}
             ${secondary ? workspaceHomeActionButtonMarkup({ ...secondary, tone: "secondary" }, detail) : ""}
-            <button class="secondary mini" type="button" data-action="open-workspace-chain-inspect" title="打开配置中心链路检查：节点链、I/O 交接、缺口与门禁">链路检查</button>
+            <button class="secondary mini" type="button" data-action="open-workspace-chain-inspect" title="打开配置中心链路诊断：节点链、I/O 交接、缺口与门禁">链路诊断</button>
           </div>
         </div>
         ${progressBlock}
@@ -12164,7 +12981,7 @@ function testWorkspaceStarterChain() {
     setWorkspaceUseMessage(`链路可建实例，但 ${labels} 仍需注意（${ready.length}/${items.length} 就绪）。`, true);
     return;
   }
-  setWorkspaceUseMessage(`链路检查通过（${ready.length}/${items.length} 就绪），可以创建并推进。`, false);
+  setWorkspaceUseMessage(`链路诊断通过（${ready.length}/${items.length} 就绪），可以创建并推进。`, false);
 }
 
 function renderWorkspaceUseMonitor() {
@@ -12473,7 +13290,7 @@ function syncWorkspaceProjectConfigDrawer(options = {}) {
   const drawer = $("workspaceProjectConfigDrawer");
   if (!drawer) return;
   const mode = state.ui.workspaceMode || "use";
-  const hidden = mode !== "use";
+  const hidden = mode !== "manage";
   drawer.toggleAttribute("hidden", hidden);
   const shouldOpen = !hidden && Boolean(state.ui.workspaceProjectConfigOpen);
   if (drawer.open !== shouldOpen) drawer.open = shouldOpen;
@@ -13652,7 +14469,7 @@ function workspaceHomeContextCompactMarkup(workspace = selectedWorkspace(), form
     mode: workspace?.id ? "manage" : "",
     tab: workspace?.id ? "" : "project",
     tone: "secondary",
-    title: workspace?.id ? "查看详细配置与链路检查。" : "查看启动运行所需的最小信息。",
+    title: workspace?.id ? "查看详细配置与链路诊断。" : "查看启动运行所需的最小信息。",
   };
   return `
     <section class="workspace-home-context-summary status-${escapeHtml(contextStatus)}">
@@ -13983,6 +14800,10 @@ function switchWorkspaceTab(tab, options = {}) {
   const next = WORKSPACE_PROJECT_TABS.includes(tab) ? tab : (tabMap[tab] || "home");
   const changed = state.ui.workspaceTab !== next;
   state.ui.workspaceTab = next;
+  if (next !== "home" && state.ui.workspaceMode !== "manage") {
+    state.ui.workspaceMode = "manage";
+    saveStoredValue(STORAGE_KEYS.workspaceMode, "manage");
+  }
   if (changed && options.persist !== false) markWorkspaceUiInteraction();
   if (next === "home") {
     state.ui.workspaceProjectConfigOpen = false;
@@ -14042,12 +14863,20 @@ function workspaceChatContextReflectionMarkup(message = {}, options = {}) {
   if (!reflection || message.role !== "assistant") return "";
   const summary = compactText(reflection.summary, 160);
   const accepted = reflection.status === "accepted";
+  const dismissed = reflection.status === "dismissed";
   const surface = String(options.surface || "workspace");
+  const label = accepted ? "已沉淀" : dismissed ? "已忽略" : "上下文建议";
+  const actions = accepted || dismissed
+    ? ""
+    : `
+      <button class="secondary mini" type="button" data-action="dismiss-chat-context-reflection" data-message-id="${escapeHtml(message.id || "")}" data-surface="${escapeHtml(surface)}" title="忽略这条上下文建议，不写入补充上下文">忽略</button>
+      <button class="secondary mini" type="button" data-action="accept-chat-context-reflection" data-message-id="${escapeHtml(message.id || "")}" data-surface="${escapeHtml(surface)}" title="写入补充上下文">沉淀</button>
+    `;
   return `
     <div class="workspace-chat-reflection status-${escapeHtml(reflection.status)}" title="${escapeHtml(reflection.summary)}">
-      <span class="server-badge subtle">${accepted ? "已沉淀" : "上下文建议"}</span>
+      <span class="server-badge subtle">${label}</span>
       <span>${escapeHtml(summary)}</span>
-      ${accepted ? "" : `<button class="secondary mini" type="button" data-action="accept-chat-context-reflection" data-message-id="${escapeHtml(message.id || "")}" data-surface="${escapeHtml(surface)}" title="写入补充上下文">沉淀</button>`}
+      ${actions}
     </div>
   `;
 }
@@ -14068,6 +14897,7 @@ function renderWorkspaceChat() {
   } else {
     list.innerHTML = messages.map((message) => {
       const agentText = message.agent_name || workspaceAgentById(message.agent_id)?.name || "";
+      const display = workspaceStreamingChatDisplay(message, workspace.id, message.agent_id);
       const title = message.role === "assistant"
         ? `Assistant${agentText ? ` · ${agentText}` : ""}`
         : message.role === "system"
@@ -14077,9 +14907,9 @@ function renderWorkspaceChat() {
         <article class="workspace-chat-item ${escapeHtml(message.role)} status-${escapeHtml(message.status || "completed")}">
           <div class="workspace-chat-head">
             <strong>${escapeHtml(title)}</strong>
-            <span>${escapeHtml([fmtDate(message.updated_at || message.created_at) || message.updated_at || message.created_at || "", message.status === "pending" ? "生成中" : message.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</span>
+            <span>${escapeHtml([fmtDate(message.updated_at || message.created_at) || message.updated_at || message.created_at || "", workspaceChatStatusText(message.status)].filter(Boolean).join(" · "))}</span>
           </div>
-          <p class="workspace-chat-text">${escapeHtml(message.error || message.text)}</p>
+          <p class="workspace-chat-text${display.live ? " streaming" : ""}">${escapeHtml(display.text)}</p>
           ${workspaceChatContextReflectionMarkup(message, { surface: "workspace" })}
         </article>
       `;
@@ -14740,7 +15570,11 @@ function renderWorkspaceRuns() {
   const latestNodeTitle = latest ? String(latest.metadata?.node_title || latest.metadata?.node_kind || latest.kind || "任务") : "等待首次运行";
   const latestServer = latest ? serverById(latest.server_id) : null;
   const latestGpu = latest ? workspaceJobGpuLabel(latest) : "";
-  meta.textContent = runs.length ? `${runs.length} 次执行 · ${jobs.length} 个任务` : `${jobs.length} 个任务`;
+  const realtimeText = workspaceRealtimeStatusText();
+  meta.textContent = [
+    runs.length ? `${runs.length} 次执行 · ${jobs.length} 个任务` : `${jobs.length} 个任务`,
+    realtimeText,
+  ].filter(Boolean).join(" · ");
   summary.innerHTML = `
     <section class="workspace-run-overview status-${escapeHtml(status)}">
       <div class="workspace-run-overview-head">
@@ -15181,6 +16015,7 @@ function selectWorkspace(workspaceId, options = {}) {
   if (!workspace) return;
   const changed = state.selectedWorkspaceId !== workspace.id;
   state.selectedWorkspaceId = workspace.id;
+  if (changed) state.workspaceTemplateDiff = { workspaceId: workspace.id, busy: false, error: "", payload: null };
   if (changed && options.persist !== false) markWorkspaceUiInteraction();
   const executionNodes = Array.isArray(workspace.execution?.nodes) && workspace.execution.nodes.length ? workspace.execution.nodes : (workspace.nodes || []);
   const executionNodeIds = new Set(executionNodes.map((node) => String(node?.id || "")).filter(Boolean));
@@ -15245,6 +16080,9 @@ function selectWorkspace(workspaceId, options = {}) {
   connectWorkspaceEventStream(workspace.id);
   if (options.refreshCockpit !== false) {
     void refreshWorkspaceCockpit(workspace.id, { render: true, quiet: true });
+  }
+  if (state.ui.workspaceManageTab === "inspect") {
+    void refreshWorkspaceTemplateDiff(workspace.id, { quiet: true, render: options.render !== false });
   }
 }
 
@@ -15402,15 +16240,16 @@ function switchExecTab(tab, options = {}) {
 }
 
 function switchActivityTab(tab, options = {}) {
-  const next = ["tasks", "tmux", "output", "terminal"].includes(tab) ? tab : "tasks";
+  const requested = tab === "output" ? "terminal" : tab;
+  const next = ["tasks", "tmux", "terminal"].includes(requested) ? requested : "tasks";
   const changed = state.ui.activityTab !== next;
   state.ui.activityTab = next;
   if (changed && options.persist !== false) markWorkspaceUiInteraction();
   $("activityTasksPanel").hidden = next !== "tasks";
   $("activityTmuxPanel").hidden = next !== "tmux";
-  $("activityConsolePanel").hidden = !["output", "terminal"].includes(next);
+  $("activityConsolePanel").hidden = next !== "terminal";
   $("terminalLauncher").hidden = next !== "terminal";
-  if (options.revealOutput && ["output", "terminal"].includes(next) && (state.outputTabs.length || state.activeOutput)) {
+  if (options.revealOutput && next === "terminal" && (state.outputTabs.length || state.activeOutput)) {
     showLogPane();
   }
   setActiveTab("activityTabs", next);
@@ -16202,23 +17041,45 @@ function showProcessCommand(serverId, pid) {
   activateOutputTab(tab.key);
 }
 
-async function stopProcess(event, serverId, pid) {
+function processStopNeedsConfirmation(server, process) {
+  const currentUser = String(server?.current_user || server?.host_resources?.current_user || "").trim();
+  const owner = String(process?.user || "").trim();
+  if (!currentUser || !owner) return true;
+  return owner !== currentUser;
+}
+
+function confirmStopProcess(server, process, pid, context = {}) {
+  if (!context.force && !processStopNeedsConfirmation(server, process)) return true;
+  const owner = context.owner || process?.user || "未知用户";
+  const currentUser = context.current_user || server?.current_user || server?.host_resources?.current_user || "当前用户未知";
+  const command = String(context.command || process?.command || process?.process_name || "").trim();
+  const commandLine = command ? `\n命令：${command.slice(0, 220)}` : "";
+  return confirm(
+    `这个进程不属于当前登录用户，确定要关闭吗？\n\n服务器：${server?.name || server?.id || "-"}\nPID：${pid}\n进程用户：${owner}\n当前用户：${currentUser}${commandLine}`,
+  );
+}
+
+async function stopProcess(event, serverId, pid, options = {}) {
   consumeClick(event);
-  const button = event.currentTarget;
+  const button = event?.currentTarget || options.button || null;
+  const server = serverById(serverId);
+  const process = (server?.processes || []).find((item) => String(item.pid) === String(pid));
+  const confirmedNonOwner = Boolean(options.confirmedNonOwner);
+  if (!confirmedNonOwner && !confirmStopProcess(server, process, pid)) return;
   if (button) {
     button.disabled = true;
     button.textContent = "关闭中";
   }
   try {
+    const body = confirmedNonOwner ? { confirm_non_owner: true } : {};
     const payload = await fetchJson(
       `/api/servers/${encodeURIComponent(serverId)}/processes/${encodeURIComponent(pid)}/stop`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify(body),
       },
     );
-    const server = serverById(serverId);
     const content = [
       `服务器: ${server?.name || serverId}`,
       `PID: ${pid}`,
@@ -16239,6 +17100,13 @@ async function stopProcess(event, serverId, pid) {
     if (button) {
       button.disabled = false;
       button.textContent = "关闭";
+    }
+    if (error.status === 409 && error.payload?.requires_confirmation && !confirmedNonOwner) {
+      const context = error.payload.process_stop || {};
+      if (confirmStopProcess(server, process, pid, { ...context, force: true })) {
+        await stopProcess(null, serverId, pid, { button, confirmedNonOwner: true });
+      }
+      return;
     }
     showActionError(error);
   }
@@ -16505,6 +17373,15 @@ function transferSourceKey(serverId, path, isDir = false) {
   return `${serverId || "local"}|${normalizePathForCompare(path)}|${isDir ? "dir" : "file"}`;
 }
 
+function selectedTransferSourceKey(path, isDir = false, serverId = transferSourceServerId()) {
+  return transferSourceKey(serverId || "local", transferPathOnly(path), isDir);
+}
+
+function transferSourceItemByPath(path, isDir = false, serverId = transferSourceServerId()) {
+  const key = selectedTransferSourceKey(path, isDir, serverId);
+  return state.transfer.sources.find((item) => item.key === key) || null;
+}
+
 function addTransferSource(path, isDir = false, options = {}) {
   const sourcePath = transferPathOnly(path);
   if (!sourcePath) return;
@@ -16522,6 +17399,7 @@ function addTransferSource(path, isDir = false, options = {}) {
     });
   }
   renderSelectedSources();
+  renderTransferTree();
   const message = $("transferMessage");
   if (message && options.silent !== true) {
     message.textContent = `已加入待传源项：${pathBaseName(sourcePath)}`;
@@ -16532,11 +17410,13 @@ function addTransferSource(path, isDir = false, options = {}) {
 function removeTransferSource(key) {
   state.transfer.sources = state.transfer.sources.filter((item) => item.key !== key);
   renderSelectedSources();
+  renderTransferTree();
 }
 
 function clearTransferSources() {
   state.transfer.sources = [];
   renderSelectedSources();
+  renderTransferTree();
 }
 
 function transferPaneEmptyMarkup(title, hint = "", options = {}) {
@@ -16588,8 +17468,13 @@ function renderTransferTreeNode(entry, level = 0) {
   const children = node?.entries || [];
   const icon = entry.is_dir ? (open ? "▾" : "▸") : "·";
   const previewing = previewPathMatchesState(entry.path, transferSourceServerId()) ? " previewing" : "";
+  const selectedSource = transferSourceItemByPath(entry.path, entry.is_dir);
+  const selectedClass = selectedSource ? " transfer-source-selected" : "";
+  const sourceAction = selectedSource
+    ? `<button class="file-action selected-source-toggle" type="button" data-action="remove-transfer-source" data-source-key="${escapeHtml(selectedSource.key)}" title="取消加入这个待传源项">取消</button>`
+    : `<button class="file-action primary-soft" type="button" data-action="add-transfer-source" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="把这个文件或目录加入待传源项">加入</button>`;
   const row = `
-    <div class="file-tree-row${level === 0 ? " root-row" : ""}${previewing}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" style="padding-left:${6 + level * 18}px">
+    <div class="file-tree-row${level === 0 ? " root-row" : ""}${previewing}${selectedClass}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" style="padding-left:${6 + level * 18}px">
       <button class="file-toggle" type="button" data-action="toggle-transfer-node" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="${entry.is_dir ? "展开或收起这个目录" : "文件项不可展开"}">${icon}</button>
       <div class="file-tree-main">
         <span class="file-name" title="${escapeHtml(entry.path)}">${entry.is_dir ? "[DIR]" : "[FILE]"} ${escapeHtml(entry.name)}</span>
@@ -16597,7 +17482,7 @@ function renderTransferTreeNode(entry, level = 0) {
       </div>
       <span class="file-actions">
         ${entry.is_dir ? "" : `<button class="file-action" type="button" data-action="preview-transfer-node" data-path="${escapeHtml(entry.path)}" title="把这个文件拉到本机缓存后快速预览">快览</button>`}
-        <button class="file-action primary-soft" type="button" data-action="add-transfer-source" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="把这个文件或目录加入待传源项">加入</button>
+        ${sourceAction}
         <button class="file-action" type="button" data-action="ignore-transfer-node" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="把这个路径加入 rsync 忽略规则">忽略</button>
       </span>
     </div>
@@ -16612,6 +17497,7 @@ function renderTransferTreeNode(entry, level = 0) {
 function clearTransferSourceTree() {
   state.transfer.source = null;
   state.transfer.tree = {};
+  state.transfer.sourceForwardStack = [];
   const input = $("transferSourceInput");
   if (input) input.value = "";
   rememberTransferPath("source");
@@ -16622,6 +17508,7 @@ function clearTransferSourceTree() {
 function clearTransferTargetTree() {
   state.transfer.target = null;
   state.transfer.targetTree = {};
+  state.transfer.targetForwardStack = [];
   const input = $("transferTargetInput");
   if (input) input.value = "";
   rememberTransferPath("target");
@@ -16629,11 +17516,53 @@ function clearTransferTargetTree() {
   updateTransferPathFavoriteButtons();
 }
 
+async function navigateTransferSourceParent() {
+  const parent = parentDirectoryPath(state.transfer.source?.path || transferSourceValue());
+  if (!parent) return;
+  await loadTransferSourceTree(parent, { rememberForward: true });
+}
+
+async function navigateTransferSourceForward() {
+  const stack = Array.isArray(state.transfer.sourceForwardStack) ? state.transfer.sourceForwardStack : [];
+  const next = stack.shift();
+  state.transfer.sourceForwardStack = stack;
+  if (!next) {
+    updateTransferTreeClearButtons();
+    return;
+  }
+  await loadTransferSourceTree(next, { keepForward: true });
+}
+
+async function navigateTransferTargetParent() {
+  const parent = parentDirectoryPath(state.transfer.target?.path || transferTargetValue());
+  if (!parent) return;
+  await loadTransferTargetTree(parent, { rememberForward: true });
+}
+
+async function navigateTransferTargetForward() {
+  const stack = Array.isArray(state.transfer.targetForwardStack) ? state.transfer.targetForwardStack : [];
+  const next = stack.shift();
+  state.transfer.targetForwardStack = stack;
+  if (!next) {
+    updateTransferTreeClearButtons();
+    return;
+  }
+  await loadTransferTargetTree(next, { keepForward: true });
+}
+
 function updateTransferTreeClearButtons() {
   const sourceBtn = $("transferSourceTreeClearBtn");
   const targetBtn = $("transferTargetTreeClearBtn");
+  const sourceUpBtn = $("transferSourceTreeUpBtn");
+  const targetUpBtn = $("transferTargetTreeUpBtn");
+  const sourceForwardBtn = $("transferSourceTreeForwardBtn");
+  const targetForwardBtn = $("transferTargetTreeForwardBtn");
   if (sourceBtn) sourceBtn.hidden = !state.transfer.source;
   if (targetBtn) targetBtn.hidden = !state.transfer.target;
+  if (sourceUpBtn) sourceUpBtn.hidden = !parentDirectoryPath(state.transfer.source?.path || "");
+  if (targetUpBtn) targetUpBtn.hidden = !parentDirectoryPath(state.transfer.target?.path || "");
+  if (sourceForwardBtn) sourceForwardBtn.hidden = !(Array.isArray(state.transfer.sourceForwardStack) && state.transfer.sourceForwardStack.length);
+  if (targetForwardBtn) targetForwardBtn.hidden = !(Array.isArray(state.transfer.targetForwardStack) && state.transfer.targetForwardStack.length);
 }
 
 function renderTransferTree() {
@@ -16777,6 +17706,7 @@ function handleTransferSourceServerChange() {
   state.transfer.lastSourceServerId = nextServerId;
   state.transfer.source = null;
   state.transfer.tree = {};
+  state.transfer.sourceForwardStack = [];
   renderTransferTree();
   updateTransferPathPlaceholders();
   renderTransferPathFavoriteBars();
@@ -16801,6 +17731,7 @@ function handleTransferTargetServerChange() {
   state.transfer.lastTargetServerId = nextServerId;
   state.transfer.target = null;
   state.transfer.targetTree = {};
+  state.transfer.targetForwardStack = [];
   renderTargetTree();
   updateTransferPathPlaceholders();
   renderTransferPathFavoriteBars();
@@ -16819,18 +17750,24 @@ function transferSourceBrowsePath() {
   return "/";
 }
 
-async function loadTransferSourceTree(path = transferSourceBrowsePath()) {
+async function loadTransferSourceTree(path = transferSourceBrowsePath(), options = {}) {
   const box = $("transferTree");
   const meta = $("transferTreeMeta");
   const message = $("transferMessage");
   const serverId = transferSourceServerId();
   const server = serverById(serverId);
   const target = String(parseRsyncTargetPath(path) || path || "").trim();
+  const previousPath = state.transfer.source?.path || "";
   if (!target) {
     state.transfer.source = null;
     state.transfer.tree = {};
     renderTransferTree();
     return;
+  }
+  if (options.rememberForward && previousPath && normalizePathForCompare(previousPath) !== normalizePathForCompare(target)) {
+    state.transfer.sourceForwardStack = [previousPath, ...(state.transfer.sourceForwardStack || []).filter((item) => normalizePathForCompare(item) !== normalizePathForCompare(previousPath))].slice(0, 8);
+  } else if (!options.keepForward) {
+    state.transfer.sourceForwardStack = [];
   }
   if (box) box.innerHTML = transferPaneLoadingMarkup("正在读取目录...");
   if (meta) meta.textContent = "加载中";
@@ -16863,12 +17800,19 @@ async function loadTransferSourceTree(path = transferSourceBrowsePath()) {
   }
 }
 
-async function loadTransferTargetTree(path = transferTargetBrowsePath()) {
+async function loadTransferTargetTree(path = transferTargetBrowsePath(), options = {}) {
   const box = $("targetTree");
   const meta = $("targetTreeMeta");
   const message = $("transferMessage");
   const serverId = transferTargetServerId();
   const server = serverById(serverId);
+  const previousPath = state.transfer.target?.path || "";
+  const target = String(parseRsyncTargetPath(path) || path || "").trim();
+  if (options.rememberForward && previousPath && normalizePathForCompare(previousPath) !== normalizePathForCompare(target)) {
+    state.transfer.targetForwardStack = [previousPath, ...(state.transfer.targetForwardStack || []).filter((item) => normalizePathForCompare(item) !== normalizePathForCompare(previousPath))].slice(0, 8);
+  } else if (!options.keepForward) {
+    state.transfer.targetForwardStack = [];
+  }
   if (box) box.innerHTML = transferPaneLoadingMarkup("正在读取目标目录...");
   if (meta) meta.textContent = "加载中";
   if (message) {
@@ -16876,7 +17820,7 @@ async function loadTransferTargetTree(path = transferTargetBrowsePath()) {
     message.classList.remove("error");
   }
   try {
-    const payload = await browseFiles(path || "", 300, { serverId, dirsOnly: true });
+    const payload = await browseFiles(target || "", 300, { serverId, dirsOnly: true });
     const selected = { ...(payload.selected || {}), serverName: server?.name || "" };
     state.transfer.target = selected;
     state.transfer.targetTree = {};
@@ -17430,61 +18374,126 @@ function restoreFilePickerScrollAfterRender() {
 
 function resetFilePickerNavigation() {
   state.filePicker.navStack = [];
+  state.filePicker.forwardStack = [];
   state.filePicker.selectedPath = "";
   state.filePicker.scrollAnchorPath = "";
 }
 
-function renderPreviewCachePanel(payload = {}) {
-  const stats = $("previewCacheStats");
-  const ageInput = $("previewCacheMaxAgeHours");
-  const sizeInput = $("previewCacheMaxSizeMib");
-  const message = $("previewCacheMessage");
+function rememberFilePickerForwardPath(path) {
+  const value = String(path || "").trim();
+  if (!value) return;
+  const normalized = normalizePathForCompare(value);
+  state.filePicker.forwardStack = [
+    value,
+    ...(Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [])
+      .filter((item) => normalizePathForCompare(item) !== normalized),
+  ].slice(0, 8);
+}
+
+function updateFilePickerNavigationButtons() {
+  const upBtn = $("filePickerUpBtn");
+  const forwardBtn = $("filePickerForwardBtn");
+  if (upBtn) upBtn.hidden = !state.filePicker.parent;
+  if (forwardBtn) forwardBtn.hidden = !(Array.isArray(state.filePicker.forwardStack) && state.filePicker.forwardStack.length);
+}
+
+function renderRuntimeStoragePanel(payload = {}) {
+  const stats = $("runtimeStorageStats");
+  const previewAgeInput = $("runtimePreviewMaxAgeHours");
+  const previewSizeInput = $("runtimePreviewMaxSizeMib");
+  const logAgeInput = $("runtimeLogMaxAgeHours");
+  const logSizeInput = $("runtimeLogMaxSizeMib");
+  const intervalInput = $("runtimeAutoIntervalMinutes");
+  const remoteInput = $("runtimeRemoteCleanupEnabled");
+  const message = $("runtimeStorageMessage");
   if (stats) {
-    const count = Number(payload.entry_count || 0);
-    const total = payload.total_text || "0 B";
-    const dir = payload.cache_dir || "/tmp/total-control-file-preview";
-    stats.textContent = `当前 ${count} 项 · 占用 ${total} · 目录 ${dir}`;
+    const preview = payload.preview_cache || {};
+    const localLogs = payload.local_logs || {};
+    const remoteLogs = Array.isArray(payload.remote_logs) ? payload.remote_logs : [];
+    const remoteOk = remoteLogs.filter((item) => !item.error && !item.skipped);
+    const remoteIssues = remoteLogs.length - remoteOk.length;
+    const remoteBytes = remoteOk.reduce((sum, item) => sum + Number(item.total_bytes || 0), 0);
+    const remoteFiles = remoteOk.reduce((sum, item) => sum + Number(item.file_count || 0), 0);
+    const paths = payload.paths || {};
+    const localNewest = localLogs.newest_path
+      ? `本机最新日志：<code>${escapeHtml(localLogs.newest_path)}</code>${localLogs.newest_at ? ` · ${escapeHtml(localLogs.newest_at)}` : ""}`
+      : "本机最新日志：暂无";
+    const localLargest = localLogs.largest_path
+      ? `本机最大日志：<code>${escapeHtml(localLogs.largest_path)}</code> · ${escapeHtml(localLogs.largest_text || formatBytes(localLogs.largest_bytes))}`
+      : "";
+    const remoteNewestLines = remoteOk
+      .filter((item) => item.newest_path)
+      .slice(0, 3)
+      .map((item) => {
+        const serverName = item.server_name || item.server_id || "远程";
+        const newestAt = item.newest_at ? ` · ${escapeHtml(item.newest_at)}` : "";
+        return `远程最新日志：${escapeHtml(serverName)} <code>${escapeHtml(item.newest_path)}</code>${newestAt}`;
+      });
+    const lines = [
+      `本机日志 <code>${escapeHtml(paths.local_logs || localLogs.log_dir || "data/logs")}</code>：${Number(localLogs.file_count || 0)} 个文件 · ${escapeHtml(localLogs.total_text || formatBytes(localLogs.total_bytes))}`,
+      `远程日志 <code>${escapeHtml(paths.remote_logs || "$HOME/.total_control/logs")}</code>：${remoteOk.length} 台可读 · ${remoteFiles} 个文件 · ${escapeHtml(formatBytes(remoteBytes))}${remoteIssues ? ` · ${remoteIssues} 台不可读/已跳过` : ""}`,
+      `预览缓存 <code>${escapeHtml(paths.preview_cache || preview.cache_dir || "/tmp/total-control-file-preview")}</code>：${Number(preview.entry_count || 0)} 项 · ${escapeHtml(preview.total_text || formatBytes(preview.total_bytes))}`,
+    ];
+    const detailLines = [localNewest, localLargest, ...remoteNewestLines].filter(Boolean);
+    stats.innerHTML = `${lines.join("<br>")}${detailLines.length ? `<br>${detailLines.join("<br>")}` : ""}`;
   }
-  if (ageInput && payload.settings) ageInput.value = String(payload.settings.max_age_hours ?? 24);
-  if (sizeInput && payload.settings) sizeInput.value = String(payload.settings.max_size_mib ?? 512);
+  const settings = payload.settings || {};
+  if (previewAgeInput) previewAgeInput.value = String(settings.preview_max_age_hours ?? 24);
+  if (previewSizeInput) previewSizeInput.value = String(settings.preview_max_size_mib ?? 512);
+  if (logAgeInput) logAgeInput.value = String(settings.log_max_age_hours ?? 168);
+  if (logSizeInput) logSizeInput.value = String(settings.log_max_size_mib ?? 2048);
+  if (intervalInput) intervalInput.value = String(settings.auto_cleanup_interval_minutes ?? 60);
+  if (remoteInput) remoteInput.checked = settings.remote_log_cleanup_enabled !== false;
   if (message && !message.classList.contains("error") && !message.textContent) message.textContent = "";
 }
 
-async function loadPreviewCachePanel() {
-  const message = $("previewCacheMessage");
+function runtimeStorageSettingsInputPayload() {
+  const previewAgeInput = $("runtimePreviewMaxAgeHours");
+  const previewSizeInput = $("runtimePreviewMaxSizeMib");
+  const logAgeInput = $("runtimeLogMaxAgeHours");
+  const logSizeInput = $("runtimeLogMaxSizeMib");
+  const intervalInput = $("runtimeAutoIntervalMinutes");
+  const remoteInput = $("runtimeRemoteCleanupEnabled");
+  return {
+    preview_max_age_hours: Number(previewAgeInput?.value || 0),
+    preview_max_size_mib: Number(previewSizeInput?.value || 0),
+    log_max_age_hours: Number(logAgeInput?.value || 0),
+    log_max_size_mib: Number(logSizeInput?.value || 0),
+    auto_cleanup_interval_minutes: Number(intervalInput?.value || 60),
+    remote_log_cleanup_enabled: Boolean(remoteInput?.checked),
+  };
+}
+
+async function loadRuntimeStoragePanel() {
+  const message = $("runtimeStorageMessage");
   try {
-    const payload = await fetchJson("/api/admin/preview-cache");
-    renderPreviewCachePanel(payload);
+    const payload = await fetchJson("/api/admin/runtime-storage");
+    renderRuntimeStoragePanel(payload);
     if (message) {
       message.textContent = "";
       message.classList.remove("error");
     }
   } catch (error) {
     if (message) {
-      message.textContent = humanizeFetchError(error, "读取预览缓存");
+      message.textContent = humanizeFetchError(error, "读取运行数据");
       message.classList.add("error");
     }
   }
 }
 
-async function savePreviewCacheSettings() {
-  const message = $("previewCacheMessage");
-  const ageInput = $("previewCacheMaxAgeHours");
-  const sizeInput = $("previewCacheMaxSizeMib");
+async function saveRuntimeStorageSettings() {
+  const message = $("runtimeStorageMessage");
   if (message) {
     message.textContent = "正在保存...";
     message.classList.remove("error");
   }
   try {
-    const payload = await fetchJson("/api/admin/preview-cache/settings", {
+    const payload = await fetchJson("/api/admin/runtime-storage/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        max_age_hours: Number(ageInput?.value || 0),
-        max_size_mib: Number(sizeInput?.value || 0),
-      }),
+      body: JSON.stringify(runtimeStorageSettingsInputPayload()),
     });
-    renderPreviewCachePanel(payload);
+    renderRuntimeStoragePanel(payload);
     if (message) message.textContent = "自动清理设置已保存。";
   } catch (error) {
     if (message) {
@@ -17494,22 +18503,70 @@ async function savePreviewCacheSettings() {
   }
 }
 
-async function cleanupPreviewCacheNow() {
-  const message = $("previewCacheMessage");
-  if (!confirm("确定清理本项目预览缓存吗？仅删除 /tmp/total-control-file-preview 下的文件。")) return;
+async function cleanupRuntimeStorageNow(removeAll = false) {
+  const message = $("runtimeStorageMessage");
+  const remoteInput = $("runtimeRemoteCleanupEnabled");
+  const includeRemote = remoteInput?.checked !== false;
+  const remoteText = includeRemote ? "、远程 $HOME/.total_control/logs" : "";
+  const actionText = removeAll ? "清空" : "按当前阈值清理";
+  const safetyText = removeAll
+    ? "会删除范围内已有日志和预览缓存，但会保留正在运行任务的日志。"
+    : "会保留未超过当前时间/大小阈值的数据和正在运行任务的日志。";
+  if (!confirm(`确定${actionText} Total Control 的运行日志和预览缓存吗？范围仅限本机 data/logs${remoteText} 与 /tmp/total-control-file-preview；${safetyText}`)) return;
   if (message) {
-    message.textContent = "正在清理...";
+    message.textContent = removeAll ? "正在清空..." : "正在按策略清理...";
     message.classList.remove("error");
   }
   try {
-    const payload = await fetchJson("/api/admin/preview-cache/cleanup", { method: "POST" });
-    renderPreviewCachePanel(payload);
+    const payload = await fetchJson("/api/admin/runtime-storage/cleanup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...runtimeStorageSettingsInputPayload(),
+        include_preview: true,
+        include_logs: true,
+        include_remote: includeRemote,
+        remove_all: Boolean(removeAll),
+      }),
+    });
+    renderRuntimeStoragePanel(payload.status || {});
+    const previewRemoved = payload.preview_cache?.removed_text || "0 B";
+    const localRemoved = payload.local_logs?.removed_text || "0 B";
+    const remoteRemoved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.removed_bytes || 0), 0);
+    const localPreserved = Number(payload.local_logs?.preserved_count || 0);
+    const remotePreserved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.preserved_count || 0), 0);
+    const preservedText = localPreserved || remotePreserved
+      ? ` 已保留正在运行任务日志 ${localPreserved + remotePreserved} 个。`
+      : "";
     if (message) {
-      message.textContent = `已清理 ${payload.removed_count || 0} 项，释放 ${payload.removed_text || "0 B"}。`;
+      message.textContent = `${removeAll ? "已清空" : "已按策略清理"}：预览缓存 ${previewRemoved}，本机日志 ${localRemoved}，远程日志 ${formatBytes(remoteRemoved)}。${preservedText}`;
     }
   } catch (error) {
     if (message) {
-      message.textContent = humanizeFetchError(error, "清理预览缓存");
+      message.textContent = humanizeFetchError(error, "清理运行数据");
+      message.classList.add("error");
+    }
+  }
+}
+
+async function resetRuntimeStorageSettings() {
+  const message = $("runtimeStorageMessage");
+  if (!confirm("确定恢复默认自动清理策略吗？这不会删除已有日志或缓存。")) return;
+  if (message) {
+    message.textContent = "正在重置...";
+    message.classList.remove("error");
+  }
+  try {
+    const payload = await fetchJson("/api/admin/runtime-storage/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    renderRuntimeStoragePanel(payload);
+    if (message) message.textContent = "已恢复默认清理策略。";
+  } catch (error) {
+    if (message) {
+      message.textContent = humanizeFetchError(error, "重置清理策略");
       message.classList.add("error");
     }
   }
@@ -17566,12 +18623,17 @@ function renderFilePicker(payload = state.filePicker) {
         ? " selected"
         : "";
       const previewActive = previewPathMatchesState(entry.path, payload.serverId || "") ? " preview-active" : "";
+      const selectedSource = payload.mode === "target" ? null : transferSourceItemByPath(entry.path, entry.is_dir, payload.serverId);
+      const sourceSelected = selectedSource ? " transfer-source-selected" : "";
+      const chooseAction = selectedSource
+        ? `<button class="file-action selected-source-toggle" type="button" data-action="remove-picker-source" data-source-key="${escapeHtml(selectedSource.key)}" title="取消加入这个待传源项">取消</button>`
+        : `<button class="file-action${payload.mode !== "target" && entry.is_dir ? " primary-soft" : ""}" type="button" data-action="choose-picker" title="${payload.mode === "target" ? "把这个目录设为目标路径" : "把这个文件或目录加入源项"}">${payload.mode === "target" ? "选择" : "加入"}</button>`;
       const meta = [
         entry.is_dir ? "文件夹" : (entry.size_text || "文件"),
         fmtDate(entry.mtime) || "",
       ].filter(Boolean).join(" · ");
       return `
-      <div class="file-picker-row${selected}${previewActive}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}">
+      <div class="file-picker-row${selected}${previewActive}${sourceSelected}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}">
         <div class="file-picker-row-main">
           <span class="file-kind">${entry.is_dir ? "DIR" : "FILE"}</span>
           <div class="file-picker-row-text">
@@ -17581,7 +18643,7 @@ function renderFilePicker(payload = state.filePicker) {
         </div>
         <div class="file-actions file-picker-row-actions">
           ${entry.is_dir ? "" : '<button class="file-action" type="button" data-action="preview-picker" title="把这个文件拉到本机缓存后快速预览">快览</button>'}
-          <button class="file-action${payload.mode !== "target" && entry.is_dir ? " primary-soft" : ""}" type="button" data-action="choose-picker" title="${payload.mode === "target" ? "把这个目录设为目标路径" : "把这个文件或目录加入源项"}">${payload.mode === "target" ? "选择" : "加入"}</button>
+          ${chooseAction}
         </div>
       </div>
     `;
@@ -17592,6 +18654,7 @@ function renderFilePicker(payload = state.filePicker) {
     message.textContent = payload.truncated ? "目录项较多，仅显示前一部分。" : "";
     message.classList.remove("error");
   }
+  updateFilePickerNavigationButtons();
   restoreFilePickerScrollAfterRender();
 }
 
@@ -17625,6 +18688,7 @@ async function loadFilePicker(path = "") {
       selectedPath: state.filePicker.selectedPath || "",
       scrollAnchorPath: state.filePicker.scrollAnchorPath || "",
       navStack: Array.isArray(state.filePicker.navStack) ? state.filePicker.navStack : [],
+      forwardStack: Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [],
       requestId,
     };
     renderFilePicker(state.filePicker);
@@ -17669,13 +18733,14 @@ async function chooseFilePickerPath(path, isDir) {
   }
   const sourcePath = transferPathOnly(path);
   $("transferSourceInput").value = isDir ? ensureDirectorySlash(sourcePath) : sourcePath;
-  addTransferSource(sourcePath, isDir, { server: serverById(transferSourceServerId()), silent: true });
+  addTransferSource(sourcePath, isDir, { server: serverById(state.filePicker.serverId || transferSourceServerId()), silent: true });
+  renderFilePicker(state.filePicker);
   const message = $("filePickerMessage");
   if (message) {
     message.textContent = `已加入待传源项：${pathBaseName(sourcePath)}`;
     message.classList.remove("error");
   }
-  await loadTransferSourceTree(sourcePath);
+  if (!state.transfer.source) await loadTransferSourceTree(sourcePath);
 }
 
 function jobSearchKey(job) {
@@ -17857,6 +18922,7 @@ function loadJobIntoExecution(event, jobId) {
   form.elements.min_free_mib.value = job.min_free_mib ?? 0;
   form.elements.max_gpu_util.value = job.max_gpu_util ?? 10;
   form.elements.wait_for_idle.checked = Boolean(job.wait_for_idle);
+  clearJobSourceBinding();
   switchProductTab("exec");
   switchExecTab("job");
   persistFormState("jobForm");
@@ -18024,6 +19090,263 @@ function workspaceInputMappingFromText(text = "") {
     }, {});
 }
 
+function workspaceInputMappingEntries(mapping = {}) {
+  if (!mapping || typeof mapping !== "object") return [];
+  return Object.entries(mapping)
+    .map(([name, source]) => ({
+      name: String(name || "").trim(),
+      source: String(source || "").trim(),
+    }))
+    .filter((item) => item.name || item.source);
+}
+
+function workspaceInputMappingFromEntries(entries = []) {
+  return (Array.isArray(entries) ? entries : []).reduce((acc, entry) => {
+    const name = String(entry?.name || "").trim();
+    const source = String(entry?.source || "").trim();
+    if (name && source) acc[name] = source;
+    return acc;
+  }, {});
+}
+
+function workflowTemplateNodeIndex(node = selectedWorkflowTemplateNode()) {
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  return Math.max(0, nodes.findIndex((item) => String(item?.id || "") === String(node?.id || "")));
+}
+
+function workflowTemplateMappingSourceOptions(node = selectedWorkflowTemplateNode(), index = workflowTemplateNodeIndex(node)) {
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  const previousNodes = nodes.slice(0, Math.max(index, 0));
+  const options = [
+    { value: "$input", label: "$input · 启动输入" },
+    { value: "$prev.output", label: "$prev.output · 上一节点输出" },
+    { value: "$context.outputs", label: "$context.outputs · 全部上下文输出" },
+  ];
+  previousNodes.forEach((item, itemIndex) => {
+    const outputKey = String(item.output_key || workspaceNodeIoContract(item.kind || "", itemIndex).output || "").trim();
+    if (!outputKey) return;
+    const title = String(item.title || workspaceNodeLabel(item.kind || "") || outputKey).trim();
+    options.push({
+      value: `$context.outputs.${outputKey}`,
+      label: `${outputKey} · ${title}`,
+    });
+  });
+  return options;
+}
+
+function workflowTemplateInputMappingEditorMarkup(node = {}, index = 0) {
+  const contract = workspaceNodeIoContract(node.kind || "", index);
+  const mapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
+  const entries = workspaceInputMappingEntries(mapping);
+  const rows = entries.length ? entries : (Array.isArray(contract.inputs) ? contract.inputs : [])
+    .map((name) => ({ name: String(name || "").trim(), source: index === 0 ? "$input" : "$prev.output" }))
+    .filter((item) => item.name);
+  const sourceOptions = workflowTemplateMappingSourceOptions(node, index);
+  const outputKey = String(node.output_key || contract.output || "").trim();
+  const rowMarkup = workflowTemplateMappingRowsMarkup(rows, sourceOptions, {
+    nameAttr: "data-manage-input-mapping-name",
+    sourceAttr: "data-manage-input-mapping-source",
+    sourceSelectAttr: "data-manage-input-mapping-source-select",
+    removeAction: "remove-template-input-mapping",
+    sourcePlaceholder: "$context.outputs.repo_profile",
+  });
+  return `
+    <section class="workflow-template-mapping-editor">
+      <div class="workflow-template-mapping-head">
+        <div>
+          <strong>结构化 input_mapping</strong>
+          <span>${escapeHtml(outputKey ? `输出写入 $context.outputs.${outputKey}` : "先设置 output_key")}</span>
+        </div>
+        <button class="secondary mini" type="button" data-action="add-template-input-mapping" title="添加一条 input_mapping">添加映射</button>
+      </div>
+      <div class="workflow-template-mapping-grid">
+        <span>输入名</span>
+        <span>常用来源</span>
+        <span>实际来源</span>
+        <span>操作</span>
+        ${rowMarkup}
+      </div>
+      <details class="workflow-template-mapping-advanced">
+        <summary>高级文本</summary>
+        <textarea data-manage-input-mapping="1" rows="4" placeholder="dataset_profile: $context.outputs.dataset_profile">${escapeHtml(workspaceInputMappingToText(mapping))}</textarea>
+      </details>
+    </section>
+  `;
+}
+
+function workflowTemplateMappingRowsMarkup(rows = [], sourceOptions = [], options = {}) {
+  const nameAttr = options.nameAttr || "data-manage-input-mapping-name";
+  const sourceAttr = options.sourceAttr || "data-manage-input-mapping-source";
+  const sourceSelectAttr = options.sourceSelectAttr || "data-manage-input-mapping-source-select";
+  const removeAction = options.removeAction || "remove-template-input-mapping";
+  const sourcePlaceholder = options.sourcePlaceholder || "$context.outputs.repo_profile";
+  const emptyText = options.emptyText || "还没有输入映射。可以点“添加映射”补一条。";
+  return rows.length ? rows.map((entry, rowIndex) => {
+    const source = String(entry.source || "").trim();
+    const hasSourceOption = source && sourceOptions.some((option) => option.value === source);
+    const rowOptions = [
+      ...sourceOptions,
+      ...(hasSourceOption || !source ? [] : [{ value: source, label: `${source} · 自定义` }]),
+    ];
+    return `
+      <div class="workflow-template-mapping-row" data-mapping-row="${rowIndex}">
+        <input ${nameAttr}="${rowIndex}" value="${escapeHtml(entry.name || "")}" placeholder="输入名，如 dataset_profile" />
+        <select ${sourceSelectAttr}="${rowIndex}" title="选择常用来源">
+          ${rowOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === source ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+        <input ${sourceAttr}="${rowIndex}" value="${escapeHtml(source)}" placeholder="${escapeHtml(sourcePlaceholder)}" />
+        <button class="secondary mini danger" type="button" data-action="${escapeHtml(removeAction)}" data-index="${rowIndex}" title="删除这条输入映射">删除</button>
+      </div>
+    `;
+  }).join("") : `<div class="empty">${escapeHtml(emptyText)}</div>`;
+}
+
+function workflowTemplateInputMappingEntriesFromEditor(editor) {
+  return Array.from(editor?.querySelectorAll(".workflow-template-mapping-row") || []).map((row) => ({
+    name: row.querySelector("[data-manage-input-mapping-name]")?.value || "",
+    source: row.querySelector("[data-manage-input-mapping-source]")?.value || "",
+  }));
+}
+
+function workflowTemplateEdgeMappingEntriesFromEditor(editor) {
+  return Array.from(editor?.querySelectorAll(".workflow-template-mapping-row") || []).map((row) => ({
+    name: row.querySelector("[data-edge-input-mapping-name]")?.value || "",
+    source: row.querySelector("[data-edge-input-mapping-source]")?.value || "",
+  }));
+}
+
+function syncWorkflowTemplateMappingAdvancedText(editor, mapping = null) {
+  const textarea = editor?.querySelector("[data-manage-input-mapping]");
+  if (!textarea) return;
+  const nextMapping = mapping || workspaceInputMappingFromEntries(workflowTemplateInputMappingEntriesFromEditor(editor));
+  textarea.value = workspaceInputMappingToText(nextMapping);
+}
+
+function workflowTemplateEdgeState(nodes = [], selectedIndex = 0) {
+  const targetIndex = Math.max(0, Math.min(Number(selectedIndex || 0), Math.max(nodes.length - 1, 0)));
+  const targetNode = nodes[targetIndex] || null;
+  const sourceNode = targetIndex > 0 ? nodes[targetIndex - 1] : null;
+  const sourceContract = sourceNode ? workspaceNodeIoContract(sourceNode.kind || "", targetIndex - 1) : null;
+  const targetContract = targetNode ? workspaceNodeIoContract(targetNode.kind || "", targetIndex) : null;
+  const sourceOutputKey = sourceNode
+    ? String(sourceNode.output_key || sourceContract?.output || "").trim()
+    : "$input";
+  const sourceRef = sourceNode && sourceOutputKey ? `$context.outputs.${sourceOutputKey}` : "$input";
+  const targetMapping = targetNode?.input_mapping && typeof targetNode.input_mapping === "object" ? targetNode.input_mapping : {};
+  const targetInputs = Array.isArray(targetContract?.inputs) ? targetContract.inputs : [];
+  const rows = workspaceInputMappingEntries(targetMapping);
+  const displayRows = rows.length ? rows : targetInputs
+    .map((name) => ({ name: String(name || "").trim(), source: targetIndex === 0 ? "$input" : sourceRef }))
+    .filter((item) => item.name);
+  const mappedFromSource = Object.values(targetMapping)
+    .filter((value) => normalizePathForCompare(value) === normalizePathForCompare(sourceRef) || String(value || "").trim() === "$prev.output")
+    .length;
+  const status = !targetNode
+    ? "draft"
+    : targetIndex === 0
+      ? rows.length ? "ready" : "warning"
+      : sourceOutputKey && rows.length ? "ready" : sourceOutputKey ? "warning" : "blocked";
+  return {
+    targetIndex,
+    targetNode,
+    sourceNode,
+    sourceOutputKey,
+    sourceRef,
+    targetInputs,
+    rows,
+    displayRows,
+    mappedFromSource,
+    status,
+  };
+}
+
+function workflowTemplateEdgeSourceOptions(edge = {}) {
+  const targetIndex = Number(edge.targetIndex || 0);
+  const base = workflowTemplateMappingSourceOptions(edge.targetNode || selectedWorkflowTemplateNode(), targetIndex);
+  const additions = [];
+  if (edge.sourceNode && edge.sourceRef) {
+    additions.push({
+      value: edge.sourceRef,
+      label: `${edge.sourceOutputKey || "上一节点输出"} · 上一节点显式输出`,
+    });
+  }
+  return [
+    ...additions,
+    ...base.filter((option) => !additions.some((item) => item.value === option.value)),
+  ];
+}
+
+function workflowTemplateEdgeInspectorMarkup(nodes = [], selectedIndex = 0) {
+  const edge = workflowTemplateEdgeState(nodes, selectedIndex);
+  const target = edge.targetNode;
+  if (!target) return "";
+  const sourceTitle = edge.sourceNode
+    ? edge.sourceNode.title || workspaceNodeLabel(edge.sourceNode.kind || "")
+    : "启动输入";
+  const targetTitle = target.title || workspaceNodeLabel(target.kind || "");
+  const sourceMeta = edge.sourceNode
+    ? edge.sourceOutputKey ? `$context.outputs.${edge.sourceOutputKey}` : "等待上游 output_key"
+    : "$input";
+  const statusText = edge.status === "ready"
+    ? `${edge.rows.length} 条映射已保存`
+    : edge.status === "blocked"
+      ? "上游缺 output_key"
+      : "等待确认映射";
+  const sourceOptions = workflowTemplateEdgeSourceOptions(edge);
+  const rowMarkup = workflowTemplateMappingRowsMarkup(edge.displayRows, sourceOptions, {
+    nameAttr: "data-edge-input-mapping-name",
+    sourceAttr: "data-edge-input-mapping-source",
+    sourceSelectAttr: "data-edge-input-mapping-source-select",
+    removeAction: "remove-template-edge-mapping",
+    sourcePlaceholder: edge.sourceRef || "$prev.output",
+    emptyText: "当前节点没有声明输入，可手动添加一条边映射。",
+  });
+  const canMapPrevious = Boolean(edge.sourceRef);
+  const canClear = edge.rows.length > 0;
+  return `
+    <section class="workflow-template-edge-inspector status-${escapeHtml(edge.status)}" data-edge-target-id="${escapeHtml(target.id || "")}">
+      <div class="workflow-template-edge-head">
+        <div>
+          <strong>交接映射</strong>
+          <span title="${escapeHtml(`${sourceTitle} -> ${targetTitle}`)}">${escapeHtml(`${sourceTitle} -> ${targetTitle}`)}</span>
+        </div>
+        <em>${escapeHtml(statusText)}</em>
+      </div>
+      <div class="workflow-template-edge-summary">
+        <span title="${escapeHtml(sourceMeta)}">${escapeHtml(sourceMeta)}</span>
+        <strong aria-hidden="true">-></strong>
+        <span title="${escapeHtml(targetTitle)}">${escapeHtml(targetTitle)}</span>
+      </div>
+      <div class="workflow-template-edge-actions">
+        <button class="secondary mini" type="button" data-action="map-template-edge-previous" title="把当前节点输入映射到上一节点显式输出" ${canMapPrevious ? "" : "disabled"}>上一节点输出</button>
+        <button class="secondary mini" type="button" data-action="map-template-edge-context" title="把当前节点输入映射到整个上下文输出">全部上下文</button>
+        <button class="secondary mini" type="button" data-action="add-template-edge-mapping" title="添加一条交接映射">添加映射</button>
+        <button class="secondary mini danger" type="button" data-action="clear-template-edge-mapping" title="清空当前节点 input_mapping" ${canClear ? "" : "disabled"}>清空</button>
+      </div>
+      <div class="workflow-template-edge-grid workflow-template-mapping-grid">
+        <span>下游输入</span>
+        <span>来源快捷</span>
+        <span>实际来源</span>
+        <span>操作</span>
+        ${rowMarkup}
+      </div>
+    </section>
+  `;
+}
+
+function workflowTemplateDefaultEdgeEntries(mode = "previous") {
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  const targetIndex = workflowTemplateNodeIndex(selectedWorkflowTemplateNode());
+  const edge = workflowTemplateEdgeState(nodes, targetIndex);
+  const names = edge.targetInputs.length ? edge.targetInputs : ["input"];
+  const source = mode === "context"
+    ? "$context.outputs"
+    : edge.targetIndex === 0
+      ? "$input"
+      : edge.sourceRef || "$prev.output";
+  return names.map((name) => ({ name: String(name || "").trim(), source })).filter((item) => item.name);
+}
+
 function renderWorkspaceNodeEditor() {
   const box = $("workspaceNodeEditor");
   if (!box) return;
@@ -18043,6 +19366,7 @@ function renderWorkspaceNodeEditor() {
   const configFields = (meta.configFields || [])
     .map((field) => renderWorkspaceNodeField(field, node.config?.[field.key], node.kind))
     .join("");
+  const nodeIndex = workflowTemplateNodeIndex(node);
   box.innerHTML = `
     <div class="workspace-node-editor-card">
       <div class="workspace-node-editor-head">
@@ -18321,6 +19645,9 @@ function switchWorkspaceManageTab(tab) {
   if (changed) markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.workspaceManageTab, next);
   if (next === "runs") void loadExecutionOverview({ render: true });
+  if (next === "inspect" && state.selectedWorkspaceId) {
+    void refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, { quiet: true });
+  }
   renderWorkspaceWorkbench();
 }
 
@@ -18329,6 +19656,9 @@ function openWorkspaceChainInspect(options = {}) {
   markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.workspaceManageTab, "inspect");
   switchWorkspaceMode("manage");
+  if (state.selectedWorkspaceId) {
+    void refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, { quiet: true });
+  }
   if (options.reveal !== false) {
     requestAnimationFrame(() => {
       revealWorkspacePanelTarget("workspaceManageInspectPanel", { block: "start" });
@@ -18469,7 +19799,7 @@ function workspaceExecutionCommandStripMarkup(workspace = selectedWorkspace()) {
       <div class="workspace-execution-command-actions">
         ${workspaceHomeActionButtonMarkup({ ...primary, tone: "primary" }, detail)}
         ${secondary ? workspaceHomeActionButtonMarkup({ ...secondary, tone: "secondary" }, detail) : ""}
-        <button class="secondary mini" type="button" data-action="open-workspace-chain-inspect" title="打开配置中心链路检查：节点链、I/O 交接、缺口与门禁（只读诊断）">链路检查</button>
+        <button class="secondary mini" type="button" data-action="open-workspace-chain-inspect" title="打开配置中心链路诊断：节点链、I/O 交接、缺口与门禁（只读）">链路诊断</button>
         ${latestRun ? `<button class="secondary mini" type="button" data-action="switch-workspace-tab" data-tab="runs" title="查看完整运行记录与逐步输出">运行记录</button>` : ""}
       </div>
       ${progressBlock}
@@ -18739,6 +20069,15 @@ function renderWorkspaceExecutionDetail() {
 }
 
 
+function workspaceAgentOutputMessageMarkup(message = {}, workspace = selectedWorkspace(), agent = null) {
+  const display = workspaceStreamingChatDisplay(
+    normalizeWorkspaceChatMessage(message),
+    workspace?.id || "",
+    agent?.id || "",
+  );
+  return `<p class="workspace-agent-output-strip-text${display.live ? " streaming" : ""}">${escapeHtml(display.text || "")}</p>`;
+}
+
 function workspaceAgentOutputPanelMarkup(workspace = selectedWorkspace(), node = null) {
   const { agent, node: resolvedNode } = workspaceInspectorChatContext(workspace, node);
   const chat = Array.isArray(workspace?.chat) ? workspace.chat : [];
@@ -18764,9 +20103,7 @@ function workspaceAgentOutputPanelMarkup(workspace = selectedWorkspace(), node =
         <strong>${escapeHtml(agentName)}</strong>
         ${jobId ? `<button class="secondary mini" type="button" data-action="open-selected-node-log" data-job-id="${escapeHtml(jobId)}" title="打开最近任务日志">日志</button>` : ""}
       </div>
-      ${latest.length ? latest.map((message) => `
-        <p class="workspace-agent-output-strip-text">${escapeHtml(message.text || "")}</p>
-      `).join("") : jobId ? `<p class="muted">任务 ${escapeHtml(jobId.slice(0, 8))}… 运行中</p>` : ""}
+      ${latest.length ? latest.map((message) => workspaceAgentOutputMessageMarkup(message, workspace, agent)).join("") : jobId ? `<p class="muted">任务 ${escapeHtml(jobId.slice(0, 8))}… 运行中</p>` : ""}
       ${liveTrace}
     </div>
   `;
@@ -18832,14 +20169,15 @@ function renderWorkspaceUseChat() {
     const traceMarkup = agentExecution?.trace_events?.length
       ? workspaceAgentFineTraceMarkup(agentExecution.trace_events, { compact: true, limit: 4 })
       : "";
+    const display = workspaceStreamingChatDisplay(viewMessage, workspace.id, activeAgentId);
     return `
     <article class="workspace-chat-message assistant workspace-chat-message-output status-${escapeHtml(viewMessage.status || "completed")}">
       <div class="workspace-chat-message-head">
         <span class="workspace-chat-message-role">输出</span>
         <strong>${escapeHtml(viewMessage.agent_name || activeAgent?.name || "Agent")}</strong>
-        <em>${escapeHtml([fmtDate(viewMessage.updated_at || viewMessage.created_at || ""), viewMessage.status === "pending" ? "生成中" : viewMessage.status === "failed" ? "失败" : ""].filter(Boolean).join(" · "))}</em>
+        <em>${escapeHtml([fmtDate(viewMessage.updated_at || viewMessage.created_at || ""), workspaceChatStatusText(viewMessage.status)].filter(Boolean).join(" · "))}</em>
       </div>
-      <div class="workspace-chat-message-body">${escapeHtml(viewMessage.error || viewMessage.text || "")}</div>
+      <div class="workspace-chat-message-body${display.live ? " streaming" : ""}">${escapeHtml(display.text || "")}</div>
       ${workspaceChatContextReflectionMarkup(viewMessage, { surface: "use" })}
       ${traceMarkup}
     </article>
@@ -18851,7 +20189,7 @@ function renderWorkspaceModeSwitch() {
   const mode = state.ui.workspaceMode || "use";
   $("workspaceUseModePanel")?.toggleAttribute("hidden", mode !== "use");
   $("workspaceManageModePanel")?.toggleAttribute("hidden", mode !== "manage");
-  $("workspaceProjectModulesPanel")?.toggleAttribute("hidden", mode !== "use");
+  $("workspaceProjectModulesPanel")?.toggleAttribute("hidden", mode !== "manage");
   syncWorkspaceProjectConfigDrawer();
   document.querySelectorAll("#workspaceModeSwitch [data-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === mode);
@@ -18878,13 +20216,14 @@ function renderManageTemplateList() {
   list.innerHTML = state.workflowTemplates.map((template) => {
     const active = template.id === state.selectedWorkflowTemplateId ? " active" : "";
     const nodeCount = Array.isArray(template.nodes) ? template.nodes.length : template.node_count || 0;
+    const versionCount = Array.isArray(template.version_history) ? template.version_history.length : 0;
     return `
       <button class="workspace-template-item${active}" type="button" data-action="select-workflow-template" data-template-id="${escapeHtml(template.id)}" title="选择这个 Starter Chain 模板并编辑默认节点链">
         <div class="workspace-template-item-head">
           <strong>${escapeHtml(template.name || template.id)}</strong>
           <span class="state ${escapeHtml(template.status || "ready")}">${escapeHtml(workspaceStatusLabel(template.status || "ready"))}</span>
         </div>
-        <div class="workspace-template-item-meta">${escapeHtml(template.source?.type || "repo")} · ${nodeCount} 个节点</div>
+        <div class="workspace-template-item-meta">${escapeHtml(template.source?.type || "repo")} · ${nodeCount} 个节点${versionCount ? ` · ${versionCount} 条版本` : ""}</div>
         <div class="workspace-template-item-desc">${escapeHtml(template.description || template.brief || "未填写模板描述")}</div>
       </button>
     `;
@@ -18934,6 +20273,137 @@ function renderWorkflowTemplateNodeList() {
   }).join("");
 }
 
+function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
+  const active = node.id === state.selectedTemplateNodeId ? " active" : "";
+  const statusClass = workspaceExecutionCanvasStatusClass(node.status || "ready");
+  const phase = workspaceStarterNodePhase(node.kind || "");
+  const phaseTone = WORKSPACE_FLOW_PHASE_TONES[phase] || "other";
+  const meta = workspaceNodeMeta(node.kind || "custom.step");
+  const handler = node.handler && typeof node.handler === "object" ? node.handler : {};
+  const agent = globalAgentById(handler.agent_id || "");
+  const contract = workspaceNodeIoContract(node.kind || "", index);
+  const outputKey = String(node.output_key || contract.output || "").trim();
+  const inputMapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
+  const inputCount = Object.keys(inputMapping).length;
+  const next = nodes[index + 1] || null;
+  const nextTitle = next ? next.title || workspaceNodeLabel(next.kind) : "结束";
+  const agentLabel = handler.mode === "agent"
+    ? agent?.name || handler.name || "Agent 待绑定"
+    : handler.mode === "system"
+      ? handler.name || "系统"
+      : handler.name || "人工";
+  const ioStatus = outputKey && (index === 0 || inputCount) ? "ready" : outputKey ? "warning" : "blocked";
+  const ioHint = inputCount
+    ? `${inputCount} 输入 -> ${outputKey || "output"}`
+    : index === 0
+      ? `$input -> ${outputKey || "output"}`
+      : `等待 input_mapping -> ${outputKey || "output"}`;
+  const canMoveUp = index > 0;
+  const canMoveDown = index < nodes.length - 1;
+  return `
+    <article
+      class="workflow-template-flow-node workspace-flow-node status-${escapeHtml(statusClass)} tone-${escapeHtml(phaseTone)}${active}"
+      data-node-id="${escapeHtml(node.id || "")}"
+      data-index="${escapeHtml(String(index))}"
+      title="${escapeHtml(`${node.title || workspaceNodeLabel(node.kind)} · ${agentLabel} · ${ioHint}`)}"
+    >
+      <button
+        class="workspace-flow-node-select"
+        type="button"
+        data-action="select-template-node"
+        data-node-id="${escapeHtml(node.id || "")}"
+      >
+        <div class="workspace-flow-node-head">
+          <span class="workspace-flow-node-icon">${escapeHtml(String(index + 1))}</span>
+          <div class="workspace-flow-node-copy">
+            <span class="workspace-flow-node-phase">${escapeHtml(phase)}</span>
+            <strong>${escapeHtml(node.title || workspaceNodeLabel(node.kind))}</strong>
+          </div>
+          <span class="workspace-flow-node-state">${escapeHtml(workspaceStatusLabel(node.status || "ready"))}</span>
+        </div>
+        <p class="workspace-flow-node-desc">${escapeHtml(meta.description || workspaceNodeLabel(node.kind))}</p>
+        <div class="workspace-flow-node-meta-row">
+          <span>${escapeHtml(agentLabel)}</span>
+          <em>${escapeHtml(outputKey || "等待 output_key")}</em>
+        </div>
+        <div class="workflow-template-node-io status-${escapeHtml(ioStatus)}">
+          <span>${escapeHtml(ioHint)}</span>
+          <em>${escapeHtml(`交接至 ${nextTitle}`)}</em>
+        </div>
+      </button>
+      <div class="workflow-template-node-actions">
+        <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(node.id || "")}" data-direction="up" title="上移这个节点" ${canMoveUp ? "" : "disabled"}>上移</button>
+        <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(node.id || "")}" data-direction="down" title="下移这个节点" ${canMoveDown ? "" : "disabled"}>下移</button>
+        <button class="secondary mini" type="button" data-action="insert-template-node-after" data-node-id="${escapeHtml(node.id || "")}" title="在这个节点后插入当前选择的节点类型">插入</button>
+        <button class="secondary mini danger" type="button" data-action="delete-template-node" data-node-id="${escapeHtml(node.id || "")}" title="删除这个模板节点" ${nodes.length <= 1 ? "disabled" : ""}>删除</button>
+      </div>
+    </article>
+  `;
+}
+
+function workflowTemplateConnectorMarkup(leftNode = {}, rightNode = {}, rightIndex = 0) {
+  const leftReady = String(leftNode.output_key || workspaceNodeIoContract(leftNode.kind || "").output || "").trim();
+  const rightMapping = rightNode.input_mapping && typeof rightNode.input_mapping === "object" ? rightNode.input_mapping : {};
+  const rightReady = Object.keys(rightMapping).length > 0;
+  const status = leftReady && rightReady ? "done" : leftReady ? "running" : "pending";
+  const title = `${leftNode.title || workspaceNodeLabel(leftNode.kind || "")} -> ${rightNode.title || workspaceNodeLabel(rightNode.kind || "")}`;
+  return `
+    <button
+      class="workflow-template-flow-connector workspace-flow-connector status-${escapeHtml(status)}"
+      type="button"
+      data-action="select-template-edge"
+      data-node-id="${escapeHtml(rightNode.id || "")}"
+      title="${escapeHtml(`${title} · 查看/编辑交接映射`)}"
+      aria-label="${escapeHtml(`编辑第 ${rightIndex + 1} 个节点的交接映射`)}"
+    >
+      <span>映射</span>
+    </button>
+  `;
+}
+
+function renderWorkflowTemplateCanvas() {
+  const root = $("workflowTemplateCanvas");
+  if (!root) return;
+  const draft = normalizeWorkflowTemplateDraft(state.workflowTemplateDraft || selectedWorkflowTemplate() || defaultWorkflowTemplateDraft("repo"));
+  const nodes = Array.isArray(draft.nodes) ? draft.nodes : [];
+  if (!nodes.length) {
+    root.innerHTML = '<div class="empty">模板里还没有节点。</div>';
+    return;
+  }
+  const selectedIndex = Math.max(0, nodes.findIndex((node) => node.id === state.selectedTemplateNodeId));
+  const selectedNode = nodes[selectedIndex] || nodes[0] || {};
+  const mappedCount = nodes.filter((node, index) => {
+    const outputKey = String(node.output_key || workspaceNodeIoContract(node.kind || "", index).output || "").trim();
+    const mapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
+    return outputKey && (index === 0 || Object.keys(mapping).length);
+  }).length;
+  const trackParts = [];
+  nodes.forEach((node, index) => {
+    trackParts.push(workflowTemplateNodeFlowMarkup(node, index, nodes));
+    if (index < nodes.length - 1) trackParts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1));
+  });
+  const edgeMarkup = workflowTemplateEdgeInspectorMarkup(nodes, selectedIndex);
+  root.innerHTML = `
+    <div class="workflow-template-canvas-head">
+      <div>
+        <strong>${escapeHtml(`${nodes.length} 节点 · ${mappedCount}/${nodes.length} I/O 闭合`)}</strong>
+        <span title="${escapeHtml(selectedNode.title || workspaceNodeLabel(selectedNode.kind))}">${escapeHtml(`当前：${selectedNode.title || workspaceNodeLabel(selectedNode.kind)}`)}</span>
+      </div>
+      <div class="workflow-template-canvas-actions">
+        <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(selectedNode.id || "")}" data-direction="up" title="上移当前节点" ${selectedIndex > 0 ? "" : "disabled"}>上移</button>
+        <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(selectedNode.id || "")}" data-direction="down" title="下移当前节点" ${selectedIndex < nodes.length - 1 ? "" : "disabled"}>下移</button>
+        <button class="secondary mini" type="button" data-action="insert-template-node-after" data-node-id="${escapeHtml(selectedNode.id || "")}" title="在当前节点后插入左上角选择的节点类型">插入</button>
+      </div>
+    </div>
+    <div class="workflow-template-flow-viewport" aria-label="模板顺序链路画布">
+      <div class="workflow-template-flow-track">
+        ${trackParts.join("")}
+      </div>
+    </div>
+    ${edgeMarkup}
+  `;
+}
+
 function renderWorkflowTemplateNodeEditor() {
   const box = $("workflowTemplateNodeEditor");
   if (!box) return;
@@ -18953,6 +20423,7 @@ function renderWorkflowTemplateNodeEditor() {
   const configFields = (meta.configFields || [])
     .map((field) => renderWorkspaceNodeField(field, node.config?.[field.key], node.kind))
     .join("");
+  const nodeIndex = workflowTemplateNodeIndex(node);
   box.innerHTML = `
     <div class="workspace-node-editor-card">
       <div class="workspace-node-editor-head">
@@ -19004,10 +20475,7 @@ function renderWorkflowTemplateNodeEditor() {
           output_key
           <input data-manage-node-field="output_key" value="${escapeHtml(node.output_key || "")}" placeholder="${escapeHtml(workspaceNodeIoContract(node.kind, 0).output || "step_output")}" />
         </label>
-        <label>
-          input_mapping
-          <textarea data-manage-input-mapping="1" rows="4" placeholder="dataset_profile: $context.outputs.dataset_profile">${escapeHtml(workspaceInputMappingToText(node.input_mapping || {}))}</textarea>
-        </label>
+        ${workflowTemplateInputMappingEditorMarkup(node, nodeIndex)}
       </div>
       <label>
         节点备注
@@ -19054,6 +20522,7 @@ function renderManageTemplateModule() {
   }
   renderWorkflowTemplateStudioOverview();
   renderManageTemplateList();
+  renderWorkflowTemplateCanvas();
   renderWorkflowTemplateNodeList();
   renderWorkflowTemplateNodeEditor();
 }
@@ -19546,7 +21015,7 @@ function renderManageAiModule() {
           <label class="provider-key-field">
             API Key
             <span class="provider-key-row">
-              <input data-manage-provider-field="api_key" class="${String(profile.api_key || "").trim() || profile.has_api_key ? "" : "invalid"}" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值覆盖` : "必填 sk-..."}" autocomplete="off" />
+              <input data-manage-provider-field="api_key" class="${providerProfileRequiresApiKey(profile) && !String(profile.api_key || "").trim() && !profile.has_api_key ? "invalid" : ""}" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${providerProfileRequiresApiKey(profile) ? (profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值覆盖` : "必填 sk-...") : "本地免密，可留空"}" autocomplete="off" />
               <button type="button" class="provider-key-toggle mini" data-action="toggle-provider-key-visibility">${state.ui.providerKeyVisible ? "隐藏" : "显示"}</button>
             </span>
           </label>
@@ -19605,6 +21074,94 @@ function executionOverviewStatusClass(status = "") {
   return "draft";
 }
 
+function executionOverviewStatusGroup(status = "") {
+  const value = String(status || "pending").trim().toLowerCase();
+  if (["done", "ready", "completed", "success", "succeeded"].includes(value)) return "done";
+  if (["failed", "blocked", "stopped", "cancelled", "canceled"].includes(value)) return "failed";
+  if (["running", "queued", "starting", "pending"].includes(value)) return "active";
+  return "active";
+}
+
+function executionOverviewFilters() {
+  const kind = String(state.ui.executionOverviewKind || "all");
+  return {
+    query: String(state.ui.executionOverviewQuery || "").trim().toLowerCase(),
+    status: String(state.ui.executionOverviewStatus || "").trim(),
+    kind: ["all", "runs", "jobs"].includes(kind) ? kind : "all",
+  };
+}
+
+function executionOverviewRecordSearchText(record = {}, type = "") {
+  const progress = record.progress && typeof record.progress === "object" ? record.progress : {};
+  return [
+    type,
+    record.id,
+    record.run_id,
+    record.execution_run_id,
+    record.job_id,
+    record.workspace_id,
+    record.workspace_name,
+    record.summary,
+    record.kind,
+    record.status,
+    record.server_id,
+    record.node_id,
+    record.agent_id,
+    Array.isArray(record.job_ids) ? record.job_ids.join(" ") : "",
+    Array.isArray(record.agent_execution_ids) ? record.agent_execution_ids.join(" ") : "",
+    progress.done,
+    progress.total,
+    progress.percent,
+  ].map((item) => String(item || "").toLowerCase()).join(" ");
+}
+
+function executionOverviewRecordMatches(record = {}, type = "run", filters = executionOverviewFilters()) {
+  if (filters.status && executionOverviewStatusGroup(record.status) !== filters.status) return false;
+  if (filters.query && !executionOverviewRecordSearchText(record, type).includes(filters.query)) return false;
+  return true;
+}
+
+function filteredExecutionOverviewItems(runs = [], jobs = [], filters = executionOverviewFilters()) {
+  const showRuns = filters.kind !== "jobs";
+  const showJobs = filters.kind !== "runs";
+  return {
+    runs: showRuns ? runs.filter((run) => executionOverviewRecordMatches(run, "run", filters)) : [],
+    jobs: showJobs ? jobs.filter((job) => executionOverviewRecordMatches(job, "job", filters)) : [],
+    showRuns,
+    showJobs,
+  };
+}
+
+function syncExecutionOverviewFilterControls(filters = executionOverviewFilters(), counts = {}) {
+  const searchInput = $("workspaceExecutionOverviewSearch");
+  const statusSelect = $("workspaceExecutionOverviewStatusFilter");
+  const kindSelect = $("workspaceExecutionOverviewKindFilter");
+  const meta = $("workspaceExecutionOverviewFilterMeta");
+  if (searchInput && searchInput.value !== state.ui.executionOverviewQuery) {
+    searchInput.value = state.ui.executionOverviewQuery || "";
+  }
+  if (statusSelect && statusSelect.value !== filters.status) statusSelect.value = filters.status;
+  if (kindSelect && kindSelect.value !== filters.kind) kindSelect.value = filters.kind;
+  if (meta) {
+    const totalRuns = Number(counts.totalRuns || 0);
+    const totalJobs = Number(counts.totalJobs || 0);
+    const visibleRuns = Number(counts.visibleRuns || 0);
+    const visibleJobs = Number(counts.visibleJobs || 0);
+    const visibleTotal = visibleRuns + visibleJobs;
+    const total = totalRuns + totalJobs;
+    meta.textContent = filters.query || filters.status || filters.kind !== "all"
+      ? `命中 ${visibleTotal}/${total} 条 · Runs ${visibleRuns}/${totalRuns} · Jobs ${visibleJobs}/${totalJobs}`
+      : `全部 ${total} 条 · Runs ${totalRuns} · Jobs ${totalJobs}`;
+  }
+}
+
+function resetExecutionOverviewFilters() {
+  state.ui.executionOverviewQuery = "";
+  state.ui.executionOverviewStatus = "";
+  state.ui.executionOverviewKind = "all";
+  renderManageRunsModule();
+}
+
 function openWorkspaceFromExecutionOverview(workspaceId, options = {}) {
   const id = String(workspaceId || "").trim();
   if (!id) return;
@@ -19658,6 +21215,14 @@ function renderManageRunsModule() {
   const summary = overview.summary && typeof overview.summary === "object" ? overview.summary : {};
   const runs = Array.isArray(overview.runs) ? overview.runs : [];
   const jobs = Array.isArray(overview.jobs) ? overview.jobs : [];
+  const filters = executionOverviewFilters();
+  const filtered = filteredExecutionOverviewItems(runs, jobs, filters);
+  syncExecutionOverviewFilterControls(filters, {
+    totalRuns: runs.length,
+    totalJobs: jobs.length,
+    visibleRuns: filtered.runs.length,
+    visibleJobs: filtered.jobs.length,
+  });
   if (summaryRoot) {
     if (overview.error) {
       summaryRoot.innerHTML = `<article class="workspace-agent-coverage-card status-failed"><strong>加载失败</strong><span>${escapeHtml(overview.error)}</span></article>`;
@@ -19676,14 +21241,22 @@ function renderManageRunsModule() {
     }
   }
   if (runList) {
-    runList.innerHTML = runs.length
-      ? runs.slice(0, 30).map((run) => manageRunOverviewItemMarkup(run)).join("")
-      : '<div class="empty">还没有全局 run 记录。</div>';
+    runList.innerHTML = !filtered.showRuns
+      ? '<div class="empty">当前类型筛选只显示 Jobs。</div>'
+      : filtered.runs.length
+        ? filtered.runs.slice(0, 30).map((run) => manageRunOverviewItemMarkup(run)).join("")
+        : runs.length
+          ? '<div class="empty">没有匹配的 run 记录。</div>'
+          : '<div class="empty">还没有全局 run 记录。</div>';
   }
   if (jobList) {
-    jobList.innerHTML = jobs.length
-      ? jobs.slice(0, 30).map((job) => manageJobOverviewItemMarkup(job)).join("")
-      : '<div class="empty">还没有队列任务。</div>';
+    jobList.innerHTML = !filtered.showJobs
+      ? '<div class="empty">当前类型筛选只显示 Runs。</div>'
+      : filtered.jobs.length
+        ? filtered.jobs.slice(0, 30).map((job) => manageJobOverviewItemMarkup(job)).join("")
+        : jobs.length
+          ? '<div class="empty">没有匹配的队列任务。</div>'
+          : '<div class="empty">还没有队列任务。</div>';
   }
 }
 
@@ -19879,6 +21452,42 @@ async function acceptWorkspaceChatContextReflection(button) {
   }
 }
 
+async function dismissWorkspaceChatContextReflection(button) {
+  const workspace = selectedWorkspace();
+  const messageId = String(button?.dataset?.messageId || "").trim();
+  const surface = String(button?.dataset?.surface || "workspace");
+  const notify = surface === "use" ? setWorkspaceUseMessage : setWorkspaceMessage;
+  if (!workspace?.id || !messageId) {
+    notify("没有可忽略的上下文建议。", true);
+    return;
+  }
+  button.disabled = true;
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/context-reflections/${encodeURIComponent(messageId)}/dismiss`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
+    if (mergedWorkspace) {
+      selectWorkspace(mergedWorkspace.id, {
+        persist: false,
+        selectedNodeId: state.selectedWorkspaceNodeId,
+        selectedExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
+        selectedAgentId: state.selectedWorkspaceAgentId,
+      });
+    }
+    notify("已忽略这条上下文建议。");
+    renderWorkspaceUseChat();
+    renderWorkspaceChat();
+    renderWorkspaceHome();
+  } catch (error) {
+    notify(error.message || "忽略上下文建议失败。", true);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function newWorkflowTemplateDraft(sourceType = "repo") {
   state.selectedWorkflowTemplateId = "";
   saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, "");
@@ -19914,6 +21523,7 @@ async function saveWorkflowTemplate() {
     const saved = response.workflow_template;
     await loadStatus(true, { renderWorkspace: true });
     if (saved?.id) selectWorkflowTemplate(saved.id);
+    if (state.selectedWorkspaceId) void refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, { quiet: true, render: state.ui.workspaceManageTab === "inspect" });
     setWorkspaceManageMessage(validation.status === "warning" ? "模板已保存，但仍有警告项。" : "模板已保存。");
   } catch (error) {
     setWorkspaceManageMessage(error.message, true);
@@ -19934,6 +21544,7 @@ async function deleteSelectedWorkflowTemplate() {
     await loadStatus(true, { renderWorkspace: true });
     if (state.workflowTemplates[0]) selectWorkflowTemplate(state.workflowTemplates[0].id);
     else newWorkflowTemplateDraft("repo");
+    if (state.selectedWorkspaceId) void refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, { quiet: true, render: state.ui.workspaceManageTab === "inspect" });
     setWorkspaceManageMessage("模板已删除。");
   } catch (error) {
     setWorkspaceManageMessage(error.message, true);
@@ -20247,7 +21858,10 @@ async function saveManageProviderProfile() {
     return;
   }
   if (!providerProfileIsValid(profile)) {
-    state.ui.providerTestResult = { text: "✗ 必填项未填全（标红的：显示名 / 厂商 / Base URL / Model / API Key），无法保存。", isError: true, models: [] };
+    const requiredText = providerProfileRequiresApiKey(profile)
+      ? "显示名 / 厂商 / Base URL / Model / API Key"
+      : "显示名 / 厂商 / Base URL / Model";
+    state.ui.providerTestResult = { text: `✗ 必填项未填全（标红的：${requiredText}），无法保存。`, isError: true, models: [] };
     renderManageAiModule();
     return;
   }
@@ -20368,9 +21982,12 @@ function addManageProviderProfile() {
 }
 
 function upsertWorkspaceInState(workspace) {
+  if (!workspace?.id) return;
   const index = state.workspaces.findIndex((item) => item.id === workspace.id);
-  if (index >= 0) state.workspaces.splice(index, 1, workspace);
-  else state.workspaces.unshift(workspace);
+  const previousWorkspace = index >= 0 ? state.workspaces[index] : null;
+  const nextWorkspace = mergeWorkspaceSnapshotRunState(workspace, previousWorkspace);
+  if (index >= 0) state.workspaces.splice(index, 1, nextWorkspace);
+  else state.workspaces.unshift(nextWorkspace);
 }
 
 function upsertJobInState(job = {}) {
@@ -20414,6 +22031,44 @@ function mergeWorkspaceChatMessages(workspaceId, messages = []) {
   return next;
 }
 
+function mergeWorkspaceChatDelta(workspaceId, payload = {}) {
+  const id = String(workspaceId || "").trim();
+  const workspace = workspaceById(id);
+  const source = payload && typeof payload === "object" ? payload : {};
+  if (!workspace || !source) return null;
+  const sourceMessage = source.message && typeof source.message === "object" ? source.message : {};
+  const messageId = String(source.message_id || sourceMessage.id || "").trim();
+  if (!messageId) return null;
+  const chat = Array.isArray(workspace.chat) ? workspace.chat.slice() : [];
+  const existingIndex = chat.findIndex((item) => String(item?.id || "") === messageId);
+  const existing = existingIndex >= 0 ? chat[existingIndex] || {} : {};
+  if (existingIndex < 0 && !Object.keys(sourceMessage).length) return null;
+  const existingStatus = String(existing.status || "").trim();
+  if (["completed", "failed"].includes(existingStatus) && String(source.status || sourceMessage.status || "") === "streaming") {
+    return workspace;
+  }
+  const accumulated = String(source.accumulated || source.text || sourceMessage.text || "");
+  const delta = String(source.delta || "");
+  const nextText = accumulated || `${String(existing.text || "")}${delta}`;
+  const nextMessage = normalizeWorkspaceChatMessage(
+    {
+      ...existing,
+      ...sourceMessage,
+      id: messageId,
+      role: sourceMessage.role || existing.role || "assistant",
+      text: nextText,
+      status: source.status || sourceMessage.status || "streaming",
+      updated_at: sourceMessage.updated_at || source.created_at || new Date().toISOString(),
+    },
+    existingIndex >= 0 ? existingIndex : chat.length,
+  );
+  if (existingIndex >= 0) chat.splice(existingIndex, 1, nextMessage);
+  else chat.push(nextMessage);
+  const next = { ...workspace, chat };
+  upsertWorkspaceInState(next);
+  return next;
+}
+
 function mergeWorkspaceCockpitPayload(workspaceId, payload = {}) {
   const id = String(workspaceId || payload.workspace_id || "").trim();
   const workspace = workspaceById(id);
@@ -20444,6 +22099,320 @@ function mergeWorkspaceCockpitPayload(workspaceId, payload = {}) {
   return next;
 }
 
+function workspaceRunEventKey(event = {}) {
+  const sseId = Number(event.sse_id || event.id || 0);
+  if (Number.isFinite(sseId) && sseId > 0) return `sse:${sseId}`;
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+  const step = payload.step && typeof payload.step === "object" ? payload.step : {};
+  const job = payload.job && typeof payload.job === "object" ? payload.job : {};
+  const execution = payload.execution && typeof payload.execution === "object" ? payload.execution : {};
+  return [
+    event.type || "",
+    event.run_id || "",
+    event.job_id || "",
+    event.agent_execution_id || execution.id || "",
+    step.index ?? "",
+    step.status || "",
+    job.status || "",
+    event.created_at || "",
+  ].join("|");
+}
+
+function mergeWorkspaceRunEvents(existing = [], incoming = []) {
+  const merged = [];
+  const byKey = new Map();
+  const append = (item) => {
+    const event = item && typeof item === "object" ? item : null;
+    if (!event?.type || !event?.run_id) return;
+    const key = workspaceRunEventKey(event);
+    const previousIndex = byKey.get(key);
+    if (previousIndex !== undefined) {
+      merged.splice(previousIndex, 1, { ...merged[previousIndex], ...event });
+      return;
+    }
+    byKey.set(key, merged.length);
+    merged.push(event);
+  };
+  (Array.isArray(existing) ? existing : []).forEach(append);
+  (Array.isArray(incoming) ? incoming : []).forEach(append);
+  return merged
+    .sort((a, b) => {
+      const leftId = Number(a.sse_id || a.id || 0);
+      const rightId = Number(b.sse_id || b.id || 0);
+      if (leftId && rightId && leftId !== rightId) return leftId - rightId;
+      return String(a.created_at || "").localeCompare(String(b.created_at || ""));
+    })
+    .slice(-80);
+}
+
+function workspaceRunStatus(run = {}) {
+  return String(run?.status || "").trim();
+}
+
+function workspaceRunIsTerminal(run = {}) {
+  return ["done", "failed", "stopped"].includes(workspaceRunStatus(run));
+}
+
+function workspaceRunTimestampMs(run = {}) {
+  return statusTimestampMs(run?.updated_at || run?.finished_at || run?.completed_at || run?.created_at);
+}
+
+function shouldKeepExistingWorkspaceRun(existing = {}, incoming = {}) {
+  const existingStatus = workspaceRunStatus(existing);
+  const incomingStatus = workspaceRunStatus(incoming);
+  if (!existingStatus || !incomingStatus) return false;
+  const existingTerminal = workspaceRunIsTerminal(existing);
+  const incomingTerminal = workspaceRunIsTerminal(incoming);
+  if (existingTerminal && !incomingTerminal) return true;
+  const existingTime = workspaceRunTimestampMs(existing);
+  const incomingTime = workspaceRunTimestampMs(incoming);
+  if (existingTime && incomingTime && existingTime > incomingTime) return true;
+  if (existingTerminal && incomingTerminal && existingTime && incomingTime && existingTime > incomingTime) return true;
+  return false;
+}
+
+function workspaceRunStepMergeKey(step = {}, index = 0) {
+  const source = step && typeof step === "object" ? step : {};
+  const jobId = String(source.job_id || "").trim();
+  if (jobId) return `job:${jobId}`;
+  const agentExecutionId = String(source.agent_execution_id || "").trim();
+  if (agentExecutionId) return `agent:${agentExecutionId}`;
+  const nodeId = String(source.node_id || "").trim();
+  if (nodeId) return `node:${nodeId}:${String(source.index ?? index)}`;
+  return `index:${String(source.index ?? index)}`;
+}
+
+function mergeWorkspaceRunSteps(existingSteps = [], incomingSteps = []) {
+  const existingItems = Array.isArray(existingSteps) ? existingSteps : [];
+  const incomingItems = Array.isArray(incomingSteps) ? incomingSteps : [];
+  if (!incomingItems.length) return existingItems.slice();
+  const existingByKey = new Map(
+    existingItems.map((step, index) => [workspaceRunStepMergeKey(step, index), step]),
+  );
+  const seen = new Set();
+  const merged = incomingItems.map((step, index) => {
+    const key = workspaceRunStepMergeKey(step, index);
+    seen.add(key);
+    const previous = existingByKey.get(key);
+    return previous && typeof previous === "object" ? { ...previous, ...step } : step;
+  });
+  existingItems.forEach((step, index) => {
+    const key = workspaceRunStepMergeKey(step, index);
+    if (!seen.has(key)) merged.push(step);
+  });
+  return merged.sort((a, b) => Number(a?.index ?? 0) - Number(b?.index ?? 0));
+}
+
+function mergeWorkspaceRunSnapshot(existing = {}, incoming = {}) {
+  const previous = existing && typeof existing === "object" ? existing : {};
+  const next = incoming && typeof incoming === "object" ? incoming : {};
+  const keepExisting = shouldKeepExistingWorkspaceRun(previous, next);
+  const selected = keepExisting ? previous : next;
+  const steps = keepExisting
+    ? (Array.isArray(previous.steps) ? previous.steps : [])
+    : mergeWorkspaceRunSteps(previous.steps || [], next.steps || []);
+  const base = keepExisting ? selected : { ...previous, ...selected };
+  return {
+    ...base,
+    steps,
+    events: mergeWorkspaceRunEvents(previous.events || [], next.events || []),
+  };
+}
+
+function mergeWorkspaceRunListSnapshots(existingRuns = [], incomingRuns = []) {
+  const existingItems = Array.isArray(existingRuns) ? existingRuns : [];
+  const incomingItems = Array.isArray(incomingRuns) ? incomingRuns : [];
+  const existingById = new Map(
+    existingItems
+      .map((run) => [String(run?.id || "").trim(), run])
+      .filter(([id]) => id),
+  );
+  const seen = new Set();
+  const merged = incomingItems.map((run) => {
+    const runId = String(run?.id || "").trim();
+    if (!runId) return run;
+    seen.add(runId);
+    return mergeWorkspaceRunSnapshot(existingById.get(runId) || {}, run);
+  });
+  existingItems.forEach((run) => {
+    const runId = String(run?.id || "").trim();
+    if (runId && !seen.has(runId)) merged.push(run);
+  });
+  return merged.slice(0, 60);
+}
+
+function collectWorkspaceRunEvents(workspaces = []) {
+  const eventsByRun = new Map();
+  (Array.isArray(workspaces) ? workspaces : []).forEach((workspace) => {
+    (Array.isArray(workspace?.runs) ? workspace.runs : []).forEach((run) => {
+      const runId = String(run?.id || "").trim();
+      if (!runId) return;
+      const events = Array.isArray(run.events) ? run.events : [];
+      if (events.length) eventsByRun.set(runId, mergeWorkspaceRunEvents(eventsByRun.get(runId) || [], events));
+    });
+  });
+  return eventsByRun;
+}
+
+function mergeWorkspaceSnapshotRunState(workspace = {}, previousWorkspace = null) {
+  const previousEvents = previousWorkspace ? collectWorkspaceRunEvents([previousWorkspace]) : new Map();
+  const nextWorkspace = mergeWorkspaceSnapshotRunEvents(workspace, previousEvents);
+  if (!previousWorkspace || !Array.isArray(nextWorkspace?.runs)) return nextWorkspace;
+  return {
+    ...nextWorkspace,
+    runs: mergeWorkspaceRunListSnapshots(previousWorkspace.runs || [], nextWorkspace.runs || []),
+  };
+}
+
+function mergeWorkspaceSnapshotRunEvents(workspace = {}, eventsByRun = new Map()) {
+  if (!workspace || typeof workspace !== "object") return workspace;
+  const runs = Array.isArray(workspace.runs) ? workspace.runs : [];
+  if (!runs.length) return workspace;
+  return {
+    ...workspace,
+    runs: runs.map((run) => {
+      const runId = String(run?.id || "").trim();
+      if (!runId) return run;
+      const localEvents = eventsByRun.get(runId) || [];
+      if (!localEvents.length) return run;
+      return {
+        ...run,
+        events: mergeWorkspaceRunEvents(localEvents, run.events || []),
+      };
+    }),
+  };
+}
+
+function compactWorkspaceStreamEventPayload(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const compact = {};
+  [
+    "node_id",
+    "node_kind",
+    "agent_id",
+    "chat",
+    "tool_id",
+    "step_number",
+    "arguments_summary",
+    "observation_summary",
+    "runtime_control",
+    "runtime_status",
+    "runtime_side_effect",
+  ].forEach((key) => {
+    if (source[key] !== undefined) compact[key] = source[key];
+  });
+  const run = source.run && typeof source.run === "object" ? source.run : {};
+  if (run.id) {
+    compact.run = {
+      id: String(run.id || "").trim(),
+      kind: String(run.kind || "").trim(),
+      status: String(run.status || "").trim(),
+      summary: String(run.summary || "").trim(),
+      progress: run.progress && typeof run.progress === "object" ? run.progress : {},
+      updated_at: String(run.updated_at || "").trim(),
+    };
+  }
+  const step = source.step && typeof source.step === "object" ? source.step : {};
+  if (step.node_id || step.node_kind || step.job_id || step.agent_execution_id) {
+    compact.step = {
+      index: Number(step.index || 0),
+      node_id: String(step.node_id || "").trim(),
+      node_kind: String(step.node_kind || "").trim(),
+      node_title: String(step.node_title || "").trim(),
+      executor: String(step.executor || "").trim(),
+      status: String(step.status || "").trim(),
+      job_id: String(step.job_id || "").trim(),
+      child_job_ids: (Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+      child_run_ids: (Array.isArray(step.child_run_ids) ? step.child_run_ids : [])
+        .map((item) => String(item || "").trim())
+        .filter(Boolean),
+      runtime_control: String(step.runtime_control || "").trim(),
+      runtime_status: String(step.runtime_status || "").trim(),
+      runtime_side_effect: String(step.runtime_side_effect || "").trim(),
+      agent_execution_id: String(step.agent_execution_id || "").trim(),
+      error: String(step.error || "").trim(),
+    };
+  }
+  const job = source.job && typeof source.job === "object" ? source.job : {};
+  if (job.id) {
+    compact.job = {
+      id: String(job.id || "").trim(),
+      status: String(job.status || "").trim(),
+      server_id: String(job.server_id || "").trim(),
+      queue_rank: Number(job.queue_rank || 0),
+      started_at: String(job.started_at || "").trim(),
+      finished_at: String(job.finished_at || "").trim(),
+      error: String(job.error || "").trim(),
+    };
+  }
+  const execution = source.execution && typeof source.execution === "object" ? source.execution : {};
+  if (execution.id) {
+    compact.execution = {
+      id: String(execution.id || "").trim(),
+      success: Boolean(execution.success),
+      model: String(execution.model || "").trim(),
+      total_tokens: Number(execution.total_tokens || 0),
+      total_steps: Number(execution.total_steps || 0),
+      error: String(execution.error || "").trim(),
+    };
+  }
+  return compact;
+}
+
+function normalizeWorkspaceRunEventFromStream(event = {}, payload = {}) {
+  const eventType = String(event.type || "").trim();
+  if (!WORKSPACE_RUN_TIMELINE_EVENT_TYPES.has(eventType)) return null;
+  const source = payload && typeof payload === "object" ? payload : {};
+  const run = source.run && typeof source.run === "object" ? source.run : {};
+  const step = source.step && typeof source.step === "object" ? source.step : {};
+  const job = source.job && typeof source.job === "object" ? source.job : {};
+  const metadata = job.metadata && typeof job.metadata === "object" ? job.metadata : {};
+  const execution = source.execution && typeof source.execution === "object" ? source.execution : {};
+  const runId = String(event.run_id || source.run_id || run.id || metadata.execution_run_id || "").trim();
+  const workspaceId = String(event.workspace_id || source.workspace_id || run.workspace_id || metadata.workspace_id || "").trim();
+  if (!workspaceId || !runId) return null;
+  return {
+    sse_id: Number(event.id || event.sse_id || 0),
+    type: eventType,
+    workspace_id: workspaceId,
+    run_id: runId,
+    job_id: String(event.job_id || source.job_id || job.id || step.job_id || "").trim(),
+    agent_execution_id: String(
+      event.agent_execution_id
+      || source.agent_execution_id
+      || execution.id
+      || step.agent_execution_id
+      || "",
+    ).trim(),
+    created_at: String(event.created_at || source.created_at || new Date().toISOString()).trim(),
+    payload: compactWorkspaceStreamEventPayload(source),
+  };
+}
+
+function mergeWorkspaceRunEventIntoState(workspaceId, event = {}) {
+  const id = String(workspaceId || event.workspace_id || "").trim();
+  const runId = String(event.run_id || "").trim();
+  const workspace = workspaceById(id);
+  if (!workspace || !runId) return null;
+  const runs = Array.isArray(workspace.runs) ? workspace.runs.slice() : [];
+  const index = runs.findIndex((run) => String(run?.id || "") === runId);
+  if (index < 0) return null;
+  const run = runs[index];
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
+  const incomingRun = payload.run && typeof payload.run === "object"
+    ? { ...payload.run, id: runId, workspace_id: id, events: [event] }
+    : { id: runId, workspace_id: id, events: [event] };
+  if (payload.step && typeof payload.step === "object") {
+    incomingRun.steps = [payload.step];
+  }
+  const mergedRun = mergeWorkspaceRunSnapshot(run, incomingRun);
+  runs.splice(index, 1, mergedRun);
+  upsertWorkspaceInState({ ...workspace, runs });
+  return mergedRun;
+}
+
 function workspaceAgentEventStore(workspaceId) {
   const id = String(workspaceId || "").trim();
   if (!id) return [];
@@ -20456,14 +22425,35 @@ function workspaceAgentEventStore(workspaceId) {
   return state.ui.workspaceAgentEvents[id];
 }
 
+function workspaceAgentStreamRecordId(event = {}, payload = {}, execution = {}, step = {}) {
+  const executionId = String(event.agent_execution_id || execution.id || payload.agent_execution_id || "").trim();
+  if (executionId) return executionId;
+  const eventType = String(event.type || "").trim();
+  const runId = String(event.run_id || payload.run_id || execution.run_id || "").trim();
+  const nodeId = String(payload.node_id || execution.node_id || step.node_id || "").trim();
+  const agentId = String(payload.agent_id || execution.agent_id || "").trim();
+  const chatScope = payload.chat ? "chat" : "node";
+  if (runId || nodeId || agentId) {
+    return [
+      "agent-fallback",
+      chatScope,
+      runId || "no-run",
+      nodeId || "no-node",
+      agentId || "no-agent",
+    ].join(":");
+  }
+  const sseId = Number(event.id || event.sse_id || 0);
+  if (Number.isFinite(sseId) && sseId > 0) return `agent-fallback:sse:${sseId}`;
+  return `agent-fallback:${eventType || "event"}:${String(event.created_at || "").trim() || "unknown"}`;
+}
+
 function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
   const id = String(workspaceId || "").trim();
   const eventType = String(event.type || "").trim();
   if (!id || !eventType.startsWith("agent.")) return null;
   const execution = payload.execution && typeof payload.execution === "object" ? payload.execution : {};
   const step = payload.step && typeof payload.step === "object" ? payload.step : null;
-  const executionId = String(event.agent_execution_id || execution.id || payload.agent_execution_id || "").trim();
-  const recordId = executionId || `agent-${Date.now()}`;
+  const recordId = workspaceAgentStreamRecordId(event, payload, execution, step || {});
   const store = workspaceAgentEventStore(id);
   const existingIndex = store.findIndex((item) => String(item?.id || "") === recordId);
   const previous = existingIndex >= 0 ? store[existingIndex] : {};
@@ -20503,6 +22493,7 @@ function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
   const record = {
     ...previous,
     id: recordId,
+    run_id: String(event.run_id || payload.run_id || execution.run_id || previous.run_id || "").trim(),
     agent_id: String(payload.agent_id || execution.agent_id || previous.agent_id || "").trim(),
     node_id: String(payload.node_id || previous.node_id || "").trim(),
     node_kind: String(payload.node_kind || previous.node_kind || "").trim(),
@@ -20525,9 +22516,203 @@ function mergeWorkspaceAgentStreamEvent(workspaceId, event = {}, payload = {}) {
 
 function workspaceAgentStreamRecords(workspaceId, agentId = "") {
   const targetAgentId = String(agentId || "").trim();
-  return workspaceAgentEventStore(workspaceId)
+  return workspaceAgentEventStore(workspaceId).slice()
     .filter((item) => !targetAgentId || String(item?.agent_id || "").trim() === targetAgentId)
     .slice(0, 6);
+}
+
+function workspaceLiveChatRecord(workspaceId, agentId = "") {
+  const targetAgentId = String(agentId || "").trim();
+  return workspaceAgentEventStore(workspaceId).slice()
+    .filter((item) => {
+      if (!item || !item.chat || !String(item.partial_answer || "").trim()) return false;
+      if (!targetAgentId) return true;
+      return String(item.agent_id || "").trim() === targetAgentId;
+    })
+    .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")))[0] || null;
+}
+
+function workspaceLiveAgentStatus(record = {}) {
+  const status = String(record?.status || "").trim();
+  if (status === "completed") return "done";
+  return status || "running";
+}
+
+function workspaceLiveAgentRecordIsActive(record = {}) {
+  return ["running", "queued", "starting", "pending"].includes(workspaceLiveAgentStatus(record));
+}
+
+function workspaceLiveAgentRecordFresh(record = {}, maxAgeMs = 30 * 60 * 1000) {
+  if (workspaceLiveAgentRecordIsActive(record)) return true;
+  const updatedMs = Date.parse(String(record?.updated_at || ""));
+  return Number.isFinite(updatedMs) && Date.now() - updatedMs <= maxAgeMs;
+}
+
+function workspaceLiveAgentRecordsForRun(run = {}, workspaceId = state.selectedWorkspaceId) {
+  const runId = String(run?.id || "").trim();
+  const steps = Array.isArray(run?.steps) ? run.steps : [];
+  const nodeIds = new Set(
+    steps
+      .map((step) => String(step?.node_id || "").trim())
+      .filter(Boolean),
+  );
+  return workspaceAgentEventStore(workspaceId).slice()
+    .filter((record) => {
+      if (!record || record.chat) return false;
+      const recordRunId = String(record.run_id || "").trim();
+      const recordNodeId = String(record.node_id || "").trim();
+      if (runId && recordRunId === runId) return true;
+      if (!recordRunId && !workspaceRunIsTerminal(run) && recordNodeId && nodeIds.has(recordNodeId)) {
+        return workspaceLiveAgentRecordFresh(record);
+      }
+      return false;
+    })
+    .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+}
+
+function workspaceLiveAgentRecordForStep(step = {}, run = {}, workspaceId = state.selectedWorkspaceId) {
+  const agentExecutionId = String(step?.agent_execution_id || "").trim();
+  const nodeId = String(step?.node_id || "").trim();
+  const runId = String(run?.id || "").trim();
+  const records = workspaceLiveAgentRecordsForRun(run, workspaceId);
+  return records.find((record) => (
+    agentExecutionId && String(record.id || "") === agentExecutionId
+  )) || records.find((record) => (
+    nodeId
+    && String(record.node_id || "").trim() === nodeId
+    && (!String(record.run_id || "").trim() || String(record.run_id || "").trim() === runId)
+  )) || null;
+}
+
+function workspaceLiveAgentSyntheticStepsForRun(run = {}, steps = []) {
+  const existingAgentIds = new Set(
+    (Array.isArray(steps) ? steps : [])
+      .map((step) => String(step?.agent_execution_id || "").trim())
+      .filter(Boolean),
+  );
+  const existingNodeIds = new Set(
+    (Array.isArray(steps) ? steps : [])
+      .filter((step) => String(step?.executor || "") === "agent")
+      .map((step) => String(step?.node_id || "").trim())
+      .filter(Boolean),
+  );
+  return workspaceLiveAgentRecordsForRun(run)
+    .filter((record) => {
+      const recordId = String(record.id || "").trim();
+      const nodeId = String(record.node_id || "").trim();
+      if (recordId && existingAgentIds.has(recordId)) return false;
+      if (nodeId && existingNodeIds.has(nodeId)) return false;
+      return workspaceLiveAgentRecordIsActive(record);
+    })
+    .slice(0, 2)
+    .map((record, offset) => ({
+      index: (Array.isArray(steps) ? steps.length : 0) + offset,
+      node_id: String(record.node_id || "").trim(),
+      node_kind: String(record.node_kind || "agent.node").trim(),
+      node_title: record.node_kind ? workspaceCockpitStageLabel(record.node_kind) : "Agent 运行中",
+      executor: "agent",
+      status: workspaceLiveAgentStatus(record),
+      agent_execution_id: String(record.id || "").trim(),
+      agent_steps: Array.isArray(record.steps) ? record.steps : [],
+      trace_events: Array.isArray(record.trace_events) ? record.trace_events : [],
+      error: String(record.error || "").trim(),
+      _live_agent_synthetic: true,
+    }));
+}
+
+function workspaceStreamingChatDisplay(message = {}, workspaceId = "", agentId = "") {
+  const status = String(message.status || "").trim();
+  const text = String(message.text || "").trim();
+  if (message.role === "assistant" && status === "streaming" && text && text !== "正在回复...") {
+    return { text: message.error || text, live: true };
+  }
+  const canUseLive = message.role === "assistant"
+    && ["pending", "streaming"].includes(status)
+    && (!text || text === "正在回复...");
+  if (!canUseLive) return { text: message.error || message.text || "", live: false };
+  const live = workspaceLiveChatRecord(workspaceId, String(message.agent_id || agentId || "").trim());
+  const partial = String(live?.partial_answer || "").trim();
+  return partial
+    ? { text: partial, live: true }
+    : { text: message.error || message.text || "", live: false };
+}
+
+function workspaceStreamGapNotice(payload = {}) {
+  const gap = payload.gap && typeof payload.gap === "object" ? payload.gap : {};
+  const reason = String(payload.snapshot_reason || gap.reason || "event_replay_gap").trim();
+  if (reason === "buffer_overflow") return "实时事件有缺口，已用最新快照补齐状态，并刷新打开的日志。";
+  if (reason === "event_id_reset_or_server_restart") return "服务或事件序号已重置，已用最新快照恢复状态，并刷新打开的日志。";
+  return "实时连接恢复后已补一次快照，并刷新打开的日志。";
+}
+
+function renderWorkspaceRealtimeRecovery(workspaceId) {
+  if (workspaceId !== state.selectedWorkspaceId) return;
+  renderWorkspaces();
+  renderJobs();
+  renderWorkspaceHome();
+  renderWorkspaceRuns();
+  renderWorkspaceExecutionDetail();
+  renderWorkspaceUseChat();
+  renderWorkspaceChat();
+  renderWorkspaceUseMonitor(selectedWorkspace());
+}
+
+function flushWorkspaceStreamRender(workspaceId) {
+  state.ui.workspaceStreamRenderQueued = false;
+  state.ui.workspaceStreamRenderTimer = null;
+  const id = String(workspaceId || "").trim();
+  if (!id || id !== state.selectedWorkspaceId) return;
+  renderWorkspaces();
+  renderJobs();
+  renderWorkspaceHome();
+  renderWorkspaceRuns();
+  renderWorkspaceExecutionDetail();
+  renderWorkspaceUseChat();
+  renderWorkspaceChat();
+  renderWorkspaceUseMonitor(selectedWorkspace());
+}
+
+function scheduleWorkspaceStreamRender(workspaceId) {
+  const id = String(workspaceId || "").trim();
+  if (!id || id !== state.selectedWorkspaceId) return;
+  if (state.ui.workspaceStreamRenderQueued) return;
+  state.ui.workspaceStreamRenderQueued = true;
+  const flush = () => flushWorkspaceStreamRender(id);
+  if (typeof requestAnimationFrame === "function") {
+    state.ui.workspaceStreamRenderTimer = requestAnimationFrame(flush);
+  } else {
+    state.ui.workspaceStreamRenderTimer = setTimeout(flush, 100);
+  }
+}
+
+async function recoverWorkspaceStreamGap(workspaceId, payload = {}) {
+  const id = String(workspaceId || "").trim();
+  if (!id || state.ui.workspaceEventRecovering) return;
+  state.ui.workspaceEventRecovering = true;
+  state.ui.workspaceEventGapNotice = workspaceStreamGapNotice(payload);
+  state.ui.workspaceEventGapAt = Date.now();
+  if (id === state.selectedWorkspaceId) {
+    setWorkspaceMessage(state.ui.workspaceEventGapNotice, false);
+    renderWorkspaceRuns();
+    renderWorkspaceUseMonitor(selectedWorkspace());
+  }
+  try {
+    const statusPayload = await fetchJson("/api/status");
+    applyStatusPayload(statusPayload, { preserveWorkspaceUi: true });
+    await refreshWorkspaceCockpit(id, { render: false, quiet: true });
+    await refreshOpenJobOutputTabs({ useOffset: true, quiet: true, keepSearchIndex: true });
+    renderWorkspaceRealtimeRecovery(id);
+  } catch (error) {
+    if (id === state.selectedWorkspaceId) {
+      setWorkspaceMessage(humanizeFetchError(error, "补偿实时事件缺口"), true);
+    }
+  } finally {
+    state.ui.workspaceEventRecovering = false;
+    if (id === state.selectedWorkspaceId) {
+      renderWorkspaceRuns();
+      renderWorkspaceUseMonitor(selectedWorkspace());
+    }
+  }
 }
 
 function applyWorkspaceStreamEvent(rawEvent = {}) {
@@ -20535,21 +22720,28 @@ function applyWorkspaceStreamEvent(rawEvent = {}) {
   const eventType = String(event.type || "").trim();
   if (eventType === "heartbeat") return;
   const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
-  const workspaceId = String(event.workspace_id || payload.workspace_id || payload.workspace?.id || state.selectedWorkspaceId || "").trim();
+  const workspaceId = String(event.workspace_id || payload.workspace_id || payload.workspace?.id || "").trim();
   if (!workspaceId) return;
   mergeWorkspaceExecutionResultPayload(workspaceId, payload);
+  if (eventType === "workspace.snapshot" && payload.gap) {
+    void recoverWorkspaceStreamGap(workspaceId, payload);
+  }
+  if (eventType === "chat.message.delta") {
+    mergeWorkspaceChatDelta(workspaceId, {
+      ...payload,
+      created_at: event.created_at || payload.created_at || "",
+    });
+  }
+  if (eventType === "job.log.delta") {
+    mergeWorkspaceJobLogDelta(payload);
+  }
+  const runEvent = normalizeWorkspaceRunEventFromStream(event, payload);
+  if (runEvent) mergeWorkspaceRunEventIntoState(workspaceId, runEvent);
   if (eventType.startsWith("agent.")) {
     mergeWorkspaceAgentStreamEvent(workspaceId, event, payload);
   }
-  if (workspaceId === state.selectedWorkspaceId) {
-    renderWorkspaces();
-    renderJobs();
-    renderWorkspaceHome();
-    renderWorkspaceRuns();
-    renderWorkspaceExecutionDetail();
-    renderWorkspaceUseChat();
-    renderWorkspaceChat();
-    renderWorkspaceUseMonitor(selectedWorkspace());
+  if (workspaceId === state.selectedWorkspaceId && eventType !== "job.log.delta") {
+    scheduleWorkspaceStreamRender(workspaceId);
   }
 }
 
@@ -20561,9 +22753,17 @@ function handleWorkspaceStreamMessage(event) {
     return;
   }
   const workspaceId = String(payload.workspace_id || state.ui.workspaceEventWorkspaceId || "").trim();
+  const eventType = String(payload.type || event.type || "").trim();
   const eventId = Number(event.lastEventId || payload.id || 0);
-  if (workspaceId && Number.isFinite(eventId) && eventId > 0) {
-    state.ui.workspaceEventLastIds[workspaceId] = eventId;
+  if (workspaceId && Number.isFinite(eventId)) {
+    if (eventType === "workspace.snapshot" && eventId >= 0) {
+      state.ui.workspaceEventLastIds[workspaceId] = eventId;
+    } else if (eventId > 0) {
+      state.ui.workspaceEventLastIds[workspaceId] = Math.max(
+        Number(state.ui.workspaceEventLastIds[workspaceId] || 0),
+        eventId,
+      );
+    }
   }
   applyWorkspaceStreamEvent(payload);
 }
@@ -20575,12 +22775,105 @@ function closeWorkspaceEventStream() {
   state.ui.workspaceEventSource = null;
   state.ui.workspaceEventWorkspaceId = "";
   state.ui.workspaceEventConnected = false;
+  stopWorkspaceEventFallbackPolling();
+}
+
+function workspaceRealtimeStatusText() {
+  if (!selectedWorkspace()?.id) return "";
+  if (state.ui.workspaceEventRecovering) return "实时补偿中";
+  if (state.ui.workspaceEventGapAt && Date.now() - Number(state.ui.workspaceEventGapAt || 0) < 60000) {
+    return "实时已补快照";
+  }
+  if (state.ui.workspaceEventConnected) return "实时连接";
+  if (typeof EventSource === "undefined") return "实时不可用 · 轮询中";
+  if (state.ui.workspaceEventFallbackTimer) return "实时断开 · 窄轮询";
+  return "实时连接中";
+}
+
+async function pollWorkspaceEventFallback(workspaceId = state.ui.workspaceEventFallbackWorkspaceId) {
+  const id = String(workspaceId || "").trim();
+  if (!id || state.ui.workspaceEventFallbackBusy) return;
+  state.ui.workspaceEventFallbackBusy = true;
+  try {
+    try {
+      const params = new URLSearchParams();
+      params.set("since", String(Math.max(0, Number(state.ui.workspaceEventLastIds[id] || 0))));
+      params.set("limit", "200");
+      const replay = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/events/replay?${params.toString()}`);
+      const events = Array.isArray(replay.events) ? replay.events : [];
+      events.forEach((streamEvent) => {
+        applyWorkspaceStreamEvent(streamEvent);
+        const eventId = Number(streamEvent?.id || 0);
+        if (Number.isFinite(eventId) && eventId > 0) {
+          state.ui.workspaceEventLastIds[id] = Math.max(Number(state.ui.workspaceEventLastIds[id] || 0), eventId);
+        }
+      });
+      const nextSinceId = Number(replay.next_since_id || 0);
+      if (Number.isFinite(nextSinceId) && nextSinceId > 0) {
+        state.ui.workspaceEventLastIds[id] = Math.max(Number(state.ui.workspaceEventLastIds[id] || 0), nextSinceId);
+      }
+    } catch (replayError) {
+      const statusPayload = await fetchJson("/api/status");
+      applyStatusPayload(statusPayload, { preserveWorkspaceUi: true });
+      const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/runs`);
+      if (Array.isArray(payload.runs)) mergeWorkspaceRunsPayload(id, payload.runs);
+      await refreshWorkspaceCockpit(id, { render: false, quiet: true });
+    }
+    await refreshOpenJobOutputTabs({ useOffset: true, quiet: true, keepSearchIndex: true });
+    if (id === state.selectedWorkspaceId) {
+      renderWorkspaces();
+      renderJobs();
+      renderWorkspaceHome();
+      renderWorkspaceRuns();
+      renderWorkspaceExecutionDetail();
+      renderWorkspaceUseChat();
+      renderWorkspaceChat();
+      renderWorkspaceUseMonitor(selectedWorkspace());
+    }
+  } catch (error) {
+    // SSE fallback should stay quiet; the normal refresh path still surfaces hard failures.
+  } finally {
+    state.ui.workspaceEventFallbackBusy = false;
+  }
+}
+
+function startWorkspaceEventFallbackPolling(workspaceId = state.selectedWorkspaceId) {
+  const id = String(workspaceId || "").trim();
+  if (!id) return;
+  if (state.ui.workspaceEventFallbackTimer && state.ui.workspaceEventFallbackWorkspaceId === id) return;
+  stopWorkspaceEventFallbackPolling();
+  state.ui.workspaceEventFallbackWorkspaceId = id;
+  void pollWorkspaceEventFallback(id);
+  state.ui.workspaceEventFallbackTimer = setInterval(() => {
+    if (state.ui.workspaceEventConnected || state.selectedWorkspaceId !== id) {
+      stopWorkspaceEventFallbackPolling();
+      return;
+    }
+    void pollWorkspaceEventFallback(id);
+  }, Math.max(3000, Number(state.ui.pollIntervalMs || 5000)));
+  if (id === state.selectedWorkspaceId) renderWorkspaceRuns();
+}
+
+function stopWorkspaceEventFallbackPolling() {
+  if (state.ui.workspaceEventFallbackTimer) {
+    clearInterval(state.ui.workspaceEventFallbackTimer);
+  }
+  state.ui.workspaceEventFallbackTimer = null;
+  state.ui.workspaceEventFallbackWorkspaceId = "";
+  state.ui.workspaceEventFallbackBusy = false;
+  if (selectedWorkspace()?.id) renderWorkspaceRuns();
 }
 
 function connectWorkspaceEventStream(workspaceId = state.selectedWorkspaceId) {
   const id = String(workspaceId || "").trim();
-  if (!id || typeof EventSource === "undefined") {
+  if (!id) {
     closeWorkspaceEventStream();
+    return;
+  }
+  if (typeof EventSource === "undefined") {
+    closeWorkspaceEventStream();
+    state.ui.workspaceEventWorkspaceId = id;
+    startWorkspaceEventFallbackPolling(id);
     return;
   }
   if (state.ui.workspaceEventSource && state.ui.workspaceEventWorkspaceId === id) return;
@@ -20593,11 +22886,16 @@ function connectWorkspaceEventStream(workspaceId = state.selectedWorkspaceId) {
   WORKSPACE_STREAM_EVENT_TYPES.forEach((eventType) => {
     source.addEventListener(eventType, handleWorkspaceStreamMessage);
   });
+  source.onmessage = handleWorkspaceStreamMessage;
   source.onopen = () => {
     state.ui.workspaceEventConnected = true;
+    stopWorkspaceEventFallbackPolling();
+    renderWorkspaceRuns();
   };
   source.onerror = () => {
     state.ui.workspaceEventConnected = false;
+    startWorkspaceEventFallbackPolling(id);
+    renderWorkspaceRuns();
   };
 }
 
@@ -20627,10 +22925,12 @@ function mergeWorkspaceRunDetailPayload(workspaceId, payload = {}) {
   if (!workspace || !run?.id) return null;
   const runs = Array.isArray(workspace.runs) ? workspace.runs.slice() : [];
   const index = runs.findIndex((item) => String(item?.id || "") === String(run.id || ""));
-  if (index >= 0) runs.splice(index, 1, run);
-  else runs.unshift(run);
+  const previous = index >= 0 ? runs[index] : {};
+  const nextRun = mergeWorkspaceRunSnapshot(previous, run);
+  if (index >= 0) runs.splice(index, 1, nextRun);
+  else runs.unshift(nextRun);
   upsertWorkspaceInState({ ...workspace, runs });
-  return run;
+  return nextRun;
 }
 
 function mergeWorkspaceRunsPayload(workspaceId, runs = []) {
@@ -20670,6 +22970,105 @@ function mergeWorkspaceExecutionResultPayload(workspaceId, payload = {}) {
     mergeWorkspaceCockpitPayload(id, data);
   }
   return id ? workspaceById(id) : null;
+}
+
+function mergeWorkspaceJobLogDelta(payload = {}) {
+  const source = payload && typeof payload === "object" ? payload : {};
+  const jobId = String(source.job_id || source.job?.id || "").trim();
+  if (!jobId) return null;
+  const delta = String(source.log || "");
+  const tail = String(source.tail || "");
+  const job = state.jobs.find((item) => String(item?.id || "") === jobId) || null;
+  const tab = state.outputTabs.find((item) => item.type === "job" && String(item.jobId || "") === jobId);
+  const offset = Number(source.offset || 0);
+  const nextOffset = Number(source.next_offset || 0);
+  const previousNextOffset = Number(tab?.logNextOffset || 0);
+  if (!delta && !tail) {
+    if (tab && nextOffset > 0) tab.logNextOffset = Math.max(previousNextOffset, nextOffset);
+    return tab || null;
+  }
+  if (job?.kind === "transfer") {
+    const previous = state.transfer.logs[jobId] || {};
+    const progress = parseTransferProgress(job, delta || tail);
+    state.transfer.logs[jobId] = {
+      progress: Math.max(Number(previous.progress || 0), progress),
+      line: lastTransferLine(delta || tail),
+    };
+    renderTransferProgress();
+    renderJobs();
+  }
+  if (!tab) return null;
+  if (previousNextOffset > 0 && nextOffset > 0 && nextOffset <= previousNextOffset) return tab;
+  let marker = "";
+  if (previousNextOffset > 0 && offset > previousNextOffset) {
+    marker = `\n[RelayGraph] 日志增量缺口：已跳过 ${formatBytes(offset - previousNextOffset)}，请点刷新同步完整尾部。\n`;
+    tab.logNeedsRefresh = true;
+  } else if (source.truncated || Number(source.skipped_bytes || 0) > 0) {
+    marker = `\n[RelayGraph] 日志增量过大：已跳到最新 ${formatBytes(Number(source.byte_count || delta.length || 0))}，跳过 ${formatBytes(Number(source.skipped_bytes || 0))}。\n`;
+    tab.logNeedsRefresh = true;
+  }
+  const placeholder = tab.content === "正在读取日志..." || tab.content === "日志为空。";
+  const chunk = tail && !delta ? tail : `${marker}${delta}`;
+  const nextContent = placeholder || (tail && !delta)
+    ? chunk
+    : `${String(tab.content || "")}${chunk}`;
+  tab.content = nextContent.length > 500000 ? nextContent.slice(-500000) : nextContent;
+  if (nextOffset > 0) tab.logNextOffset = Math.max(previousNextOffset, nextOffset);
+  if (state.activeOutputKey === tab.key) {
+    state.activeOutput = tab;
+    setLogTitle(`任务日志 · ${jobId}`);
+    setLogText(tab.content, { keepSearchIndex: true });
+  }
+  renderOutputTabs();
+  return tab;
+}
+
+async function refreshJobOutputTab(tab, options = {}) {
+  if (!tab || tab.type !== "job" || !tab.jobId) return null;
+  const jobId = String(tab.jobId || "").trim();
+  if (!jobId) return null;
+  const params = new URLSearchParams();
+  const useOffset = options.useOffset !== false && Number(tab.logNextOffset || 0) > 0;
+  if (useOffset) {
+    params.set("offset", String(Math.max(0, Number(tab.logNextOffset || 0))));
+    params.set("max_bytes", String(Math.max(32768, Number(options.maxBytes || 262144))));
+  } else {
+    params.set("lines", String(Math.max(50, Number(options.lines || 20000))));
+  }
+  const payload = await fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/log?${params.toString()}`);
+  const mode = String(payload.mode || "").trim();
+  if (mode === "chunk") {
+    const merged = mergeWorkspaceJobLogDelta({ ...payload, job_id: jobId });
+    if (payload.truncated || Number(payload.skipped_bytes || 0) > 0) tab.logNeedsRefresh = true;
+    else tab.logNeedsRefresh = false;
+    if (merged) return merged;
+  }
+  const nextContent = payload.log || "日志为空。";
+  tab.content = nextContent;
+  tab.logNeedsRefresh = false;
+  if (Number(payload.next_offset || payload.file_size || 0) > 0) {
+    tab.logNextOffset = Number(payload.next_offset || payload.file_size || 0);
+  }
+  if (state.activeOutputKey === tab.key) {
+    state.activeOutput = tab;
+    setLogTitle(`任务日志 · ${jobId}`);
+    setLogText(tab.content, options);
+  }
+  renderOutputTabs();
+  return tab;
+}
+
+async function refreshOpenJobOutputTabs(options = {}) {
+  const tabs = state.outputTabs.filter((tab) => tab.type === "job" && tab.jobId);
+  for (const tab of tabs) {
+    try {
+      await refreshJobOutputTab(tab, options);
+    } catch (error) {
+      if (state.activeOutputKey === tab.key && !options.quiet) {
+        setLogText(error.message, options);
+      }
+    }
+  }
 }
 
 async function refreshWorkspaceRunDetail(runId, options = {}) {
@@ -21735,6 +24134,7 @@ function restoreStoredUiState() {
   state.ui.productTab = loadStoredValue(STORAGE_KEYS.productTab, state.ui.productTab || "console");
   state.ui.execTab = loadStoredValue(STORAGE_KEYS.execTab, state.ui.execTab || "job");
   state.ui.activityTab = loadStoredValue(STORAGE_KEYS.activityTab, state.ui.activityTab || "tasks");
+  if (state.ui.activityTab === "output") state.ui.activityTab = "terminal";
   state.ui.workspaceTab = loadStoredValue(STORAGE_KEYS.workspaceTab, state.ui.workspaceTab || "home");
   state.ui.workspaceMode = loadStoredValue(STORAGE_KEYS.workspaceMode, state.ui.workspaceMode || "use");
   state.ui.workspaceManageTab = loadStoredValue(STORAGE_KEYS.workspaceManageTab, state.ui.workspaceManageTab || "templates");
@@ -21920,9 +24320,16 @@ function restoreWorkspaceUiSnapshot(snapshot = {}, options = {}) {
 
 function applyStatusPayload(payload = {}, options = {}) {
   const preserveWorkspaceUi = Boolean(options.preserveWorkspaceUi);
+  const existingWorkspaces = new Map(
+    (Array.isArray(state.workspaces) ? state.workspaces : [])
+      .map((workspace) => [String(workspace?.id || "").trim(), workspace])
+      .filter(([id]) => id),
+  );
   state.servers = payload.servers || [];
   state.jobs = payload.jobs || [];
-  state.workspaces = payload.workspaces || [];
+  state.workspaces = (payload.workspaces || []).map((workspace) => (
+    mergeWorkspaceSnapshotRunState(workspace, existingWorkspaces.get(String(workspace?.id || "").trim()) || null)
+  ));
   state.workflowTemplates = payload.workflow_templates || [];
   state.agentDefinitions = payload.agent_definitions || [];
   state.toolDefinitions = payload.tool_definitions || [];
@@ -22259,6 +24666,7 @@ async function submitJob(event) {
     if (!response.ok) throw new Error(payload.error || response.statusText);
     state.selectedJob = payload.job.id;
     message.textContent = `任务${zhStatus(payload.job.status)}：${payload.job.id}`;
+    clearJobSourceBinding();
     persistFormState("jobForm");
     await loadStatus(true);
     await showLog(payload.job.id);
@@ -22406,6 +24814,7 @@ async function submitTransferJob(form, sourceItems, target, excludes, transferOp
     }),
   });
   message.textContent = `已加入任务中心：${payload.job.id}`;
+  clearTransferSources();
   persistFormState("transferForm");
   await loadStatus(true);
   await updateTransferProgress();
@@ -22549,10 +24958,10 @@ async function refreshActiveOutput(options = {}) {
   try {
     if (state.activeOutput.type === "job") {
       const jobId = state.activeOutput.jobId;
-      const payload = await fetchJson(`/api/jobs/${encodeURIComponent(jobId)}/log`);
-      setLogTitle(`任务日志 · ${jobId}`);
-      state.activeOutput.content = payload.log || "日志为空。";
-      setLogText(state.activeOutput.content, options);
+      await refreshJobOutputTab(state.activeOutput, {
+        ...options,
+        useOffset: options.useOffset === true,
+      });
       return;
     }
     if (state.activeOutput.type === "tmux") {
@@ -23676,6 +26085,10 @@ function handleWorkspaceAutomationAction(button) {
     void acceptWorkspaceChatContextReflection(button);
     return true;
   }
+  if (action === "dismiss-chat-context-reflection" && button.dataset.messageId) {
+    void dismissWorkspaceChatContextReflection(button);
+    return true;
+  }
   if (action === "fill-job-from-selected-workspace") {
     fillJobFormFromWorkspace();
     return true;
@@ -23902,6 +26315,38 @@ function bindEvents() {
   $("workspaceManageOverviewCards")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='switch-workspace-manage-tab']");
     if (button?.dataset.tab) switchWorkspaceManageTab(button.dataset.tab);
+  });
+  $("workflowTemplateStudioOverview")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action='copy-template-version-history']");
+    if (!button) return;
+    consumeClick(event);
+    void copyWorkflowTemplateVersionHistory().catch((error) => {
+      setWorkspaceManageMessage(error.message || "复制模板版本历史失败。", true);
+    });
+  });
+  $("workspaceManageTemplateDiff")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    if (button.dataset.action === "copy-template-migration-plan") {
+      consumeClick(event);
+      void copyWorkspaceTemplateMigrationPlan().catch((error) => {
+        setWorkspaceManageMessage(error.message || "复制模板迁移计划失败。", true);
+      });
+      return;
+    }
+    if (button.dataset.action === "apply-template-migration") {
+      consumeClick(event);
+      void applyWorkspaceTemplateMigration().catch((error) => {
+        setWorkspaceManageMessage(error.message || "应用模板迁移失败。", true);
+      });
+      return;
+    }
+    if (button.dataset.action === "create-template-migration-draft") {
+      consumeClick(event);
+      void createWorkspaceTemplateMigrationDraft().catch((error) => {
+        setWorkspaceManageMessage(error.message || "创建迁移草稿失败。", true);
+      });
+    }
   });
   $("workspaceTemplateSelect")?.addEventListener("change", (event) => {
     state.selectedWorkflowTemplateId = event.target.value || "";
@@ -24184,6 +26629,81 @@ function bindEvents() {
   $("workflowTemplateMoveDownBtn")?.addEventListener("click", () => moveWorkflowTemplateNode("down"));
   $("workflowTemplateDeleteNodeBtn")?.addEventListener("click", removeWorkflowTemplateNode);
   $("workflowTemplateRebuildBtn")?.addEventListener("click", rebuildWorkflowTemplateNodes);
+  $("workflowTemplateCanvas")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    const nodeId = String(button.dataset.nodeId || "").trim();
+    if (nodeId) state.selectedTemplateNodeId = nodeId;
+    if (button.dataset.action === "select-template-node" || button.dataset.action === "select-template-edge") {
+      renderWorkspaceWorkbench();
+      return;
+    }
+    if (button.dataset.action === "move-template-node") {
+      moveWorkflowTemplateNode(button.dataset.direction || "down");
+      return;
+    }
+    if (button.dataset.action === "insert-template-node-after") {
+      insertWorkflowTemplateNode($("workflowTemplateNodeKindSelect")?.value || "custom.step");
+      return;
+    }
+    if (button.dataset.action === "delete-template-node") {
+      removeWorkflowTemplateNode();
+      return;
+    }
+    if (button.dataset.action === "map-template-edge-previous") {
+      setSelectedWorkflowTemplateInputMapping(
+        workspaceInputMappingFromEntries(workflowTemplateDefaultEdgeEntries("previous")),
+        { render: "canvas" },
+      );
+      return;
+    }
+    if (button.dataset.action === "map-template-edge-context") {
+      setSelectedWorkflowTemplateInputMapping(
+        workspaceInputMappingFromEntries(workflowTemplateDefaultEdgeEntries("context")),
+        { render: "canvas" },
+      );
+      return;
+    }
+    if (button.dataset.action === "add-template-edge-mapping") {
+      const editor = button.closest(".workflow-template-edge-inspector");
+      const entries = workflowTemplateEdgeMappingEntriesFromEditor(editor);
+      const defaults = workflowTemplateDefaultEdgeEntries("previous");
+      entries.push(defaults.find((item) => !entries.some((entry) => entry.name === item.name)) || { name: `input_${entries.length + 1}`, source: defaults[0]?.source || "$prev.output" });
+      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: "canvas" });
+      return;
+    }
+    if (button.dataset.action === "remove-template-edge-mapping") {
+      const editor = button.closest(".workflow-template-edge-inspector");
+      const removeIndex = Number(button.dataset.index || -1);
+      const entries = workflowTemplateEdgeMappingEntriesFromEditor(editor).filter((_, index) => index !== removeIndex);
+      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: "canvas" });
+      return;
+    }
+    if (button.dataset.action === "clear-template-edge-mapping") {
+      setSelectedWorkflowTemplateInputMapping({}, { render: "canvas" });
+    }
+  });
+  $("workflowTemplateCanvas")?.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target.matches("[data-edge-input-mapping-name], [data-edge-input-mapping-source]")) return;
+    const editor = target.closest(".workflow-template-edge-inspector");
+    setSelectedWorkflowTemplateInputMapping(
+      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
+      { render: false, renderParts: true },
+    );
+  });
+  $("workflowTemplateCanvas")?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target.matches("[data-edge-input-mapping-source-select]")) return;
+    const row = target.closest(".workflow-template-mapping-row");
+    const sourceInput = row?.querySelector("[data-edge-input-mapping-source]");
+    if (sourceInput) sourceInput.value = target.value || "";
+    const editor = target.closest(".workflow-template-edge-inspector");
+    setSelectedWorkflowTemplateInputMapping(
+      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
+      { render: false, renderParts: true },
+    );
+  });
   $("workflowTemplateNodeList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='select-template-node']");
     if (button?.dataset.nodeId) {
@@ -24224,6 +26744,23 @@ function bindEvents() {
       });
       return;
     }
+    if (target.matches("[data-manage-input-mapping-name], [data-manage-input-mapping-source]")) {
+      const editor = target.closest(".workflow-template-mapping-editor");
+      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
+      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
+      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
+      return;
+    }
+    if (target.matches("[data-manage-input-mapping-source-select]")) {
+      const row = target.closest(".workflow-template-mapping-row");
+      const sourceInput = row?.querySelector("[data-manage-input-mapping-source]");
+      if (sourceInput) sourceInput.value = target.value || "";
+      const editor = target.closest(".workflow-template-mapping-editor");
+      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
+      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
+      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
+      return;
+    }
     if (target.matches("[data-config-key]")) {
       const key = target.dataset.configKey;
       updateSelectedWorkflowTemplateNode((node) => ({
@@ -24234,6 +26771,25 @@ function bindEvents() {
   };
   $("workflowTemplateNodeEditor")?.addEventListener("input", handleTemplateNodeField);
   $("workflowTemplateNodeEditor")?.addEventListener("change", handleTemplateNodeField);
+  $("workflowTemplateNodeEditor")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button) return;
+    const node = selectedWorkflowTemplateNode();
+    const editor = button.closest(".workflow-template-mapping-editor");
+    const entries = editor
+      ? workflowTemplateInputMappingEntriesFromEditor(editor)
+      : workspaceInputMappingEntries(node?.input_mapping || {});
+    if (button.dataset.action === "add-template-input-mapping") {
+      entries.push({ name: `input_${entries.length + 1}`, source: workflowTemplateNodeIndex(node) === 0 ? "$input" : "$prev.output" });
+      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: true });
+      return;
+    }
+    if (button.dataset.action === "remove-template-input-mapping") {
+      const removeIndex = Number(button.dataset.index || -1);
+      const nextEntries = entries.filter((_, index) => index !== removeIndex);
+      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(nextEntries), { render: true });
+    }
+  });
   $("workspaceNewAgentBtn")?.addEventListener("click", newGlobalAgentDraft);
   $("manageAgentList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='select-global-agent']");
@@ -24376,7 +26932,11 @@ function bindEvents() {
       // so the user doesn't end up with a mismatched endpoint (e.g. /anthropic).
       if (key === "vendor") {
         updateSelectedProviderProfile((profile) => {
-          const next = { ...profile, vendor: target.value || "" };
+          const next = {
+            ...profile,
+            vendor: target.value || "",
+            key_required: providerVendorRequiresApiKey(target.value),
+          };
           if (baseUrlIsVendorDefault(profile.base_url)) {
             next.base_url = vendorDefaultBaseUrl(target.value);
           }
@@ -24414,9 +26974,23 @@ function bindEvents() {
     if (!button) return;
     if (button.dataset.action === "refresh-execution-overview") {
       void loadExecutionOverview({ render: true });
+    } else if (button.dataset.action === "reset-execution-overview-filters") {
+      resetExecutionOverviewFilters();
     } else if (button.dataset.action === "open-overview-workspace") {
       openWorkspaceFromExecutionOverview(button.dataset.workspaceId || "");
     }
+  });
+  $("workspaceExecutionOverviewSearch")?.addEventListener("input", (event) => {
+    state.ui.executionOverviewQuery = event.target.value || "";
+    renderManageRunsModule();
+  });
+  $("workspaceExecutionOverviewStatusFilter")?.addEventListener("change", (event) => {
+    state.ui.executionOverviewStatus = event.target.value || "";
+    renderManageRunsModule();
+  });
+  $("workspaceExecutionOverviewKindFilter")?.addEventListener("change", (event) => {
+    state.ui.executionOverviewKind = event.target.value || "all";
+    renderManageRunsModule();
   });
   $("workspaceAddProviderBtn")?.addEventListener("click", addProviderProfile);
   $("workspaceAddNodeBtn")?.addEventListener("click", () => insertWorkspaceNode($("workspaceNodeKindSelect")?.value || "custom.step"));
@@ -24586,6 +27160,11 @@ function bindEvents() {
       void compareWorkspaceRunToBase(button.dataset.runId);
       return;
     }
+    if (button?.dataset.action === "open-workspace-run" && button.dataset.runId) {
+      consumeClick(event);
+      void openWorkspaceRunDetail(button.dataset.runId);
+      return;
+    }
     if (button?.dataset.jobId) {
       const actionEvent = actionProxyEvent(event, button);
       if (button.dataset.action === "open-workspace-run") {
@@ -24645,7 +27224,11 @@ function bindEvents() {
     // so the user doesn't end up with a mismatched endpoint.
     if (key === "vendor") {
       updateSelectedProviderProfile((profile) => {
-        const next = { ...profile, vendor: target.value || "" };
+        const next = {
+          ...profile,
+          vendor: target.value || "",
+          key_required: providerVendorRequiresApiKey(target.value),
+        };
         if (baseUrlIsVendorDefault(profile.base_url)) {
           next.base_url = vendorDefaultBaseUrl(target.value);
         }
@@ -24756,6 +27339,18 @@ function bindEvents() {
     renderTransferPathFavoriteBars();
     if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
   });
+  $("transferSourceTreeUpBtn")?.addEventListener("click", () => {
+    void navigateTransferSourceParent();
+  });
+  $("transferSourceTreeForwardBtn")?.addEventListener("click", () => {
+    void navigateTransferSourceForward();
+  });
+  $("transferTargetTreeUpBtn")?.addEventListener("click", () => {
+    void navigateTransferTargetParent();
+  });
+  $("transferTargetTreeForwardBtn")?.addEventListener("click", () => {
+    void navigateTransferTargetForward();
+  });
   $("sourceBrowseBtn")?.addEventListener("click", () => openFilePicker("source"));
   $("sourceInspectBtn")?.addEventListener("click", () => loadTransferSourceTree());
   $("sourcePreviewBtn")?.addEventListener("click", () => {
@@ -24821,6 +27416,8 @@ function bindEvents() {
       void previewFileInTransfer(path);
     } else if (button.dataset.action === "add-transfer-source") {
       addTransferSource(path, isDir);
+    } else if (button.dataset.action === "remove-transfer-source") {
+      removeTransferSource(button.dataset.sourceKey || selectedTransferSourceKey(path, isDir));
     } else if (button.dataset.action === "ignore-transfer-node") {
       addTransferIgnore(path, isDir);
     }
@@ -24867,12 +27464,25 @@ function bindEvents() {
   });
   $("filePickerUpBtn")?.addEventListener("click", () => {
     if (!state.filePicker.parent) return;
+    rememberFilePickerForwardPath(state.filePicker.path);
     const anchor = state.filePicker.navStack.pop();
     if (anchor) {
       state.filePicker.scrollAnchorPath = anchor;
       state.filePicker.selectedPath = anchor;
     }
     void loadFilePicker(state.filePicker.parent);
+  });
+  $("filePickerForwardBtn")?.addEventListener("click", () => {
+    const stack = Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [];
+    const nextPath = stack.shift();
+    state.filePicker.forwardStack = stack;
+    if (!nextPath) {
+      updateFilePickerNavigationButtons();
+      return;
+    }
+    if (state.filePicker.path) state.filePicker.navStack.push(nextPath);
+    state.filePicker.selectedPath = nextPath;
+    void loadFilePicker(nextPath);
   });
   $("filePickerChooseDirBtn")?.addEventListener("click", () => {
     if (state.filePicker.path) void chooseFilePickerPath(state.filePicker.path, true);
@@ -24915,6 +27525,7 @@ function bindEvents() {
       if (event.target.closest(".file-picker-row-main")) {
         state.filePicker.selectedPath = path;
         if (isDir) {
+          state.filePicker.forwardStack = [];
           state.filePicker.navStack.push(path);
           void loadFilePicker(path);
         } else {
@@ -24928,6 +27539,14 @@ function bindEvents() {
       void previewFileInPicker(path);
     } else if (button.dataset.action === "choose-picker") {
       void chooseFilePickerPath(path, isDir);
+    } else if (button.dataset.action === "remove-picker-source") {
+      removeTransferSource(button.dataset.sourceKey || selectedTransferSourceKey(path, isDir, state.filePicker.serverId));
+      const message = $("filePickerMessage");
+      if (message) {
+        message.textContent = `已取消待传源项：${pathBaseName(path)}`;
+        message.classList.remove("error");
+      }
+      renderFilePicker(state.filePicker);
     }
   });
   $("taskPlanForm")?.addEventListener("submit", scheduleTaskPlan);
@@ -25032,8 +27651,10 @@ function bindEvents() {
     });
   });
   $("manageServersBtn").addEventListener("click", openServerModal);
-  $("previewCacheSaveBtn")?.addEventListener("click", () => void savePreviewCacheSettings());
-  $("previewCacheCleanupBtn")?.addEventListener("click", () => void cleanupPreviewCacheNow());
+  $("runtimeStorageSaveBtn")?.addEventListener("click", () => void saveRuntimeStorageSettings());
+  $("runtimeStorageCleanupBtn")?.addEventListener("click", () => void cleanupRuntimeStorageNow(false));
+  $("runtimeStoragePurgeBtn")?.addEventListener("click", () => void cleanupRuntimeStorageNow(true));
+  $("runtimeStorageResetBtn")?.addEventListener("click", () => void resetRuntimeStorageSettings());
   $("closeModalBtn").addEventListener("click", closeServerModal);
   $("serverModal").addEventListener("click", (event) => {
     if (event.target.id === "serverModal") closeServerModal();
@@ -25066,7 +27687,7 @@ let editingServerId = null; // null = add mode, string = edit mode
 
 async function openServerModal() {
   $("serverModal").hidden = false;
-  await Promise.all([loadAdminServers(), loadPreviewCachePanel()]);
+  await Promise.all([loadAdminServers(), loadRuntimeStoragePanel()]);
 }
 
 function closeServerModal() {

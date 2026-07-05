@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import getpass
 import os
 import re
 import shlex
@@ -208,6 +209,7 @@ def collect_local_host_resources() -> dict[str, Any]:
         "ok": True,
         "source": "local",
         "collected_at": now_iso(),
+        "current_user": getpass.getuser(),
         "cpu": {
             "cores": cpu_count,
             "util_percent": cpu_utilization_percent(),
@@ -222,6 +224,7 @@ def remote_host_resource_probe_script() -> str:
     return r"""
 import base64
 import datetime
+import getpass
 import json
 import os
 import sys
@@ -417,6 +420,7 @@ payload = {
     "ok": True,
     "source": "ssh",
     "collected_at": datetime.datetime.now().isoformat(timespec="seconds"),
+    "current_user": getpass.getuser(),
     "cpu": {
         "cores": cpu_count,
         "util_percent": cpu_util(),

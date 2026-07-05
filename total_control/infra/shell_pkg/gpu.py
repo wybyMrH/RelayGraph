@@ -63,10 +63,16 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
         "error_kind": "",
         "collected_at": now_iso(),
         "elapsed_ms": 0,
+        "current_user": "",
         "gpus": [],
         "processes": [],
         "host_resources": {},
     }
+    def set_host_resources(payload: dict[str, Any]) -> None:
+        status["host_resources"] = payload
+        current_user = str(payload.get("current_user") or "").strip()
+        if current_user:
+            status["current_user"] = current_user
 
     if not server.enabled:
         status["error"] = "disabled"
@@ -103,7 +109,7 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
                 status["error_kind"] = "gpu_probe"
             else:
                 apply_remote_reachability(status, server, app_config, default_error_kind="connection")
-            status["host_resources"] = (
+            set_host_resources(
                 collect_host_resources(server, app_config)
                 if status.get("reachable")
                 else host_resource_error_payload("server unreachable")
@@ -181,7 +187,7 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
             for gpu in gpu_rows
         ]
         status["processes"] = processes
-        status["host_resources"] = collect_host_resources(server, app_config)
+        set_host_resources(collect_host_resources(server, app_config))
         status["reachable"] = True
         status["monitor_ok"] = True
         status["online"] = True
@@ -189,7 +195,7 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
     except subprocess.TimeoutExpired:
         status["error"] = "timeout"
         apply_remote_reachability(status, server, app_config, default_error_kind="connection")
-        status["host_resources"] = (
+        set_host_resources(
             collect_host_resources(server, app_config)
             if status.get("reachable")
             else host_resource_error_payload("server unreachable")
@@ -199,7 +205,7 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
         status["error"] = f"missing command: {exc.filename}"
         status["reachable"] = server.mode == "local"
         status["error_kind"] = "gpu_probe"
-        status["host_resources"] = (
+        set_host_resources(
             collect_host_resources(server, app_config)
             if status.get("reachable")
             else host_resource_error_payload("server unreachable")
@@ -208,7 +214,7 @@ def _collect_server_impl(server: ServerConfig, app_config: AppConfig) -> dict[st
     except Exception as exc:  # noqa: BLE001 - keep API alive for one bad host.
         status["error"] = str(exc)
         apply_remote_reachability(status, server, app_config, default_error_kind="connection")
-        status["host_resources"] = (
+        set_host_resources(
             collect_host_resources(server, app_config)
             if status.get("reachable")
             else host_resource_error_payload("server unreachable")

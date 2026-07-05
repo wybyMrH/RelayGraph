@@ -45,6 +45,8 @@ def normalize_workspace_context_reflection(
         "created_at": str(current.get("created_at") or previous.get("created_at") or now_iso()).strip() or now_iso(),
         "accepted_at": str(current.get("accepted_at") or previous.get("accepted_at") or "").strip(),
         "accepted_context_block": str(current.get("accepted_context_block") or previous.get("accepted_context_block") or "").strip(),
+        "dismissed_at": str(current.get("dismissed_at") or previous.get("dismissed_at") or "").strip(),
+        "dismissed_reason": str(current.get("dismissed_reason") or previous.get("dismissed_reason") or "").strip()[:240],
     }
 
 

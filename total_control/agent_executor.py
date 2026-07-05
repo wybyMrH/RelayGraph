@@ -36,6 +36,27 @@ def _tool_side_effect(tool_id: str) -> str:
     return side.value if isinstance(side, ToolSideEffect) else str(side or "")
 
 
+def _tool_runtime_metadata(observation: str) -> dict[str, str]:
+    try:
+        payload = json.loads(str(observation or "").strip() or "{}")
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, str] = {}
+    for source_key, target_key in (
+        ("job_id", "job_id"),
+        ("run_id", "run_id"),
+        ("runtime_control", "runtime_control"),
+        ("runtime_side_effect", "runtime_side_effect"),
+        ("status", "runtime_status"),
+    ):
+        value = str(payload.get(source_key) or "").strip()
+        if value:
+            result[target_key] = value
+    return result
+
+
 @dataclass
 class AgentStep:
     """A single step in agent execution."""
@@ -49,6 +70,11 @@ class AgentStep:
     timestamp: str = ""
     side_effect: str = ""
     controlled: bool = False
+    job_id: str = ""
+    run_id: str = ""
+    runtime_control: str = ""
+    runtime_side_effect: str = ""
+    runtime_status: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -61,6 +87,11 @@ class AgentStep:
             "timestamp": self.timestamp,
             "side_effect": self.side_effect,
             "controlled": self.controlled,
+            "job_id": self.job_id,
+            "run_id": self.run_id,
+            "runtime_control": self.runtime_control,
+            "runtime_side_effect": self.runtime_side_effect,
+            "runtime_status": self.runtime_status,
         }
 
 
@@ -396,6 +427,12 @@ class AgentExecutor:
             # Execute tool and get observation
             observation = self._execute_tool(tool_id, arguments)
             step.observation = observation
+            runtime_metadata = _tool_runtime_metadata(observation)
+            step.job_id = runtime_metadata.get("job_id", "")
+            step.run_id = runtime_metadata.get("run_id", "")
+            step.runtime_control = runtime_metadata.get("runtime_control", "")
+            step.runtime_side_effect = runtime_metadata.get("runtime_side_effect", "")
+            step.runtime_status = runtime_metadata.get("runtime_status", "")
             tool_failed = tool_observation_failed(observation)
             self._emit_trace_event(
                 "agent.tool.failed" if tool_failed else "agent.tool.result",
@@ -403,6 +440,11 @@ class AgentExecutor:
                 tool_id=tool_id,
                 observation_summary=compact_tool_observation(observation),
                 status="failed" if tool_failed else "ok",
+                job_id=step.job_id,
+                run_id=step.run_id,
+                runtime_control=step.runtime_control,
+                runtime_side_effect=step.runtime_side_effect,
+                runtime_status=step.runtime_status,
             )
 
             steps.append(step)

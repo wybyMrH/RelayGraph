@@ -82,6 +82,8 @@ from .bundle import (
     workspace_execution_bundle_step_for_node,
     workspace_execution_bundle_job_metadata,
     workspace_scheduler_binding_metadata,
+    workspace_execution_package_runtime_binding,
+    workspace_execution_package_runtime_binding_checks,
     workspace_execution_bundle_result,
 )
 
@@ -172,6 +174,8 @@ __all__ = [
     "workspace_execution_bundle_step_for_node",
     "workspace_execution_bundle_job_metadata",
     "workspace_scheduler_binding_metadata",
+    "workspace_execution_package_runtime_binding",
+    "workspace_execution_package_runtime_binding_checks",
     "workspace_execution_bundle_result",
     "workspace_execution_readiness_step",
     "workspace_resource_item",

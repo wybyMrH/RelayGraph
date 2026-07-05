@@ -17,6 +17,21 @@ from .read_tools import (
 from .web_search import execute_web_search
 
 
+def _runtime_unavailable_payload(tool_id: str, arguments: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    meta = TOOL_SIDE_EFFECTS.get(str(tool_id or "").strip(), {})
+    payload = {
+        "status": "blocked",
+        "tool": tool_id,
+        "controlled": True,
+        "runtime_control": str(meta.get("runtime_control") or "workspace_job_queue"),
+        "arguments": arguments,
+        "error": "controlled runtime is unavailable in this context",
+        "message": "当前上下文未启用受控 runtime；真实执行必须通过 workspace workflow/job 队列。",
+    }
+    payload.update({key: value for key, value in extra.items() if value not in (None, "")})
+    return payload
+
+
 def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
     arguments = arguments if isinstance(arguments, dict) else {}
     workspace_snapshot = context.workspace
@@ -61,17 +76,7 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         source = context.source_payload()
         repo_url = str(arguments.get("repo_url") or (source["repo_urls"][0] if source["repo_urls"] else "")).strip()
         workspace_dir = str(arguments.get("workspace_dir") or source.get("workspace_dir") or "").strip()
-        return json.dumps(
-            {
-                "status": "ready" if repo_url and workspace_dir else "draft",
-                "repo_url": repo_url,
-                "workspace_dir": workspace_dir,
-                "dry_run": True,
-                "message": "已生成克隆计划，等待工作流节点提交实际任务。" if repo_url else "等待 repo_url。",
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+        return json.dumps(_runtime_unavailable_payload(tool_id, arguments, repo_url=repo_url, workspace_dir=workspace_dir), ensure_ascii=False, indent=2)
 
     if tool_id in {"env.prepare", "env.create"}:
         runtime_result = context.submit_controlled_job(tool_id, arguments)
@@ -83,16 +88,13 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         command = str(arguments.get("command") or arguments.get("setup_command") or config.get("setup_command") or "").strip()
         env_name = str(arguments.get("env_name") or config.get("env_name") or env.get("name") or "").strip()
         return json.dumps(
-            {
-                "status": "ready" if command else "draft",
-                "tool": tool_id,
-                "plan_only": True,
-                "dry_run": True,
-                "command": command,
-                "env_name": env_name,
-                "workspace_dir": str(arguments.get("workspace_dir") or config.get("workspace_dir") or source.get("workspace_dir") or "").strip(),
-                "message": "已生成环境任务；当前上下文未启用受控 runtime，未入队。" if command else "等待 setup_command 或 command。",
-            },
+            _runtime_unavailable_payload(
+                tool_id,
+                arguments,
+                command=command,
+                env_name=env_name,
+                workspace_dir=str(arguments.get("workspace_dir") or config.get("workspace_dir") or source.get("workspace_dir") or "").strip(),
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -129,15 +131,13 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         if runtime_result:
             return json.dumps(runtime_result, ensure_ascii=False, indent=2)
         return json.dumps(
-            {
-                "status": "allocated" if selected else "blocked",
-                "selected": selected,
-                "candidate_count": len(candidates),
-                "min_free_mib": min_free_mib,
-                "plan_only": True,
-                "dry_run": True,
-                "message": "已选出候选 GPU，等待受控 runtime 绑定到 run.command。" if selected else "没有满足条件的 GPU 候选。",
-            },
+            _runtime_unavailable_payload(
+                tool_id,
+                arguments,
+                selected=selected,
+                candidate_count=len(candidates),
+                min_free_mib=min_free_mib,
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -197,15 +197,13 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         run_config = context.node_config("run.command")
         command = str(arguments.get("command") or run_config.get("run_command") or "").strip()
         return json.dumps(
-            {
-                "status": "ready" if command else "draft",
-                "plan_only": True,
-                "dry_run": True,
-                "command": command,
-                "server_id": str(arguments.get("server_id") or run_config.get("server_id") or "").strip(),
-                "gpu_index": str(arguments.get("gpu_index") or run_config.get("gpu_index") or "").strip(),
-                "message": "已生成任务提交包；当前上下文未启用受控 runtime，未入队。" if command else "等待 run.command。",
-            },
+            _runtime_unavailable_payload(
+                tool_id,
+                arguments,
+                command=command,
+                server_id=str(arguments.get("server_id") or run_config.get("server_id") or "").strip(),
+                gpu_index=str(arguments.get("gpu_index") or run_config.get("gpu_index") or "").strip(),
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -216,15 +214,13 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
             return json.dumps(runtime_result, ensure_ascii=False, indent=2)
         command = str(arguments.get("command") or arguments.get("cmd") or "").strip()
         return json.dumps(
-            {
-                "status": "ready" if command else "draft",
-                "plan_only": True,
-                "dry_run": True,
-                "command": command,
-                "server_id": str(arguments.get("server_id") or "").strip(),
-                "gpu_index": "none",
-                "message": "已生成主机命令计划；当前上下文未启用受控 runtime，未入队。" if command else "等待 command。",
-            },
+            _runtime_unavailable_payload(
+                tool_id,
+                arguments,
+                command=command,
+                server_id=str(arguments.get("server_id") or "").strip(),
+                gpu_index="none",
+            ),
             ensure_ascii=False,
             indent=2,
         )
@@ -370,21 +366,21 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
     if side_effect != ToolSideEffect.READ and not implemented:
         return json.dumps(
             {
-                "status": "simulated",
+                "status": "blocked",
                 "tool": tool_id,
                 "side_effect": side_effect.value,
                 "arguments": arguments,
-                "message": f"Tool '{tool_id}' is not implemented yet; returning simulated payload.",
+                "error": f"Tool '{tool_id}' is not implemented in the workspace executor.",
             },
             ensure_ascii=False,
             indent=2,
         )
     return json.dumps(
         {
-            "status": "simulated",
+            "status": "blocked",
             "tool": tool_id,
             "arguments": arguments,
-            "message": f"Tool '{tool_id}' executed (simulated)",
+            "error": f"Tool '{tool_id}' is not registered in the workspace executor.",
         },
         ensure_ascii=False,
         indent=2,

@@ -5,6 +5,61 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 
 class RunsMixin:
+    PERSISTED_RUN_EVENT_TYPES = {
+        "run.created",
+        "run.updated",
+        "run.step.updated",
+        "job.updated",
+        "agent.step.created",
+        "agent.tool.called",
+        "agent.tool.result",
+        "agent.tool.failed",
+        "agent.completed",
+        "agent.failed",
+    }
+
+    def record_workspace_run_event(self, event: dict[str, Any]) -> bool:
+        if not isinstance(event, dict):
+            return False
+        event_type = str(event.get("type") or "").strip()
+        if event_type not in self.PERSISTED_RUN_EVENT_TYPES or event_type.endswith(".delta"):
+            return False
+        normalized_event = normalize_workspace_run_event(event)
+        if not normalized_event:
+            return False
+        workspace_id = str(normalized_event.get("workspace_id") or "").strip()
+        run_id = str(normalized_event.get("run_id") or "").strip()
+        changed = False
+        with self.lock:
+            workspace_index = next(
+                (idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id),
+                -1,
+            )
+            if workspace_index < 0:
+                return False
+            workspace = self.workspaces[workspace_index]
+            runs = normalize_workspace_execution_runs(workspace.get("runs"))
+            run_index = next((idx for idx, item in enumerate(runs) if str(item.get("id") or "") == run_id), -1)
+            if run_index < 0:
+                return False
+            current_run = runs[run_index]
+            events = normalize_workspace_run_events(
+                [
+                    *(current_run.get("events") if isinstance(current_run.get("events"), list) else []),
+                    normalized_event,
+                ]
+            )
+            if events == (current_run.get("events") if isinstance(current_run.get("events"), list) else []):
+                return False
+            current_run["events"] = events
+            runs[run_index] = normalize_workspace_execution_run(current_run, existing=current_run)
+            workspace["runs"] = normalize_workspace_execution_runs(runs)
+            changed = True
+        if changed:
+            self.save_workspaces()
+        return changed
+
+
     def register_workspace_execution_run(
         self,
         workspace_id: str,
@@ -168,6 +223,18 @@ class RunsMixin:
             if isinstance(package_snapshot, dict):
                 payload["package_snapshot"] = copy.deepcopy(package_snapshot)
             updated_run = normalize_workspace_execution_run(payload, existing=current_run)
+            live_jobs_by_id = {
+                str(job.get("id") or "").strip(): job
+                for job in getattr(self, "jobs", [])
+                if isinstance(job, dict) and str(job.get("id") or "").strip()
+            }
+            runs_by_id = {
+                str(run.get("id") or "").strip(): run
+                for run in runs
+                if isinstance(run, dict) and str(run.get("id") or "").strip()
+            }
+            runs_by_id[run_id] = updated_run
+            updated_run = refresh_workspace_execution_run(updated_run, live_jobs_by_id, runs_by_id)
             runs[run_index] = updated_run
             workspace["runs"] = normalize_workspace_execution_runs(runs)
             workspace["updated_at"] = now_iso()
@@ -221,6 +288,41 @@ class RunsMixin:
             if workspace_id and bound_workspace_id != workspace_id:
                 continue
             run_refs.add((bound_workspace_id, run_id))
+        child_job_ids = set(jobs_by_id)
+        referenced_run_ids = {run_id for _workspace_id, run_id in run_refs if run_id}
+        for workspace in getattr(self, "workspaces", []):
+            if not isinstance(workspace, dict):
+                continue
+            bound_workspace_id = str(workspace.get("id") or "").strip()
+            if not bound_workspace_id or (workspace_id and bound_workspace_id != workspace_id):
+                continue
+            for run in workspace.get("runs") if isinstance(workspace.get("runs"), list) else []:
+                if not isinstance(run, dict):
+                    continue
+                run_id = str(run.get("id") or "").strip()
+                if not run_id:
+                    continue
+                for step in run.get("steps") if isinstance(run.get("steps"), list) else []:
+                    if not isinstance(step, dict):
+                        continue
+                    raw_child_ids = step.get("child_job_ids") if isinstance(step.get("child_job_ids"), list) else []
+                    step_child_ids = {
+                        str(item or "").strip()
+                        for item in raw_child_ids
+                        if str(item or "").strip()
+                    }
+                    if step_child_ids & child_job_ids:
+                        run_refs.add((bound_workspace_id, run_id))
+                        break
+                    raw_child_run_ids = step.get("child_run_ids") if isinstance(step.get("child_run_ids"), list) else []
+                    step_child_run_ids = {
+                        str(item or "").strip()
+                        for item in raw_child_run_ids
+                        if str(item or "").strip()
+                    }
+                    if step_child_run_ids & referenced_run_ids:
+                        run_refs.add((bound_workspace_id, run_id))
+                        break
         if not run_refs:
             return False
 
@@ -240,7 +342,12 @@ class RunsMixin:
                 if run_index < 0:
                     continue
                 current_run = runs[run_index]
-                refreshed_run = refresh_workspace_execution_run(current_run, jobs_by_id)
+                runs_by_id = {
+                    str(run.get("id") or "").strip(): run
+                    for run in runs
+                    if isinstance(run, dict) and str(run.get("id") or "").strip()
+                }
+                refreshed_run = refresh_workspace_execution_run(current_run, jobs_by_id, runs_by_id)
                 if workspace_execution_run_snapshot(refreshed_run) != workspace_execution_run_snapshot(current_run):
                     runs[run_index] = refreshed_run
                     workspace["runs"] = runs

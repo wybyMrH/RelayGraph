@@ -90,6 +90,8 @@ class BaseMixin:
         self.terminals_lock = threading.Lock()
         self.file_preview_cache: dict[str, dict[str, Any]] = {}
         self.last_preview_cache_cleanup = 0.0
+        self.last_runtime_storage_cleanup = 0.0
+        self.job_log_stream_positions: dict[str, str] = {}
         self.stop_event = threading.Event()
         if self.bootstrap_queue_ranks():
             write_json(JOBS_PATH, self.jobs)
@@ -130,7 +132,7 @@ class BaseMixin:
         broker = getattr(self, "event_broker", None)
         if broker is None:
             return None
-        return broker.publish(
+        event = broker.publish(
             event_type,
             workspace_id=workspace_id,
             payload=payload,
@@ -138,6 +140,13 @@ class BaseMixin:
             job_id=job_id,
             agent_execution_id=agent_execution_id,
         )
+        recorder = getattr(self, "record_workspace_run_event", None)
+        if callable(recorder):
+            try:
+                recorder(event)
+            except Exception as exc:  # noqa: BLE001 - persistence should not break realtime delivery.
+                print(f"[total-control] run event persistence error: {exc}", flush=True)
+        return event
 
 
     def publish_job_event(self, job: dict[str, Any], event_type: str = "job.updated") -> None:
@@ -150,7 +159,7 @@ class BaseMixin:
             workspace_id=workspace_id,
             job_id=str(job.get("id") or "").strip(),
             run_id=str(metadata.get("execution_run_id") or "").strip(),
-            payload={"job": copy.deepcopy(job)},
+            payload={"job": public_job_event_payload(job)},
         )
 
 

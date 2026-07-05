@@ -82,9 +82,17 @@ def run_agent_node(
     kind = str(node.get("kind") or "").strip()
     agent_id = _node_agent_id(node)
     if kind not in AGENT_EXECUTABLE_KINDS:
-        return StepResult(skipped=True, reason=f"{kind or 'unknown'} is not agent-executable in V1")
+        return StepResult(
+            status="blocked",
+            executor="agent",
+            reason=f"{kind or 'unknown'} is not agent-executable",
+        )
     if _node_handler_mode(node) != "agent" or not agent_id:
-        return StepResult(skipped=True, reason="node handler is not configured for agent execution")
+        return StepResult(
+            status="blocked",
+            executor="agent",
+            reason="node handler is not configured for agent execution",
+        )
     if agent_executor is None:
         return StepResult(
             status="blocked",

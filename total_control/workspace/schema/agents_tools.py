@@ -11,6 +11,12 @@ from ...utils import *  # noqa: F403
 from ..errors import WorkspaceWorkflowReadinessError
 
 
+def _tool_side_effect_value(value: Any, fallback: str = "read") -> str:
+    if hasattr(value, "value"):
+        return str(value.value or fallback).strip() or fallback
+    return str(value or fallback).strip() or fallback
+
+
 def workspace_default_agents() -> list[dict[str, Any]]:
     return copy.deepcopy(DEFAULT_WORKSPACE_AGENTS)
 
@@ -54,14 +60,22 @@ def normalize_workspace_tool(
     category = str(base.get("category") or "general").strip() or "general"
     capability = str(base.get("capability") or "read").strip() or "read"
     registry_meta = TOOL_SIDE_EFFECTS.get(tool_id) if isinstance(TOOL_SIDE_EFFECTS.get(tool_id), dict) else {}
-    side_effect = str(base.get("side_effect") or registry_meta.get("side_effect") or tool_side_effect(tool_id).value).strip()
+    side_effect = _tool_side_effect_value(
+        base.get("side_effect") or registry_meta.get("side_effect") or tool_side_effect(tool_id),
+    )
+    implemented = bool(registry_meta.get("implemented", False)) if registry_meta else False
+    if registry_meta and "implemented" in base:
+        implemented = bool(base.get("implemented"))
     return {
         "id": tool_id,
         "label": label,
         "category": category,
         "capability": capability,
         "side_effect": side_effect,
-        "implemented": bool(base.get("implemented", registry_meta.get("implemented", True))),
+        "implemented": implemented,
+        "requires_runtime": bool(base.get("requires_runtime", registry_meta.get("requires_runtime", False))),
+        "fallback": str(base.get("fallback") or registry_meta.get("fallback") or "").strip(),
+        "runtime_control": str(base.get("runtime_control") or registry_meta.get("runtime_control") or "").strip(),
         "description": str(base.get("description") or "").strip(),
         "enabled": bool(base.get("enabled", True)),
         "notes": str(base.get("notes") or "").strip(),

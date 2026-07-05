@@ -15,6 +15,7 @@ from ..schema import *  # noqa: F403
 
 WORKSPACE_EXECUTION_RUN_KINDS = frozenset({"discovery", "reproduction", "node", "agent_debug", "advance"})
 WORKSPACE_EXECUTION_RUN_MAX = 50
+WORKSPACE_RUN_EVENT_MAX = 160
 
 WORKSPACE_ENV_MANIFEST_NAMES = {
     "requirements.txt",

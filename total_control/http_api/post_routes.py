@@ -130,8 +130,20 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         if len(parts) >= 7:
             server_id = parts[3]
             pid = parts[5]
-            result = state.stop_process(server_id, pid)
-            handler.send_json(result)
+            body = handler.read_body()
+            try:
+                result = state.stop_process(server_id, pid, body)
+                handler.send_json(result)
+            except PermissionError as exc:
+                context = state.process_stop_context(server_id, pid)
+                handler.send_json(
+                    {
+                        "error": str(exc),
+                        "requires_confirmation": True,
+                        "process_stop": context,
+                    },
+                    HTTPStatus.CONFLICT,
+                )
             return True
     if parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/reorder"):
         job_id = parsed.path.split("/")[3]
@@ -183,8 +195,18 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         if len(parts) >= 7:
             workspace_id = parts[3]
             node_id = parts[5]
-            result = state.run_workspace_node(workspace_id, node_id, handler.read_body())
-            handler.send_json(result, HTTPStatus.CREATED)
+            try:
+                result = state.run_workspace_node(workspace_id, node_id, handler.read_body())
+                handler.send_json(result, HTTPStatus.CREATED)
+            except WorkspaceWorkflowReadinessError as exc:
+                handler.send_json(
+                    {
+                        "error": str(exc),
+                        "blocked_checks": exc.blocked_checks,
+                        "workspace": exc.workspace,
+                    },
+                    HTTPStatus.CONFLICT,
+                )
             return True
     if (
         parsed.path.startswith("/api/workspaces/")
@@ -214,6 +236,20 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         message_id = parts[5] if len(parts) > 5 else ""
         try:
             result = state.accept_workspace_context_reflection(workspace_id, message_id, handler.read_body())
+            handler.send_json(result)
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return True
+    if (
+        parsed.path.startswith("/api/workspaces/")
+        and "/context-reflections/" in parsed.path
+        and parsed.path.endswith("/dismiss")
+    ):
+        parts = parsed.path.split("/")
+        workspace_id = parts[3] if len(parts) > 3 else ""
+        message_id = parts[5] if len(parts) > 5 else ""
+        try:
+            result = state.dismiss_workspace_context_reflection(workspace_id, message_id, handler.read_body())
             handler.send_json(result)
         except ValueError as exc:
             handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
@@ -263,6 +299,25 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
                 },
                 HTTPStatus.CONFLICT,
             )
+        return True
+    if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/template-migration/apply"):
+        parts = parsed.path.split("/")
+        workspace_id = parts[3] if len(parts) > 3 else ""
+        try:
+            handler.send_json(state.apply_workspace_template_migration(workspace_id, handler.read_body()))
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return True
+    if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/template-migration/create-draft"):
+        parts = parsed.path.split("/")
+        workspace_id = parts[3] if len(parts) > 3 else ""
+        try:
+            handler.send_json(
+                state.create_workspace_template_migration_draft(workspace_id, handler.read_body()),
+                HTTPStatus.CREATED,
+            )
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         return True
     if parsed.path.startswith("/api/workspaces/"):
         workspace_id = parsed.path.split("/")[3] if len(parsed.path.split("/")) > 3 else ""
@@ -327,6 +382,12 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         return True
     if parsed.path == "/api/admin/preview-cache/cleanup":
         handler.send_json(state.cleanup_preview_cache_manual())
+        return True
+    if parsed.path == "/api/admin/runtime-storage/cleanup":
+        handler.send_json(state.cleanup_runtime_storage_manual(handler.read_body()))
+        return True
+    if parsed.path == "/api/admin/runtime-storage/reset":
+        handler.send_json(state.reset_runtime_storage(handler.read_body()))
         return True
     handler.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
     return True

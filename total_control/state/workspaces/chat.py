@@ -182,6 +182,73 @@ class ChatMixin:
             "context_block": summary,
         }
 
+    def dismiss_workspace_context_reflection(
+        self,
+        workspace_id: str,
+        message_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        workspace_id = str(workspace_id or "").strip()
+        message_id = str(message_id or "").strip()
+        requested = payload if isinstance(payload, dict) else {}
+        if not workspace_id or not message_id:
+            raise ValueError("workspace_id and message_id are required")
+        with self.lock:
+            current = self.workspace_by_id(workspace_id)
+            if not current:
+                raise ValueError("workspace not found")
+            chat = normalize_workspace_chat(current.get("chat"), existing=current.get("chat"))
+            target_index = next((idx for idx, item in enumerate(chat) if str(item.get("id") or "") == message_id), -1)
+            if target_index < 0:
+                raise ValueError("chat message not found")
+            target = chat[target_index]
+            reflection = normalize_workspace_context_reflection(target.get("context_reflection"))
+            summary = str(reflection.get("summary") or "").strip()
+            if not summary:
+                raise ValueError("context reflection not found")
+            dismissed_reflection = normalize_workspace_context_reflection(
+                {
+                    **reflection,
+                    "status": "dismissed",
+                    "dismissed_at": now_iso(),
+                    "dismissed_reason": str(requested.get("reason") or "").strip(),
+                },
+                existing=reflection,
+            )
+            updated_message = normalize_workspace_chat_message(
+                {
+                    **target,
+                    "context_reflection": dismissed_reflection,
+                    "updated_at": now_iso(),
+                },
+                existing=target,
+            )
+            chat[target_index] = updated_message
+            merged = copy.deepcopy(current)
+            merged["chat"] = chat
+            updated = normalize_workspace_payload(merged, existing=current)
+            index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
+            if index < 0:
+                raise ValueError("workspace not found")
+            self.workspaces[index] = updated
+            result_workspace = self.workspace_public_payload(updated)
+
+        self.save_workspaces()
+        self.publish_event(
+            "workspace.updated",
+            workspace_id=workspace_id,
+            payload={
+                "workspace": copy.deepcopy(result_workspace),
+                "message": copy.deepcopy(updated_message),
+                "context_reflection": copy.deepcopy(dismissed_reflection),
+            },
+        )
+        return {
+            "workspace": result_workspace,
+            "message": updated_message,
+            "context_reflection": dismissed_reflection,
+        }
+
     def append_workspace_chat(self, workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         text = str(payload.get("text") or "").strip()
@@ -244,7 +311,9 @@ class ChatMixin:
 
             if effective_profile_id and agent:
                 profile = self.provider_profile_by_id(effective_profile_id)
-                if profile and profile.get("api_key"):
+                from ..registry import provider_profile_health
+
+                if profile and provider_profile_health(profile).get("ready"):
                     # Get allowed tools
                     tool_map = {t.get("id"): t for t in tools if isinstance(t, dict) and t.get("id")}
                     allowed_tool_ids = [
@@ -546,8 +615,11 @@ class ChatMixin:
             "chat.message.delta",
             workspace_id=workspace_id,
             payload={
+                "message_id": assistant_message_id,
                 "message": copy.deepcopy(updated_message),
                 "delta": str(delta or ""),
+                "accumulated": accumulated,
+                "status": "streaming",
             },
         )
 
@@ -592,7 +664,9 @@ class ChatMixin:
                 effective_profile_id = agent_profile_id
             if effective_profile_id and agent:
                 profile = self.provider_profile_by_id(effective_profile_id)
-                if profile and profile.get("api_key"):
+                from ..registry import provider_profile_health
+
+                if profile and provider_profile_health(profile).get("ready"):
                     tool_map = {t.get("id"): t for t in tools if isinstance(t, dict) and t.get("id")}
                     allowed_tool_ids = [
                         tid for tid in parse_tag_list(agent.get("tools", []))
@@ -740,6 +814,9 @@ class ChatMixin:
             reply_text = f"[Agent execution failed: {error}]"
             agent_name = workspace_agent_name(self.workspace_by_id(workspace_id) or {}, agent_id)
 
+        event_type = ""
+        event_payload: dict[str, Any] = {}
+        event_agent_execution_id = str((execution_info or {}).get("id") or "")
         with self.lock:
             current = self.workspace_by_id(workspace_id)
             if not current:
@@ -803,6 +880,7 @@ class ChatMixin:
             index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
             if index < 0:
                 return
+            self.workspaces[index] = updated
             result_workspace = self.workspace_public_payload(updated)
             event_type = "chat.message.failed" if status == "failed" else "chat.message.completed"
             event_payload = {
@@ -810,12 +888,11 @@ class ChatMixin:
                 "workspace": copy.deepcopy(result_workspace),
                 "execution": copy.deepcopy(execution_info) if execution_info else None,
             }
-            self.publish_event(
-                event_type,
-                workspace_id=workspace_id,
-                agent_execution_id=str((execution_info or {}).get("id") or ""),
-                payload=event_payload,
-            )
-            self.workspaces[index] = updated
 
         self.save_workspaces()
+        self.publish_event(
+            event_type,
+            workspace_id=workspace_id,
+            agent_execution_id=event_agent_execution_id,
+            payload=event_payload,
+        )

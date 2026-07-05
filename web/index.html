@@ -128,26 +128,47 @@
 
             <div id="hiddenList"></div>
 
-            <h4>预览缓存</h4>
-            <p class="muted preview-cache-note">仅清理本项目在 <code>/tmp/total-control-file-preview</code> 下的远程文件快览缓存，不会触碰远程主机或其他临时目录。</p>
-            <div id="previewCacheStats" class="preview-cache-stats muted">正在读取缓存占用...</div>
-            <div class="preview-cache-settings">
+            <h4>运行数据与日志</h4>
+            <p class="muted runtime-storage-note">本机运行日志在 <code>data/logs</code>，远程运行日志在 <code>$HOME/.total_control/logs</code>，文件快览缓存保存在本机 <code>/tmp/total-control-file-preview</code>。</p>
+            <div id="runtimeStorageStats" class="runtime-storage-stats muted">正在读取运行数据占用...</div>
+            <div class="runtime-storage-settings">
               <label>
-                自动清理 · 超过
-                <input id="previewCacheMaxAgeHours" type="number" min="0" step="1" value="24" />
+                预览缓存 · 超过
+                <input id="runtimePreviewMaxAgeHours" type="number" min="0" step="1" value="24" />
                 小时
               </label>
               <label>
-                自动清理 · 超过
-                <input id="previewCacheMaxSizeMib" type="number" min="0" step="64" value="512" />
+                预览缓存 · 超过
+                <input id="runtimePreviewMaxSizeMib" type="number" min="0" step="64" value="512" />
                 MiB
               </label>
-              <p class="muted">填 0 表示不限制该项；两项可同时生效，满足任一条件即清理最旧缓存。</p>
-              <div class="preview-cache-actions">
-                <button id="previewCacheSaveBtn" class="secondary" type="button" title="保存自动清理阈值">保存设置</button>
-                <button id="previewCacheCleanupBtn" class="secondary danger" type="button" title="立即清空本项目预览缓存目录">立即清理预览缓存</button>
+              <label>
+                运行日志 · 超过
+                <input id="runtimeLogMaxAgeHours" type="number" min="0" step="24" value="168" />
+                小时
+              </label>
+              <label>
+                运行日志 · 超过
+                <input id="runtimeLogMaxSizeMib" type="number" min="0" step="256" value="2048" />
+                MiB
+              </label>
+              <label>
+                自动检查间隔
+                <input id="runtimeAutoIntervalMinutes" type="number" min="5" step="5" value="60" />
+                分钟
+              </label>
+              <label class="runtime-storage-checkbox">
+                <input id="runtimeRemoteCleanupEnabled" type="checkbox" checked />
+                自动清理远程运行日志
+              </label>
+              <p class="muted">填 0 表示不限制该项；手动清理只删除 Total Control 自己的日志和预览缓存，正在运行任务的日志会保留。</p>
+              <div class="runtime-storage-actions">
+                <button id="runtimeStorageSaveBtn" class="secondary" type="button" title="保存自动清理阈值">保存设置</button>
+                <button id="runtimeStorageCleanupBtn" class="secondary" type="button" title="按当前阈值立即清理运行日志和预览缓存">按策略清理</button>
+                <button id="runtimeStoragePurgeBtn" class="secondary danger" type="button" title="清空 Total Control 自己的运行日志和预览缓存">清空运行数据</button>
+                <button id="runtimeStorageResetBtn" class="secondary" type="button" title="恢复默认自动清理策略">重置默认策略</button>
               </div>
-              <p id="previewCacheMessage" class="form-message"></p>
+              <p id="runtimeStorageMessage" class="form-message"></p>
             </div>
           </div>
         </div>
@@ -167,6 +188,7 @@
             <section class="file-picker-main">
               <div class="file-picker-path">
                 <button id="filePickerUpBtn" class="secondary mini" type="button" title="跳到当前路径的上一级目录">上级</button>
+                <button id="filePickerForwardBtn" class="secondary mini" type="button" hidden title="回到刚才打开过的下级目录">返回</button>
                 <input id="filePickerPathInput" placeholder="~/projects 或 /mnt" />
                 <button id="filePickerOpenBtn" class="secondary mini" type="button" title="按输入框路径重新加载文件列表">打开</button>
                 <button id="filePickerFavoriteBtn" class="secondary mini transfer-favorite-toggle-btn" type="button" title="把当前目录加入本机收藏（按当前服务器分别保存，不会写入项目）">收藏</button>
@@ -475,8 +497,8 @@
                 <button class="tab-chip" data-tab="agents" type="button" title="维护全局 Agent 角色、提示词、工具 allowlist 和模型覆盖">Agent</button>
                 <button class="tab-chip" data-tab="tools" type="button" title="维护工具注册表，控制 Agent 可以使用哪些真实动作">工具</button>
                 <button class="tab-chip" data-tab="ai" type="button" title="维护 Provider Profile、模型路由和模板默认聊天 Agent">AI</button>
-                <button class="tab-chip" data-tab="runs" type="button" title="只读查看全局运行与任务，跳回对应驾驶舱处理">运行</button>
-                <button class="tab-chip" data-tab="inspect" type="button" title="完整链路诊断：节点链、I/O 交接、缺口与门禁（只读检查，编辑请回各配置页）">链路检查</button>
+                <button class="tab-chip" data-tab="runs" type="button" title="只读查看全局运行与任务，跳回对应驾驶舱处理">全局运行</button>
+                <button class="tab-chip" data-tab="inspect" type="button" title="链路门禁诊断：节点链、I/O 交接、缺口与门禁（只读检查，编辑请回各配置页）">链路诊断</button>
               </div>
               <section id="workspaceManageOverviewSection" class="workspace-manage-overview">
                 <div class="subsection-head">
@@ -660,6 +682,7 @@
                         <button id="workflowTemplateDeleteNodeBtn" class="secondary danger" type="button" title="删除当前节点，并重建相邻节点连接">删除节点</button>
                         <button id="workflowTemplateRebuildBtn" class="secondary" type="button" title="按来源类型重新生成默认 Starter Chain，会覆盖当前节点链">重建 starter chain</button>
                       </div>
+                      <div id="workflowTemplateCanvas" class="workflow-template-canvas"></div>
                       <div class="workspace-node-layout">
                         <div id="workflowTemplateNodeList" class="workspace-node-list"></div>
                         <div id="workflowTemplateNodeEditor" class="workspace-node-editor"></div>
@@ -718,6 +741,22 @@
                     <button class="secondary mini" type="button" data-action="refresh-execution-overview" title="刷新全局运行和任务概览">刷新</button>
                   </header>
                   <div id="workspaceManageRunSummary" class="workspace-chain-inspect-summary"></div>
+                  <div class="workspace-execution-overview-filters">
+                    <input id="workspaceExecutionOverviewSearch" placeholder="搜索实例 / run / job / server" />
+                    <select id="workspaceExecutionOverviewStatusFilter" title="按运行状态分组筛选">
+                      <option value="">全部状态</option>
+                      <option value="active">活跃中</option>
+                      <option value="done">已完成</option>
+                      <option value="failed">失败/停止</option>
+                    </select>
+                    <select id="workspaceExecutionOverviewKindFilter" title="按记录类型筛选">
+                      <option value="all">Runs + Jobs</option>
+                      <option value="runs">只看 Runs</option>
+                      <option value="jobs">只看 Jobs</option>
+                    </select>
+                    <button class="secondary mini" type="button" data-action="reset-execution-overview-filters" title="清空全局运行筛选">重置</button>
+                    <span id="workspaceExecutionOverviewFilterMeta" class="muted">全部记录</span>
+                  </div>
                   <section class="workspace-chain-inspect-block">
                     <header class="workspace-chain-inspect-block-head">
                       <strong>Runs</strong>
@@ -739,11 +778,18 @@
                 <div class="workspace-chain-inspect-shell">
                   <header class="workspace-chain-inspect-head">
                     <div>
-                      <strong>完整链路检查</strong>
+                      <strong>链路门禁诊断</strong>
                       <span class="muted">只读诊断：核对节点链、I/O 交接、待补字段与门禁。编辑 Agent / 工具 / 路由请回到对应配置页。</span>
                     </div>
                   </header>
                   <div id="workspaceManageInspectSummary" class="workspace-chain-inspect-summary"></div>
+                  <section class="workspace-chain-inspect-block workspace-template-diff-block">
+                    <header class="workspace-chain-inspect-block-head">
+                      <strong>模板快照差异</strong>
+                      <span>只读对比：实例创建时的模板快照 vs 当前模板，不会自动改写实例</span>
+                    </header>
+                    <div id="workspaceManageTemplateDiff" class="workspace-template-diff"></div>
+                  </section>
                   <section class="workspace-chain-inspect-block">
                     <header class="workspace-chain-inspect-block-head">
                       <strong>执行链</strong>
@@ -776,9 +822,9 @@
               </section>
             </section>
             <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
-            <summary class="workspace-project-drawer-summary" title="展开项目配置、节点链、Agent、工具、AI 和运行记录编辑区">
+            <summary class="workspace-project-drawer-summary" title="展开配置中心里的实例配置、节点链、Agent、工具、AI 和运行记录编辑区">
               <span>
-                <strong>项目配置 / 高级编辑</strong>
+                <strong>实例配置 / 高级编辑</strong>
                 <em id="workspaceProjectDrawerMeta">新工作区 · 概览 · 0 节点 · 0 Agent</em>
               </span>
               <span class="workspace-project-drawer-state" aria-hidden="true"></span>
@@ -1480,6 +1526,8 @@
                   <div class="subsection-head">
                     <strong>源目录 / 文件</strong>
                     <div class="subsection-head-actions">
+                      <button id="transferSourceTreeUpBtn" class="secondary mini" type="button" hidden title="返回当前源目录的上一级">上级</button>
+                      <button id="transferSourceTreeForwardBtn" class="secondary mini" type="button" hidden title="回到刚才打开过的下级源目录">返回</button>
                       <button id="transferSourceTreeClearBtn" class="secondary mini" type="button" hidden title="清空源目录树和路径输入">清空</button>
                       <button id="transferTreeClearPreviewBtn" class="secondary mini" type="button" hidden title="关闭右侧文件快览">清空快览</button>
                       <span id="transferTreeMeta" class="muted">选择源路径后显示文件树</span>
@@ -1510,6 +1558,8 @@
                   <div class="subsection-head">
                     <strong>目标目录</strong>
                     <div class="subsection-head-actions">
+                      <button id="transferTargetTreeUpBtn" class="secondary mini" type="button" hidden title="返回当前目标目录的上一级">上级</button>
+                      <button id="transferTargetTreeForwardBtn" class="secondary mini" type="button" hidden title="回到刚才打开过的下级目标目录">返回</button>
                       <button id="transferTargetTreeClearBtn" class="secondary mini" type="button" hidden title="清空目标目录树和路径输入">清空</button>
                       <span id="targetTreeMeta" class="muted">选择服务器后浏览目标目录</span>
                     </div>
@@ -1573,14 +1623,13 @@
         <section id="consoleActivityPanel" class="panel full-panel activity-panel" hidden>
           <div class="panel-head panel-head-tabs">
             <div>
-              <h3>活动中心 <span class="heading-note">任务、tmux、输出、页面终端</span></h3>
+              <h3>活动中心 <span class="heading-note">任务、tmux、终端与输出标签</span></h3>
               <p class="panel-subtitle">查看运行情况、复用日志标签，并在需要时直接开交互终端。</p>
             </div>
             <div id="activityTabs" class="segmented-tabs">
               <button class="tab-chip active" data-tab="tasks" type="button" title="查看、筛选、停止、重试和复用任务">任务</button>
               <button class="tab-chip" data-tab="tmux" type="button" title="查看所选服务器上的 tmux 会话输出">tmux</button>
-              <button class="tab-chip" data-tab="output" type="button" title="查看当前打开的任务、tmux 或进程输出标签">输出</button>
-              <button class="tab-chip" data-tab="terminal" type="button" title="在所选服务器上打开一个页面终端标签">终端</button>
+              <button class="tab-chip" data-tab="terminal" type="button" title="查看输出标签，并在所选服务器上打开页面终端">终端</button>
             </div>
           </div>
 

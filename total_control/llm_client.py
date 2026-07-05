@@ -63,6 +63,8 @@ class LLMClient:
         self.base_url = str(profile.get("base_url") or "").rstrip("/")
         self.api_key = str(profile.get("api_key") or "")
         self.models = profile.get("models") if isinstance(profile.get("models"), list) else []
+        if not self.api_key and profile.get("key_required") is False:
+            self.api_key = "sk-no-key-required"
 
         # Set default base URLs for known providers
         if not self.base_url:
@@ -558,11 +560,26 @@ def build_agent_system_prompt(agent: dict[str, Any], tools: list[dict[str, Any]]
         tool_id = str(tool.get("id") or "")
         tool_label = str(tool.get("label") or tool_id)
         tool_desc = str(tool.get("description") or "")
-        tool_descriptions.append(f"- {tool_id}: {tool_label}. {tool_desc}")
+        policy_parts = []
+        if tool.get("side_effect"):
+            policy_parts.append(f"side_effect={tool.get('side_effect')}")
+        if tool.get("requires_runtime"):
+            policy_parts.append("requires_runtime=true")
+        if tool.get("runtime_control"):
+            policy_parts.append(f"runtime_control={tool.get('runtime_control')}")
+        if tool.get("fallback"):
+            policy_parts.append(f"fallback={tool.get('fallback')}")
+        policy = f" [{'; '.join(policy_parts)}]" if policy_parts else ""
+        tool_descriptions.append(f"- {tool_id}: {tool_label}. {tool_desc}{policy}")
 
     if tool_descriptions:
         tools_section = "\n\nAvailable tools:\n" + "\n".join(tool_descriptions)
         tools_section += "\n\nTo use a tool, respond with JSON in this format:\n{\"tool\": \"tool_id\", \"arguments\": {...}}"
+        tools_section += (
+            "\nRuntime tools must use the declared runtime_control boundary. "
+            "A successful controlled runtime action returns job_id/run_id/runtime_control; "
+            "gpu.allocate only plans or recommends binding and must not be treated as a configuration edit."
+        )
     else:
         tools_section = ""
 

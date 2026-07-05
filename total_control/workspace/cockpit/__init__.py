@@ -2,6 +2,8 @@
 
 from .fsm import (
     attach_workspace_cockpit,
+    WORKSPACE_EXECUTION_PACKAGE_REQUIRED_NODE_KINDS,
+    workspace_nodes_require_execution_package,
     workspace_workflow_blocking_checks,
     workspace_execution_package_blocking_checks,
     workspace_readiness_message,
@@ -76,6 +78,8 @@ from .payload import (
 
 __all__ = [
     "attach_workspace_cockpit",
+    "WORKSPACE_EXECUTION_PACKAGE_REQUIRED_NODE_KINDS",
+    "workspace_nodes_require_execution_package",
     "workspace_workflow_blocking_checks",
     "workspace_execution_package_blocking_checks",
     "workspace_readiness_message",

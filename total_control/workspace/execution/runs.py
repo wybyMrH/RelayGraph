@@ -130,6 +130,130 @@ def workspace_run_step_status_from_job(job: dict[str, Any]) -> str:
         return "blocked"
     return "queued"
 
+def _workspace_child_run_status(run: dict[str, Any]) -> str:
+    status = str(run.get("status") or "").strip()
+    if status in {"done", "failed", "stopped", "blocked", "running"}:
+        return status
+    return "queued" if status else ""
+
+
+def _workspace_child_run_error(run: dict[str, Any], status: str) -> str:
+    detail = str(run.get("error") or "").strip()
+    if detail:
+        return detail
+    for step in run.get("steps") if isinstance(run.get("steps"), list) else []:
+        if not isinstance(step, dict):
+            continue
+        step_status = str(step.get("status") or "").strip()
+        if step_status == status or step_status in {"failed", "stopped", "blocked"}:
+            detail = str(step.get("error") or "").strip()
+            if detail:
+                return detail
+    return ""
+
+
+def _workspace_agent_child_runtime_status(
+    child_jobs: list[tuple[str, dict[str, Any]]],
+    child_runs: list[tuple[str, dict[str, Any]]] | None = None,
+) -> tuple[str, str, str, str]:
+    if not child_jobs and not child_runs:
+        return "", "", "", ""
+    statuses = [
+        ("job", job_id, workspace_run_step_status_from_job(job), job)
+        for job_id, job in child_jobs
+        if isinstance(job, dict)
+    ]
+    statuses.extend(
+        (
+            "run",
+            run_id,
+            _workspace_child_run_status(run),
+            run,
+        )
+        for run_id, run in (child_runs or [])
+        if isinstance(run, dict)
+    )
+    if not statuses:
+        return "", "", "", ""
+    for terminal_status in ("failed", "stopped", "blocked"):
+        for ref_kind, ref_id, status, payload in statuses:
+            if status != terminal_status:
+                continue
+            detail = (
+                _workspace_child_run_error(payload, status)
+                if ref_kind == "run"
+                else str(payload.get("error") or "").strip()
+            )
+            error = detail or f"child {ref_kind} {ref_id} {terminal_status}"
+            return terminal_status, terminal_status, ref_id, error
+    if any(status == "running" for _, _, status, _ in statuses):
+        return "running", "running", "", ""
+    if any(status == "queued" for _, _, status, _ in statuses):
+        return "running", "queued", "", ""
+    if all(status == "done" for _, _, status, _ in statuses):
+        return "done", "done", "", ""
+    return "", "", "", ""
+
+
+def refresh_workspace_agent_run_step_from_child_jobs(
+    step: dict[str, Any],
+    jobs_by_id: dict[str, dict[str, Any]],
+    runs_by_id: dict[str, dict[str, Any]] | None = None,
+    *,
+    current_run_id: str = "",
+) -> dict[str, Any]:
+    normalized = normalize_workspace_run_step(step, existing=step)
+    child_job_ids = _unique_run_ref_list(normalized.get("child_job_ids"))
+    child_jobs = [
+        (job_id, jobs_by_id[job_id])
+        for job_id in child_job_ids
+        if job_id in jobs_by_id and isinstance(jobs_by_id[job_id], dict)
+    ]
+    child_run_ids = _unique_run_ref_list(normalized.get("child_run_ids"))
+    run_lookup = runs_by_id if isinstance(runs_by_id, dict) else {}
+    child_runs = [
+        (run_id, run_lookup[run_id])
+        for run_id in child_run_ids
+        if run_id != current_run_id and run_id in run_lookup and isinstance(run_lookup[run_id], dict)
+    ]
+    if not child_jobs and not child_runs:
+        return normalized
+
+    step_status, runtime_status, failed_child_id, error = _workspace_agent_child_runtime_status(child_jobs, child_runs)
+    if not step_status:
+        return normalized
+
+    completed_at = str(normalized.get("completed_at") or "").strip()
+    if step_status in {"done", "failed", "stopped", "blocked"}:
+        finished_times = [
+            str(job.get("finished_at") or job.get("completed_at") or "").strip()
+            for _, job in child_jobs
+            if str(job.get("finished_at") or job.get("completed_at") or "").strip()
+        ]
+        finished_times.extend(
+            str(run.get("finished_at") or run.get("completed_at") or run.get("updated_at") or "").strip()
+            for _, run in child_runs
+            if str(run.get("finished_at") or run.get("completed_at") or run.get("updated_at") or "").strip()
+        )
+        completed_at = max(finished_times) if finished_times else completed_at
+
+    refreshed = normalize_workspace_run_step(
+        {
+            **normalized,
+            "status": step_status,
+            "runtime_status": runtime_status,
+            "completed_at": completed_at,
+            "error": error or str(normalized.get("error") or "").strip(),
+        },
+        existing=normalized,
+    )
+    if step_status in {"running", "queued"}:
+        refreshed["completed_at"] = ""
+        refreshed["error"] = ""
+    elif not failed_child_id and step_status == "done":
+        refreshed["error"] = ""
+    return refreshed
+
 def _normalize_agent_meta(payload: Any, current: Any) -> dict[str, Any]:
     source = payload if isinstance(payload, dict) and payload else (current if isinstance(current, dict) else {})
     if not source:
@@ -244,6 +368,50 @@ def workspace_run_step_resources_from_job(job: dict[str, Any]) -> dict[str, Any]
     return normalize_workspace_run_step_resources(next_resources)
 
 
+def _unique_run_ref_list(value: Any) -> list[str]:
+    refs: list[str] = []
+    for item in value if isinstance(value, list) else []:
+        text = str(item or "").strip()
+        if text and text not in refs:
+            refs.append(text)
+    return refs
+
+
+def workspace_agent_runtime_refs(agent_steps: Any, trace_events: Any) -> dict[str, Any]:
+    refs: dict[str, list[str]] = {
+        "job_ids": [],
+        "run_ids": [],
+        "runtime_controls": [],
+        "runtime_statuses": [],
+        "runtime_side_effects": [],
+    }
+    sources = [
+        *(agent_steps if isinstance(agent_steps, list) else []),
+        *(trace_events if isinstance(trace_events, list) else []),
+    ]
+    for item in sources:
+        if not isinstance(item, dict):
+            continue
+        for source_key, bucket_key in (
+            ("job_id", "job_ids"),
+            ("run_id", "run_ids"),
+            ("runtime_control", "runtime_controls"),
+            ("runtime_status", "runtime_statuses"),
+            ("runtime_side_effect", "runtime_side_effects"),
+        ):
+            text = str(item.get(source_key) or "").strip()
+            if text and text not in refs[bucket_key]:
+                refs[bucket_key].append(text)
+    return {
+        "job_id": "",
+        "child_job_ids": refs["job_ids"][:12],
+        "child_run_ids": refs["run_ids"][:12],
+        "runtime_control": refs["runtime_controls"][0] if refs["runtime_controls"] else "",
+        "runtime_status": refs["runtime_statuses"][0] if refs["runtime_statuses"] else "",
+        "runtime_side_effect": refs["runtime_side_effects"][0] if refs["runtime_side_effects"] else "",
+    }
+
+
 def normalize_workspace_run_step(
     value: Any,
     *,
@@ -259,6 +427,16 @@ def normalize_workspace_run_step(
     payload_artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else None
     payload_resources = payload.get("resources") if isinstance(payload.get("resources"), dict) else None
     payload_validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else None
+    child_job_ids = _unique_run_ref_list(
+        payload.get("child_job_ids")
+        if isinstance(payload.get("child_job_ids"), list)
+        else current.get("child_job_ids")
+    )
+    child_run_ids = _unique_run_ref_list(
+        payload.get("child_run_ids")
+        if isinstance(payload.get("child_run_ids"), list)
+        else current.get("child_run_ids")
+    )
     validation_source = payload_validation if payload_validation else (current.get("validation") if isinstance(current.get("validation"), dict) else {})
     validation: dict[str, Any] = {}
     if isinstance(validation_source, dict) and validation_source:
@@ -271,6 +449,8 @@ def normalize_workspace_run_step(
                 if isinstance(item, str) and str(item or "").strip()
             ][:4],
         }
+    completed_at = payload.get("completed_at") if "completed_at" in payload else current.get("completed_at")
+    error = payload.get("error") if "error" in payload else current.get("error")
     return {
         "index": index,
         "node_id": str(payload.get("node_id") or current.get("node_id") or "").strip(),
@@ -278,6 +458,11 @@ def normalize_workspace_run_step(
         "node_title": str(payload.get("node_title") or current.get("node_title") or payload.get("node_kind") or current.get("node_kind") or "").strip(),
         "executor": str(payload.get("executor") or current.get("executor") or "job").strip() or "job",
         "job_id": str(payload.get("job_id") or current.get("job_id") or "").strip(),
+        "child_job_ids": child_job_ids[:12],
+        "child_run_ids": child_run_ids[:12],
+        "runtime_control": str(payload.get("runtime_control") or current.get("runtime_control") or "").strip(),
+        "runtime_status": str(payload.get("runtime_status") or current.get("runtime_status") or "").strip(),
+        "runtime_side_effect": str(payload.get("runtime_side_effect") or current.get("runtime_side_effect") or "").strip(),
         "agent_execution_id": str(payload.get("agent_execution_id") or current.get("agent_execution_id") or "").strip(),
         "output_key": str(payload.get("output_key") or current.get("output_key") or "").strip(),
         "artifact_count": safe_int(
@@ -309,8 +494,8 @@ def normalize_workspace_run_step(
         "agent_meta": _normalize_agent_meta(payload.get("agent_meta"), current.get("agent_meta")),
         "status": status,
         "started_at": str(payload.get("started_at") or current.get("started_at") or "").strip(),
-        "completed_at": str(payload.get("completed_at") or current.get("completed_at") or "").strip(),
-        "error": str(payload.get("error") or current.get("error") or "").strip(),
+        "completed_at": str(completed_at or "").strip(),
+        "error": str(error or "").strip(),
     }
 
 def derive_workspace_execution_run_status(steps: list[dict[str, Any]]) -> str:
@@ -350,6 +535,40 @@ def derive_workspace_execution_run_progress(steps: list[dict[str, Any]]) -> dict
     }
 
 
+def _workspace_delivery_path_candidates(path_text: str, workspace_dir: str = "") -> set[str]:
+    text = str(path_text or "").strip()
+    if not text:
+        return set()
+    root = os.path.normpath(os.path.expanduser(str(workspace_dir or "").strip())) if str(workspace_dir or "").strip() else ""
+    values: set[str] = set()
+
+    def add(value: str) -> None:
+        candidate = str(value or "").strip()
+        if not candidate:
+            return
+        trimmed = candidate.rstrip("/\\") or candidate
+        normalized = os.path.normpath(os.path.expanduser(trimmed))
+        for item in (candidate, trimmed, normalized):
+            item_text = str(item or "").strip()
+            if item_text and item_text != ".":
+                values.add(item_text)
+
+    add(text)
+    normalized_text = os.path.normpath(os.path.expanduser(text.rstrip("/\\") or text))
+    if root:
+        if os.path.isabs(normalized_text):
+            try:
+                relative = os.path.relpath(normalized_text, root)
+            except ValueError:
+                relative = ""
+            if relative and relative != "." and not relative.startswith(".."):
+                add(relative)
+                add("./" + relative)
+        else:
+            add(os.path.join(root, normalized_text))
+    return values
+
+
 def workspace_execution_run_delivery_closure(
     package_snapshot: dict[str, Any],
     steps: list[dict[str, Any]],
@@ -357,6 +576,10 @@ def workspace_execution_run_delivery_closure(
     manifest = package_snapshot.get("package_manifest") if isinstance(package_snapshot.get("package_manifest"), dict) else {}
     paths = manifest.get("paths") if isinstance(manifest.get("paths"), dict) else {}
     commands = manifest.get("commands") if isinstance(manifest.get("commands"), dict) else {}
+    target = package_snapshot.get("target") if isinstance(package_snapshot.get("target"), dict) else {}
+    if not target and isinstance(manifest.get("target"), dict):
+        target = manifest.get("target") or {}
+    workspace_dir = str(target.get("workspace_dir") or "").strip()
     expected_artifact_paths = [
         str(item or "").strip()
         for item in (paths.get("artifact_paths") if isinstance(paths.get("artifact_paths"), list) else [])
@@ -403,21 +626,63 @@ def workspace_execution_run_delivery_closure(
         or str(item.get("node_kind") or "").strip() == "eval.report"
         or str(item.get("label") or "").strip().lower() in {"report", "eval_report", "evaluation_report"}
     ][:6]
-    found_count = sum(1 for item in observed_artifacts if str(item.get("status") or "") in {"found", "ready", "done"})
-    missing_expected = [
-        path for path in [*expected_artifact_paths, *expected_metric_paths]
-        if path and not any(path in {str(item.get("path") or ""), str(item.get("resolved_path") or "")} for item in observed_artifacts)
+    def artifact_is_observed(item: dict[str, Any]) -> bool:
+        return bool(item.get("exists")) or str(item.get("status") or "") in {"found", "ready", "done"}
+
+    found_count = sum(1 for item in observed_artifacts if artifact_is_observed(item))
+    def expected_path_observed(path: str) -> bool:
+        expected_candidates = _workspace_delivery_path_candidates(path, workspace_dir)
+        return any(
+            artifact_is_observed(item)
+            and bool(
+                expected_candidates
+                & (
+                    _workspace_delivery_path_candidates(str(item.get("path") or ""), workspace_dir)
+                    | _workspace_delivery_path_candidates(str(item.get("resolved_path") or ""), workspace_dir)
+                )
+            )
+            for item in observed_artifacts
+        )
+
+    missing_artifact_paths = [
+        path for path in expected_artifact_paths
+        if path and not expected_path_observed(path)
     ]
+    missing_metric_paths = [
+        path for path in expected_metric_paths
+        if path and not expected_path_observed(path)
+    ]
+    missing_expected = [*missing_artifact_paths, *missing_metric_paths]
     report_command = str(commands.get("report_command") or "").strip()
-    report_ready = bool(report_command or report_steps or metrics or report_artifacts)
-    if metrics and (found_count or report_steps):
+    failed_report_steps = [
+        item for item in report_steps
+        if str(item.get("status") or "").strip() in {"failed", "blocked", "stopped"}
+    ]
+    completed_report_steps = [
+        item for item in report_steps
+        if str(item.get("status") or "").strip() == "done"
+    ]
+    report_ready = bool(report_artifacts or (metrics and completed_report_steps))
+    if failed_report_steps:
+        status = "failed"
+    elif missing_expected:
+        status = "warning"
+    elif metrics and (found_count or completed_report_steps or report_artifacts):
         status = "done"
-    elif found_count or metrics or report_ready:
+    elif found_count or metrics or report_artifacts or completed_report_steps:
         status = "ready"
-    elif expected_artifact_paths or expected_metric_paths:
+    elif expected_artifact_paths or expected_metric_paths or report_command:
         status = "warning"
     else:
         status = "draft"
+    if failed_report_steps:
+        report_status = "failed"
+    elif report_ready:
+        report_status = "ready"
+    elif report_command or report_steps or metrics:
+        report_status = "warning"
+    else:
+        report_status = "draft"
     return {
         "status": status,
         "expected_artifact_paths": expected_artifact_paths,
@@ -426,14 +691,157 @@ def workspace_execution_run_delivery_closure(
         "observed_count": len(observed_artifacts),
         "found_count": found_count,
         "missing_expected": missing_expected[:12],
+        "missing_artifact_count": len(missing_artifact_paths),
+        "missing_metric_count": len(missing_metric_paths),
         "metrics": metrics,
         "report": {
-            "status": "ready" if report_ready else "draft",
+            "status": report_status,
             "report_command": report_command,
             "steps": report_steps[:6],
             "artifacts": copy.deepcopy(report_artifacts),
+            "artifact_count": len(report_artifacts),
+            "failed_steps": failed_report_steps[:6],
+            "failed_step_count": len(failed_report_steps),
         },
     }
+
+
+def _compact_run_event_text(value: Any, limit: int = 800) -> str:
+    text = str(value or "").strip()
+    if limit <= 0:
+        return ""
+    return text[:limit]
+
+
+def _compact_run_event_payload(payload: Any) -> dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    compact: dict[str, Any] = {}
+    for key in ("node_id", "node_kind", "agent_id", "chat"):
+        if key in source:
+            compact[key] = copy.deepcopy(source.get(key))
+    if source.get("delta") is not None:
+        compact["delta"] = _compact_run_event_text(source.get("delta"), 500)
+    if source.get("accumulated") is not None:
+        compact["accumulated"] = _compact_run_event_text(source.get("accumulated"), 2000)
+
+    run = source.get("run") if isinstance(source.get("run"), dict) else {}
+    if run:
+        compact["run"] = {
+            "id": str(run.get("id") or "").strip(),
+            "kind": str(run.get("kind") or "").strip(),
+            "status": str(run.get("status") or "").strip(),
+            "summary": _compact_run_event_text(run.get("summary"), 240),
+            "progress": copy.deepcopy(run.get("progress") if isinstance(run.get("progress"), dict) else {}),
+            "updated_at": str(run.get("updated_at") or "").strip(),
+        }
+
+    step = source.get("step") if isinstance(source.get("step"), dict) else {}
+    if step:
+        compact["step"] = {
+            "index": safe_int(step.get("index"), 0),
+            "node_id": str(step.get("node_id") or "").strip(),
+            "node_kind": str(step.get("node_kind") or "").strip(),
+            "node_title": str(step.get("node_title") or "").strip(),
+            "executor": str(step.get("executor") or "").strip(),
+            "status": str(step.get("status") or "").strip(),
+            "job_id": str(step.get("job_id") or "").strip(),
+            "agent_execution_id": str(step.get("agent_execution_id") or "").strip(),
+            "error": _compact_run_event_text(step.get("error"), 500),
+        }
+
+    job = source.get("job") if isinstance(source.get("job"), dict) else {}
+    if job:
+        compact["job"] = {
+            "id": str(job.get("id") or "").strip(),
+            "status": str(job.get("status") or "").strip(),
+            "server_id": str(job.get("server_id") or "").strip(),
+            "queue_rank": safe_int(job.get("queue_rank"), 0),
+            "started_at": str(job.get("started_at") or "").strip(),
+            "finished_at": str(job.get("finished_at") or "").strip(),
+            "error": _compact_run_event_text(job.get("error"), 500),
+        }
+
+    execution = source.get("execution") if isinstance(source.get("execution"), dict) else {}
+    if execution:
+        compact["execution"] = {
+            "id": str(execution.get("id") or "").strip(),
+            "success": bool(execution.get("success")),
+            "model": str(execution.get("model") or "").strip(),
+            "total_tokens": safe_int(execution.get("total_tokens"), 0),
+            "total_steps": safe_int(execution.get("total_steps"), 0),
+            "error": _compact_run_event_text(execution.get("error"), 500),
+        }
+
+    if source.get("message") and isinstance(source.get("message"), dict):
+        message = source["message"]
+        compact["message"] = {
+            "id": str(message.get("id") or "").strip(),
+            "role": str(message.get("role") or "").strip(),
+            "status": str(message.get("status") or "").strip(),
+            "text": _compact_run_event_text(message.get("text"), 1000),
+        }
+    return compact
+
+
+def normalize_workspace_run_event(value: Any) -> dict[str, Any]:
+    payload = value if isinstance(value, dict) else {}
+    event_type = str(payload.get("type") or "message").strip() or "message"
+    workspace_id = str(payload.get("workspace_id") or "").strip()
+    run_id = str(payload.get("run_id") or "").strip()
+    if not workspace_id or not run_id:
+        return {}
+    compact_payload = _compact_run_event_payload(payload.get("payload"))
+    return {
+        "sse_id": safe_int(payload.get("sse_id"), safe_int(payload.get("id"), 0)),
+        "type": event_type,
+        "workspace_id": workspace_id,
+        "run_id": run_id,
+        "job_id": str(payload.get("job_id") or "").strip(),
+        "agent_execution_id": str(payload.get("agent_execution_id") or "").strip(),
+        "created_at": str(payload.get("created_at") or now_iso()).strip() or now_iso(),
+        "payload": compact_payload,
+    }
+
+
+def normalize_workspace_run_events(
+    value: Any,
+    *,
+    limit: int = WORKSPACE_RUN_EVENT_MAX,
+) -> list[dict[str, Any]]:
+    raw_events = value if isinstance(value, list) else []
+    events: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in raw_events:
+        if not isinstance(item, dict):
+            continue
+        event = normalize_workspace_run_event(item)
+        if not event:
+            continue
+        sse_id = safe_int(event.get("sse_id"), 0)
+        if sse_id > 0:
+            key = f"sse:{sse_id}"
+        else:
+            payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
+            job = payload.get("job") if isinstance(payload.get("job"), dict) else {}
+            execution = payload.get("execution") if isinstance(payload.get("execution"), dict) else {}
+            key = "|".join(
+                [
+                    str(event.get("type") or ""),
+                    str(event.get("run_id") or ""),
+                    str(event.get("job_id") or ""),
+                    str(event.get("agent_execution_id") or execution.get("id") or ""),
+                    str(step.get("index") if step.get("index") is not None else ""),
+                    str(step.get("status") or ""),
+                    str(job.get("status") or ""),
+                    str(event.get("created_at") or ""),
+                ]
+            )
+        if key in seen:
+            continue
+        seen.add(key)
+        events.append(event)
+    return events[-max(limit, 1):]
 
 
 def normalize_workspace_execution_run(
@@ -482,6 +890,8 @@ def normalize_workspace_execution_run(
             **package_snapshot,
             "delivery_closure": workspace_execution_run_delivery_closure(package_snapshot, steps),
         }
+    raw_events = payload.get("events") if isinstance(payload.get("events"), list) else current.get("events")
+    events = normalize_workspace_run_events(raw_events)
     created_at = str(payload.get("created_at") or current.get("created_at") or now_iso()).strip() or now_iso()
     return {
         "id": run_id,
@@ -494,6 +904,7 @@ def normalize_workspace_execution_run(
         "progress": progress,
         "package_snapshot": copy.deepcopy(package_snapshot) if isinstance(package_snapshot, dict) else {},
         "package_id": package_id,
+        "events": events,
         "created_at": created_at,
         "updated_at": str(payload.get("updated_at") or current.get("updated_at") or created_at).strip() or created_at,
     }
@@ -553,7 +964,7 @@ def filter_workspace_execution_runs(
         filtered = [
             run for run in filtered
             if any(
-                isinstance(step, dict) and str(step.get("job_id") or "").strip() == job_id_filter
+                isinstance(step, dict) and job_id_filter in workspace_run_step_job_ids(step)
                 for step in (run.get("steps") if isinstance(run.get("steps"), list) else [])
             )
         ]
@@ -568,6 +979,20 @@ def filter_workspace_execution_runs(
         ]
     return filtered
 
+
+def workspace_run_step_job_ids(step: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    direct = str(step.get("job_id") or "").strip()
+    if direct:
+        ids.append(direct)
+    ids.extend(_unique_run_ref_list(step.get("child_job_ids") if isinstance(step.get("child_job_ids"), list) else []))
+    return _unique_run_ref_list(ids)
+
+
+def workspace_run_step_child_run_ids(step: dict[str, Any]) -> list[str]:
+    return _unique_run_ref_list(step.get("child_run_ids") if isinstance(step.get("child_run_ids"), list) else [])
+
+
 def workspace_execution_run_replay_payload(
     workspace: dict[str, Any],
     run: dict[str, Any],
@@ -576,7 +1001,11 @@ def workspace_execution_run_replay_payload(
 ) -> dict[str, Any]:
     workspace_id = str(workspace.get("id") or run.get("workspace_id") or "").strip()
     steps = [copy.deepcopy(step) for step in (run.get("steps") if isinstance(run.get("steps"), list) else []) if isinstance(step, dict)]
-    job_ids = [str(step.get("job_id") or "").strip() for step in steps if str(step.get("job_id") or "").strip()]
+    job_ids = _unique_run_ref_list([
+        job_id
+        for step in steps
+        for job_id in workspace_run_step_job_ids(step)
+    ])
     agent_execution_ids = [
         str(step.get("agent_execution_id") or "").strip()
         for step in steps
@@ -606,6 +1035,7 @@ def workspace_execution_run_replay_payload(
         )
     package_snapshot = run.get("package_snapshot") if isinstance(run.get("package_snapshot"), dict) else {}
     delivery = package_snapshot.get("delivery_closure") if isinstance(package_snapshot.get("delivery_closure"), dict) else {}
+    run_events = normalize_workspace_run_events(run.get("events") if isinstance(run.get("events"), list) else [])
     step_timeline = []
     for step in steps:
         artifacts = step.get("artifacts") if isinstance(step.get("artifacts"), list) else []
@@ -619,6 +1049,15 @@ def workspace_execution_run_replay_payload(
                 "executor": str(step.get("executor") or "job").strip(),
                 "status": str(step.get("status") or "").strip(),
                 "job_id": str(step.get("job_id") or "").strip(),
+                "child_job_ids": (
+                    workspace_run_step_job_ids(step)[1:]
+                    if str(step.get("job_id") or "").strip()
+                    else workspace_run_step_job_ids(step)
+                ),
+                "child_run_ids": workspace_run_step_child_run_ids(step),
+                "runtime_control": str(step.get("runtime_control") or "").strip(),
+                "runtime_status": str(step.get("runtime_status") or "").strip(),
+                "runtime_side_effect": str(step.get("runtime_side_effect") or "").strip(),
                 "agent_execution_id": str(step.get("agent_execution_id") or "").strip(),
                 "output_key": str(step.get("output_key") or "").strip(),
                 "started_at": str(step.get("started_at") or "").strip(),
@@ -646,10 +1085,12 @@ def workspace_execution_run_replay_payload(
             "summary": str(run.get("summary") or "").strip(),
             "progress": copy.deepcopy(run.get("progress") if isinstance(run.get("progress"), dict) else {}),
             "package_id": str(run.get("package_id") or package_snapshot.get("package_id") or "").strip(),
+            "event_count": len(run_events),
             "created_at": str(run.get("created_at") or "").strip(),
             "updated_at": str(run.get("updated_at") or "").strip(),
         },
         "timeline": step_timeline,
+        "event_timeline": run_events,
         "linked_jobs": linked_jobs,
         "agent_execution_ids": agent_execution_ids,
         "package_snapshot": copy.deepcopy(package_snapshot),
@@ -758,6 +1199,114 @@ def workspace_execution_run_compare_payload(
         },
     }
 
+def workspace_run_export_manifest(
+    replay: dict[str, Any],
+    *,
+    logs: list[dict[str, Any]],
+    artifacts: list[dict[str, Any]],
+    reports: list[dict[str, Any]],
+) -> dict[str, Any]:
+    timeline = replay.get("timeline") if isinstance(replay.get("timeline"), list) else []
+    event_timeline = replay.get("event_timeline") if isinstance(replay.get("event_timeline"), list) else []
+    run = replay.get("run") if isinstance(replay.get("run"), dict) else {}
+    delivery = replay.get("delivery_closure") if isinstance(replay.get("delivery_closure"), dict) else {}
+    package_snapshot = replay.get("package_snapshot") if isinstance(replay.get("package_snapshot"), dict) else {}
+    package_manifest = package_snapshot.get("package_manifest") if isinstance(package_snapshot.get("package_manifest"), dict) else {}
+    commands = package_manifest.get("commands") if isinstance(package_manifest.get("commands"), dict) else {}
+    failed_steps = [
+        {
+            "index": safe_int(step.get("index"), 0),
+            "node_id": str(step.get("node_id") or "").strip(),
+            "node_kind": str(step.get("node_kind") or "").strip(),
+            "status": str(step.get("status") or "").strip(),
+            "error": str(step.get("error") or "").strip(),
+        }
+        for step in timeline
+        if isinstance(step, dict) and str(step.get("status") or "").strip() in {"failed", "blocked", "stopped"}
+    ]
+    status_counts: dict[str, int] = {}
+    executor_counts: dict[str, int] = {}
+    for step in timeline:
+        if not isinstance(step, dict):
+            continue
+        status = str(step.get("status") or "unknown").strip() or "unknown"
+        executor = str(step.get("executor") or "unknown").strip() or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+        executor_counts[executor] = executor_counts.get(executor, 0) + 1
+    return {
+        "schema": "relaygraph.run.export.manifest.v1",
+        "run_id": str(run.get("id") or "").strip(),
+        "run_status": str(run.get("status") or "").strip(),
+        "package_id": str(run.get("package_id") or package_snapshot.get("package_id") or "").strip(),
+        "delivery_status": str(delivery.get("status") or "").strip(),
+        "status_counts": status_counts,
+        "executor_counts": executor_counts,
+        "failed_steps": failed_steps[:12],
+        "commands": {
+            "checkout": str(commands.get("checkout_command") or "").strip(),
+            "setup": str(commands.get("setup_command") or "").strip(),
+            "run": str(commands.get("run_command") or "").strip(),
+            "collect": str(commands.get("collect_command") or "").strip(),
+            "report": str(commands.get("report_command") or "").strip(),
+        },
+        "included": {
+            "timeline_steps": len(timeline),
+            "event_timeline": len(event_timeline),
+            "linked_jobs": len(replay.get("linked_jobs") if isinstance(replay.get("linked_jobs"), list) else []),
+            "agent_executions": len(replay.get("agent_execution_ids") if isinstance(replay.get("agent_execution_ids"), list) else []),
+            "logs_returned": len(logs),
+            "artifacts_returned": len(artifacts),
+            "reports_returned": len(reports),
+        },
+        "limits": {
+            "logs": 12,
+            "log_tail_bytes_each": 12000,
+            "artifacts": 48,
+            "reports": 12,
+        },
+    }
+
+def workspace_run_export_readme(manifest: dict[str, Any]) -> str:
+    included = manifest.get("included") if isinstance(manifest.get("included"), dict) else {}
+    failed_steps = manifest.get("failed_steps") if isinstance(manifest.get("failed_steps"), list) else []
+    commands = manifest.get("commands") if isinstance(manifest.get("commands"), dict) else {}
+    lines = [
+        "# RelayGraph Run Export",
+        "",
+        f"- Run: {str(manifest.get('run_id') or '').strip() or 'unknown'}",
+        f"- Status: {str(manifest.get('run_status') or '').strip() or 'unknown'}",
+        f"- Package: {str(manifest.get('package_id') or '').strip() or 'none'}",
+        f"- Delivery: {str(manifest.get('delivery_status') or '').strip() or 'unknown'}",
+        f"- Steps: {safe_int(included.get('timeline_steps'), 0)}",
+        f"- Events: {safe_int(included.get('event_timeline'), 0)}",
+        f"- Linked jobs: {safe_int(included.get('linked_jobs'), 0)}",
+        f"- Logs included: {safe_int(included.get('logs_returned'), 0)}",
+        f"- Artifacts included: {safe_int(included.get('artifacts_returned'), 0)}",
+        f"- Reports included: {safe_int(included.get('reports_returned'), 0)}",
+        "",
+        "## Commands",
+    ]
+    command_count = 0
+    for key in ("checkout", "setup", "run", "collect", "report"):
+        command = str(commands.get(key) or "").strip()
+        if command:
+            command_count += 1
+            lines.append(f"- {key}: `{command}`")
+    if command_count == 0:
+        lines.append("- No package commands were recorded.")
+    lines.extend(["", "## Triage"])
+    if failed_steps:
+        lines.append("- Failed or stopped steps:")
+        for step in failed_steps[:8]:
+            label = str(step.get("node_kind") or step.get("node_id") or "step").strip()
+            status = str(step.get("status") or "").strip()
+            error = str(step.get("error") or "").strip()
+            lines.append(f"  - #{safe_int(step.get('index'), 0) + 1} {label}: {status}{' - ' + error if error else ''}")
+    else:
+        lines.append("- No failed, blocked, or stopped steps were recorded.")
+    lines.append("- Use `replay.timeline` for ordered step history, `replay.event_timeline` for SSE-derived runtime events, and `logs[].tail` for cached job output.")
+    return "\n".join(lines).strip() + "\n"
+
 def workspace_execution_run_export_payload(
     workspace: dict[str, Any],
     run: dict[str, Any],
@@ -766,6 +1315,7 @@ def workspace_execution_run_export_payload(
 ) -> dict[str, Any]:
     replay = workspace_execution_run_replay_payload(workspace, run, jobs=jobs)
     timeline = replay.get("timeline") if isinstance(replay.get("timeline"), list) else []
+    event_timeline = replay.get("event_timeline") if isinstance(replay.get("event_timeline"), list) else []
     job_index = {
         str(job.get("id") or "").strip(): job
         for job in (jobs or [])
@@ -777,22 +1327,22 @@ def workspace_execution_run_export_payload(
     for step in timeline:
         if not isinstance(step, dict):
             continue
-        job_id = str(step.get("job_id") or "").strip()
-        job = job_index.get(job_id)
-        if job:
-            log_text = workspace_job_cached_log_tail(job, max_lines=80, max_bytes=24000)
-            if log_text:
-                log_items.append(
-                    {
-                        "job_id": job_id,
-                        "node_id": str(step.get("node_id") or "").strip(),
-                        "node_kind": str(step.get("node_kind") or "").strip(),
-                        "status": str(job.get("status") or step.get("status") or "").strip(),
-                        "log_path": str(job.get("log_path") or "").strip(),
-                        "remote_log_path": str(job.get("remote_log_path") or "").strip(),
-                        "tail": log_text[-12000:],
-                    }
-                )
+        for job_id in workspace_run_step_job_ids(step):
+            job = job_index.get(job_id)
+            if job:
+                log_text = workspace_job_cached_log_tail(job, max_lines=80, max_bytes=24000)
+                if log_text:
+                    log_items.append(
+                        {
+                            "job_id": job_id,
+                            "node_id": str(step.get("node_id") or "").strip(),
+                            "node_kind": str(step.get("node_kind") or "").strip(),
+                            "status": str(job.get("status") or step.get("status") or "").strip(),
+                            "log_path": str(job.get("log_path") or "").strip(),
+                            "remote_log_path": str(job.get("remote_log_path") or "").strip(),
+                            "tail": log_text[-12000:],
+                        }
+                    )
         source_run_steps = run.get("steps") if isinstance(run.get("steps"), list) else []
         source_step = next(
             (
@@ -821,6 +1371,11 @@ def workspace_execution_run_export_payload(
         if isinstance(report, dict):
             reports.append(copy.deepcopy(report))
 
+    artifacts = workspace_dedupe_artifacts(artifacts)[:48]
+    reports = reports[:12]
+    log_items = log_items[:12]
+    manifest = workspace_run_export_manifest(replay, logs=log_items, artifacts=artifacts, reports=reports)
+    readme = workspace_run_export_readme(manifest)
     run_payload = replay.get("run") if isinstance(replay.get("run"), dict) else {}
     workspace_payload = replay.get("workspace") if isinstance(replay.get("workspace"), dict) else {}
     workspace_id = str(workspace_payload.get("id") or "").strip()
@@ -838,15 +1393,18 @@ def workspace_execution_run_export_payload(
             "step_count": len(timeline),
             "linked_job_count": len(replay.get("linked_jobs") if isinstance(replay.get("linked_jobs"), list) else []),
             "agent_execution_count": len(replay.get("agent_execution_ids") if isinstance(replay.get("agent_execution_ids"), list) else []),
+            "event_count": len(event_timeline),
             "artifact_count": len(artifacts),
             "report_count": len(reports),
             "log_count": len(log_items),
             "delivery_status": str(delivery.get("status") or "").strip(),
         },
+        "manifest": manifest,
+        "readme_markdown": readme,
         "replay": replay,
-        "logs": log_items[:12],
-        "artifacts": workspace_dedupe_artifacts(artifacts)[:48],
-        "reports": reports[:12],
+        "logs": log_items,
+        "artifacts": artifacts,
+        "reports": reports,
     }
 
 def workspace_run_step_from_job(job: dict[str, Any], index: int) -> dict[str, Any]:
@@ -871,6 +1429,34 @@ def workspace_run_step_from_job(job: dict[str, Any], index: int) -> dict[str, An
         }
     )
 
+def workspace_jobs_bound_to_execution_run(
+    jobs_by_id: dict[str, dict[str, Any]],
+    run_id: str,
+) -> list[dict[str, Any]]:
+    target_run_id = str(run_id or "").strip()
+    if not target_run_id:
+        return []
+    jobs: list[dict[str, Any]] = []
+    for job in jobs_by_id.values():
+        if not isinstance(job, dict):
+            continue
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        if str(metadata.get("execution_run_id") or "").strip() == target_run_id:
+            jobs.append(job)
+
+    def sort_key(job: dict[str, Any]) -> tuple[int, str, str]:
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        raw_index = metadata.get("step_index")
+        if raw_index is None or str(raw_index).strip() == "":
+            index = len(jobs)
+        else:
+            index = safe_int(raw_index, len(jobs))
+        created_at = str(job.get("created_at") or job.get("started_at") or job.get("updated_at") or "").strip()
+        return (index, created_at, str(job.get("id") or "").strip())
+
+    jobs.sort(key=sort_key)
+    return jobs
+
 def workspace_run_step_from_agent(
     node: dict[str, Any],
     step_result: StepResult | dict[str, Any],
@@ -879,7 +1465,7 @@ def workspace_run_step_from_agent(
     payload = step_result.as_dict() if isinstance(step_result, StepResult) else step_result
     raw_status = str(payload.get("status") or "").strip()
     if payload.get("skipped"):
-        step_status = "done"
+        step_status = "blocked"
     elif payload.get("cancelled"):
         step_status = "stopped"
     elif raw_status in {"completed", "warning"}:
@@ -895,6 +1481,7 @@ def workspace_run_step_from_agent(
     artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else []
     agent_steps = payload.get("agent_steps") if isinstance(payload.get("agent_steps"), list) else []
     trace_events = payload.get("trace_events") if isinstance(payload.get("trace_events"), list) else []
+    runtime_refs = workspace_agent_runtime_refs(agent_steps, trace_events)
     validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else {}
     timed_out = bool(payload.get("timed_out"))
     cancelled = bool(payload.get("cancelled"))
@@ -912,6 +1499,11 @@ def workspace_run_step_from_agent(
             "node_kind": str(node.get("kind") or "").strip(),
             "node_title": str(node.get("title") or node.get("kind") or "").strip(),
             "executor": "agent",
+            "child_job_ids": runtime_refs.get("child_job_ids", []),
+            "child_run_ids": runtime_refs.get("child_run_ids", []),
+            "runtime_control": runtime_refs.get("runtime_control", ""),
+            "runtime_status": runtime_refs.get("runtime_status", ""),
+            "runtime_side_effect": runtime_refs.get("runtime_side_effect", ""),
             "agent_execution_id": str(payload.get("agent_execution_id") or "").strip(),
             "output_key": str(payload.get("output_key") or "").strip(),
             "artifact_count": len([item for item in artifacts if isinstance(item, dict)]),
@@ -934,17 +1526,28 @@ def workspace_run_step_from_agent(
 def refresh_workspace_execution_run(
     run: dict[str, Any],
     jobs_by_id: dict[str, dict[str, Any]],
+    runs_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     steps = run.get("steps") if isinstance(run.get("steps"), list) else []
     refreshed_steps: list[dict[str, Any]] = []
+    step_job_ids: set[str] = set()
     for step in steps:
         if not isinstance(step, dict):
             continue
         executor = str(step.get("executor") or "job").strip()
         job_id = str(step.get("job_id") or "").strip()
+        if job_id:
+            step_job_ids.add(job_id)
         job = jobs_by_id.get(job_id)
         if executor == "agent":
-            refreshed_steps.append(normalize_workspace_run_step(step, existing=step))
+            refreshed_steps.append(
+                refresh_workspace_agent_run_step_from_child_jobs(
+                    step,
+                    jobs_by_id,
+                    runs_by_id,
+                    current_run_id=str(run.get("id") or "").strip(),
+                )
+            )
         elif job:
             refreshed_steps.append(
                 normalize_workspace_run_step(
@@ -954,6 +1557,19 @@ def refresh_workspace_execution_run(
             )
         else:
             refreshed_steps.append(normalize_workspace_run_step(step, existing=step))
+    for job in workspace_jobs_bound_to_execution_run(jobs_by_id, str(run.get("id") or "").strip()):
+        job_id = str(job.get("id") or "").strip()
+        if not job_id or job_id in step_job_ids:
+            continue
+        metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+        raw_index = metadata.get("step_index")
+        step_index = (
+            safe_int(raw_index, len(refreshed_steps))
+            if raw_index is not None and str(raw_index).strip() != ""
+            else len(refreshed_steps)
+        )
+        refreshed_steps.append(workspace_run_step_from_job(job, step_index))
+        step_job_ids.add(job_id)
     return normalize_workspace_execution_run(
         {
             **run,
@@ -975,7 +1591,12 @@ def workspace_execution_runs_public(
         if isinstance(job, dict) and str(job.get("id") or "").strip()
     }
     normalized = normalize_workspace_execution_runs(runs)
-    refreshed = [refresh_workspace_execution_run(run, jobs_by_id) for run in normalized]
+    runs_by_id = {
+        str(run.get("id") or "").strip(): run
+        for run in normalized
+        if isinstance(run, dict) and str(run.get("id") or "").strip()
+    }
+    refreshed = [refresh_workspace_execution_run(run, jobs_by_id, runs_by_id) for run in normalized]
     refreshed.sort(key=workspace_execution_run_sort_key, reverse=True)
     return refreshed
 
@@ -990,6 +1611,11 @@ def workspace_execution_run_snapshot(run: dict[str, Any]) -> tuple[str, tuple[tu
                 str(step.get("artifact_count") or ""),
                 json.dumps(step.get("artifacts") if isinstance(step.get("artifacts"), list) else [], sort_keys=True, ensure_ascii=True),
                 json.dumps(step.get("resources") if isinstance(step.get("resources"), dict) else {}, sort_keys=True, ensure_ascii=True),
+                json.dumps(step.get("child_job_ids") if isinstance(step.get("child_job_ids"), list) else [], sort_keys=True, ensure_ascii=True),
+                json.dumps(step.get("child_run_ids") if isinstance(step.get("child_run_ids"), list) else [], sort_keys=True, ensure_ascii=True),
+                str(step.get("runtime_control") or ""),
+                str(step.get("runtime_status") or ""),
+                str(step.get("runtime_side_effect") or ""),
                 str(step.get("started_at") or ""),
                 str(step.get("completed_at") or ""),
             )

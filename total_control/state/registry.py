@@ -2,6 +2,69 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 
+
+def _normalized_provider_base_url(value: Any) -> str:
+    return str(value or "").strip().rstrip("/")
+
+
+def _provider_catalog_for_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    vendor_id = str(profile.get("vendor_id") or profile.get("catalog_id") or "").strip()
+    if vendor_id:
+        vendor = provider_catalog_by_id(vendor_id)
+        if vendor:
+            return vendor
+    base_url = _normalized_provider_base_url(profile.get("base_url"))
+    if base_url:
+        for vendor in PROVIDER_CATALOG:
+            if _normalized_provider_base_url(vendor.get("base_url")) == base_url:
+                return vendor
+    return {}
+
+
+def _provider_profile_key_required(profile: dict[str, Any]) -> bool:
+    if "key_required" in profile:
+        return bool(profile.get("key_required"))
+    vendor = _provider_catalog_for_profile(profile)
+    if vendor:
+        return bool(vendor.get("key_required", True))
+    base_url = _normalized_provider_base_url(profile.get("base_url")).lower()
+    if "localhost" in base_url or "127.0.0.1" in base_url:
+        return False
+    return True
+
+
+def _provider_profile_models(profile: dict[str, Any]) -> list[str]:
+    return [
+        str(item or "").strip()
+        for item in (profile.get("models") if isinstance(profile.get("models"), list) else [])
+        if str(item or "").strip()
+    ]
+
+
+def provider_profile_health(profile: dict[str, Any]) -> dict[str, Any]:
+    source = profile if isinstance(profile, dict) else {}
+    key_required = _provider_profile_key_required(source)
+    has_api_key = bool(str(source.get("api_key") or "").strip()) or not key_required
+    models = _provider_profile_models(source)
+    base_url = str(source.get("base_url") or "").strip()
+    missing_fields: list[str] = []
+    if not base_url:
+        missing_fields.append("base_url")
+    if not models:
+        missing_fields.append("models")
+    if key_required and not str(source.get("api_key") or "").strip():
+        missing_fields.append("api_key")
+    ready = not missing_fields
+    return {
+        "status": "ready" if ready else "blocked" if "api_key" in missing_fields or "base_url" in missing_fields else "warning",
+        "ready": ready,
+        "key_required": key_required,
+        "has_api_key": has_api_key,
+        "model_count": len(models),
+        "missing_fields": missing_fields,
+    }
+
+
 class RegistryMixin:
     def tool_definition_by_id(self, tool_id: str) -> dict[str, Any] | None:
         return next((item for item in self.tool_definitions if str(item.get("id") or "") == str(tool_id)), None)
@@ -106,10 +169,15 @@ class RegistryMixin:
             profiles = copy.deepcopy(getattr(self, "provider_profiles", []))
             agents = copy.deepcopy(getattr(self, "agent_definitions", []))
             templates = copy.deepcopy(getattr(self, "workflow_templates", []))
+            workspaces = copy.deepcopy(getattr(self, "workspaces", []))
         profile_index = {
             str(profile.get("id") or "").strip(): profile
             for profile in profiles
             if isinstance(profile, dict) and str(profile.get("id") or "").strip()
+        }
+        profile_health = {
+            profile_id: provider_profile_health(profile)
+            for profile_id, profile in profile_index.items()
         }
         issues: list[dict[str, Any]] = []
 
@@ -122,26 +190,17 @@ class RegistryMixin:
             issue.update({key: value for key, value in extra.items() if value not in (None, "")})
             issues.append(issue)
 
-        configured_profiles = 0
+        configured_profiles = sum(1 for item in profile_health.values() if item.get("ready"))
         for profile_id, profile in profile_index.items():
-            api_key = str(profile.get("api_key") or "").strip()
-            models = [str(item or "").strip() for item in profile.get("models", []) if str(item or "").strip()] if isinstance(profile.get("models"), list) else []
-            base_url = str(profile.get("base_url") or "").strip()
-            profile_ready = bool(api_key and models and base_url)
-            if profile_ready:
-                configured_profiles += 1
-            missing_severity = "warning" if profile_ready or configured_profiles else "blocking"
-            if not api_key:
+            health = profile_health.get(profile_id, {})
+            missing_fields = health.get("missing_fields") if isinstance(health.get("missing_fields"), list) else []
+            missing_severity = "warning" if configured_profiles else "blocking"
+            if "api_key" in missing_fields:
                 add_issue(missing_severity, "provider_missing_api_key", f"Provider Profile {profile.get('name') or profile_id} 没有 API key。", provider_profile_id=profile_id)
-            if not models:
+            if "models" in missing_fields:
                 add_issue("warning", "provider_missing_model", f"Provider Profile {profile.get('name') or profile_id} 没有模型。", provider_profile_id=profile_id)
-            if not base_url:
-                add_issue("warning", "provider_missing_base_url", f"Provider Profile {profile.get('name') or profile_id} 没有 Base URL。", provider_profile_id=profile_id)
-
-        if configured_profiles:
-            for issue in issues:
-                if issue.get("severity") == "blocking" and issue.get("code") == "provider_missing_api_key":
-                    issue["severity"] = "warning"
+            if "base_url" in missing_fields:
+                add_issue(missing_severity, "provider_missing_base_url", f"Provider Profile {profile.get('name') or profile_id} 没有 Base URL。", provider_profile_id=profile_id)
 
         if not profile_index:
             add_issue("blocking", "no_provider_profiles", "还没有 Provider Profile，Agent 无法真实调用模型。")
@@ -161,6 +220,14 @@ class RegistryMixin:
                     agent_id=agent_id,
                     provider_profile_id=agent_profile_id,
                 )
+            elif agent_profile_id and not profile_health.get(agent_profile_id, {}).get("ready"):
+                add_issue(
+                    "warning",
+                    "agent_provider_profile_not_ready",
+                    f"Agent {agent.get('name') or agent_id} 的 Provider Profile {agent_profile_id} 未就绪。",
+                    agent_id=agent_id,
+                    provider_profile_id=agent_profile_id,
+                )
 
         for template in templates:
             if not isinstance(template, dict):
@@ -177,12 +244,43 @@ class RegistryMixin:
                     template_id=template_id,
                     provider_profile_id=template_profile_id,
                 )
+            elif template_profile_id and not profile_health.get(template_profile_id, {}).get("ready"):
+                add_issue(
+                    "warning",
+                    "template_provider_profile_not_ready",
+                    f"模板 {template.get('name') or template_id} 的 Provider Profile {template_profile_id} 未就绪。",
+                    template_id=template_id,
+                    provider_profile_id=template_profile_id,
+                )
             if routing_mode == "workspace_default" and not template_profile_id and not configured_profiles:
                 add_issue(
                     "blocking",
                     "template_without_provider_route",
                     f"模板 {template.get('name') or template_id} 没有默认 Provider，且全局没有可用 Profile。",
                     template_id=template_id,
+                )
+
+        for workspace in workspaces:
+            if not isinstance(workspace, dict):
+                continue
+            workspace_id = str(workspace.get("id") or "").strip()
+            model = workspace.get("model") if isinstance(workspace.get("model"), dict) else {}
+            workspace_profile_id = str(model.get("provider_profile_id") or "").strip()
+            if workspace_profile_id and workspace_profile_id not in profile_index:
+                add_issue(
+                    "warning",
+                    "workspace_unknown_provider_profile",
+                    f"实例 {workspace.get('name') or workspace_id} 指向不存在的 Provider Profile {workspace_profile_id}。",
+                    workspace_id=workspace_id,
+                    provider_profile_id=workspace_profile_id,
+                )
+            elif workspace_profile_id and not profile_health.get(workspace_profile_id, {}).get("ready"):
+                add_issue(
+                    "warning",
+                    "workspace_provider_profile_not_ready",
+                    f"实例 {workspace.get('name') or workspace_id} 的 Provider Profile {workspace_profile_id} 未就绪。",
+                    workspace_id=workspace_id,
+                    provider_profile_id=workspace_profile_id,
                 )
 
         blocking_count = sum(1 for item in issues if item.get("severity") == "blocking")
@@ -193,8 +291,17 @@ class RegistryMixin:
             "configured_profile_count": configured_profiles,
             "agent_count": len([item for item in agents if isinstance(item, dict)]),
             "template_count": len([item for item in templates if isinstance(item, dict)]),
+            "workspace_count": len([item for item in workspaces if isinstance(item, dict)]),
             "blocking_count": blocking_count,
             "warning_count": warning_count,
+            "profiles": [
+                {
+                    "id": profile_id,
+                    "name": str(profile_index.get(profile_id, {}).get("name") or profile_id),
+                    **profile_health.get(profile_id, {}),
+                }
+                for profile_id in sorted(profile_index)
+            ],
             "issues": issues,
         }
 
@@ -684,6 +791,15 @@ class RegistryMixin:
             agent_definitions=self.agent_definitions,
             tool_definitions=self.tool_definitions,
         )
+        create_record = workflow_template_version_record(
+            None,
+            template,
+            agent_definitions=self.agent_definitions,
+            tool_definitions=self.tool_definitions,
+            mode="create",
+        )
+        if create_record:
+            template["version_history"] = [create_record]
         with self.lock:
             self.workflow_templates.insert(0, template)
         self.save_workflow_templates()
@@ -704,6 +820,16 @@ class RegistryMixin:
                 agent_definitions=self.agent_definitions,
                 tool_definitions=self.tool_definitions,
             )
+            version_record = workflow_template_version_record(
+                current,
+                updated,
+                agent_definitions=self.agent_definitions,
+                tool_definitions=self.tool_definitions,
+                mode="update",
+            )
+            if version_record:
+                current_history = current.get("version_history") if isinstance(current.get("version_history"), list) else []
+                updated["version_history"] = normalize_workflow_template_version_history([version_record, *copy.deepcopy(current_history)])
             index = next((idx for idx, item in enumerate(self.workflow_templates) if str(item.get("id") or "") == template_id), -1)
             if index < 0:
                 raise ValueError("workflow template not found")
@@ -732,11 +858,16 @@ class RegistryMixin:
             items = []
             for profile in self.provider_profiles:
                 public_profile = dict(profile)
+                health = provider_profile_health(profile)
                 # Mask API key for security
                 api_key = str(public_profile.get("api_key") or "")
                 if api_key:
                     public_profile["api_key_masked"] = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
                     del public_profile["api_key"]
+                public_profile["has_api_key"] = bool(api_key) or not bool(health.get("key_required", True))
+                public_profile["key_required"] = bool(health.get("key_required", True))
+                public_profile["status"] = str(health.get("status") or "warning")
+                public_profile["missing_fields"] = list(health.get("missing_fields") or [])
                 items.append(public_profile)
         return {"provider_profiles": items}
 
@@ -775,11 +906,13 @@ class RegistryMixin:
         payload = {
             "id": str(uuid.uuid4().hex[:10]),
             "name": profile_name,
+            "vendor_id": vendor_id,
             "provider": str(vendor.get("provider") or "openai").strip(),
             "base_url": str(vendor.get("base_url") or "").strip(),
             "api_key": resolved_key,
             "models": profile_models,
             "is_default": bool(is_default),
+            "key_required": key_required,
         }
         return self.create_provider_profile(payload)
 
@@ -793,6 +926,9 @@ class RegistryMixin:
         api_key = str(payload.get("api_key") or "").strip()
         models = payload.get("models") if isinstance(payload.get("models"), list) else []
         is_default = bool(payload.get("is_default"))
+        vendor_id = str(payload.get("vendor_id") or payload.get("vendor") or "").strip()
+        key_required_source = payload if "key_required" in payload else {"base_url": base_url, "vendor_id": vendor_id, "provider": provider}
+        key_required = _provider_profile_key_required(key_required_source)
 
         if not name:
             name = f"{provider.title()} Profile"
@@ -804,15 +940,19 @@ class RegistryMixin:
             ]
             existing = existing_profiles[-1] if existing_profiles else {}
             resolved_api_key = api_key or str(existing.get("api_key") or "").strip()
+            if not resolved_api_key and not key_required:
+                resolved_api_key = "sk-no-key-required"
             created_at = str(existing.get("created_at") or now_iso()).strip() or now_iso()
             profile: dict[str, Any] = {
                 "id": profile_id,
                 "name": name,
+                "vendor_id": vendor_id,
                 "provider": provider,
                 "base_url": base_url,
                 "api_key": resolved_api_key,
                 "models": models,
                 "is_default": is_default,
+                "key_required": key_required,
                 "created_at": created_at,
                 "updated_at": now_iso(),
             }
@@ -834,9 +974,14 @@ class RegistryMixin:
 
         # Return masked version
         result = dict(profile)
+        health = provider_profile_health(profile)
         if result.get("api_key"):
             result["api_key_masked"] = result["api_key"][:8] + "..." + result["api_key"][-4:] if len(result["api_key"]) > 12 else "***"
             del result["api_key"]
+        result["has_api_key"] = bool(profile.get("api_key")) or not bool(health.get("key_required", True))
+        result["key_required"] = bool(health.get("key_required", True))
+        result["status"] = str(health.get("status") or "warning")
+        result["missing_fields"] = list(health.get("missing_fields") or [])
         return result
 
 
@@ -859,6 +1004,7 @@ class RegistryMixin:
                 "base_url": str(payload.get("base_url") or "").strip(),
                 "api_key": str(payload.get("api_key") or "").strip(),
                 "models": [model] if model else [],
+                "key_required": bool(payload.get("key_required", True)),
             }
         if not profile:
             return {"success": False, "error": "provider profile not found", "model": ""}
@@ -914,6 +1060,7 @@ class RegistryMixin:
                 "base_url": str(payload.get("base_url") or "").strip(),
                 "api_key": str(payload.get("api_key") or "").strip(),
                 "models": [model] if model else [],
+                "key_required": bool(payload.get("key_required", True)),
             }
         if not profile:
             return {"success": False, "models": [], "error": "provider profile not found"}
@@ -941,10 +1088,14 @@ class RegistryMixin:
             # Update fields
             if "name" in payload:
                 profile["name"] = str(payload["name"] or "").strip()
+            if "vendor_id" in payload or "vendor" in payload:
+                profile["vendor_id"] = str(payload.get("vendor_id") or payload.get("vendor") or "").strip()
             if "provider" in payload:
                 profile["provider"] = str(payload["provider"] or "openai").strip()
             if "base_url" in payload:
                 profile["base_url"] = str(payload["base_url"] or "").strip()
+            if "key_required" in payload:
+                profile["key_required"] = bool(payload.get("key_required"))
             if "api_key" in payload and payload["api_key"]:
                 profile["api_key"] = str(payload["api_key"] or "").strip()
             if "models" in payload:
@@ -955,6 +1106,8 @@ class RegistryMixin:
                     for p in self.provider_profiles:
                         p["is_default"] = False
                 profile["is_default"] = is_default
+            if not str(profile.get("api_key") or "").strip() and not _provider_profile_key_required(profile):
+                profile["api_key"] = "sk-no-key-required"
 
             profile["updated_at"] = now_iso()
 
@@ -962,9 +1115,14 @@ class RegistryMixin:
 
         # Return masked version
         result = dict(profile)
+        health = provider_profile_health(profile)
         if result.get("api_key"):
             result["api_key_masked"] = result["api_key"][:8] + "..." + result["api_key"][-4:] if len(result["api_key"]) > 12 else "***"
             del result["api_key"]
+        result["has_api_key"] = bool(profile.get("api_key")) or not bool(health.get("key_required", True))
+        result["key_required"] = bool(health.get("key_required", True))
+        result["status"] = str(health.get("status") or "warning")
+        result["missing_fields"] = list(health.get("missing_fields") or [])
         return result
 
 

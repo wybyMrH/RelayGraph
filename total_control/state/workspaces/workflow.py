@@ -3,6 +3,185 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
+from ..registry import provider_profile_health
+
+
+def _workspace_env_prepare_failure_checks(execution: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes = execution.get("nodes") if isinstance(execution.get("nodes"), list) else []
+    checks: list[dict[str, Any]] = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("kind") or "").strip() != "env.prepare":
+            continue
+        status = str(node.get("status") or "").strip()
+        job_status = str(node.get("job_status") or "").strip()
+        if status != "failed" and job_status not in {"failed", "stopped"}:
+            continue
+        error = str(node.get("error") or "").strip()
+        detail = error or "最近一次 env.prepare 失败或被停止；复查日志后再完整运行，或明确 force 重试。"
+        checks.append(
+            {
+                "id": "env_prepare_failed",
+                "label": "环境准备",
+                "status": "blocked",
+                "title": "环境准备失败未复查",
+                "detail": detail,
+                "action": "打开 env.prepare 最近任务日志，修复 setup_command/环境后再提交完整工作流。",
+                "node_kind": "env.prepare",
+                "node_id": str(node.get("id") or "").strip(),
+                "job_id": str(node.get("job_id") or "").strip(),
+            }
+        )
+    return checks
+
+
+def _workspace_agent_execution_checks(
+    workspace: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    provider_profiles: list[dict[str, Any]],
+    executor_prefer: str,
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    tools = normalize_workspace_tools(workspace.get("tools"), existing=workspace.get("tools"))
+    tool_ids = [
+        str(item.get("id") or "").strip()
+        for item in tools
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    ]
+    agents = normalize_workspace_agents(workspace.get("agents"), existing=workspace.get("agents"), tool_ids=tool_ids)
+    agent_index = {
+        str(agent.get("id") or "").strip(): agent
+        for agent in agents
+        if isinstance(agent, dict) and str(agent.get("id") or "").strip()
+    }
+    model = normalize_workspace_model(workspace.get("model"), existing=workspace.get("model"))
+    profile_index = {
+        str(profile.get("id") or "").strip(): profile
+        for profile in provider_profiles
+        if isinstance(profile, dict) and str(profile.get("id") or "").strip()
+    }
+
+    def add_check(
+        node: dict[str, Any],
+        check_id: str,
+        title: str,
+        detail: str,
+        action: str,
+        *,
+        agent_id: str = "",
+        provider_profile_id: str = "",
+    ) -> None:
+        checks.append(
+            {
+                "id": check_id,
+                "label": str(node.get("title") or node.get("kind") or "Agent 节点").strip(),
+                "status": "blocked",
+                "title": title,
+                "detail": detail,
+                "action": action,
+                "node_kind": str(node.get("kind") or "").strip(),
+                "node_id": str(node.get("id") or "").strip(),
+                "agent_id": agent_id,
+                "provider_profile_id": provider_profile_id,
+            }
+        )
+
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        if resolve_node_executor_mode(node, executor_prefer) != "agent":
+            continue
+        kind = str(node.get("kind") or "").strip()
+        handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
+        agent_id = str(handler.get("agent_id") or "").strip()
+        node_title = str(node.get("title") or kind or "Agent 节点").strip()
+        if kind not in AGENT_EXECUTABLE_KINDS:
+            add_check(
+                node,
+                "agent_executor_mode_invalid",
+                "节点不能强制走 Agent",
+                f"{node_title} 是 {kind or 'unknown'}，必须通过受控 job/runtime 队列执行。",
+                "把 executor_mode 改回 auto/job，重节点不要直接交给 Agent 执行。",
+                agent_id=agent_id,
+            )
+            continue
+        if str(handler.get("mode") or "human").strip().lower() != "agent" or not agent_id:
+            add_check(
+                node,
+                "agent_handler_not_configured",
+                "Agent 节点未完成绑定",
+                f"{node_title} 没有配置 handler.mode=agent 和 agent_id。",
+                "在配置中心把该节点绑定到可用 Agent，或改回 job 执行。",
+                agent_id=agent_id,
+            )
+            continue
+        agent = agent_index.get(agent_id)
+        if not agent:
+            add_check(
+                node,
+                "agent_not_found",
+                "Agent 不存在",
+                f"{node_title} 绑定的 Agent {agent_id} 不在当前实例快照中。",
+                "恢复默认 Agent 或在配置中心重新选择节点执行者。",
+                agent_id=agent_id,
+            )
+            continue
+        if agent.get("enabled") is False:
+            add_check(
+                node,
+                "agent_disabled",
+                "Agent 已停用",
+                f"{str(agent.get('name') or agent_id).strip()} 已绑定到 {node_title}，但当前处于停用状态。",
+                "启用该 Agent，或把节点交给其他可用 Agent。",
+                agent_id=agent_id,
+            )
+            continue
+        route = workspace_model_route_for_agent(model, agent)
+        profile_id = str(route.get("effective_profile_id") or "").strip()
+        if not profile_id:
+            add_check(
+                node,
+                "provider_route_not_configured",
+                "AI 路由未配置",
+                f"{node_title} 需要真实模型调用，但 workspace/agent 没有有效 Provider Profile。",
+                "在配置中心设置项目默认 Provider Profile，或启用 agent_override 并给 Agent 绑定 Profile。",
+                agent_id=agent_id,
+            )
+            continue
+        profile = profile_index.get(profile_id)
+        if not profile:
+            add_check(
+                node,
+                "provider_route_not_found",
+                "AI 路由指向不存在的 Profile",
+                f"{node_title} 指向 Provider Profile {profile_id}，但该 Profile 已不存在。",
+                "在配置中心重新选择可用 Provider Profile。",
+                agent_id=agent_id,
+                provider_profile_id=profile_id,
+            )
+            continue
+        health = provider_profile_health(profile)
+        if not health.get("ready"):
+            missing_fields = [
+                str(item or "").strip()
+                for item in (health.get("missing_fields") if isinstance(health.get("missing_fields"), list) else [])
+                if str(item or "").strip()
+            ]
+            detail = f"{node_title} 使用的 Provider Profile {profile.get('name') or profile_id} 未就绪。"
+            if missing_fields:
+                detail = f"{detail} 缺少：{', '.join(missing_fields)}。"
+            add_check(
+                node,
+                "provider_route_not_ready",
+                "AI 路由未就绪",
+                detail,
+                "在配置中心补齐 Provider Profile 后再运行完整工作流。",
+                agent_id=agent_id,
+                provider_profile_id=profile_id,
+            )
+    return checks
+
 
 class WorkflowMixin:
     def workflow_runner_callbacks(
@@ -83,6 +262,12 @@ class WorkflowMixin:
             if isinstance(apply_evidence_raw, str)
             else bool(apply_evidence_raw)
         )
+        allow_incomplete_package_raw = requested_payload.get("allow_incomplete_execution_package", False)
+        allow_incomplete_package = (
+            allow_incomplete_package_raw.strip().lower() in {"1", "true", "yes", "on"}
+            if isinstance(allow_incomplete_package_raw, str)
+            else bool(allow_incomplete_package_raw)
+        )
         executor_mode_raw = str(requested_payload.get("executor_mode") or requested_payload.get("prefer") or "auto").strip().lower()
         executor_prefer = executor_mode_raw if executor_mode_raw in {"auto", "job", "agent", "skip"} else "auto"
         applied: list[dict[str, Any]] = []
@@ -93,6 +278,7 @@ class WorkflowMixin:
                 raise ValueError("workspace not found")
             jobs_snapshot = copy.deepcopy(getattr(self, "jobs", []))
             statuses_snapshot = copy.deepcopy(getattr(self, "statuses", []))
+            provider_profiles_snapshot = copy.deepcopy(getattr(self, "provider_profiles", []))
             workspace = copy.deepcopy(current)
             if auto_apply:
                 workspace, applied = apply_workspace_automation_defaults_to_payload(
@@ -136,18 +322,37 @@ class WorkflowMixin:
         runtime_workspace = apply_workspace_job_runtime(workspace, jobs_snapshot)
         execution = derive_workspace_execution_state(runtime_workspace, jobs_snapshot)
         automation = derive_workspace_automation_state(runtime_workspace, execution, statuses_snapshot)
-        blocked_checks = workspace_workflow_blocking_checks(automation)
-        if until_node_id:
+        workflow_checks = workspace_workflow_blocking_checks(automation)
+        requires_execution_package = workspace_nodes_require_execution_package(nodes)
+        if until_node_id and not requires_execution_package:
+            workflow_checks = []
+        package_checks = (
+            workspace_execution_package_blocking_checks(
+                automation,
+                full_workflow=requires_execution_package or not until_node_id,
+            )
+            if not allow_incomplete_package
+            else []
+        )
+        if force:
+            blocked_checks = package_checks
+        else:
             blocked_checks = [
-                check for check in blocked_checks
-                if str(check.get("id") or "") == "starter_chain"
-            ]
-        elif not force:
-            blocked_checks = [
-                *blocked_checks,
-                *workspace_execution_package_blocking_checks(automation, full_workflow=True),
+                *workflow_checks,
+                *package_checks,
+                *_workspace_env_prepare_failure_checks(execution),
             ]
         if blocked_checks and not force:
+            with self.lock:
+                payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
+            raise WorkspaceWorkflowReadinessError(
+                workspace_readiness_message(blocked_checks),
+                blocked_checks=blocked_checks,
+                workspace=payload_workspace,
+                applied=applied,
+                evidence_applied=evidence_applied,
+            )
+        if blocked_checks and force:
             with self.lock:
                 payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
             raise WorkspaceWorkflowReadinessError(
@@ -163,7 +368,15 @@ class WorkflowMixin:
             if resolve_node_executor_mode(node, executor_prefer) != "job":
                 continue
             try:
-                self.workspace_node_job_payload(workspace, node, automation=automation)
+                job_payload = self.workspace_node_job_payload(workspace, node, automation=automation)
+                if requires_execution_package:
+                    invalid_checks.extend(
+                        workspace_execution_package_runtime_binding_checks(
+                            automation,
+                            node,
+                            job_payload,
+                        )
+                    )
             except ValueError as exc:
                 invalid_checks.append(
                     {
@@ -182,6 +395,23 @@ class WorkflowMixin:
             raise WorkspaceWorkflowReadinessError(
                 workspace_readiness_message(invalid_checks),
                 blocked_checks=invalid_checks,
+                workspace=payload_workspace,
+                applied=applied,
+                evidence_applied=evidence_applied,
+            )
+
+        agent_execution_checks = _workspace_agent_execution_checks(
+            workspace,
+            nodes,
+            provider_profiles_snapshot,
+            executor_prefer,
+        )
+        if agent_execution_checks:
+            with self.lock:
+                payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
+            raise WorkspaceWorkflowReadinessError(
+                workspace_readiness_message(agent_execution_checks),
+                blocked_checks=agent_execution_checks,
                 workspace=payload_workspace,
                 applied=applied,
                 evidence_applied=evidence_applied,

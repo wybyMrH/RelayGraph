@@ -120,6 +120,13 @@ def derive_workspace_reproduction_manifest(
     dataset_queries = dataset_plan.get("queries") if isinstance(dataset_plan.get("queries"), list) else []
     dataset_roots = dataset_plan.get("local_roots") if isinstance(dataset_plan.get("local_roots"), list) else []
     dataset_sources = dataset_plan.get("source_refs") if isinstance(dataset_plan.get("source_refs"), list) else []
+    root_verification = dataset_plan.get("root_verification") if isinstance(dataset_plan.get("root_verification"), list) else []
+    root_counts: dict[str, int] = {}
+    for item in root_verification:
+        if isinstance(item, dict):
+            status_value = str(item.get("status") or "hint").strip() or "hint"
+            root_counts[status_value] = root_counts.get(status_value, 0) + 1
+    dataset_has_verified_root = bool(root_counts.get("verified") or root_counts.get("found"))
     artifact_paths = workspace_config_values(artifact_config.get("artifact_paths"))
     metric_paths = workspace_config_values(artifact_config.get("metric_paths")) + workspace_config_values(eval_config.get("metric_paths"))
     setup_command = str(env_prepare_config.get("setup_command") or "").strip()
@@ -397,6 +404,25 @@ def derive_workspace_reproduction_manifest(
                 target_id="workspaceExecutionDetail",
             )
         )
+    if not dataset_has_verified_root:
+        hint_count = len(dataset_queries) + len(dataset_roots) + len(dataset_sources) + len(dataset_hints)
+        bundle_missing.append(
+            workspace_execution_bundle_missing_item(
+                "dataset_root",
+                "数据根验证",
+                "blocked",
+                (
+                    "dataset.find 目前只有线索，还没有 verified/found 数据根；先运行数据集发现或在配置页填写可访问的数据根。"
+                    if hint_count
+                    else "缺少可验证的数据根；先运行 dataset.find 或在配置页填写本机/远程可访问的数据根。"
+                ),
+                node_kind="dataset.find",
+                node_id=node_by_kind.get("dataset.find", ""),
+                button_label="定位数据节点",
+                button_action="select-execution-node",
+                target_id="workspaceExecutionDetail",
+            )
+        )
     if not setup_command:
         bundle_missing.append(
             workspace_execution_bundle_missing_item(
@@ -585,12 +611,6 @@ def derive_workspace_reproduction_manifest(
             "collected_at": str(selected_scheduler.get("collected_at") or "").strip(),
         },
     }
-    root_verification = dataset_plan.get("root_verification") if isinstance(dataset_plan.get("root_verification"), list) else []
-    root_counts: dict[str, int] = {}
-    for item in root_verification:
-        if isinstance(item, dict):
-            status_value = str(item.get("status") or "hint").strip() or "hint"
-            root_counts[status_value] = root_counts.get(status_value, 0) + 1
     package_provenance = {
         "target.workspace_dir": {
             "source": "workspace.workspace_dir",

@@ -94,18 +94,12 @@ def run_workflow_sequence(
                         ),
                     }
                 continue
-            if (
-                executor_prefer == "auto"
-                and str(node.get("kind") or "").strip() in callbacks.executable_node_kinds
-            ):
-                mode = "job"
-            else:
-                run_steps.append(callbacks.step_from_agent(node, step_result, len(run_steps)))
-                if run_id and callbacks.record_run_steps:
-                    callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
-                agent_step_count += 1
-                stopped_early = True
-                break
+            run_steps.append(callbacks.step_from_agent(node, step_result, len(run_steps)))
+            if run_id and callbacks.record_run_steps:
+                callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
+            agent_step_count += 1
+            stopped_early = True
+            break
         if mode == "skip":
             continue
         payload = callbacks.build_job_payload(

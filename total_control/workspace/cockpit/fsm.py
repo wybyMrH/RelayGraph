@@ -6,6 +6,17 @@ from ._deps import *  # noqa: F403
 from .helpers import workspace_jobs_for_workspace, workspace_node_config_ready_status
 from ..automation.advance import resolve_workspace_advance_bundle
 
+WORKSPACE_EXECUTION_PACKAGE_REQUIRED_NODE_KINDS = frozenset({"run.command", "eval.report"})
+
+
+def workspace_nodes_require_execution_package(nodes: list[dict[str, Any]]) -> bool:
+    return any(
+        isinstance(node, dict)
+        and str(node.get("kind") or "").strip() in WORKSPACE_EXECUTION_PACKAGE_REQUIRED_NODE_KINDS
+        for node in nodes
+    )
+
+
 def attach_workspace_cockpit(
     workspace: dict[str, Any],
     execution: dict[str, Any],
