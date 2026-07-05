@@ -467,6 +467,7 @@ def _snapshot_node_signature(node: dict[str, Any]) -> dict[str, Any]:
         "handler_mode": str(handler.get("mode") or "").strip(),
         "handler_agent_id": str(handler.get("agent_id") or "").strip(),
         "handler_tool_id": str(handler.get("tool_id") or "").strip(),
+        "handler_output_key": str(handler.get("output_key") or "").strip(),
         "output_key": str(node.get("output_key") or "").strip(),
         "input_mapping": copy.deepcopy(input_mapping),
         "config": copy.deepcopy(config),
@@ -497,6 +498,7 @@ def _snapshot_node_preview_item(
         "handler_mode": str(handler.get("mode") or "").strip(),
         "handler_agent_id": str(handler.get("agent_id") or "").strip(),
         "handler_tool_id": str(handler.get("tool_id") or "").strip(),
+        "handler_output_key": str(handler.get("output_key") or "").strip(),
         "output_key": str(node.get("output_key") or "").strip(),
         "has_input_mapping": isinstance(node.get("input_mapping"), dict) and bool(node.get("input_mapping")),
     }
@@ -580,7 +582,7 @@ def _workflow_template_migration_plan(
         or link_order_changed
     )
     mapping_changed = any(
-        any(field in {"input_mapping", "output_key"} for field in (node.get("changed_fields") or []))
+        any(field in {"input_mapping", "output_key", "handler_output_key"} for field in (node.get("changed_fields") or []))
         for node in changed_nodes
     )
     runtime_changed = any(
@@ -829,7 +831,7 @@ def workflow_template_snapshot_diff(
         before = _snapshot_node_signature(previous_nodes[key])
         after = _snapshot_node_signature(current_nodes[key])
         changed_fields = [
-            field for field in ("kind", "title", "handler_mode", "handler_agent_id", "handler_tool_id", "output_key", "input_mapping", "config", "runtime")
+            field for field in ("kind", "title", "handler_mode", "handler_agent_id", "handler_tool_id", "handler_output_key", "output_key", "input_mapping", "config", "runtime")
             if before.get(field) != after.get(field)
         ]
         if changed_fields:

@@ -3484,6 +3484,7 @@ function workspaceTemplateStructureNodeMarkup(node = {}) {
     node.kind || "",
     node.handler_agent_id ? `Agent ${node.handler_agent_id}` : node.handler_tool_id ? `Tool ${node.handler_tool_id}` : node.handler_mode || "",
     node.output_key ? `out:${node.output_key}` : "",
+    node.handler_output_key && node.handler_output_key !== node.output_key ? `handler_out:${node.handler_output_key}` : "",
     node.has_input_mapping ? "mapped" : "",
   ].filter(Boolean).join(" · ");
   return `
@@ -22194,8 +22195,24 @@ async function saveWorkflowTemplate() {
     const saved = response.workflow_template;
     await loadStatus(true, { renderWorkspace: true });
     if (saved?.id) selectWorkflowTemplate(saved.id);
-    if (state.selectedWorkspaceId) void refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, { quiet: true, render: state.ui.workspaceManageTab === "inspect" });
-    setWorkspaceManageMessage(validation.status === "warning" ? "模板已保存，但仍有警告项。" : "模板已保存。");
+    let migrationNotice = "";
+    if (state.selectedWorkspaceId) {
+      const diffPayload = await refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, {
+        quiet: true,
+        render: state.ui.workspaceManageTab === "inspect",
+      });
+      const diff = diffPayload?.diff && typeof diffPayload.diff === "object" ? diffPayload.diff : null;
+      const plan = diff?.migration_plan && typeof diff.migration_plan === "object" ? diff.migration_plan : {};
+      if (diff?.status === "changed") {
+        migrationNotice = plan.can_manual_apply
+          ? "当前实例快照已变化，可在链路诊断应用安全迁移。"
+          : plan.can_create_draft
+            ? "当前实例快照已变化，建议在链路诊断新建迁移草稿。"
+            : "当前实例快照已变化，请在链路诊断复核迁移计划。";
+      }
+    }
+    const saveMessage = validation.status === "warning" ? "模板已保存，但仍有警告项。" : "模板已保存。";
+    setWorkspaceManageMessage(`${saveMessage}${migrationNotice ? ` ${migrationNotice}` : ""}`);
   } catch (error) {
     setWorkspaceManageMessage(error.message, true);
   }
