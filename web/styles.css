@@ -4750,7 +4750,10 @@ textarea:focus {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
   gap: 8px;
+  max-height: 220px;
   min-width: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
 .workflow-template-phase-band {

@@ -3753,11 +3753,13 @@ function setSelectedWorkflowTemplateInputMapping(mapping = {}, options = {}) {
   state.workflowTemplateValidation = null;
   state.ui.workflowTemplateDirty = true;
   if (options.render === false && options.renderParts) {
+    refreshWorkflowTemplateCanvasFlowSummary();
     renderWorkflowTemplateNodeList();
     renderWorkflowTemplateNodeEditor();
     renderWorkflowTemplateStudioOverview();
   } else if (options.render === false || options.render === "canvas") {
-    renderWorkflowTemplateCanvas();
+    if (options.render === false) refreshWorkflowTemplateCanvasFlowSummary();
+    else renderWorkflowTemplateCanvas();
     renderWorkflowTemplateNodeList();
     renderWorkflowTemplateStudioOverview();
   } else {
@@ -3788,6 +3790,7 @@ function insertWorkflowTemplateNode(kind) {
   nodes.splice(insertIndex, 0, node);
   state.selectedTemplateNodeId = node.id;
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
+  revealWorkflowTemplateSelection(node.id, { editor: true });
 }
 
 function moveWorkflowTemplateNode(direction) {
@@ -3799,6 +3802,7 @@ function moveWorkflowTemplateNode(direction) {
   const [node] = nodes.splice(index, 1);
   nodes.splice(targetIndex, 0, node);
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
+  revealWorkflowTemplateSelection(node.id, { editor: false });
 }
 
 function removeWorkflowTemplateNode() {
@@ -3812,6 +3816,7 @@ function removeWorkflowTemplateNode() {
   nodes.splice(index, 1);
   state.selectedTemplateNodeId = nodes[Math.max(0, index - 1)]?.id || nodes[0]?.id || "";
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
+  revealWorkflowTemplateSelection(state.selectedTemplateNodeId, { editor: false });
 }
 
 function rebuildWorkflowTemplateNodes() {
@@ -3829,6 +3834,7 @@ function rebuildWorkflowTemplateNodes() {
   });
   state.selectedTemplateNodeId = nodes[0]?.id || "";
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
+  revealWorkflowTemplateSelection(state.selectedTemplateNodeId, { editor: false });
 }
 
 function selectedWorkspaceExecutionNode() {
@@ -3951,6 +3957,8 @@ function workspaceNearestScrollContainer(element) {
     "#workspaceChatList",
     "#workspaceNodeList",
     "#workspaceNodeEditor",
+    "#workflowTemplateCanvas",
+    "#workflowTemplateNodeEditor",
     "#workflowTemplateList",
     "#manageAgentList",
     "#manageToolList",
@@ -4005,6 +4013,34 @@ function revealWorkspaceExecutionNode(nodeId, options = {}) {
     if (panelTarget && panelTarget !== target) flashWorkspaceFocus(panelTarget);
     flashWorkspaceFocus($("workspaceExecutionDetail"));
   });
+}
+
+function revealWorkflowTemplateSelection(nodeId = state.selectedTemplateNodeId, options = {}) {
+  const id = String(nodeId || "").trim();
+  if (!id) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const escaped = window.CSS?.escape ? CSS.escape(id) : id.replace(/(["\\])/g, "\\$1");
+    const canvas = $("workflowTemplateCanvas");
+    const viewport = canvas?.querySelector(".workflow-template-flow-viewport");
+    const node = canvas?.querySelector(`.workflow-template-flow-node[data-node-id="${escaped}"]`);
+    if (viewport && node) {
+      const nodeRect = node.getBoundingClientRect();
+      const viewportRect = viewport.getBoundingClientRect();
+      const padding = 18;
+      let nextLeft = viewport.scrollLeft;
+      if (nodeRect.left < viewportRect.left + padding) {
+        nextLeft += nodeRect.left - viewportRect.left - padding;
+      } else if (nodeRect.right > viewportRect.right - padding) {
+        nextLeft += nodeRect.right - viewportRect.right + padding;
+      }
+      if (Math.abs(nextLeft - viewport.scrollLeft) > 1) {
+        viewport.scrollTo({ left: Math.max(0, nextLeft), behavior: options.behavior || "smooth" });
+      }
+      flashWorkspaceFocus(node);
+    }
+    const editor = options.editor === false ? null : $("workflowTemplateNodeEditor");
+    if (editor) revealWorkspaceElement(editor, { ...options, block: options.block || "nearest" });
+  }));
 }
 
 function selectWorkspaceExecutionNode(nodeId, options = {}) {
@@ -20469,7 +20505,7 @@ function renderWorkflowTemplateNodeList() {
   }).join("");
 }
 
-function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
+function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = [], ioState = null) {
   const active = node.id === state.selectedTemplateNodeId ? " active" : "";
   const statusClass = workspaceExecutionCanvasStatusClass(node.status || "ready");
   const phase = workspaceStarterNodePhase(node.kind || "");
@@ -20477,7 +20513,7 @@ function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
   const meta = workspaceNodeMeta(node.kind || "custom.step");
   const handler = node.handler && typeof node.handler === "object" ? node.handler : {};
   const agent = globalAgentById(handler.agent_id || "");
-  const io = workflowTemplateNodeIoState(node, index);
+  const io = ioState || workflowTemplateNodeIoState(node, index, nodes);
   const next = nodes[index + 1] || null;
   const nextTitle = next ? next.title || workspaceNodeLabel(next.kind) : "结束";
   const agentLabel = handler.mode === "agent"
@@ -20528,11 +20564,14 @@ function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = []) {
   `;
 }
 
-function workflowTemplateConnectorMarkup(leftNode = {}, rightNode = {}, rightIndex = 0) {
-  const leftReady = String(leftNode.output_key || workspaceNodeIoContract(leftNode.kind || "").output || "").trim();
-  const rightMapping = rightNode.input_mapping && typeof rightNode.input_mapping === "object" ? rightNode.input_mapping : {};
-  const rightReady = Object.keys(rightMapping).length > 0;
-  const status = leftReady && rightReady ? "done" : leftReady ? "running" : "pending";
+function workflowTemplateConnectorMarkup(leftNode = {}, rightNode = {}, rightIndex = 0, nodes = [], rightIoState = null) {
+  const leftIo = workflowTemplateNodeIoState(leftNode, Math.max(0, rightIndex - 1), nodes);
+  const rightIo = rightIoState || workflowTemplateNodeIoState(rightNode, rightIndex, nodes);
+  const status = leftIo.outputKey && rightIo.status === "ready"
+    ? "done"
+    : leftIo.outputKey && rightIo.status !== "blocked"
+      ? "running"
+      : "pending";
   const title = `${leftNode.title || workspaceNodeLabel(leftNode.kind || "")} -> ${rightNode.title || workspaceNodeLabel(rightNode.kind || "")}`;
   return `
     <button
@@ -20540,7 +20579,7 @@ function workflowTemplateConnectorMarkup(leftNode = {}, rightNode = {}, rightInd
       type="button"
       data-action="select-template-edge"
       data-node-id="${escapeHtml(rightNode.id || "")}"
-      title="${escapeHtml(`${title} · 查看/编辑交接映射`)}"
+      title="${escapeHtml(`${title} · ${rightIo.health?.summary || rightIo.hint}`)}"
       aria-label="${escapeHtml(`编辑第 ${rightIndex + 1} 个节点的交接映射`)}"
     >
       <span>映射</span>
@@ -20548,25 +20587,52 @@ function workflowTemplateConnectorMarkup(leftNode = {}, rightNode = {}, rightInd
   `;
 }
 
-function workflowTemplateNodeIoState(node = {}, index = 0) {
+function workflowTemplateNodeIoState(node = {}, index = 0, nodes = null) {
+  const nodeList = Array.isArray(nodes)
+    ? nodes
+    : Array.isArray(state.workflowTemplateDraft?.nodes)
+      ? state.workflowTemplateDraft.nodes
+      : [];
   const contract = workspaceNodeIoContract(node.kind || "", index);
   const outputKey = String(node.output_key || contract.output || "").trim();
   const inputMapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
-  const inputCount = Object.keys(inputMapping).length;
-  const status = outputKey && (index === 0 || inputCount)
-    ? "ready"
-    : outputKey
-      ? "warning"
-      : "blocked";
-  const hint = inputCount
-    ? `${inputCount} 输入 -> ${outputKey || "output"}`
-    : index === 0
-      ? `$input -> ${outputKey || "output"}`
-      : `等待 input_mapping -> ${outputKey || "output"}`;
-  return { outputKey, inputCount, status, hint };
+  const entries = workspaceInputMappingEntries(inputMapping);
+  const targetInputs = Array.isArray(contract.inputs) ? contract.inputs : [];
+  const fallbackRows = workspaceInputMappingEntries(workspaceNodeIoFallbackMapping(targetInputs, index));
+  const rows = entries.length ? entries : fallbackRows;
+  const sourceOptions = workflowTemplateMappingSourceOptions(node, index);
+  const previousNode = nodeList[index - 1] || null;
+  const previousContract = previousNode ? workspaceNodeIoContract(previousNode.kind || "", index - 1) : {};
+  const previousOutputKey = previousNode
+    ? String(previousNode.output_key || previousContract.output || "").trim()
+    : "";
+  const health = workflowTemplateMappingHealth(rows, {
+    targetInputs,
+    sourceOptions,
+    sourceOutputKey: previousOutputKey,
+    requiresPreviousOutput: index > 0,
+    savedCount: entries.length,
+  });
+  const inputCount = entries.length;
+  const status = !outputKey
+    ? "blocked"
+    : health.status === "ready"
+      ? "ready"
+      : health.status === "blocked"
+        ? "blocked"
+        : "warning";
+  const inputLabel = inputCount
+    ? `${inputCount} 输入`
+    : health.missingInputs?.length
+      ? `缺 ${health.missingInputs.length} 输入`
+      : index === 0
+        ? "$input"
+        : "等待 input_mapping";
+  const hint = `${inputLabel} -> ${outputKey || "output"}`;
+  return { outputKey, inputCount, status, hint, health };
 }
 
-function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "") {
+function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "", ioStates = []) {
   const phases = Object.keys(WORKSPACE_FLOW_PHASE_TONES);
   const buckets = new Map(phases.map((phase) => [phase, []]));
   nodes.forEach((node, index) => {
@@ -20575,7 +20641,7 @@ function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "") {
     bucket.push({
       node,
       index,
-      io: workflowTemplateNodeIoState(node, index),
+      io: ioStates[index] || workflowTemplateNodeIoState(node, index, nodes),
     });
     if (!buckets.has(phase)) buckets.set(phase, bucket);
   });
@@ -20635,18 +20701,15 @@ function renderWorkflowTemplateCanvas() {
   }
   const selectedIndex = Math.max(0, nodes.findIndex((node) => node.id === state.selectedTemplateNodeId));
   const selectedNode = nodes[selectedIndex] || nodes[0] || {};
-  const mappedCount = nodes.filter((node, index) => {
-    const outputKey = String(node.output_key || workspaceNodeIoContract(node.kind || "", index).output || "").trim();
-    const mapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
-    return outputKey && (index === 0 || Object.keys(mapping).length);
-  }).length;
+  const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
+  const mappedCount = ioStates.filter((item) => item.status === "ready").length;
   const trackParts = [];
   nodes.forEach((node, index) => {
-    trackParts.push(workflowTemplateNodeFlowMarkup(node, index, nodes));
-    if (index < nodes.length - 1) trackParts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1));
+    trackParts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index]));
+    if (index < nodes.length - 1) trackParts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1, nodes, ioStates[index + 1]));
   });
   const edgeMarkup = workflowTemplateEdgeInspectorMarkup(nodes, selectedIndex);
-  const phaseMap = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "");
+  const phaseMap = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates);
   root.innerHTML = `
     <div class="workflow-template-canvas-head">
       <div>
@@ -20667,6 +20730,40 @@ function renderWorkflowTemplateCanvas() {
     </div>
     ${edgeMarkup}
   `;
+}
+
+function refreshWorkflowTemplateCanvasFlowSummary() {
+  const root = $("workflowTemplateCanvas");
+  if (!root) return;
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  if (!nodes.length) return;
+  const selectedIndex = Math.max(0, nodes.findIndex((node) => node.id === state.selectedTemplateNodeId));
+  const selectedNode = nodes[selectedIndex] || nodes[0] || {};
+  const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
+  const mappedCount = ioStates.filter((item) => item.status === "ready").length;
+  const headStrong = root.querySelector(".workflow-template-canvas-head strong");
+  if (headStrong) headStrong.textContent = `${nodes.length} 节点 · ${mappedCount}/${nodes.length} I/O 闭合`;
+  const headCurrent = root.querySelector(".workflow-template-canvas-head span");
+  if (headCurrent) {
+    const label = selectedNode.title || workspaceNodeLabel(selectedNode.kind);
+    headCurrent.textContent = `当前：${label}`;
+    headCurrent.title = label;
+  }
+  const phaseMap = root.querySelector(".workflow-template-phase-map");
+  if (phaseMap) {
+    const replacement = document.createElement("div");
+    replacement.innerHTML = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates).trim();
+    phaseMap.replaceWith(replacement.firstElementChild);
+  }
+  const track = root.querySelector(".workflow-template-flow-track");
+  if (track) {
+    const parts = [];
+    nodes.forEach((node, index) => {
+      parts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index]));
+      if (index < nodes.length - 1) parts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1, nodes, ioStates[index + 1]));
+    });
+    track.innerHTML = parts.join("");
+  }
 }
 
 function renderWorkflowTemplateNodeEditor() {
@@ -26900,7 +26997,9 @@ function bindEvents() {
     const nodeId = String(button.dataset.nodeId || "").trim();
     if (nodeId) state.selectedTemplateNodeId = nodeId;
     if (button.dataset.action === "select-template-node" || button.dataset.action === "select-template-edge") {
+      const revealEditor = button.dataset.action === "select-template-node" && Boolean(button.closest(".workflow-template-phase-map"));
       renderWorkspaceWorkbench();
+      if (nodeId) revealWorkflowTemplateSelection(nodeId, { editor: revealEditor });
       return;
     }
     if (button.dataset.action === "move-template-node") {
@@ -26976,6 +27075,7 @@ function bindEvents() {
     if (button?.dataset.nodeId) {
       state.selectedTemplateNodeId = button.dataset.nodeId;
       renderWorkspaceWorkbench();
+      revealWorkflowTemplateSelection(button.dataset.nodeId, { editor: true });
     }
   });
   const handleTemplateNodeField = (event) => {
