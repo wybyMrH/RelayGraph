@@ -32,8 +32,17 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
     seeds = workspace_seed_results(context)
     endpoint = str(arguments.get("endpoint") or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_ENDPOINT") or "").strip()
     provider = str(arguments.get("provider") or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_PROVIDER") or "").strip().lower()
+    if not provider:
+        if os.environ.get("TOTAL_CONTROL_FIRECRAWL_API_KEY"):
+            provider = "firecrawl"
+        elif os.environ.get("TOTAL_CONTROL_SERPER_API_KEY"):
+            provider = "serper"
 
-    if endpoint:
+    if provider == "firecrawl":
+        payload = _execute_firecrawl_search(query, limit, seeds, arguments)
+    elif provider == "serper":
+        payload = _execute_serper_search(query, limit, seeds, arguments)
+    elif endpoint:
         payload = _execute_endpoint_search(endpoint, query, limit, seeds)
     elif provider in {"duckduckgo", "ddg"} or bool(arguments.get("network")):
         payload = _execute_duckduckgo_search(query, limit, seeds)
@@ -63,24 +72,225 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
     payload["rate_limit"] = {
         "provider": str(payload.get("provider") or provider or "seed").strip(),
         "max_results": limit,
-        "hint": "DuckDuckGo HTML 接口未提供官方 quota；endpoint 模式取决于远端服务。",
+        "hint": str(
+            payload.get("rate_limit_hint")
+            or "Firecrawl/Serper quota 取决于账号；DuckDuckGo HTML 接口未提供官方 quota；endpoint 模式取决于远端服务。"
+        ).strip(),
     }
+    payload.pop("rate_limit_hint", None)
     return payload
+
+
+def _configured_search_key(arguments: dict[str, Any], env_name: str) -> str:
+    # Prefer environment variables so Agent tool arguments and traces do not carry secrets.
+    return str(os.environ.get(env_name) or "").strip()
+
+
+def _json_request(
+    url: str,
+    *,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    timeout: int = 15,
+) -> Any:
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            **headers,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
+def _query_required_payload(
+    *,
+    query: str,
+    provider: str,
+    seeds: list[dict[str, str]],
+    limit: int,
+    configured: bool = True,
+) -> dict[str, Any]:
+    return {
+        "status": "seeded" if seeds else "blocked",
+        "query": query,
+        "provider": provider,
+        "provider_configured": configured,
+        "provider_status": "blocked",
+        "fallback_used": bool(seeds),
+        "results": seeds[:limit],
+        "error": "query is required",
+        "message": "缺少检索词，已返回 workspace 种子。" if seeds else "query is required",
+    }
+
+
+def _missing_key_payload(
+    *,
+    query: str,
+    provider: str,
+    env_name: str,
+    seeds: list[dict[str, str]],
+    limit: int,
+) -> dict[str, Any]:
+    return {
+        "status": "seeded" if seeds else "blocked",
+        "query": query,
+        "provider": provider,
+        "provider_configured": False,
+        "provider_status": "blocked",
+        "fallback_used": bool(seeds),
+        "results": seeds[:limit],
+        "error": f"{env_name} is not configured",
+        "message": f"未配置 {env_name}，已返回 workspace 种子。" if seeds else f"未配置 {env_name}。",
+    }
+
+
+def _execute_firecrawl_search(
+    query: str,
+    limit: int,
+    seeds: list[dict[str, str]],
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    if not query:
+        return _query_required_payload(query=query, provider="firecrawl", seeds=seeds, limit=limit)
+    api_key = _configured_search_key(arguments, "TOTAL_CONTROL_FIRECRAWL_API_KEY")
+    if not api_key:
+        return _missing_key_payload(
+            query=query,
+            provider="firecrawl",
+            env_name="TOTAL_CONTROL_FIRECRAWL_API_KEY",
+            seeds=seeds,
+            limit=limit,
+        )
+    base_url = str(
+        arguments.get("base_url")
+        or os.environ.get("TOTAL_CONTROL_FIRECRAWL_API_URL")
+        or "https://api.firecrawl.dev"
+    ).strip().rstrip("/")
+    endpoint = base_url if base_url.endswith("/search") else f"{base_url}/v2/search"
+    body: dict[str, Any] = {"query": query, "limit": limit}
+    country = str(arguments.get("country") or "").strip()
+    if country:
+        body["country"] = country
+    categories = _string_list(arguments.get("categories"))
+    if categories:
+        body["categories"] = categories
+    include_domains = _string_list(arguments.get("include_domains") or arguments.get("includeDomains"))
+    if include_domains:
+        body["includeDomains"] = include_domains
+    exclude_domains = _string_list(arguments.get("exclude_domains") or arguments.get("excludeDomains"))
+    if exclude_domains:
+        body["excludeDomains"] = exclude_domains
+    if isinstance(arguments.get("scrape_options"), dict):
+        body["scrapeOptions"] = arguments["scrape_options"]
+    elif isinstance(arguments.get("scrapeOptions"), dict):
+        body["scrapeOptions"] = arguments["scrapeOptions"]
+    try:
+        payload = _json_request(
+            endpoint,
+            payload=body,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        results = _normalize_firecrawl_results(payload, limit)
+        fallback_used = not results and bool(seeds)
+        return {
+            "status": "found" if results else "seeded" if fallback_used else "empty",
+            "query": query,
+            "provider": "firecrawl",
+            "provider_configured": True,
+            "provider_status": "found" if results else "empty",
+            "fallback_used": fallback_used,
+            "results": (results or seeds)[:limit],
+            "message": "" if results else "Firecrawl 未返回结果，已返回 workspace 种子。" if fallback_used else "Firecrawl 未返回结果。",
+            "rate_limit_hint": "Firecrawl hosted/self-hosted quota 取决于账号或部署策略。",
+        }
+    except Exception as exc:  # noqa: BLE001 - search must degrade inside the agent loop.
+        fallback_used = bool(seeds)
+        return {
+            "status": "seeded" if fallback_used else "error",
+            "query": query,
+            "provider": "firecrawl",
+            "provider_configured": True,
+            "provider_status": "error",
+            "fallback_used": fallback_used,
+            "results": seeds[:limit],
+            "error": str(exc),
+            "message": "Firecrawl 搜索失败，已返回 workspace 种子。" if fallback_used else "Firecrawl 搜索失败。",
+            "rate_limit_hint": "Firecrawl hosted/self-hosted quota 取决于账号或部署策略。",
+        }
+
+
+def _execute_serper_search(
+    query: str,
+    limit: int,
+    seeds: list[dict[str, str]],
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    if not query:
+        return _query_required_payload(query=query, provider="serper", seeds=seeds, limit=limit)
+    api_key = _configured_search_key(arguments, "TOTAL_CONTROL_SERPER_API_KEY")
+    if not api_key:
+        return _missing_key_payload(
+            query=query,
+            provider="serper",
+            env_name="TOTAL_CONTROL_SERPER_API_KEY",
+            seeds=seeds,
+            limit=limit,
+        )
+    endpoint = str(
+        arguments.get("endpoint")
+        or os.environ.get("TOTAL_CONTROL_SERPER_SEARCH_URL")
+        or "https://google.serper.dev/search"
+    ).strip()
+    body = {"q": query, "num": limit}
+    location = str(arguments.get("location") or "").strip()
+    if location:
+        body["location"] = location
+    try:
+        payload = _json_request(
+            endpoint,
+            payload=body,
+            headers={"X-API-KEY": api_key},
+            timeout=15,
+        )
+        results = _normalize_serper_results(payload, limit)
+        fallback_used = not results and bool(seeds)
+        return {
+            "status": "found" if results else "seeded" if fallback_used else "empty",
+            "query": query,
+            "provider": "serper",
+            "provider_configured": True,
+            "provider_status": "found" if results else "empty",
+            "fallback_used": fallback_used,
+            "results": (results or seeds)[:limit],
+            "message": "" if results else "Serper 未返回结果，已返回 workspace 种子。" if fallback_used else "Serper 未返回结果。",
+            "rate_limit_hint": "Serper quota 取决于账号套餐。",
+        }
+    except Exception as exc:  # noqa: BLE001 - search must degrade inside the agent loop.
+        fallback_used = bool(seeds)
+        return {
+            "status": "seeded" if fallback_used else "error",
+            "query": query,
+            "provider": "serper",
+            "provider_configured": True,
+            "provider_status": "error",
+            "fallback_used": fallback_used,
+            "results": seeds[:limit],
+            "error": str(exc),
+            "message": "Serper 搜索失败，已返回 workspace 种子。" if fallback_used else "Serper 搜索失败。",
+            "rate_limit_hint": "Serper quota 取决于账号套餐。",
+        }
 
 
 def _execute_endpoint_search(endpoint: str, query: str, limit: int, seeds: list[dict[str, str]]) -> dict[str, Any]:
     if not query:
-        return {
-            "status": "seeded" if seeds else "blocked",
-            "query": query,
-            "provider": "endpoint",
-            "provider_configured": True,
-            "provider_status": "blocked",
-            "fallback_used": bool(seeds),
-            "results": seeds[:limit],
-            "error": "query is required",
-            "message": "缺少检索词，已返回 workspace 种子。" if seeds else "query is required",
-        }
+        return _query_required_payload(query=query, provider="endpoint", seeds=seeds, limit=limit)
     api_key = os.environ.get("TOTAL_CONTROL_WEB_SEARCH_API_KEY", "")
     url = endpoint
     data: bytes | None = None
@@ -125,17 +335,7 @@ def _execute_endpoint_search(endpoint: str, query: str, limit: int, seeds: list[
 
 def _execute_duckduckgo_search(query: str, limit: int, seeds: list[dict[str, str]]) -> dict[str, Any]:
     if not query:
-        return {
-            "status": "seeded" if seeds else "blocked",
-            "query": query,
-            "provider": "duckduckgo",
-            "provider_configured": True,
-            "provider_status": "blocked",
-            "fallback_used": bool(seeds),
-            "results": seeds[:limit],
-            "error": "query is required",
-            "message": "缺少检索词，已返回 workspace 种子。" if seeds else "query is required",
-        }
+        return _query_required_payload(query=query, provider="duckduckgo", seeds=seeds, limit=limit)
     try:
         url = "https://duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
         request = urllib.request.Request(
@@ -198,6 +398,75 @@ def _normalize_endpoint_results(payload: Any, limit: int) -> list[dict[str, str]
                 "url": url,
                 "snippet": str(item.get("snippet") or item.get("description") or item.get("summary") or "").strip(),
                 "source": str(item.get("source") or "provider").strip() or "provider",
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = re.split(r"[,\n]", value)
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = []
+    items: list[str] = []
+    for item in raw_items:
+        text = str(item or "").strip()
+        if text and text not in items:
+            items.append(text)
+    return items
+
+
+def _normalize_firecrawl_results(payload: Any, limit: int) -> list[dict[str, str]]:
+    source_items: list[Any] = []
+    if isinstance(payload, dict):
+        data = payload.get("data")
+        if isinstance(data, dict):
+            for key in ("web", "news", "images"):
+                if isinstance(data.get(key), list):
+                    source_items.extend(data[key])
+        elif isinstance(data, list):
+            source_items = data
+        elif isinstance(payload.get("results"), list):
+            source_items = payload["results"]
+    elif isinstance(payload, list):
+        source_items = payload
+    return _normalize_search_items(source_items, limit, source="firecrawl")
+
+
+def _normalize_serper_results(payload: Any, limit: int) -> list[dict[str, str]]:
+    source_items: list[Any] = []
+    if isinstance(payload, dict):
+        for key in ("organic", "news", "places"):
+            if isinstance(payload.get(key), list):
+                source_items.extend(payload[key])
+        if not source_items and isinstance(payload.get("results"), list):
+            source_items = payload["results"]
+    elif isinstance(payload, list):
+        source_items = payload
+    return _normalize_search_items(source_items, limit, source="serper")
+
+
+def _normalize_search_items(items: list[Any], limit: int, *, source: str) -> list[dict[str, str]]:
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or item.get("link") or item.get("href") or item.get("website") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        results.append(
+            {
+                "type": str(item.get("type") or "web").strip() or "web",
+                "title": str(item.get("title") or item.get("name") or url).strip(),
+                "url": url,
+                "snippet": str(item.get("description") or item.get("snippet") or item.get("summary") or "").strip(),
+                "source": str(item.get("source") or source).strip() or source,
             }
         )
         if len(results) >= limit:

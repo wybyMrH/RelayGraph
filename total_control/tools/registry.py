@@ -33,6 +33,7 @@ TOOL_SIDE_EFFECTS: dict[str, dict[str, object]] = {
     "path.resolve": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "dir.scan": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "web.search": {"side_effect": ToolSideEffect.READ, "implemented": True},
+    "repo.search": {"side_effect": ToolSideEffect.READ, "implemented": True},
     "env.prepare": {
         "side_effect": ToolSideEffect.MUTATE_RUNTIME,
         "implemented": True,

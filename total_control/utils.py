@@ -673,6 +673,7 @@ def normalize_runtime_storage_settings(raw: Any) -> dict[str, Any]:
             safe_int(data.get("preview_max_size_mib"), defaults["preview_max_size_mib"]),
         ),
         "log_max_age_hours": max(0, safe_int(data.get("log_max_age_hours"), defaults["log_max_age_hours"])),
+        "log_max_file_mib": max(0, safe_int(data.get("log_max_file_mib"), defaults["log_max_file_mib"])),
         "log_max_size_mib": max(0, safe_int(data.get("log_max_size_mib"), defaults["log_max_size_mib"])),
         "auto_cleanup_interval_minutes": max(
             5,
@@ -722,6 +723,29 @@ def is_under_runtime_log_root(path: Path | str) -> bool:
         return True
     except (ValueError, OSError):
         return False
+
+def local_job_log_path_allowed(job: Any, path: Path | str) -> bool:
+    path_obj = Path(path).expanduser()
+    try:
+        if path_obj.is_symlink():
+            return False
+    except OSError:
+        return False
+    return is_under_runtime_log_root(path_obj)
+
+def normalize_allowed_local_job_log_path(job: Any, fallback_path: Path | str) -> Path | None:
+    data = job if isinstance(job, dict) else {}
+    candidates = [data.get("log_path"), fallback_path]
+    seen: set[str] = set()
+    for candidate in candidates:
+        path_text = str(candidate or "").strip()
+        if not path_text or path_text in seen:
+            continue
+        seen.add(path_text)
+        path = Path(path_text).expanduser()
+        if local_job_log_path_allowed(job, path):
+            return path
+    return None
 
 def iter_runtime_log_files() -> list[dict[str, Any]]:
     root = runtime_log_root()
@@ -814,6 +838,7 @@ def runtime_storage_error_summary(error: Any) -> str:
 def cleanup_runtime_logs(
     *,
     max_age_hours: int = 0,
+    max_file_mib: int = 0,
     max_size_mib: int = 0,
     remove_all: bool = False,
     preserve_paths: list[str] | None = None,
@@ -848,6 +873,11 @@ def cleanup_runtime_logs(
             expired = [item for item in remaining if float(item["mtime"]) < cutoff]
             to_remove.extend(expired)
             remaining = [item for item in remaining if item not in expired]
+        if max_file_mib > 0:
+            file_limit_bytes = max_file_mib * 1024 * 1024
+            oversized = [item for item in remaining if int(item["size"]) > file_limit_bytes]
+            to_remove.extend(oversized)
+            remaining = [item for item in remaining if item not in oversized]
         if max_size_mib > 0:
             limit_bytes = max_size_mib * 1024 * 1024
             total_bytes = sum(int(item["size"]) for item in remaining)
@@ -1019,6 +1049,7 @@ preserved_bytes = 0
 if OPTIONS.get("cleanup"):
     remove_all = bool(OPTIONS.get("remove_all"))
     max_age_hours = safe_int(OPTIONS.get("max_age_hours"))
+    max_file_mib = safe_int(OPTIONS.get("max_file_mib"))
     max_size_mib = safe_int(OPTIONS.get("max_size_mib"))
     to_remove = []
     if remove_all:
@@ -1031,6 +1062,11 @@ if OPTIONS.get("cleanup"):
             expired = [item for item in remaining if float(item["mtime"]) < cutoff]
             to_remove.extend(expired)
             remaining = [item for item in remaining if item not in expired]
+        if max_file_mib > 0:
+            file_limit_bytes = max_file_mib * 1024 * 1024
+            oversized = [item for item in remaining if int(item["size"]) > file_limit_bytes]
+            to_remove.extend(oversized)
+            remaining = [item for item in remaining if item not in oversized]
         if max_size_mib > 0:
             limit_bytes = max_size_mib * 1024 * 1024
             total = sum(int(item["size"]) for item in remaining)
@@ -1076,6 +1112,7 @@ def remote_runtime_log_payload(
     timeout: int,
     cleanup: bool = False,
     max_age_hours: int = 0,
+    max_file_mib: int = 0,
     max_size_mib: int = 0,
     remove_all: bool = False,
     preserve_paths: list[str] | None = None,
@@ -1086,6 +1123,7 @@ def remote_runtime_log_payload(
     options = {
         "cleanup": bool(cleanup),
         "max_age_hours": max(0, int(max_age_hours or 0)),
+        "max_file_mib": max(0, int(max_file_mib or 0)),
         "max_size_mib": max(0, int(max_size_mib or 0)),
         "remove_all": bool(remove_all),
         "preserve_paths": [str(item) for item in (preserve_paths or []) if str(item or "").strip()],

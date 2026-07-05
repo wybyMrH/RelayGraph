@@ -29,6 +29,7 @@ DEFAULT_RUNTIME_STORAGE_SETTINGS = {
     "preview_max_age_hours": 24,
     "preview_max_size_mib": 512,
     "log_max_age_hours": 168,
+    "log_max_file_mib": 128,
     "log_max_size_mib": 2048,
     "auto_cleanup_interval_minutes": 60,
     "remote_log_cleanup_enabled": True,

@@ -24,6 +24,7 @@ def _workspace_jobs_snapshot(state: Any, workspace_id: str) -> list[dict[str, An
 
 
 def _workspace_stream_snapshot_event(state: Any, workspace_id: str, gap: dict[str, Any]) -> dict[str, Any]:
+    latest_id = state.event_broker.latest_event_id()
     if hasattr(state, "sync_workspace_execution_runs_from_jobs"):
         state.sync_workspace_execution_runs_from_jobs(workspace_id)
     with state.lock:
@@ -34,7 +35,6 @@ def _workspace_stream_snapshot_event(state: Any, workspace_id: str, gap: dict[st
         jobs = _workspace_jobs_snapshot(state, workspace_id)
     automation = public_workspace.get("automation") if isinstance(public_workspace.get("automation"), dict) else {}
     cockpit = automation.get("cockpit") if isinstance(automation.get("cockpit"), dict) else {}
-    latest_id = state.event_broker.latest_event_id()
     return {
         "id": latest_id,
         "type": "workspace.snapshot",
@@ -181,7 +181,12 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
         query = parse_qs(parsed.query)
         handler.send_json(
             state.execution_overview(
-                {"limit": (query.get("limit") or ["50"])[0]},
+                {
+                    "limit": (query.get("limit") or ["50"])[0],
+                    "query": (query.get("query") or query.get("q") or [""])[0],
+                    "status": (query.get("status") or [""])[0],
+                    "kind": (query.get("kind") or ["all"])[0],
+                },
             )
         )
         return True

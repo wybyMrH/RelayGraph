@@ -149,7 +149,12 @@
                 小时
               </label>
               <label>
-                运行日志 · 超过
+                单个日志 · 超过
+                <input id="runtimeLogMaxFileMib" type="number" min="0" step="32" value="128" />
+                MiB
+              </label>
+              <label>
+                运行日志合计 · 超过
                 <input id="runtimeLogMaxSizeMib" type="number" min="0" step="256" value="2048" />
                 MiB
               </label>
@@ -162,7 +167,7 @@
                 <input id="runtimeRemoteCleanupEnabled" type="checkbox" checked />
                 自动清理远程运行日志
               </label>
-              <p class="muted">填 0 表示不限制该项；手动清理只删除 Total Control 自己的日志和预览缓存，正在运行任务的日志会保留。</p>
+              <p class="muted">填 0 表示不限制该项；手动清理只删除 Total Control 自己的日志和预览缓存，正在运行任务的日志会保留，单个大日志会在任务结束后按阈值清理。</p>
               <div class="runtime-storage-actions">
                 <button id="runtimeStorageSaveBtn" class="secondary" type="button" title="保存自动清理阈值">保存设置</button>
                 <button id="runtimeStorageCleanupBtn" class="secondary" type="button" title="按当前阈值立即清理运行日志和预览缓存">按策略清理</button>
@@ -431,6 +436,7 @@
                       <strong>执行看板</strong>
                       <span id="workspaceExecutionMeta" class="muted">节点进度与当前状态；滚轮缩放，左键拖动画布。</span>
                     </div>
+                    <button id="workspaceOpenChainInspectBtn" class="secondary mini" type="button" data-action="open-workspace-chain-inspect" title="打开配置中心链路诊断：只读查看节点链、I/O 交接、缺口与门禁">链路诊断</button>
                   </header>
                   <div id="workspaceExecutionBoard" class="workspace-execution-board workspace-execution-board-compact workspace-execution-canvas-shell workspace-execution-workspace-canvas"></div>
                   <header class="workspace-cockpit-inspector-head workspace-execution-inspector-divider">

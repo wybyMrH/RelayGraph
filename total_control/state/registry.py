@@ -65,6 +65,56 @@ def provider_profile_health(profile: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _execution_overview_status_group(status: Any) -> str:
+    value = str(status or "pending").strip().lower()
+    if value in {"done", "ready", "completed", "success", "succeeded"}:
+        return "done"
+    if value in {"failed", "blocked", "stopped", "cancelled", "canceled"}:
+        return "failed"
+    return "active"
+
+
+def _execution_overview_search_text(record: dict[str, Any], record_type: str) -> str:
+    progress = record.get("progress") if isinstance(record.get("progress"), dict) else {}
+    fields: list[Any] = [
+        record_type,
+        record.get("id"),
+        record.get("run_id"),
+        record.get("execution_run_id"),
+        record.get("job_id"),
+        record.get("workspace_id"),
+        record.get("workspace_name"),
+        record.get("summary"),
+        record.get("kind"),
+        record.get("status"),
+        record.get("server_id"),
+        record.get("node_id"),
+        record.get("agent_id"),
+        progress.get("done"),
+        progress.get("total"),
+        progress.get("percent"),
+    ]
+    for key in ("job_ids", "agent_execution_ids", "node_ids", "node_kinds", "server_ids"):
+        value = record.get(key)
+        if isinstance(value, list):
+            fields.append(" ".join(str(item or "") for item in value))
+    return " ".join(str(item or "").strip().lower() for item in fields if str(item or "").strip())
+
+
+def _execution_overview_record_matches(
+    record: dict[str, Any],
+    record_type: str,
+    *,
+    query: str = "",
+    status: str = "",
+) -> bool:
+    if status and _execution_overview_status_group(record.get("status")) != status:
+        return False
+    if query and query not in _execution_overview_search_text(record, record_type):
+        return False
+    return True
+
+
 class RegistryMixin:
     def tool_definition_by_id(self, tool_id: str) -> dict[str, Any] | None:
         return next((item for item in self.tool_definitions if str(item.get("id") or "") == str(tool_id)), None)
@@ -308,6 +358,13 @@ class RegistryMixin:
     def execution_overview(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         requested = payload if isinstance(payload, dict) else {}
         limit = max(1, min(safe_int(requested.get("limit"), 50), 200))
+        query_text = str(requested.get("query") or requested.get("q") or "").strip().lower()
+        status_filter = str(requested.get("status") or "").strip().lower()
+        if status_filter not in {"", "active", "done", "failed"}:
+            status_filter = ""
+        kind_filter = str(requested.get("kind") or "all").strip().lower()
+        if kind_filter not in {"all", "runs", "jobs"}:
+            kind_filter = "all"
         self.sync_workspace_execution_runs_from_jobs()
         with self.lock:
             workspaces = copy.deepcopy(getattr(self, "workspaces", []))
@@ -316,6 +373,11 @@ class RegistryMixin:
             str(workspace.get("id") or "").strip(): str(workspace.get("name") or workspace.get("brief") or workspace.get("id") or "").strip()
             for workspace in workspaces
             if isinstance(workspace, dict) and str(workspace.get("id") or "").strip()
+        }
+        jobs_by_id = {
+            str(job.get("id") or "").strip(): job
+            for job in jobs
+            if isinstance(job, dict) and str(job.get("id") or "").strip()
         }
         runs: list[dict[str, Any]] = []
         for workspace in workspaces:
@@ -327,6 +389,26 @@ class RegistryMixin:
                 if not isinstance(run, dict):
                     continue
                 steps = run.get("steps") if isinstance(run.get("steps"), list) else []
+                job_ids = [
+                    str(step.get("job_id") or "").strip()
+                    for step in steps
+                    if isinstance(step, dict) and str(step.get("job_id") or "").strip()
+                ]
+                child_job_ids = [
+                    str(child_id or "").strip()
+                    for step in steps
+                    if isinstance(step, dict) and isinstance(step.get("child_job_ids"), list)
+                    for child_id in step.get("child_job_ids")
+                    if str(child_id or "").strip()
+                ]
+                linked_job_ids = [*job_ids, *child_job_ids]
+                server_ids = sorted(
+                    {
+                        str((jobs_by_id.get(job_id) or {}).get("server_id") or "").strip()
+                        for job_id in linked_job_ids
+                        if str((jobs_by_id.get(job_id) or {}).get("server_id") or "").strip()
+                    }
+                )
                 runs.append(
                     {
                         "id": str(run.get("id") or "").strip(),
@@ -337,16 +419,23 @@ class RegistryMixin:
                         "summary": str(run.get("summary") or "").strip(),
                         "progress": copy.deepcopy(run.get("progress") if isinstance(run.get("progress"), dict) else {}),
                         "step_count": len(steps),
-                        "job_ids": [
-                            str(step.get("job_id") or "").strip()
-                            for step in steps
-                            if isinstance(step, dict) and str(step.get("job_id") or "").strip()
-                        ][:8],
+                        "job_ids": linked_job_ids[:8],
                         "agent_execution_ids": [
                             str(step.get("agent_execution_id") or "").strip()
                             for step in steps
                             if isinstance(step, dict) and str(step.get("agent_execution_id") or "").strip()
                         ][:8],
+                        "node_ids": [
+                            str(step.get("node_id") or "").strip()
+                            for step in steps
+                            if isinstance(step, dict) and str(step.get("node_id") or "").strip()
+                        ][:12],
+                        "node_kinds": [
+                            str(step.get("node_kind") or "").strip()
+                            for step in steps
+                            if isinstance(step, dict) and str(step.get("node_kind") or "").strip()
+                        ][:12],
+                        "server_ids": server_ids[:8],
                         "created_at": str(run.get("created_at") or "").strip(),
                         "updated_at": str(run.get("updated_at") or "").strip(),
                     }
@@ -374,9 +463,32 @@ class RegistryMixin:
                 }
             )
         job_items.sort(key=lambda item: (str(item.get("updated_at") or ""), str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
+        matched_runs = [
+            run for run in runs
+            if kind_filter != "jobs"
+            and _execution_overview_record_matches(run, "run", query=query_text, status=status_filter)
+        ]
+        matched_jobs = [
+            job for job in job_items
+            if kind_filter != "runs"
+            and _execution_overview_record_matches(job, "job", query=query_text, status=status_filter)
+        ]
         return {
-            "runs": runs[:limit],
-            "jobs": job_items[:limit],
+            "runs": matched_runs[:limit],
+            "jobs": matched_jobs[:limit],
+            "filters": {
+                "query": query_text,
+                "status": status_filter,
+                "kind": kind_filter,
+                "limit": limit,
+            },
+            "result": {
+                "run_count": len(matched_runs),
+                "job_count": len(matched_jobs),
+                "returned_run_count": min(len(matched_runs), limit),
+                "returned_job_count": min(len(matched_jobs), limit),
+                "limited": len(matched_runs) > limit or len(matched_jobs) > limit,
+            },
             "summary": {
                 "run_count": len(runs),
                 "job_count": len(job_items),

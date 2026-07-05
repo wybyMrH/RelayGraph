@@ -6,6 +6,25 @@ from ._deps import *  # noqa: F403
 
 
 class CrudJobsMixin:
+    def retained_workspace_run_job_ids_for_jobs(self) -> set[str]:
+        collector = getattr(self, "retained_workspace_run_job_ids", None)
+        if callable(collector):
+            return set(collector())
+        job_ids: set[str] = set()
+        with self.lock:
+            workspaces = copy.deepcopy(getattr(self, "workspaces", []))
+        for workspace in workspaces:
+            if not isinstance(workspace, dict):
+                continue
+            runs = workspace.get("runs") if isinstance(workspace.get("runs"), list) else []
+            workspace_payload = {**workspace, "runs": runs}
+            for run in runs:
+                if not isinstance(run, dict):
+                    continue
+                job_ids.update(workspace_runs_job_ids([run, *workspace_execution_run_linked_runs(workspace_payload, run, max_runs=64)]))
+        return job_ids
+
+
     def create_job(self, payload: dict[str, Any], *, publish_events: bool = True) -> dict[str, Any]:
         config = getattr(self, "config", AppConfig())
         command = str(payload.get("command") or "").strip()
@@ -150,6 +169,8 @@ class CrudJobsMixin:
                 raise ValueError("job not found")
             if str(job.get("status") or "") in {"running", "queued", "starting", "blocked"}:
                 raise ValueError("任务仍在进行中，不能删除")
+            if job_id in self.retained_workspace_run_job_ids_for_jobs():
+                raise ValueError("任务仍被保留的执行记录引用，不能删除；请先导出或裁剪对应 run")
             self.jobs = [item for item in self.jobs if item["id"] != job_id]
             self.save_jobs()
 
@@ -158,8 +179,12 @@ class CrudJobsMixin:
         """Clear all completed/failed/stopped jobs. Returns count of deleted jobs."""
         with self.lock:
             deletable_statuses = {"done", "failed", "stopped"}
+            protected_job_ids = self.retained_workspace_run_job_ids_for_jobs()
             before_count = len(self.jobs)
-            self.jobs = [item for item in self.jobs if item.get("status") not in deletable_statuses]
+            self.jobs = [
+                item for item in self.jobs
+                if item.get("status") not in deletable_statuses or str(item.get("id") or "").strip() in protected_job_ids
+            ]
             deleted_count = before_count - len(self.jobs)
             if deleted_count > 0:
                 self.save_jobs()

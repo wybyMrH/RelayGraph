@@ -12,7 +12,12 @@ class SchedulerMixin:
         job_id: str,
         max_bytes: int,
     ) -> dict[str, Any] | None:
-        local_path = Path(str(job.get("log_path") or local_log_path(str(job.get("server_id") or "local"), job_id)))
+        local_path = normalize_allowed_local_job_log_path(
+            job,
+            local_log_path(str(job.get("server_id") or "local"), job_id),
+        )
+        if not local_path:
+            return None
         if not local_path.exists() or local_path.is_symlink() or not local_path.is_file():
             return None
         positions = getattr(self, "job_log_stream_positions", None)
@@ -70,6 +75,9 @@ class SchedulerMixin:
         previous = positions.get(key) if isinstance(positions.get(key), dict) else {}
         offset = safe_int(previous.get("offset"), 0)
         marker = "TC_JOB_LOG_DELTA_" + uuid.uuid4().hex
+        remote_path_text = str(job.get("remote_log_path") or remote_log_path(job_id))
+        if str(previous.get("path") or "") != remote_path_text:
+            offset = 0
         script = r'''
 import base64
 import json
@@ -77,22 +85,26 @@ import os
 import sys
 
 marker = sys.argv[1]
-job_id = sys.argv[2]
+path_text = sys.argv[2]
 offset = int(sys.argv[3])
 max_bytes = max(1024, min(int(sys.argv[4]), 131072))
-root = os.path.expanduser("~/.total_control/logs")
-safe_job_id = "".join(ch for ch in job_id if ch.isalnum() or ch in "-_")
+root = os.path.realpath(os.path.expanduser("~/.total_control/logs"))
 
 def emit(payload):
     print(marker + json.dumps(payload, separators=(",", ":")))
 
-if safe_job_id != job_id:
-    emit({"error": "invalid job id"})
-    raise SystemExit(0)
+def normalize(path):
+    text = str(path or "").strip()
+    if text == "$HOME" or text.startswith("$HOME/"):
+        text = os.path.join(os.path.expanduser("~"), text[6:].lstrip("/"))
+    text = os.path.expanduser(text)
+    real = os.path.realpath(text)
+    if real == root or real.startswith(root.rstrip(os.sep) + os.sep):
+        return real
+    return ""
 
-path = os.path.realpath(os.path.join(root, safe_job_id + ".log"))
-root_real = os.path.realpath(root)
-if not (path == root_real or path.startswith(root_real.rstrip(os.sep) + os.sep)):
+path = normalize(path_text)
+if not path:
     emit({"error": "path outside log root"})
     raise SystemExit(0)
 if os.path.islink(path) or not os.path.isfile(path):
@@ -127,7 +139,7 @@ emit({
             "python3 - "
             + " ".join(
                 shlex.quote(item)
-                for item in (marker, job_id, str(offset), str(max_bytes))
+                for item in (marker, remote_path_text, str(offset), str(max_bytes))
             )
             + " <<'PY'\n"
             + script
@@ -150,7 +162,7 @@ emit({
         if payload.get("error") or not payload.get("exists"):
             return None
         next_offset = safe_int(payload.get("next_offset"), offset)
-        positions[key] = {"offset": next_offset}
+        positions[key] = {"offset": next_offset, "path": remote_path_text}
         raw = b""
         if payload.get("data"):
             try:

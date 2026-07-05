@@ -195,10 +195,17 @@ const state = {
     workspaceEventRecovering: false,
     workspaceEventGapNotice: "",
     workspaceEventGapAt: 0,
+    executionOverviewRefreshTimer: null,
+    executionOverviewRefreshBusy: false,
     workspaceStreamRenderQueued: false,
     workspaceStreamRenderTimer: null,
     workspaceAgentEvents: {},
     workspaceRunCompareBaseId: "",
+    workspaceRunCompareBaseByWorkspace: {},
+    workspaceRunFilterStatus: "",
+    workspaceRunFilterNodeKind: "",
+    workspaceRunFilterJobId: "",
+    workspaceRunFilterAgentExecutionId: "",
     executionOverviewQuery: "",
     executionOverviewStatus: "",
     executionOverviewKind: "all",
@@ -212,6 +219,7 @@ const state = {
     statusBusyTimer: null,
     workflowTemplateDirty: false,
     workflowTemplateValidationBusy: false,
+    workflowTemplateNodeSearch: "",
     agentDefinitionDirty: false,
     toolDefinitionDirty: false,
     providerProfileDirty: false,
@@ -2581,12 +2589,19 @@ async function loadProviderProfiles(options = {}) {
 
 async function loadExecutionOverview(options = {}) {
   try {
-    state.executionOverview = await fetchJson("/api/execution-overview?limit=80");
+    const params = new URLSearchParams();
+    const filters = executionOverviewFilters();
+    params.set("limit", String(Math.max(1, Math.min(200, Number(options.limit || 80)))));
+    if (filters.query) params.set("query", filters.query);
+    if (filters.status) params.set("status", filters.status);
+    if (filters.kind && filters.kind !== "all") params.set("kind", filters.kind);
+    state.executionOverview = await fetchJson(`/api/execution-overview?${params.toString()}`);
   } catch (error) {
     state.executionOverview = {
       runs: [],
       jobs: [],
       summary: {},
+      result: {},
       error: error.message || String(error),
     };
   }
@@ -2595,6 +2610,29 @@ async function loadExecutionOverview(options = {}) {
     renderWorkspaceManageOverview();
   }
   return state.executionOverview;
+}
+
+function executionOverviewPanelVisible() {
+  return state.ui.productTab === "workspace"
+    && state.ui.workspaceMode === "manage"
+    && state.ui.workspaceManageTab === "runs";
+}
+
+function scheduleExecutionOverviewRefresh(delayMs = 700) {
+  if (!executionOverviewPanelVisible()) return;
+  if (state.ui.executionOverviewRefreshTimer) {
+    clearTimeout(state.ui.executionOverviewRefreshTimer);
+  }
+  state.ui.executionOverviewRefreshTimer = setTimeout(async () => {
+    state.ui.executionOverviewRefreshTimer = null;
+    if (!executionOverviewPanelVisible() || state.ui.executionOverviewRefreshBusy) return;
+    state.ui.executionOverviewRefreshBusy = true;
+    try {
+      await loadExecutionOverview({ render: true });
+    } finally {
+      state.ui.executionOverviewRefreshBusy = false;
+    }
+  }, Math.max(100, Number(delayMs) || 700));
 }
 
 async function saveProviderProfile(profile, options = {}) {
@@ -3853,6 +3891,7 @@ function selectWorkflowTemplate(templateId, options = {}) {
   state.workflowTemplateValidation = null;
   state.selectedTemplateNodeId = String(options.selectedNodeId || state.workflowTemplateDraft.nodes?.[0]?.id || "").trim();
   state.ui.workflowTemplateDirty = false;
+  if (changed) state.ui.workflowTemplateNodeSearch = "";
   renderWorkspaceWorkbench();
 }
 
@@ -3997,6 +4036,7 @@ function rebuildWorkflowTemplateNodes() {
     python_version: state.workflowTemplateDraft?.env?.python || "",
   });
   state.selectedTemplateNodeId = nodes[0]?.id || "";
+  state.ui.workflowTemplateNodeSearch = "";
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
   revealWorkflowTemplateSelection(state.selectedTemplateNodeId, { editor: false });
 }
@@ -5038,6 +5078,7 @@ function workspaceExecutionCanvasMarkup(nodes = [], options = {}) {
     trackParts.push(workspaceFlowNodeMarkup(node, index, { workspace, template, preview, chainMap }));
     if (index < nodes.length - 1) trackParts.push(workspaceFlowConnectorMarkup(node, nodes[index + 1]));
   });
+  const laneRail = workspaceExecutionLaneRailMarkup(workspace, nodes, { preview });
   return `
     <div class="workspace-execution-canvas ${preview ? "preview" : "live"}">
       ${banner ? `
@@ -5056,6 +5097,7 @@ function workspaceExecutionCanvasMarkup(nodes = [], options = {}) {
           <button class="secondary mini" type="button" data-action="workspace-flow-zoom-fit" title="重置缩放并把流程画布居中到视口">适应</button>
         </div>
       </div>
+      ${laneRail}
       <div class="workspace-execution-flow-viewport" tabindex="0" aria-label="执行流程画布">
         <div class="workspace-flow-pan-layer" data-pan-x="${Number(state.ui.workspaceFlowPanX || 0)}" data-pan-y="${Number(state.ui.workspaceFlowPanY || 0)}">
           <div class="workspace-flow-zoom-layer" data-zoom="${workspaceFlowZoomLevel()}">
@@ -5064,6 +5106,64 @@ function workspaceExecutionCanvasMarkup(nodes = [], options = {}) {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  `;
+}
+
+function workspaceExecutionLaneRailMarkup(workspace = selectedWorkspace(), nodes = [], options = {}) {
+  if (options.preview || !workspace?.id) return "";
+  const contract = workspace?.automation?.orchestration_contract && typeof workspace.automation.orchestration_contract === "object"
+    ? workspace.automation.orchestration_contract
+    : null;
+  const lanes = Array.isArray(contract?.lanes) ? contract.lanes.filter((lane) => lane && typeof lane === "object") : [];
+  if (!lanes.length) return "";
+  const nodeIds = new Set((Array.isArray(nodes) ? nodes : []).map((node) => String(node?.id || "").trim()).filter(Boolean));
+  return `
+    <div class="workspace-execution-lane-rail status-${escapeHtml(contract.status || "draft")}" aria-label="编排阶段泳道">
+      <div class="workspace-execution-lane-rail-head">
+        <span>阶段泳道</span>
+        <strong>${escapeHtml(contract.summary || `${lanes.length} 个阶段`)}</strong>
+      </div>
+      <div class="workspace-execution-lane-strip">
+        ${lanes.map((lane) => {
+          const laneNodes = (Array.isArray(lane.nodes) ? lane.nodes : []).filter((node) => {
+            const nodeId = String(node?.id || "").trim();
+            return nodeId && (!nodeIds.size || nodeIds.has(nodeId));
+          });
+          const gaps = Array.isArray(lane.gaps) ? lane.gaps : [];
+          const blockedCount = Number(lane.blocked_count || laneNodes.filter((node) => ["blocked", "failed"].includes(String(node?.status || ""))).length || 0);
+          const readyCount = Number(lane.ready_count || laneNodes.filter((node) => ["ready", "done"].includes(String(node?.status || ""))).length || 0);
+          const label = String(lane.label || lane.id || "阶段").trim();
+          return `
+            <section class="workspace-execution-lane status-${escapeHtml(lane.status || "draft")}" title="${escapeHtml(lane.summary || label)}">
+              <div class="workspace-execution-lane-head">
+                <span>${escapeHtml(label)}</span>
+                <strong>${escapeHtml(`${readyCount}/${laneNodes.length || Number(lane.node_count || 0)} 闭环`)}</strong>
+                <em>${escapeHtml(blockedCount ? `${blockedCount} 阻塞` : gaps.length ? `${gaps.length} 缺口` : "可推进")}</em>
+              </div>
+              <div class="workspace-execution-lane-nodes">
+                ${laneNodes.slice(0, 8).map((node) => {
+                  const nodeId = String(node.id || "").trim();
+                  const active = nodeId && nodeId === String(state.selectedWorkspaceExecutionNodeId || "").trim() ? " active" : "";
+                  const status = String(node.status || "draft").trim() || "draft";
+                  const gapCount = Number(node.input_gap_count || (Array.isArray(node.gaps) ? node.gaps.length : 0) || 0);
+                  return `
+                    <button
+                      class="workspace-execution-lane-node status-${escapeHtml(status)}${active}${gapCount ? " has-gap" : ""}"
+                      type="button"
+                      data-action="select-flow-node"
+                      data-node-id="${escapeHtml(nodeId)}"
+                      title="${escapeHtml(`${node.title || node.kind || "节点"} · ${gapCount ? `${gapCount} 个缺口` : node.output_key || "闭环"}`)}"
+                    >
+                      <span>${escapeHtml(String(node.index || ""))}</span>
+                    </button>
+                  `;
+                }).join("") || '<span class="workspace-execution-lane-empty">等待节点</span>'}
+              </div>
+            </section>
+          `;
+        }).join("")}
       </div>
     </div>
   `;
@@ -5488,11 +5588,13 @@ function workspaceHomeExecutionRoadmapStageItems(workspace = selectedWorkspace()
           title: `定位到${definition.label}阶段第一个节点，并查看门禁、资源、任务和产物详情。`,
         }
       : {
-          label: "补节点",
-          dataAction: "switch-workspace-tab",
-          tab: definition.tab || "workflow",
+          label: definition.tab === "project" ? "补输入" : "模板配置",
+          dataAction: definition.tab === "project" ? "switch-workspace-tab" : "open-workflow-template-studio",
+          tab: definition.tab === "project" ? "project" : "",
           tone: "primary",
-          title: `进入${definition.tab === "project" ? "项目设置" : "工作流"}补齐${definition.label}阶段。`,
+          title: definition.tab === "project"
+            ? `进入项目设置补齐${definition.label}阶段。`
+            : `进入配置中心模板工作室补齐${definition.label}阶段。`,
         };
     const title = stageNodes.length
       ? `${stageNodes.length} 节点 · ${workspaceStatusLabel(status)}`
@@ -5578,7 +5680,7 @@ function workspaceHomeExecutionRoadmapMarkup(workspace = selectedWorkspace(), te
         </div>
         <p title="${escapeHtml(currentStage?.detail || "")}">${escapeHtml(currentStage?.detail || "系统会按输入、发现、环境、GPU、运行和产物回收推进。")}</p>
         <div class="workspace-home-roadmap-focus-actions">
-          ${workspaceHomeActionButtonMarkup(currentStage?.action || { label: "工作流", dataAction: "switch-workspace-tab", tab: "workflow", tone: "secondary" }, currentStage?.detail)}
+          ${workspaceHomeActionButtonMarkup(currentStage?.action || { label: "链路诊断", dataAction: "open-workspace-chain-inspect", tone: "secondary" }, currentStage?.detail)}
         </div>
       </div>
       <details class="workspace-home-collapse workspace-home-roadmap-details">
@@ -6211,7 +6313,7 @@ function workspaceRuntimeBlueprintItems(workspace = selectedWorkspace(), formDat
       status: envStatus,
       title: envName || "环境待推断",
       detail: setupCommand || (workspaceDir ? "可从依赖文件推断环境" : "先补工作目录或依赖线索"),
-      buttons: [{ label: envName ? "看工作流" : "补环境", action: "switchWorkspaceTab('workflow')" }],
+      buttons: [{ label: envName ? "链路诊断" : "模板配置", dataAction: envName ? "open-workspace-chain-inspect" : "open-workflow-template-studio", tone: "secondary" }],
     },
     {
       id: "gpu",
@@ -6230,7 +6332,7 @@ function workspaceRuntimeBlueprintItems(workspace = selectedWorkspace(), formDat
       buttons: [
         runCommand && workspace?.id
           ? { label: "运行工作流", dataAction: "run-selected-workspace", tone: "primary" }
-          : { label: "补命令", action: "switchWorkspaceTab('workflow')" },
+          : { label: "模板配置", dataAction: "open-workflow-template-studio", tone: "secondary", title: "进入配置中心模板工作室补齐运行命令。" },
       ],
     },
     {
@@ -10668,7 +10770,7 @@ function workspaceHomeLayerSummaryMarkup(workspace = selectedWorkspace(), templa
       status: ioGaps ? "warning" : "ready",
       title: `${Math.max(0, total - ioGaps)}/${total} 有交接`,
       detail: ioGaps ? `${ioGaps} 个节点缺输入/输出交接` : "input/output 交接已闭合",
-      action: { label: "工作流", dataAction: "switch-workspace-tab", tab: "workflow", title: "查看节点 input_mapping、output_key 和上下游交接" },
+      action: { label: "诊断", dataAction: "open-workspace-chain-inspect", title: "只读查看节点 input_mapping、output_key 和上下游交接" },
     },
   ];
   const current = items.find((item) => ["blocked", "failed"].includes(String(item.status || "")))
@@ -10941,9 +11043,9 @@ function workspaceHomeRunsMarkup(workspace = selectedWorkspace()) {
         title: "让系统基于失败或阻塞状态判断回填、重试或停止。",
       }
     : {
-        label: jobs.length ? "运行记录" : workspace?.id ? "执行链" : "配置",
-        dataAction: "switch-workspace-tab",
-        tab: jobs.length ? "runs" : workspace?.id ? "workflow" : "project",
+        label: jobs.length ? "运行记录" : workspace?.id ? "链路诊断" : "配置",
+        dataAction: jobs.length ? "switch-workspace-tab" : workspace?.id ? "open-workspace-chain-inspect" : "switch-workspace-tab",
+        tab: jobs.length ? "runs" : workspace?.id ? "" : "project",
         tone: "secondary",
         title: jobs.length ? "查看所有运行记录、输出和重试入口。" : "查看启动运行所需的最小信息。",
       };
@@ -13015,6 +13117,29 @@ function workspaceRunEventTimelineMarkup(run = {}, limit = 6) {
   `;
 }
 
+function workspaceRunCompareBaseStore() {
+  if (!state.ui.workspaceRunCompareBaseByWorkspace || typeof state.ui.workspaceRunCompareBaseByWorkspace !== "object") {
+    state.ui.workspaceRunCompareBaseByWorkspace = {};
+  }
+  return state.ui.workspaceRunCompareBaseByWorkspace;
+}
+
+function workspaceRunCompareBaseId(workspaceId = state.selectedWorkspaceId) {
+  const key = String(workspaceId || "").trim();
+  if (!key) return "";
+  return String(workspaceRunCompareBaseStore()[key] || "").trim();
+}
+
+function setWorkspaceRunCompareBaseId(runId = "", workspaceId = state.selectedWorkspaceId) {
+  const key = String(workspaceId || "").trim();
+  const id = String(runId || "").trim();
+  if (!key) return;
+  const store = workspaceRunCompareBaseStore();
+  if (id) store[key] = id;
+  else delete store[key];
+  state.ui.workspaceRunCompareBaseId = id;
+}
+
 function workspaceExecutionRunItemMarkup(run = {}) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
   const displaySteps = [...steps, ...workspaceLiveAgentSyntheticStepsForRun(run, steps)];
@@ -13024,7 +13149,7 @@ function workspaceExecutionRunItemMarkup(run = {}) {
     ? run.package_snapshot.delivery_closure
     : null;
   const deliveryMarkup = delivery ? workspaceRunDeliveryClosureMarkup(delivery) : "";
-  const compareBaseId = String(state.ui.workspaceRunCompareBaseId || "").trim();
+  const compareBaseId = workspaceRunCompareBaseId();
   const runId = String(run.id || "").trim();
   const compareAction = compareBaseId && compareBaseId !== runId
     ? `<button class="secondary mini" type="button" data-action="compare-workspace-run" data-run-id="${escapeHtml(runId)}" title="用已设置的基准运行与这次运行生成结构化对比 JSON">对比</button>`
@@ -14002,10 +14127,9 @@ function workspaceAutomationDecisionModel(workspace = selectedWorkspace()) {
           title: "复制当前结构化执行包 JSON。",
         }
       : {
-          label: "查看工作流",
-          dataAction: "switch-workspace-tab",
-          tab: "workflow",
-          title: "定位节点链、命令、门禁和交接关系。",
+          label: "链路诊断",
+          dataAction: "open-workspace-chain-inspect",
+          title: "只读定位节点链、命令、门禁和交接关系。",
         },
     facts,
     blockers,
@@ -14524,8 +14648,11 @@ function workspaceHomeRecommendations() {
   if (!runCommand) {
     items.push({
       title: "明确运行入口",
-      detail: "当前还没看到清晰的运行命令，先把运行节点补完整，后面才适合提交任务或批量调度。",
-      buttons: [{ label: "去工作流", dataAction: "switch-workspace-tab", tab: "workflow", tone: "primary", title: "进入工作流补齐 run.command、门禁和节点交接。" }],
+      detail: "当前还没看到清晰的运行命令，先到配置中心模板里补运行节点；驾驶舱这里只做校验和执行反馈。",
+      buttons: [
+        { label: "模板配置", dataAction: "open-workflow-template-studio", tone: "primary", title: "进入配置中心模板工作室补齐 run.command、门禁和节点交接。" },
+        { label: "链路诊断", dataAction: "open-workspace-chain-inspect", tone: "secondary", title: "只读查看当前实例节点链、I/O 交接和阻塞原因。" },
+      ],
     });
   }
   if (!state.providerProfiles.length) {
@@ -14558,7 +14685,7 @@ function workspaceHomeRecommendations() {
       detail: "项目已经有保存记录，也看到了运行入口，现在最值得做的是跑一轮，把真实输出接回工作流。",
       buttons: [
         { label: "自动推进", dataAction: "advance-workspace-automation", tone: "primary" },
-        { label: "检查节点链", dataAction: "switch-workspace-tab", tab: "workflow", tone: "secondary", title: "检查节点链、运行入口和上下游交接。" },
+        { label: "链路诊断", dataAction: "open-workspace-chain-inspect", tone: "secondary", title: "只读检查节点链、运行入口和上下游交接。" },
       ],
     });
   }
@@ -14755,8 +14882,8 @@ function workspaceHomeCockpitMarkup(workspace = selectedWorkspace(), formData = 
       status: chainStatus,
       title: `${state.workspaceNodesDraft.length} 节点`,
       detail: runCommand ? compactText(runCommand, 74) : "run.command 待补齐",
-      action: "switchWorkspaceTab('workflow')",
-      button: "节点链",
+      dataAction: "open-workspace-chain-inspect",
+      button: "链路诊断",
     },
     {
       label: "数据集",
@@ -14842,7 +14969,7 @@ function workspaceHomeCockpitMarkup(workspace = selectedWorkspace(), formData = 
       <strong title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</strong>
       <em title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</em>
       <div class="workspace-home-cockpit-card-actions">
-        ${(item.buttons || [{ label: item.button, action: item.action, tone: "secondary", title: item.detail }]).map((button) => workspaceHomeActionButtonMarkup(button, item.detail)).join("")}
+        ${(item.buttons || [{ label: item.button, action: item.action, dataAction: item.dataAction, tone: "secondary", title: item.detail }]).map((button) => workspaceHomeActionButtonMarkup(button, item.detail)).join("")}
       </div>
     </article>
   `).join("");
@@ -14898,7 +15025,9 @@ function workspaceHomeContextMarkup(workspace = selectedWorkspace(), formData = 
       ? { label: "自动推进", dataAction: "advance-workspace-automation", tone: "primary", title: "按当前上下文自动决定发现、回填、调度、门禁或运行。" }
       : { label: "创建并发现", dataAction: "create-workspace-discover", tone: "primary", title: "创建项目实例并先运行安全发现链。" });
   const secondaryAction = currentRecommendation?.buttons?.[1]
-    || { label: workspace?.id ? "执行链" : "项目设置", dataAction: "switch-workspace-tab", tab: workspace?.id ? "workflow" : "project", tone: "secondary", title: "查看当前上下文缺口对应的配置位置。" };
+    || (workspace?.id
+      ? { label: "链路诊断", dataAction: "open-workspace-chain-inspect", tone: "secondary", title: "只读查看当前上下文缺口对应的链路位置。" }
+      : { label: "项目设置", dataAction: "switch-workspace-tab", tab: "project", tone: "secondary", title: "补齐创建实例所需的目标和来源。" });
   const contextButtons = currentRecommendation?.buttons?.length
     ? currentRecommendation.buttons.slice(0, 2)
     : [primaryAction, secondaryAction];
@@ -15056,6 +15185,32 @@ function switchWorkspaceTab(tab, options = {}) {
   if (next !== "home" && activeRevealTarget && options.persist !== false && options.reveal !== false) {
     requestAnimationFrame(() => revealWorkspaceElement(activeRevealTarget, { block: "start" }));
   }
+}
+
+function workspaceConfigTabForTarget(targetId = "") {
+  const id = String(targetId || "").trim();
+  if (id.includes("Tool")) return "tools";
+  if (id.includes("Model") || id.includes("Provider")) return "model";
+  if (id.includes("Agent")) return "agents";
+  if (id.includes("Workflow") || id.includes("Node")) return "workflow";
+  if (id.includes("Run")) return "runs";
+  return "project";
+}
+
+function openWorkspaceConfigDetail(targetId = "", options = {}) {
+  const id = String(targetId || "").trim();
+  const tab = options.tab || workspaceConfigTabForTarget(id);
+  switchWorkspaceTab(tab, { reveal: false });
+  state.ui.workspaceProjectConfigOpen = true;
+  saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "1");
+  syncWorkspaceProjectConfigDrawer({ scroll: false });
+  const details = id ? $(id) : null;
+  if (details) details.open = true;
+  const target = details || $(workspaceManagePanelId(tab)) || $("workspaceProjectConfigDrawer");
+  requestAnimationFrame(() => {
+    if (target?.id) revealWorkspacePanelTarget(target.id, { block: options.block || "center" });
+    else target?.scrollIntoView?.({ block: options.block || "center", behavior: "smooth" });
+  });
 }
 
 function workspaceChatContextReflectionMarkup(message = {}, options = {}) {
@@ -15719,6 +15874,146 @@ function renderWorkspaceModel() {
   restoreActiveInput(_focusCapture);
 }
 
+function workspaceRunFilterState() {
+  return {
+    status: String(state.ui.workspaceRunFilterStatus || "").trim(),
+    nodeKind: String(state.ui.workspaceRunFilterNodeKind || "").trim(),
+    jobId: String(state.ui.workspaceRunFilterJobId || "").trim().toLowerCase(),
+    agentExecutionId: String(state.ui.workspaceRunFilterAgentExecutionId || "").trim().toLowerCase(),
+  };
+}
+
+function workspaceRunFilterActiveCount(filters = workspaceRunFilterState()) {
+  return [
+    filters.status,
+    filters.nodeKind,
+    filters.jobId,
+    filters.agentExecutionId,
+  ].filter(Boolean).length;
+}
+
+function workspaceRunStepList(run = {}) {
+  return Array.isArray(run.steps) ? run.steps.filter((step) => step && typeof step === "object") : [];
+}
+
+function workspaceRunStepJobIds(step = {}) {
+  return [
+    step.job_id,
+    ...(Array.isArray(step.child_job_ids) ? step.child_job_ids : []),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function workspaceRunStepAgentExecutionIds(step = {}) {
+  return [
+    step.agent_execution_id,
+    ...(Array.isArray(step.agent_execution_ids) ? step.agent_execution_ids : []),
+  ].map((item) => String(item || "").trim()).filter(Boolean);
+}
+
+function workspaceRunMatchesFilters(run = {}, filters = workspaceRunFilterState()) {
+  const steps = workspaceRunStepList(run);
+  if (filters.status && String(run.status || "").trim() !== filters.status) return false;
+  if (filters.nodeKind && !steps.some((step) => String(step.node_kind || "").trim() === filters.nodeKind)) return false;
+  if (filters.jobId) {
+    const jobIds = steps.flatMap((step) => workspaceRunStepJobIds(step));
+    if (!jobIds.some((jobId) => jobId.toLowerCase().includes(filters.jobId))) return false;
+  }
+  if (filters.agentExecutionId) {
+    const agentIds = steps.flatMap((step) => workspaceRunStepAgentExecutionIds(step));
+    if (!agentIds.some((agentId) => agentId.toLowerCase().includes(filters.agentExecutionId))) return false;
+  }
+  return true;
+}
+
+function filterWorkspaceExecutionRuns(runs = [], filters = workspaceRunFilterState()) {
+  const list = Array.isArray(runs) ? runs : [];
+  if (!workspaceRunFilterActiveCount(filters)) return list;
+  return list.filter((run) => workspaceRunMatchesFilters(run, filters));
+}
+
+function workspaceRunFilterOptions(runs = []) {
+  const statusOrder = ["queued", "starting", "running", "blocked", "failed", "stopped", "done"];
+  const statuses = new Set();
+  const nodeKinds = new Set();
+  (Array.isArray(runs) ? runs : []).forEach((run) => {
+    const status = String(run?.status || "").trim();
+    if (status) statuses.add(status);
+    workspaceRunStepList(run).forEach((step) => {
+      const kind = String(step.node_kind || "").trim();
+      if (kind) nodeKinds.add(kind);
+    });
+  });
+  return {
+    statuses: Array.from(statuses).sort((left, right) => {
+      const leftIndex = statusOrder.indexOf(left);
+      const rightIndex = statusOrder.indexOf(right);
+      if (leftIndex !== rightIndex) return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
+      return left.localeCompare(right);
+    }),
+    nodeKinds: Array.from(nodeKinds).sort((left, right) => left.localeCompare(right)),
+  };
+}
+
+function workspaceRunFilterBarMarkup(runs = [], filteredRuns = []) {
+  const filters = workspaceRunFilterState();
+  const activeCount = workspaceRunFilterActiveCount(filters);
+  const options = workspaceRunFilterOptions(runs);
+  return `
+    <div class="workspace-run-filterbar">
+      <label>
+        状态
+        <select data-workspace-run-filter="status" title="按 run 状态过滤">
+          <option value="">全部</option>
+          ${options.statuses.map((status) => `<option value="${escapeHtml(status)}" ${filters.status === status ? "selected" : ""}>${escapeHtml(zhStatus(status))}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        节点
+        <select data-workspace-run-filter="nodeKind" title="按 run step 的 node_kind 过滤">
+          <option value="">全部节点</option>
+          ${options.nodeKinds.map((kind) => `<option value="${escapeHtml(kind)}" ${filters.nodeKind === kind ? "selected" : ""}>${escapeHtml(workspaceNodeLabel(kind))}</option>`).join("")}
+        </select>
+      </label>
+      <label>
+        Job
+        <input data-workspace-run-filter="jobId" value="${escapeHtml(filters.jobId)}" placeholder="job id" />
+      </label>
+      <label>
+        Agent
+        <input data-workspace-run-filter="agentExecutionId" value="${escapeHtml(filters.agentExecutionId)}" placeholder="agent execution id" />
+      </label>
+      <span class="workspace-run-filter-count">${escapeHtml(activeCount ? `${filteredRuns.length}/${runs.length}` : `${runs.length}`)} 条</span>
+      <button class="secondary mini" type="button" data-action="reset-workspace-run-filters" title="清空运行记录筛选" ${activeCount ? "" : "disabled"}>重置</button>
+    </div>
+  `;
+}
+
+function updateWorkspaceRunFilter(key = "", value = "") {
+  const normalized = String(key || "").trim();
+  const fieldMap = {
+    status: "workspaceRunFilterStatus",
+    nodeKind: "workspaceRunFilterNodeKind",
+    jobId: "workspaceRunFilterJobId",
+    agentExecutionId: "workspaceRunFilterAgentExecutionId",
+  };
+  const field = fieldMap[normalized];
+  if (!field) return;
+  state.ui[field] = String(value || "").trim();
+  preserveActiveInput(() => renderWorkspaceRuns());
+}
+
+function clearWorkspaceRunFilterState() {
+  state.ui.workspaceRunFilterStatus = "";
+  state.ui.workspaceRunFilterNodeKind = "";
+  state.ui.workspaceRunFilterJobId = "";
+  state.ui.workspaceRunFilterAgentExecutionId = "";
+}
+
+function resetWorkspaceRunFilters() {
+  clearWorkspaceRunFilterState();
+  renderWorkspaceRuns();
+}
+
 function renderWorkspaceRuns() {
   const workspace = selectedWorkspace();
   const meta = $("workspaceRunMeta");
@@ -15745,6 +16040,8 @@ function renderWorkspaceRuns() {
     return;
   }
   const runs = workspaceExecutionRuns(workspace);
+  const filteredRuns = filterWorkspaceExecutionRuns(runs);
+  const runFilterActiveCount = workspaceRunFilterActiveCount();
   const latestRun = runs[0] || null;
   const jobs = workspaceJobs();
   const activeCount = jobs.filter((job) => isJobActive(job)).length;
@@ -15766,13 +16063,15 @@ function renderWorkspaceRuns() {
     : { label: "运行工作流", dataAction: "run-selected-workspace", tone: "primary", title: "按当前节点链提交完整工作流；门禁失败时不会创建半截队列。" };
   const secondaryAction = jobs.length
     ? { label: "运行工作流", dataAction: "run-selected-workspace", tone: "secondary", title: "重新提交当前工作流。" }
-    : { label: "查看执行链", dataAction: "switch-workspace-tab", tab: "workflow", tone: "secondary", title: "先检查节点链、Agent 和资源策略。" };
+    : { label: "链路诊断", dataAction: "open-workspace-chain-inspect", tone: "secondary", title: "只读检查节点链、Agent 和资源策略。" };
   const latestNodeTitle = latest ? String(latest.metadata?.node_title || latest.metadata?.node_kind || latest.kind || "任务") : "等待首次运行";
   const latestServer = latest ? serverById(latest.server_id) : null;
   const latestGpu = latest ? workspaceJobGpuLabel(latest) : "";
   const realtimeText = workspaceRealtimeStatusText();
   meta.textContent = [
-    runs.length ? `${runs.length} 次执行 · ${jobs.length} 个任务` : `${jobs.length} 个任务`,
+    runs.length
+      ? `${runFilterActiveCount ? `${filteredRuns.length}/${runs.length}` : runs.length} 次执行 · ${jobs.length} 个任务`
+      : `${jobs.length} 个任务`,
     realtimeText,
   ].filter(Boolean).join(" · ");
   summary.innerHTML = `
@@ -15832,7 +16131,10 @@ function renderWorkspaceRuns() {
     return;
   }
   if (runs.length) {
-    list.innerHTML = runs.slice(0, 12).map((run) => workspaceExecutionRunItemMarkup(run)).join("");
+    const filterMarkup = workspaceRunFilterBarMarkup(runs, filteredRuns);
+    list.innerHTML = filteredRuns.length
+      ? `${filterMarkup}${filteredRuns.slice(0, 12).map((run) => workspaceExecutionRunItemMarkup(run)).join("")}`
+      : `${filterMarkup}<div class="empty">没有匹配的运行记录。可以重置筛选，或换一个状态、节点、Job/Agent ID。</div>`;
     return;
   }
   list.innerHTML = jobs.slice(0, 24).map((job) => {
@@ -16215,7 +16517,10 @@ function selectWorkspace(workspaceId, options = {}) {
   if (!workspace) return;
   const changed = state.selectedWorkspaceId !== workspace.id;
   state.selectedWorkspaceId = workspace.id;
-  if (changed) state.workspaceTemplateDiff = { workspaceId: workspace.id, busy: false, error: "", payload: null };
+  if (changed) {
+    state.workspaceTemplateDiff = { workspaceId: workspace.id, busy: false, error: "", payload: null };
+    clearWorkspaceRunFilterState();
+  }
   if (changed && options.persist !== false) markWorkspaceUiInteraction();
   const executionNodes = Array.isArray(workspace.execution?.nodes) && workspace.execution.nodes.length ? workspace.execution.nodes : (workspace.nodes || []);
   const executionNodeIds = new Set(executionNodes.map((node) => String(node?.id || "")).filter(Boolean));
@@ -17274,8 +17579,12 @@ async function stopProcess(event, serverId, pid, options = {}) {
   const button = event?.currentTarget || options.button || null;
   const server = serverById(serverId);
   const process = (server?.processes || []).find((item) => String(item.pid) === String(pid));
-  const confirmedNonOwner = Boolean(options.confirmedNonOwner);
-  if (!confirmedNonOwner && !confirmStopProcess(server, process, pid)) return;
+  let confirmedNonOwner = Boolean(options.confirmedNonOwner);
+  const needsLocalConfirmation = !confirmedNonOwner && processStopNeedsConfirmation(server, process);
+  if (needsLocalConfirmation) {
+    if (!confirmStopProcess(server, process, pid)) return;
+    confirmedNonOwner = true;
+  }
   if (button) {
     button.disabled = true;
     button.textContent = "关闭中";
@@ -18612,6 +18921,7 @@ function renderRuntimeStoragePanel(payload = {}) {
   const previewAgeInput = $("runtimePreviewMaxAgeHours");
   const previewSizeInput = $("runtimePreviewMaxSizeMib");
   const logAgeInput = $("runtimeLogMaxAgeHours");
+  const logFileInput = $("runtimeLogMaxFileMib");
   const logSizeInput = $("runtimeLogMaxSizeMib");
   const intervalInput = $("runtimeAutoIntervalMinutes");
   const remoteInput = $("runtimeRemoteCleanupEnabled");
@@ -18651,6 +18961,7 @@ function renderRuntimeStoragePanel(payload = {}) {
   if (previewAgeInput) previewAgeInput.value = String(settings.preview_max_age_hours ?? 24);
   if (previewSizeInput) previewSizeInput.value = String(settings.preview_max_size_mib ?? 512);
   if (logAgeInput) logAgeInput.value = String(settings.log_max_age_hours ?? 168);
+  if (logFileInput) logFileInput.value = String(settings.log_max_file_mib ?? 128);
   if (logSizeInput) logSizeInput.value = String(settings.log_max_size_mib ?? 2048);
   if (intervalInput) intervalInput.value = String(settings.auto_cleanup_interval_minutes ?? 60);
   if (remoteInput) remoteInput.checked = settings.remote_log_cleanup_enabled !== false;
@@ -18680,6 +18991,7 @@ function runtimeStorageSettingsInputPayload() {
   const previewAgeInput = $("runtimePreviewMaxAgeHours");
   const previewSizeInput = $("runtimePreviewMaxSizeMib");
   const logAgeInput = $("runtimeLogMaxAgeHours");
+  const logFileInput = $("runtimeLogMaxFileMib");
   const logSizeInput = $("runtimeLogMaxSizeMib");
   const intervalInput = $("runtimeAutoIntervalMinutes");
   const remoteInput = $("runtimeRemoteCleanupEnabled");
@@ -18687,6 +18999,7 @@ function runtimeStorageSettingsInputPayload() {
     preview_max_age_hours: Number(previewAgeInput?.value || 0),
     preview_max_size_mib: Number(previewSizeInput?.value || 0),
     log_max_age_hours: Number(logAgeInput?.value || 0),
+    log_max_file_mib: Number(logFileInput?.value || 0),
     log_max_size_mib: Number(logSizeInput?.value || 0),
     auto_cleanup_interval_minutes: Number(intervalInput?.value || 60),
     remote_log_cleanup_enabled: Boolean(remoteInput?.checked),
@@ -19670,6 +19983,12 @@ function workflowTemplateEdgeSourceOptions(edge = {}) {
   ];
 }
 
+function workflowTemplateEdgeStatusText(edge = {}, health = {}) {
+  if (health.status === "ready") return `${Number(edge.rows?.length || 0)} 条映射已保存`;
+  if (health.status === "blocked") return health.summary || "映射阻塞";
+  return health.summary || "等待确认映射";
+}
+
 function workflowTemplateEdgeInspectorMarkup(nodes = [], selectedIndex = 0) {
   const edge = workflowTemplateEdgeState(nodes, selectedIndex);
   const target = edge.targetNode;
@@ -19689,11 +20008,7 @@ function workflowTemplateEdgeInspectorMarkup(nodes = [], selectedIndex = 0) {
     requiresPreviousOutput: edge.targetIndex > 0,
     savedCount: edge.rows.length,
   });
-  const statusText = health.status === "ready"
-    ? `${edge.rows.length} 条映射已保存`
-    : health.status === "blocked"
-      ? health.summary || "映射阻塞"
-      : health.summary || "等待确认映射";
+  const statusText = workflowTemplateEdgeStatusText(edge, health);
   const rowMarkup = workflowTemplateMappingRowsMarkup(edge.displayRows, sourceOptions, {
     nameAttr: "data-edge-input-mapping-name",
     sourceAttr: "data-edge-input-mapping-source",
@@ -19840,8 +20155,9 @@ function refreshWorkflowTemplateMappingEditorHealth(editor, options = {}) {
     : workflowTemplateInputMappingEntriesFromEditor(editor);
   let health;
   let sourceOptions;
+  let edge = null;
   if (edgeMode) {
-    const edge = workflowTemplateEdgeState(nodes, index);
+    edge = workflowTemplateEdgeState(nodes, index);
     sourceOptions = workflowTemplateEdgeSourceOptions(edge);
     health = workflowTemplateMappingHealth(entries, {
       targetInputs: edge.targetInputs,
@@ -19871,6 +20187,13 @@ function refreshWorkflowTemplateMappingEditorHealth(editor, options = {}) {
     const replacement = document.createElement("div");
     replacement.innerHTML = workflowTemplateMappingHealthMarkup(health).trim();
     summary.replaceWith(replacement.firstElementChild);
+  }
+  if (edgeMode && edge) {
+    const status = String(health.status || "warning");
+    editor.classList.remove("status-ready", "status-warning", "status-blocked");
+    editor.classList.add(`status-${status}`);
+    const edgeStatus = editor.querySelector(".workflow-template-edge-head em");
+    if (edgeStatus) edgeStatus.textContent = workflowTemplateEdgeStatusText(edge, health);
   }
   Array.from(editor.querySelectorAll(".workflow-template-mapping-row")).forEach((row, rowIndex) => {
     const rowHealth = health.rowHealth.find((item) => item.index === rowIndex) || {};
@@ -20207,6 +20530,18 @@ function openWorkspaceChainInspect(options = {}) {
   }
 }
 
+function openWorkflowTemplateStudio(options = {}) {
+  state.ui.workspaceManageTab = "templates";
+  markWorkspaceUiInteraction();
+  saveStoredValue(STORAGE_KEYS.workspaceManageTab, "templates");
+  switchWorkspaceMode("manage");
+  if (options.reveal !== false) {
+    requestAnimationFrame(() => {
+      revealWorkspacePanelTarget("workspaceManageTemplatesPanel", { block: "start" });
+    });
+  }
+}
+
 function workflowTemplateSummaryMarkup(template) {
   if (!template) return '<div class="empty">还没有模板。先在管理模式创建一条默认流。</div>';
   const nodes = Array.isArray(template.nodes) ? template.nodes : [];
@@ -20424,13 +20759,12 @@ function workspaceDetailActionsMarkup(workspace, node) {
   return `
     <div class="workspace-detail-actions">
       <button class="primary" type="button" data-action="advance-workspace-automation" title="让系统根据当前门禁状态自动决定：发现、观察、复查失败、回填后完整运行">自动推进</button>
-      <button class="secondary" type="button" data-action="apply-workspace-automation" title="把默认建议和发现证据回填到节点配置，例如路径、环境命令、GPU 策略和产物路径">回填建议/发现</button>
       <button class="secondary" type="button" data-action="run-workspace-discovery" title="提交安全发现链，只收集源码、路径、数据、环境、GPU 和产物入口证据">自动发现</button>
       ${workspaceHomeActionButtonMarkup({ label: "运行工作流", dataAction: "run-selected-workspace", tone: "secondary", title: "在门禁通过后提交完整工作流；门禁不通过时不会创建半截队列" })}
       ${node?.id ? `<button class="secondary" type="button" data-action="run-workspace-to-selected-node" data-node-id="${escapeHtml(node.id)}" title="从起点运行到当前选中节点，用于验证前置 source/data/env/GPU 链路">运行到当前节点</button>` : ""}
       ${node?.id ? `<button class="secondary" type="button" data-action="run-selected-node" data-node-id="${escapeHtml(node.id)}" title="只运行当前选中的节点，用于单点调试或补证据">运行当前节点</button>` : ""}
       ${node?.job_id ? `<button class="secondary" type="button" data-action="open-selected-node-log" data-job-id="${escapeHtml(node.job_id)}" title="打开当前节点最近一次绑定任务的日志输出">打开最近输出</button>` : ""}
-      ${workspace?.id ? `<button class="secondary" type="button" data-action="fill-job-from-selected-workspace" title="把当前工作区和运行节点填入通用执行面板，便于手动调整命令后提交">填入执行面板</button>` : ""}
+      ${workspace?.id ? `<button class="secondary" type="button" data-action="open-workspace-chain-inspect" title="切换到配置中心查看链路诊断和可编辑配置">配置中心</button>` : ""}
     </div>
   `;
 }
@@ -20814,7 +21148,78 @@ function renderWorkflowTemplateNodeList() {
   }).join("");
 }
 
-function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = [], ioState = null) {
+function workflowTemplateNodeSearchText(node = {}, index = 0, ioState = null) {
+  const handler = node.handler && typeof node.handler === "object" ? node.handler : {};
+  const agent = globalAgentById(handler.agent_id || "");
+  const mapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
+  const mappingText = Object.entries(mapping)
+    .map(([name, source]) => `${name} ${source}`)
+    .join(" ");
+  return [
+    String(index + 1),
+    node.id,
+    node.title,
+    node.kind,
+    workspaceNodeLabel(node.kind || ""),
+    workspaceStarterNodePhase(node.kind || ""),
+    node.output_key,
+    ioState?.outputKey,
+    ioState?.hint,
+    handler.mode,
+    handler.name,
+    handler.agent_id,
+    agent?.name,
+    agent?.role,
+    mappingText,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function workflowTemplateNodeMatchesSearch(node = {}, index = 0, ioState = null, query = state.ui.workflowTemplateNodeSearch) {
+  const text = String(query || "").trim().toLowerCase();
+  if (!text) return true;
+  return text.split(/\s+/).every((part) => workflowTemplateNodeSearchText(node, index, ioState).includes(part));
+}
+
+function workflowTemplateCanvasSearchState(nodes = [], ioStates = []) {
+  const query = String(state.ui.workflowTemplateNodeSearch || "").trim();
+  const matches = !query
+    ? []
+    : (Array.isArray(nodes) ? nodes : [])
+      .map((node, index) => ({ node, index }))
+      .filter(({ node, index }) => workflowTemplateNodeMatchesSearch(node, index, ioStates[index], query));
+  const selectedId = String(state.selectedTemplateNodeId || "").trim();
+  const selectedMatchIndex = matches.findIndex(({ node }) => String(node?.id || "") === selectedId);
+  return {
+    query,
+    matches,
+    matchIndexes: new Set(matches.map((item) => item.index)),
+    selectedMatchIndex,
+    label: query
+      ? matches.length
+        ? `${selectedMatchIndex >= 0 ? selectedMatchIndex + 1 : 0}/${matches.length}`
+        : "0/0"
+      : "未筛选",
+  };
+}
+
+function workflowTemplateCanvasSearchToolsMarkup(search = {}) {
+  const query = String(search.query || "");
+  const hasQuery = Boolean(query);
+  return `
+    <div class="workflow-template-canvas-tools">
+      <label class="workflow-template-canvas-search" title="按节点标题、类型、Agent、output_key 或 input_mapping 查找">
+        <span>查找</span>
+        <input data-template-node-search value="${escapeHtml(query)}" placeholder="节点 / kind / output / Agent" />
+      </label>
+      <span class="workflow-template-canvas-search-count" data-template-node-search-count>${escapeHtml(search.label || "未筛选")}</span>
+      <button class="secondary mini" type="button" data-action="template-search-prev" title="跳到上一个匹配节点" ${hasQuery && search.matches?.length ? "" : "disabled"}>上一个</button>
+      <button class="secondary mini" type="button" data-action="template-search-next" title="跳到下一个匹配节点" ${hasQuery && search.matches?.length ? "" : "disabled"}>下一个</button>
+      <button class="secondary mini" type="button" data-action="template-search-clear" title="清空节点查找" ${hasQuery ? "" : "disabled"}>清空</button>
+    </div>
+  `;
+}
+
+function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = [], ioState = null, options = {}) {
   const active = node.id === state.selectedTemplateNodeId ? " active" : "";
   const statusClass = workspaceExecutionCanvasStatusClass(node.status || "ready");
   const phase = workspaceStarterNodePhase(node.kind || "");
@@ -20832,9 +21237,12 @@ function workflowTemplateNodeFlowMarkup(node = {}, index = 0, nodes = [], ioStat
       : handler.name || "人工";
   const canMoveUp = index > 0;
   const canMoveDown = index < nodes.length - 1;
+  const searchQuery = String(options.searchQuery || "").trim();
+  const searchMatched = !searchQuery || workflowTemplateNodeMatchesSearch(node, index, io, searchQuery);
+  const searchClass = searchQuery ? (searchMatched ? " search-match" : " search-dim") : "";
   return `
     <article
-      class="workflow-template-flow-node workspace-flow-node status-${escapeHtml(statusClass)} tone-${escapeHtml(phaseTone)}${active}"
+      class="workflow-template-flow-node workspace-flow-node status-${escapeHtml(statusClass)} tone-${escapeHtml(phaseTone)}${active}${searchClass}"
       data-node-id="${escapeHtml(node.id || "")}"
       data-index="${escapeHtml(String(index))}"
       title="${escapeHtml(`${node.title || workspaceNodeLabel(node.kind)} · ${agentLabel} · ${io.hint}`)}"
@@ -20941,9 +21349,11 @@ function workflowTemplateNodeIoState(node = {}, index = 0, nodes = null) {
   return { outputKey, inputCount, status, hint, health };
 }
 
-function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "", ioStates = []) {
+function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "", ioStates = [], search = null) {
   const phases = Object.keys(WORKSPACE_FLOW_PHASE_TONES);
   const buckets = new Map(phases.map((phase) => [phase, []]));
+  const query = String(search?.query || "").trim();
+  const matchIndexes = search?.matchIndexes instanceof Set ? search.matchIndexes : new Set();
   nodes.forEach((node, index) => {
     const phase = workspaceStarterNodePhase(node.kind || "");
     const bucket = buckets.get(phase) || buckets.get("其他") || [];
@@ -20978,9 +21388,10 @@ function workflowTemplatePhaseMapMarkup(nodes = [], selectedNodeId = "", ioState
                 const node = item.node || {};
                 const title = node.title || workspaceNodeLabel(node.kind || "");
                 const active = String(node.id || "") === String(selectedNodeId || "") ? " active" : "";
+                const searchClass = query ? (matchIndexes.has(item.index) ? " search-match" : " search-dim") : "";
                 return `
                   <button
-                    class="workflow-template-phase-node status-${escapeHtml(item.io.status)}${active}"
+                    class="workflow-template-phase-node status-${escapeHtml(item.io.status)}${active}${searchClass}"
                     type="button"
                     data-action="select-template-node"
                     data-node-id="${escapeHtml(node.id || "")}"
@@ -21011,14 +21422,15 @@ function renderWorkflowTemplateCanvas() {
   const selectedIndex = Math.max(0, nodes.findIndex((node) => node.id === state.selectedTemplateNodeId));
   const selectedNode = nodes[selectedIndex] || nodes[0] || {};
   const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
+  const search = workflowTemplateCanvasSearchState(nodes, ioStates);
   const mappedCount = ioStates.filter((item) => item.status === "ready").length;
   const trackParts = [];
   nodes.forEach((node, index) => {
-    trackParts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index]));
+    trackParts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index], { searchQuery: search.query }));
     if (index < nodes.length - 1) trackParts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1, nodes, ioStates[index + 1]));
   });
   const edgeMarkup = workflowTemplateEdgeInspectorMarkup(nodes, selectedIndex);
-  const phaseMap = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates);
+  const phaseMap = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates, search);
   root.innerHTML = `
     <div class="workflow-template-canvas-head">
       <div>
@@ -21032,6 +21444,7 @@ function renderWorkflowTemplateCanvas() {
         <button class="secondary mini" type="button" data-action="fill-template-all-missing-mapping" title="为全链声明输入补齐缺失 input_mapping，不覆盖已有手工映射">补齐映射</button>
       </div>
     </div>
+    ${workflowTemplateCanvasSearchToolsMarkup(search)}
     ${phaseMap}
     <div class="workflow-template-flow-viewport" aria-label="模板顺序链路画布">
       <div class="workflow-template-flow-track">
@@ -21050,6 +21463,7 @@ function refreshWorkflowTemplateCanvasFlowSummary() {
   const selectedIndex = Math.max(0, nodes.findIndex((node) => node.id === state.selectedTemplateNodeId));
   const selectedNode = nodes[selectedIndex] || nodes[0] || {};
   const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
+  const search = workflowTemplateCanvasSearchState(nodes, ioStates);
   const mappedCount = ioStates.filter((item) => item.status === "ready").length;
   const headStrong = root.querySelector(".workflow-template-canvas-head strong");
   if (headStrong) headStrong.textContent = `${nodes.length} 节点 · ${mappedCount}/${nodes.length} I/O 闭合`;
@@ -21062,18 +21476,73 @@ function refreshWorkflowTemplateCanvasFlowSummary() {
   const phaseMap = root.querySelector(".workflow-template-phase-map");
   if (phaseMap) {
     const replacement = document.createElement("div");
-    replacement.innerHTML = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates).trim();
+    replacement.innerHTML = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates, search).trim();
     phaseMap.replaceWith(replacement.firstElementChild);
   }
   const track = root.querySelector(".workflow-template-flow-track");
   if (track) {
     const parts = [];
     nodes.forEach((node, index) => {
-      parts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index]));
+      parts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index], { searchQuery: search.query }));
       if (index < nodes.length - 1) parts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1, nodes, ioStates[index + 1]));
     });
     track.innerHTML = parts.join("");
   }
+  refreshWorkflowTemplateCanvasSearchDecorations();
+}
+
+function refreshWorkflowTemplateCanvasSearchDecorations() {
+  const root = $("workflowTemplateCanvas");
+  if (!root) return;
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
+  const search = workflowTemplateCanvasSearchState(nodes, ioStates);
+  const input = root.querySelector("[data-template-node-search]");
+  if (input && input.value !== search.query) input.value = search.query;
+  const count = root.querySelector("[data-template-node-search-count]");
+  if (count) count.textContent = search.label;
+  root.querySelectorAll("[data-action='template-search-prev'], [data-action='template-search-next']").forEach((button) => {
+    button.disabled = !(search.query && search.matches.length);
+  });
+  root.querySelectorAll("[data-action='template-search-clear']").forEach((button) => {
+    button.disabled = !search.query;
+  });
+  root.querySelectorAll(".workflow-template-flow-node").forEach((nodeEl) => {
+    const index = Number(nodeEl.dataset.index || -1);
+    const matched = !search.query || search.matchIndexes.has(index);
+    nodeEl.classList.toggle("search-match", Boolean(search.query && matched));
+    nodeEl.classList.toggle("search-dim", Boolean(search.query && !matched));
+  });
+  root.querySelectorAll(".workflow-template-phase-node").forEach((nodeEl) => {
+    const nodeId = String(nodeEl.dataset.nodeId || "").trim();
+    const index = nodes.findIndex((node) => String(node?.id || "") === nodeId);
+    const matched = !search.query || search.matchIndexes.has(index);
+    nodeEl.classList.toggle("search-match", Boolean(search.query && matched));
+    nodeEl.classList.toggle("search-dim", Boolean(search.query && !matched));
+  });
+}
+
+function setWorkflowTemplateNodeSearch(query = "", options = {}) {
+  state.ui.workflowTemplateNodeSearch = String(query || "");
+  if (options.render === true) renderWorkflowTemplateCanvas();
+  else refreshWorkflowTemplateCanvasFlowSummary();
+}
+
+function selectWorkflowTemplateSearchMatch(direction = 1) {
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  if (!nodes.length) return;
+  const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
+  const search = workflowTemplateCanvasSearchState(nodes, ioStates);
+  if (!search.query || !search.matches.length) return;
+  const currentIndex = search.selectedMatchIndex >= 0 ? search.selectedMatchIndex : (direction > 0 ? -1 : 0);
+  const nextIndex = (currentIndex + direction + search.matches.length) % search.matches.length;
+  const nextNode = search.matches[nextIndex]?.node;
+  if (!nextNode?.id) return;
+  state.selectedTemplateNodeId = nextNode.id;
+  renderWorkflowTemplateCanvas();
+  renderWorkflowTemplateNodeList();
+  renderWorkflowTemplateNodeEditor();
+  revealWorkflowTemplateSelection(nextNode.id, { editor: false });
 }
 
 function renderWorkflowTemplateNodeEditor() {
@@ -21819,11 +22288,15 @@ function syncExecutionOverviewFilterControls(filters = executionOverviewFilters(
     const totalJobs = Number(counts.totalJobs || 0);
     const visibleRuns = Number(counts.visibleRuns || 0);
     const visibleJobs = Number(counts.visibleJobs || 0);
+    const matchedRuns = Number(counts.matchedRuns ?? visibleRuns);
+    const matchedJobs = Number(counts.matchedJobs ?? visibleJobs);
     const visibleTotal = visibleRuns + visibleJobs;
+    const matchedTotal = matchedRuns + matchedJobs;
     const total = totalRuns + totalJobs;
+    const limitedText = counts.limited ? " · 已截取" : "";
     meta.textContent = filters.query || filters.status || filters.kind !== "all"
-      ? `命中 ${visibleTotal}/${total} 条 · Runs ${visibleRuns}/${totalRuns} · Jobs ${visibleJobs}/${totalJobs}`
-      : `全部 ${total} 条 · Runs ${totalRuns} · Jobs ${totalJobs}`;
+      ? `命中 ${visibleTotal}/${matchedTotal} 条 · 总计 ${total}${limitedText}`
+      : `全部 ${visibleTotal}/${total} 条 · Runs ${totalRuns} · Jobs ${totalJobs}${limitedText}`;
   }
 }
 
@@ -21832,6 +22305,7 @@ function resetExecutionOverviewFilters() {
   state.ui.executionOverviewStatus = "";
   state.ui.executionOverviewKind = "all";
   renderManageRunsModule();
+  void loadExecutionOverview({ render: true });
 }
 
 function openWorkspaceFromExecutionOverview(workspaceId, options = {}) {
@@ -21885,15 +22359,19 @@ function renderManageRunsModule() {
   if (!summaryRoot && !runList && !jobList) return;
   const overview = state.executionOverview && typeof state.executionOverview === "object" ? state.executionOverview : {};
   const summary = overview.summary && typeof overview.summary === "object" ? overview.summary : {};
+  const result = overview.result && typeof overview.result === "object" ? overview.result : {};
   const runs = Array.isArray(overview.runs) ? overview.runs : [];
   const jobs = Array.isArray(overview.jobs) ? overview.jobs : [];
   const filters = executionOverviewFilters();
   const filtered = filteredExecutionOverviewItems(runs, jobs, filters);
   syncExecutionOverviewFilterControls(filters, {
-    totalRuns: runs.length,
-    totalJobs: jobs.length,
+    totalRuns: Number(summary.run_count ?? runs.length),
+    totalJobs: Number(summary.job_count ?? jobs.length),
+    matchedRuns: Number(result.run_count ?? filtered.runs.length),
+    matchedJobs: Number(result.job_count ?? filtered.jobs.length),
     visibleRuns: filtered.runs.length,
     visibleJobs: filtered.jobs.length,
+    limited: Boolean(result.limited),
   });
   if (summaryRoot) {
     if (overview.error) {
@@ -22167,6 +22645,7 @@ function newWorkflowTemplateDraft(sourceType = "repo") {
   state.workflowTemplateValidation = null;
   state.selectedTemplateNodeId = state.workflowTemplateDraft.nodes[0]?.id || "";
   state.ui.workflowTemplateDirty = true;
+  state.ui.workflowTemplateNodeSearch = "";
   renderWorkspaceWorkbench();
 }
 
@@ -23428,6 +23907,14 @@ function applyWorkspaceStreamEvent(rawEvent = {}) {
   if (eventType.startsWith("agent.")) {
     mergeWorkspaceAgentStreamEvent(workspaceId, event, payload);
   }
+  if (
+    eventType.startsWith("run.")
+    || eventType === "job.updated"
+    || eventType === "agent.completed"
+    || eventType === "agent.failed"
+  ) {
+    scheduleExecutionOverviewRefresh();
+  }
   if (workspaceId === state.selectedWorkspaceId && eventType !== "job.log.delta") {
     scheduleWorkspaceStreamRender(workspaceId);
   }
@@ -23823,12 +24310,13 @@ async function downloadWorkspaceRunExport(runId) {
 }
 
 function setWorkspaceRunCompareBase(runId) {
+  const workspace = selectedWorkspace();
   const id = String(runId || "").trim();
-  if (!id) {
+  if (!workspace?.id || !id) {
     setWorkspaceMessage("还没有可作为基准的运行记录。", true);
     return;
   }
-  state.ui.workspaceRunCompareBaseId = id;
+  setWorkspaceRunCompareBaseId(id, workspace.id);
   renderWorkspaceRuns();
   setWorkspaceMessage("已设置运行对比基准。再点另一条运行记录的“对比”即可复制差异 JSON。");
 }
@@ -23836,7 +24324,7 @@ function setWorkspaceRunCompareBase(runId) {
 async function compareWorkspaceRunToBase(runId) {
   const workspace = selectedWorkspace();
   const targetId = String(runId || "").trim();
-  const baseId = String(state.ui.workspaceRunCompareBaseId || "").trim();
+  const baseId = workspaceRunCompareBaseId(workspace?.id || "");
   if (!workspace?.id || !baseId || !targetId) {
     setWorkspaceMessage("请先设置一条运行记录作为对比基准。", true);
     return;
@@ -25747,8 +26235,7 @@ async function clearCompletedJobs(event) {
   if (!confirm(`确定要清理 ${completedCount} 个已完成的任务吗？`)) return;
   try {
     const payload = await fetchJson("/api/jobs/clear-completed", { method: "DELETE" });
-    state.jobs = state.jobs.filter((j) => !["done", "failed", "stopped"].includes(j.status));
-    renderJobs();
+    await loadStatus(true);
     alert(`已清理 ${payload.deleted} 个任务`);
   } catch (error) {
     showActionError(error);
@@ -26598,27 +27085,18 @@ function handleWorkspaceAutomationAction(button) {
     return true;
   }
   if (action === "add-workspace-tool") {
+    openWorkspaceConfigDetail("workspaceToolAdvancedDetails", { tab: "tools" });
     addWorkspaceTool();
-    const details = $("workspaceToolAdvancedDetails");
-    if (details) details.open = true;
-    revealWorkspacePanelTarget("workspaceToolAdvancedDetails", { block: "center" });
     return true;
   }
   if (action === "add-provider-profile") {
+    openWorkspaceConfigDetail("workspaceModelAdvancedDetails", { tab: "model" });
     addProviderProfile();
-    const details = $("workspaceModelAdvancedDetails");
-    if (details) details.open = true;
-    revealWorkspacePanelTarget("workspaceModelAdvancedDetails", { block: "center" });
     return true;
   }
   if (action === "open-workspace-details") {
     const targetId = String(button.dataset.targetId || "").trim();
-    switchWorkspaceMode("use");
-    const details = targetId ? $(targetId) : button.closest("details");
-    if (details) {
-      details.open = true;
-      revealWorkspacePanelTarget(details.id || targetId, { block: "center" });
-    }
+    openWorkspaceConfigDetail(targetId || button.closest("details")?.id || "", { tab: button.dataset.tab || "" });
     return true;
   }
   if (action === "submit-workspace-form") {
@@ -26649,6 +27127,10 @@ function handleWorkspaceAutomationAction(button) {
   }
   if (action === "open-workspace-chain-inspect") {
     openWorkspaceChainInspect();
+    return true;
+  }
+  if (action === "open-workflow-template-studio") {
+    openWorkflowTemplateStudio();
     return true;
   }
   if (action === "switch-workspace-tab") {
@@ -27087,6 +27569,9 @@ function bindEvents() {
   $("workspaceUseChatSendBtn")?.addEventListener("click", () => {
     void submitWorkspaceUseChat();
   });
+  $("workspaceOpenChainInspectBtn")?.addEventListener("click", () => {
+    openWorkspaceChainInspect();
+  });
   $("workspaceUseChatList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
     if (button) handleWorkspaceAutomationAction(button);
@@ -27356,6 +27841,18 @@ function bindEvents() {
       fillAllWorkflowTemplateMissingInputMappings();
       return;
     }
+    if (button.dataset.action === "template-search-prev") {
+      selectWorkflowTemplateSearchMatch(-1);
+      return;
+    }
+    if (button.dataset.action === "template-search-next") {
+      selectWorkflowTemplateSearchMatch(1);
+      return;
+    }
+    if (button.dataset.action === "template-search-clear") {
+      setWorkflowTemplateNodeSearch("");
+      return;
+    }
     if (button.dataset.action === "delete-template-node") {
       removeWorkflowTemplateNode();
       return;
@@ -27397,29 +27894,39 @@ function bindEvents() {
       setSelectedWorkflowTemplateInputMapping({}, { render: "canvas" });
     }
   });
-	  $("workflowTemplateCanvas")?.addEventListener("input", (event) => {
-	    const target = event.target;
-	    if (!target.matches("[data-edge-input-mapping-name], [data-edge-input-mapping-source]")) return;
-	    const editor = target.closest(".workflow-template-edge-inspector");
-	    setSelectedWorkflowTemplateInputMapping(
-	      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
-	      { render: false, renderParts: true },
-	    );
-	    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
-	  });
-	  $("workflowTemplateCanvas")?.addEventListener("change", (event) => {
-	    const target = event.target;
-	    if (!target.matches("[data-edge-input-mapping-source-select]")) return;
-	    const row = target.closest(".workflow-template-mapping-row");
+  $("workflowTemplateCanvas")?.addEventListener("input", (event) => {
+    const target = event.target;
+    if (target.matches("[data-template-node-search]")) {
+      setWorkflowTemplateNodeSearch(target.value || "");
+      return;
+    }
+    if (!target.matches("[data-edge-input-mapping-name], [data-edge-input-mapping-source]")) return;
+    const editor = target.closest(".workflow-template-edge-inspector");
+    setSelectedWorkflowTemplateInputMapping(
+      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
+      { render: false, renderParts: true },
+    );
+    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
+  });
+  $("workflowTemplateCanvas")?.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (!target.matches("[data-template-node-search]") || event.key !== "Enter") return;
+    event.preventDefault();
+    selectWorkflowTemplateSearchMatch(event.shiftKey ? -1 : 1);
+  });
+  $("workflowTemplateCanvas")?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target.matches("[data-edge-input-mapping-source-select]")) return;
+    const row = target.closest(".workflow-template-mapping-row");
     const sourceInput = row?.querySelector("[data-edge-input-mapping-source]");
     if (sourceInput) sourceInput.value = target.value || "";
     const editor = target.closest(".workflow-template-edge-inspector");
-	    setSelectedWorkflowTemplateInputMapping(
-	      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
-	      { render: false, renderParts: true },
-	    );
-	    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
-	  });
+    setSelectedWorkflowTemplateInputMapping(
+      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
+      { render: false, renderParts: true },
+    );
+    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
+  });
   $("workflowTemplateNodeList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='select-template-node']");
     if (button?.dataset.nodeId) {
@@ -27709,14 +28216,17 @@ function bindEvents() {
   $("workspaceExecutionOverviewSearch")?.addEventListener("input", (event) => {
     state.ui.executionOverviewQuery = event.target.value || "";
     renderManageRunsModule();
+    scheduleExecutionOverviewRefresh(300);
   });
   $("workspaceExecutionOverviewStatusFilter")?.addEventListener("change", (event) => {
     state.ui.executionOverviewStatus = event.target.value || "";
     renderManageRunsModule();
+    scheduleExecutionOverviewRefresh(100);
   });
   $("workspaceExecutionOverviewKindFilter")?.addEventListener("change", (event) => {
     state.ui.executionOverviewKind = event.target.value || "all";
     renderManageRunsModule();
+    scheduleExecutionOverviewRefresh(100);
   });
   $("workspaceAddProviderBtn")?.addEventListener("click", addProviderProfile);
   $("workspaceAddNodeBtn")?.addEventListener("click", () => insertWorkspaceNode($("workspaceNodeKindSelect")?.value || "custom.step"));
@@ -27856,6 +28366,11 @@ function bindEvents() {
   });
   $("workspaceRunList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
+    if (button?.dataset.action === "reset-workspace-run-filters") {
+      consumeClick(event);
+      resetWorkspaceRunFilters();
+      return;
+    }
     if (button?.dataset.action === "cancel-agent-step" && button.dataset.agentExecutionId) {
       consumeClick(event);
       void cancelAgentExecution(button.dataset.agentExecutionId);
@@ -27917,6 +28432,16 @@ function bindEvents() {
     if (item?.dataset.jobId) void showLog(item.dataset.jobId);
     const runItem = event.target.closest(".workspace-execution-run-item[data-run-id]");
     if (runItem?.dataset.runId) void openWorkspaceRunDetail(runItem.dataset.runId);
+  });
+  $("workspaceRunList")?.addEventListener("input", (event) => {
+    const target = event.target;
+    if (!target.matches("[data-workspace-run-filter]")) return;
+    updateWorkspaceRunFilter(target.dataset.workspaceRunFilter, target.value || "");
+  });
+  $("workspaceRunList")?.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!target.matches("[data-workspace-run-filter]")) return;
+    updateWorkspaceRunFilter(target.dataset.workspaceRunFilter, target.value || "");
   });
   $("workspaceRunList")?.addEventListener("keydown", (event) => {
     if (!["Enter", " "].includes(event.key)) return;

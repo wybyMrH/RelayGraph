@@ -4,6 +4,17 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 
+
+def _workspace_public_payload_with_full_runs(state: Any, workspace: dict[str, Any]) -> dict[str, Any]:
+    public_workspace = state.workspace_public_payload(workspace)
+    raw_runs = workspace.get("runs") if isinstance(workspace.get("runs"), list) else []
+    public_workspace["runs"] = normalize_workspace_execution_runs(
+        raw_runs,
+        limit=max(len(raw_runs), 1),
+    )
+    return public_workspace
+
+
 class RunsMixin:
     PERSISTED_RUN_EVENT_TYPES = {
         "run.created",
@@ -498,7 +509,7 @@ class RunsMixin:
             workspace = self.workspace_by_id(workspace_id)
             if not workspace:
                 raise ValueError("workspace not found")
-            public_workspace = self.workspace_public_payload(workspace)
+            public_workspace = _workspace_public_payload_with_full_runs(self, workspace)
             jobs = copy.deepcopy(getattr(self, "jobs", []))
         runs = public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else []
         run = next((item for item in runs if isinstance(item, dict) and str(item.get("id") or "") == run_id), None)
@@ -522,7 +533,7 @@ class RunsMixin:
             workspace = self.workspace_by_id(workspace_id)
             if not workspace:
                 raise ValueError("workspace not found")
-            public_workspace = self.workspace_public_payload(workspace)
+            public_workspace = _workspace_public_payload_with_full_runs(self, workspace)
             jobs = copy.deepcopy(getattr(self, "jobs", []))
         runs = public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else []
         base_run = next((item for item in runs if isinstance(item, dict) and str(item.get("id") or "") == base_run_id), None)
@@ -547,7 +558,7 @@ class RunsMixin:
             workspace = self.workspace_by_id(workspace_id)
             if not workspace:
                 raise ValueError("workspace not found")
-            public_workspace = self.workspace_public_payload(workspace)
+            public_workspace = _workspace_public_payload_with_full_runs(self, workspace)
             jobs = copy.deepcopy(getattr(self, "jobs", []))
         runs = public_workspace.get("runs") if isinstance(public_workspace.get("runs"), list) else []
         run = next((item for item in runs if isinstance(item, dict) and str(item.get("id") or "") == run_id), None)

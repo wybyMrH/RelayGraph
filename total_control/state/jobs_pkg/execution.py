@@ -86,13 +86,31 @@ def _read_text_file_chunk(path: Path, *, offset: int = 0, max_bytes: int = 13107
     }
 
 
-def _remote_tail_path(path_text: str) -> str:
-    text = str(path_text or "").strip()
-    if text == "$HOME":
-        return '"$HOME"'
-    if text.startswith("$HOME/"):
-        return '"$HOME"/' + shlex.quote(text[6:])
-    return shlex.quote(text)
+def _job_log_snapshot(job: dict[str, Any], *, lines: int = 200, max_bytes: int = 131072) -> dict[str, Any]:
+    metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+    snapshot = metadata.get("log_tail_snapshot") if isinstance(metadata.get("log_tail_snapshot"), dict) else {}
+    text = str(snapshot.get("tail") or "")
+    if not text:
+        return {}
+    limited = text[-max(max_bytes, 0):] if max_bytes > 0 else text
+    tail = "\n".join(limited.splitlines()[-max(1, int(lines or 1)):])
+    byte_count = len(tail.encode("utf-8"))
+    return {
+        "log": tail,
+        "source": "snapshot",
+        "mode": "snapshot",
+        "snapshot_captured_at": str(snapshot.get("captured_at") or "").strip(),
+        "snapshot_schema": str(snapshot.get("schema") or "").strip(),
+        "exists": False,
+        "file_size": byte_count,
+        "snapshot_size": byte_count,
+        "byte_count": byte_count,
+        "offset": 0,
+        "requested_offset": 0,
+        "next_offset": byte_count,
+        "truncated": False,
+        "skipped_bytes": 0,
+    }
 
 
 class ExecutionJobsMixin:
@@ -176,10 +194,18 @@ class ExecutionJobsMixin:
         *,
         publish_events: bool = True,
     ) -> None:
+        running_probe_job: dict[str, Any] | None = None
         with self.lock:
             status = str(job.get("status") or "").strip()
-            if status == "running" and self.tmux_running(job):
+            if status == "running":
+                running_probe_job = copy.deepcopy(job)
+            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+            launching_at = safe_float(metadata.get("_launching_at"), 0.0)
+            if launching_at and time.time() - launching_at < 30:
                 return
+        if running_probe_job and self.tmux_running(running_probe_job):
+            return
+        with self.lock:
             metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
             launching_at = safe_float(metadata.get("_launching_at"), 0.0)
             if launching_at and time.time() - launching_at < 30:
@@ -319,24 +345,22 @@ class ExecutionJobsMixin:
         server = self.server_by_id(job["server_id"])
         if not server:
             return "unknown server"
-        local_path = Path(str(job.get("log_path") or local_log_path(job["server_id"], job["id"])))
+        local_path = normalize_allowed_local_job_log_path(job, local_log_path(job["server_id"], job["id"]))
         if server.mode == "local":
-            if not local_path.exists():
-                return ""
+            if not local_path or not local_path.exists():
+                return str(_job_log_snapshot(job, lines=lines).get("log") or "")
             return _read_text_file_tail(local_path, lines=lines)
-        remote_path = str(job.get("remote_log_path") or remote_log_path(job["id"]))
-        result = ssh_command(
-            server,
-            f"tail -n {int(lines)} -- {_remote_tail_path(remote_path)} 2>/dev/null || true",
-            timeout=self.config.remote_timeout_seconds,
-        )
-        if result.returncode == 0:
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            local_path.write_text(result.stdout, encoding="utf-8")
-            return result.stdout
-        if local_path.exists():
+        chunk = self._remote_job_log_chunk(job, offset=0, max_bytes=4 * 1024 * 1024)
+        if not chunk.get("error") and chunk.get("log"):
+            text = "\n".join(str(chunk.get("log") or "").splitlines()[-max(1, int(lines or 1)):])
+            if local_path:
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                local_path.write_text(text, encoding="utf-8")
+            return text
+        if local_path and local_path.exists():
             return _read_text_file_tail(local_path, lines=lines)
-        return result.stderr.strip()
+        snapshot = _job_log_snapshot(job, lines=lines)
+        return str(snapshot.get("log") or chunk.get("error") or "").strip()
 
 
     def _remote_job_log_chunk(self, job: dict[str, Any], *, offset: int = 0, max_bytes: int = 131072) -> dict[str, Any]:
@@ -472,31 +496,95 @@ emit({
     ) -> dict[str, Any]:
         job_id = str(job.get("id") or "").strip()
         if offset is None:
-            log = self.tail_log(job, lines=lines)
+            snapshot = _job_log_snapshot(job, lines=lines)
+            server = self.server_by_id(job["server_id"])
+            local_path = normalize_allowed_local_job_log_path(job, local_log_path(job["server_id"], job_id))
+            local_exists = False
+            file_size = 0
+            if local_path:
+                try:
+                    local_exists = local_path.exists() and not local_path.is_symlink() and local_path.is_file()
+                    file_size = local_path.stat().st_size if local_exists else 0
+                except OSError:
+                    local_exists = False
+                    file_size = 0
+            source = "file"
+            exists = local_exists
+            error = ""
+            if not server:
+                log = "unknown server"
+                source = "error"
+            elif server.mode == "local":
+                if local_exists and local_path:
+                    log = _read_text_file_tail(local_path, lines=lines)
+                    source = "file"
+                    exists = True
+                elif snapshot:
+                    log = str(snapshot.get("log") or "")
+                    source = "snapshot"
+                    file_size = safe_int(snapshot.get("file_size"), 0)
+                    exists = False
+                else:
+                    log = str(self.tail_log(job, lines=lines))
+                    exists = False
+            else:
+                chunk = self._remote_job_log_chunk(job, offset=0, max_bytes=4 * 1024 * 1024)
+                if not chunk.get("error") and chunk.get("log"):
+                    log = "\n".join(str(chunk.get("log") or "").splitlines()[-max(1, int(lines or 1)):])
+                    source = "remote"
+                    exists = bool(chunk.get("exists", True))
+                    file_size = safe_int(chunk.get("file_size"), safe_int(chunk.get("next_offset"), 0))
+                    if local_path:
+                        try:
+                            local_path.parent.mkdir(parents=True, exist_ok=True)
+                            local_path.write_text(log, encoding="utf-8")
+                        except OSError:
+                            pass
+                elif local_exists and local_path:
+                    log = _read_text_file_tail(local_path, lines=lines)
+                    source = "file"
+                    exists = True
+                elif snapshot:
+                    log = str(snapshot.get("log") or "")
+                    source = "snapshot"
+                    file_size = safe_int(snapshot.get("file_size"), 0)
+                    exists = False
+                else:
+                    log = str(chunk.get("error") or self.tail_log(job, lines=lines))
+                    source = "remote"
+                    error = str(chunk.get("error") or "")
+                    exists = bool(chunk.get("exists", False))
+                    file_size = safe_int(chunk.get("file_size"), 0)
             payload = {
                 "job_id": job_id,
                 "mode": "tail",
                 "log": log,
                 "line_count": len(log.splitlines()),
+                "source": source,
+                "exists": exists,
             }
-            server = self.server_by_id(job["server_id"])
-            if server and server.mode == "local":
-                local_path = Path(str(job.get("log_path") or local_log_path(job["server_id"], job_id)))
-                try:
-                    file_size = local_path.stat().st_size
-                except OSError:
-                    file_size = 0
-                payload.update({"next_offset": file_size, "file_size": file_size})
+            if error:
+                payload["error"] = error
+            if source == "snapshot":
+                payload.update(
+                    {
+                        "exists": False,
+                        "snapshot_captured_at": snapshot.get("snapshot_captured_at", ""),
+                        "snapshot_schema": snapshot.get("snapshot_schema", ""),
+                    }
+                )
+            payload.update({"next_offset": file_size, "file_size": file_size})
             return payload
         server = self.server_by_id(job["server_id"])
         if not server:
             return {"job_id": job_id, "mode": "chunk", "log": "unknown server", "offset": 0, "next_offset": 0}
         if server.mode == "local":
-            local_path = Path(str(job.get("log_path") or local_log_path(job["server_id"], job_id)))
-            if local_path.exists() and not local_path.is_symlink() and local_path.is_file():
+            local_path = normalize_allowed_local_job_log_path(job, local_log_path(job["server_id"], job_id))
+            if local_path and local_path.exists() and not local_path.is_symlink() and local_path.is_file():
                 chunk = _read_text_file_chunk(local_path, offset=offset, max_bytes=max_bytes)
             else:
-                chunk = {
+                snapshot = _job_log_snapshot(job, lines=200, max_bytes=max_bytes)
+                chunk = snapshot or {
                     "log": "",
                     "offset": max(0, int(offset or 0)),
                     "next_offset": max(0, int(offset or 0)),
@@ -508,10 +596,11 @@ emit({
                 }
         else:
             chunk = self._remote_job_log_chunk(job, offset=offset, max_bytes=max_bytes)
-            local_path = Path(str(job.get("log_path") or local_log_path(job["server_id"], job_id)))
+            local_path = normalize_allowed_local_job_log_path(job, local_log_path(job["server_id"], job_id))
             if chunk.get("log"):
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-                local_path.write_text(str(chunk.get("log") or ""), encoding="utf-8")
+                if local_path:
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    local_path.write_text(str(chunk.get("log") or ""), encoding="utf-8")
         log = str(chunk.get("log") or "")
         return {
             "job_id": job_id,

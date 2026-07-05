@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from .input_mapping import build_agent_node_input_text
 from .types import ExecutionRunContext, StepResult
-from ..tools.registry import summarize_mapped_inputs
+from ..tools.registry import ToolSideEffect, summarize_mapped_inputs, tool_side_effect
 
 ExecutorMode = Literal["auto", "job", "agent", "skip"]
 
@@ -45,6 +45,8 @@ SHELL_DISCOVERY_KINDS: frozenset[str] = frozenset(
     }
 )
 
+RUNTIME_FAILURE_STATUSES: frozenset[str] = frozenset({"blocked", "failed", "stopped", "error", "timeout"})
+
 
 def _node_handler_mode(node: dict[str, Any]) -> str:
     handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
@@ -54,6 +56,34 @@ def _node_handler_mode(node: dict[str, Any]) -> str:
 def _node_agent_id(node: dict[str, Any]) -> str:
     handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
     return str(handler.get("agent_id") or "").strip()
+
+
+def _agent_runtime_failure(agent_steps: list[dict[str, Any]]) -> dict[str, str]:
+    for step in agent_steps:
+        if not isinstance(step, dict):
+            continue
+        action = str(step.get("action") or "").strip()
+        side_effect = str(step.get("side_effect") or "").strip()
+        runtime_control = str(step.get("runtime_control") or "").strip()
+        runtime_status = str(step.get("runtime_status") or "").strip().lower()
+        if not runtime_status or runtime_status not in RUNTIME_FAILURE_STATUSES:
+            continue
+        action_side_effect = tool_side_effect(action)
+        is_runtime_tool = (
+            side_effect in {ToolSideEffect.MUTATE_RUNTIME.value, ToolSideEffect.DANGEROUS.value}
+            or action_side_effect in {ToolSideEffect.MUTATE_RUNTIME, ToolSideEffect.DANGEROUS}
+            or bool(runtime_control)
+        )
+        if not is_runtime_tool:
+            continue
+        return {
+            "status": runtime_status,
+            "action": action,
+            "job_id": str(step.get("job_id") or "").strip(),
+            "run_id": str(step.get("run_id") or "").strip(),
+            "detail": str(step.get("error") or step.get("observation") or "").strip(),
+        }
+    return {}
 
 
 def resolve_node_executor_mode(node: dict[str, Any], prefer: ExecutorMode = "auto") -> ExecutorMode:
@@ -132,6 +162,10 @@ def run_agent_node(
     artifacts = execution.get("artifacts") if isinstance(execution, dict) and isinstance(execution.get("artifacts"), list) else []
     output_value = execution.get("output_value") if isinstance(execution, dict) else None
     agent_steps = execution.get("steps") if isinstance(execution, dict) and isinstance(execution.get("steps"), list) else []
+    runtime_failure = _agent_runtime_failure([item for item in agent_steps if isinstance(item, dict)])
+    if success and runtime_failure:
+        success = False
+        status = "blocked" if runtime_failure.get("status") in {"blocked", "timeout"} else "failed"
     if success and output_key and isinstance(output_value, dict):
         run_context.with_output(output_key, output_value)
         run_context.previous_output = {
@@ -148,7 +182,15 @@ def run_agent_node(
         output_key=output_key,
         artifacts=[item for item in artifacts if isinstance(item, dict)],
         mapped_inputs=summarize_mapped_inputs(resolved_inputs),
-        detail="agent node executed" if success else str(execution.get("error") or "agent execution failed"),
+        detail=(
+            "agent node executed"
+            if success
+            else (
+                f"runtime tool {runtime_failure.get('action')} {runtime_failure.get('status')}"
+                if runtime_failure
+                else str(execution.get("error") or "agent execution failed")
+            )
+        ),
         agent_execution_id=str(execution.get("id") or "") if isinstance(execution, dict) else "",
         agent_steps=[item for item in agent_steps if isinstance(item, dict)],
         trace_events=[

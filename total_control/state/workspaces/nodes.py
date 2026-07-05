@@ -404,7 +404,11 @@ PY"""
                     "run_id": run_id,
                     "workspace": payload_workspace,
                 }
-            if prefer != "auto" or str(node.get("kind") or "").strip() not in WORKSPACE_EXECUTABLE_NODE_KINDS:
+            if (
+                step_result.reason == "input_mapping_blocked"
+                or prefer != "auto"
+                or str(node.get("kind") or "").strip() not in WORKSPACE_EXECUTABLE_NODE_KINDS
+            ):
                 with self.lock:
                     refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
                     payload_workspace = self.workspace_public_payload(refreshed_workspace)

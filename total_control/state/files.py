@@ -2,6 +2,63 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 
+
+def _runtime_state_run_job_ids(run: dict[str, Any]) -> set[str]:
+    return set(workspace_run_job_ids(run))
+
+
+def _runtime_state_workspace_run_closure(
+    workspace: dict[str, Any],
+    root_runs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    workspace_id = str(workspace.get("id") or "").strip()
+    runs = [run for run in (workspace.get("runs") if isinstance(workspace.get("runs"), list) else []) if isinstance(run, dict)]
+    workspace_payload = {**workspace, "runs": runs}
+    closure: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for root_run in root_runs:
+        if not isinstance(root_run, dict):
+            continue
+        source_runs = [root_run, *workspace_execution_run_linked_runs(workspace_payload, root_run, max_runs=64)]
+        for run in source_runs:
+            run_id = str(run.get("id") or "").strip()
+            if not run_id or run_id in seen:
+                continue
+            run_workspace_id = str(run.get("workspace_id") or workspace_id).strip()
+            if workspace_id and run_workspace_id and run_workspace_id != workspace_id:
+                continue
+            seen.add(run_id)
+            closure.append(run)
+    return closure
+
+
+def _merge_runtime_log_path_payloads(*payloads: dict[str, Any]) -> dict[str, Any]:
+    local: list[str] = []
+    local_seen: set[str] = set()
+    remote_by_server: dict[str, list[str]] = {}
+    remote_seen: set[tuple[str, str]] = set()
+    for payload in payloads:
+        if not isinstance(payload, dict):
+            continue
+        for path in payload.get("local") if isinstance(payload.get("local"), list) else []:
+            text = str(path or "").strip()
+            if text and text not in local_seen:
+                local_seen.add(text)
+                local.append(text)
+        remote_payload = payload.get("remote_by_server") if isinstance(payload.get("remote_by_server"), dict) else {}
+        for server_id, paths in remote_payload.items():
+            server_text = str(server_id or "").strip()
+            if not server_text:
+                continue
+            for path in paths if isinstance(paths, list) else []:
+                path_text = str(path or "").strip()
+                key = (server_text, path_text)
+                if not path_text or key in remote_seen:
+                    continue
+                remote_seen.add(key)
+                remote_by_server.setdefault(server_text, []).append(path_text)
+    return {"local": local, "remote_by_server": remote_by_server}
+
 class FilesMixin:
     def browse_files(
         self,
@@ -248,12 +305,63 @@ class FilesMixin:
             deletable_statuses = {"done", "failed", "stopped"}
         active_statuses = {"queued", "starting", "running", "blocked"}
         removed_jobs = 0
+        preserved_jobs = 0
         removed_runs = 0
         removed_events = 0
         changed_jobs = False
         changed_workspaces = False
 
         with self.lock:
+            protected_job_ids: set[str] = set()
+            planned_run_prunes: list[tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]] = []
+            for workspace in getattr(self, "workspaces", []):
+                if not isinstance(workspace, dict) or not isinstance(workspace.get("runs"), list):
+                    continue
+                runs = [
+                    normalize_workspace_execution_run(run, existing=run)
+                    for run in workspace.get("runs", [])
+                    if isinstance(run, dict)
+                ]
+                runs.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
+                kept: list[dict[str, Any]] = []
+                removed: list[dict[str, Any]] = []
+                for run in runs:
+                    if not prune_runs:
+                        kept.append(run)
+                        continue
+                    if str(run.get("status") or "") in active_statuses:
+                        kept.append(run)
+                        continue
+                    if len(kept) < max_runs:
+                        kept.append(run)
+                        continue
+                    removed.append(run)
+                workspace_for_closure = {**workspace, "runs": runs}
+                closure_runs = _runtime_state_workspace_run_closure(workspace_for_closure, kept)
+                closure_by_id = {
+                    str(run.get("id") or "").strip(): run
+                    for run in closure_runs
+                    if isinstance(run, dict) and str(run.get("id") or "").strip()
+                }
+                kept_by_id = {
+                    str(run.get("id") or "").strip()
+                    for run in kept
+                    if isinstance(run, dict) and str(run.get("id") or "").strip()
+                }
+                next_removed: list[dict[str, Any]] = []
+                for run in removed:
+                    run_id = str(run.get("id") or "").strip()
+                    if run_id and run_id in closure_by_id:
+                        if run_id not in kept_by_id:
+                            kept.append(closure_by_id[run_id])
+                            kept_by_id.add(run_id)
+                        continue
+                    next_removed.append(run)
+                removed = next_removed
+                planned_run_prunes.append((workspace, kept, removed))
+                for run in _runtime_state_workspace_run_closure(workspace_for_closure, kept):
+                    protected_job_ids.update(_runtime_state_run_job_ids(run))
+
             if clear_jobs:
                 remaining_jobs = []
                 for job in getattr(self, "jobs", []):
@@ -261,6 +369,11 @@ class FilesMixin:
                         remaining_jobs.append(job)
                         continue
                     if str(job.get("status") or "") in deletable_statuses:
+                        job_id = str(job.get("id") or "").strip()
+                        if job_id and job_id in protected_job_ids:
+                            preserved_jobs += 1
+                            remaining_jobs.append(job)
+                            continue
                         removed_jobs += 1
                         if dry_run:
                             remaining_jobs.append(job)
@@ -271,25 +384,7 @@ class FilesMixin:
                     changed_jobs = True
 
             if prune_runs:
-                for workspace in getattr(self, "workspaces", []):
-                    if not isinstance(workspace, dict) or not isinstance(workspace.get("runs"), list):
-                        continue
-                    runs = [
-                        normalize_workspace_execution_run(run, existing=run)
-                        for run in workspace.get("runs", [])
-                        if isinstance(run, dict)
-                    ]
-                    runs.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
-                    kept: list[dict[str, Any]] = []
-                    removed: list[dict[str, Any]] = []
-                    for run in runs:
-                        if str(run.get("status") or "") in active_statuses:
-                            kept.append(run)
-                            continue
-                        if len(kept) < max_runs:
-                            kept.append(run)
-                            continue
-                        removed.append(run)
+                for workspace, kept, removed in planned_run_prunes:
                     if not removed:
                         continue
                     removed_runs += len(removed)
@@ -308,11 +403,130 @@ class FilesMixin:
         return {
             "dry_run": dry_run,
             "removed_jobs": removed_jobs,
+            "preserved_jobs": preserved_jobs,
             "removed_runs": removed_runs,
             "removed_events": removed_events,
             "max_runs_per_workspace": max_runs,
             "status": self.runtime_state_status(),
         }
+
+
+    def retained_workspace_run_job_ids(self) -> set[str]:
+        job_ids: set[str] = set()
+        with self.lock:
+            workspaces = copy.deepcopy(getattr(self, "workspaces", []))
+        for workspace in workspaces:
+            if not isinstance(workspace, dict):
+                continue
+            runs = workspace.get("runs") if isinstance(workspace.get("runs"), list) else []
+            for run in _runtime_state_workspace_run_closure({**workspace, "runs": runs}, runs):
+                if isinstance(run, dict):
+                    job_ids.update(_runtime_state_run_job_ids(run))
+        return job_ids
+
+
+    def snapshot_retained_run_job_log_tails(
+        self,
+        *,
+        max_lines: int = 80,
+        max_bytes: int = 24000,
+        tail_chars: int = 12000,
+    ) -> dict[str, Any]:
+        retained_job_ids = self.retained_workspace_run_job_ids()
+        if not retained_job_ids:
+            return {"captured_count": 0, "job_ids": []}
+        with self.lock:
+            retained_jobs = [
+                copy.deepcopy(job)
+                for job in getattr(self, "jobs", [])
+                if isinstance(job, dict)
+                and str(job.get("id") or "").strip()
+                and str(job.get("id") or "").strip() in retained_job_ids
+            ]
+
+        def read_local_tail(job: dict[str, Any]) -> str:
+            path_text = str(job.get("log_path") or "").strip()
+            if not path_text:
+                return ""
+            path = normalize_allowed_local_job_log_path(job, path_text)
+            if not path:
+                return ""
+            try:
+                if not path.exists() or path.is_symlink() or path.is_dir() or not path.is_file():
+                    return ""
+                size = path.stat().st_size
+                with path.open("rb") as handle:
+                    handle.seek(max(size - max_bytes, 0))
+                    data = handle.read(max_bytes)
+            except OSError:
+                return ""
+            text = data.decode("utf-8", errors="replace")
+            return "\n".join(text.splitlines()[-max_lines:])
+
+        def read_remote_tail(job: dict[str, Any]) -> str:
+            if not str(job.get("remote_log_path") or "").strip():
+                return ""
+            reader = getattr(self, "_remote_job_log_chunk", None)
+            if not callable(reader):
+                return ""
+            try:
+                chunk = reader(job, offset=0, max_bytes=max_bytes)
+            except Exception:  # noqa: BLE001 - cleanup must not be blocked by one remote log.
+                return ""
+            if chunk.get("error"):
+                return ""
+            text = str(chunk.get("log") or "")
+            return "\n".join(text.splitlines()[-max_lines:])
+
+        snapshots_by_id: dict[str, dict[str, Any]] = {}
+        for job in retained_jobs:
+            job_id = str(job.get("id") or "").strip()
+            if not job_id:
+                continue
+            tail = read_local_tail(job)
+            source = "runtime_log_cache" if tail else ""
+            if not tail:
+                tail = read_remote_tail(job)
+                source = "remote_runtime_log" if tail else ""
+            if not tail:
+                continue
+            tail = tail[-max(tail_chars, 0):] if tail_chars > 0 else tail
+            snapshots_by_id[job_id] = {
+                "schema": "relaygraph.job.log_tail_snapshot.v1",
+                "captured_at": now_iso(),
+                "source": source,
+                "line_count": len(tail.splitlines()),
+                "log_path": str(job.get("log_path") or "").strip(),
+                "remote_log_path": str(job.get("remote_log_path") or "").strip(),
+                "tail": tail,
+            }
+        if not snapshots_by_id:
+            return {"captured_count": 0, "job_ids": []}
+        captured_ids: list[str] = []
+        changed = False
+        with self.lock:
+            for job in getattr(self, "jobs", []):
+                if not isinstance(job, dict):
+                    continue
+                job_id = str(job.get("id") or "").strip()
+                if not job_id or job_id not in retained_job_ids:
+                    continue
+                next_snapshot = snapshots_by_id.get(job_id)
+                if not next_snapshot:
+                    continue
+                metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+                snapshot = metadata.get("log_tail_snapshot") if isinstance(metadata.get("log_tail_snapshot"), dict) else {}
+                comparable = {key: value for key, value in next_snapshot.items() if key != "captured_at"}
+                existing_comparable = {key: snapshot.get(key) for key in comparable}
+                if existing_comparable == comparable:
+                    continue
+                metadata["log_tail_snapshot"] = next_snapshot
+                job["metadata"] = metadata
+                captured_ids.append(job_id)
+                changed = True
+            if changed:
+                self.save_jobs()
+        return {"captured_count": len(captured_ids), "job_ids": captured_ids[:24]}
 
 
     def update_runtime_storage_settings(self, body: dict[str, Any]) -> dict[str, Any]:
@@ -341,6 +555,38 @@ class FilesMixin:
         return {"local": local_paths, "remote_by_server": remote_by_server}
 
 
+    def retained_runtime_log_paths(self) -> dict[str, Any]:
+        retained_job_ids = self.retained_workspace_run_job_ids()
+        if not retained_job_ids:
+            return {"local": [], "remote_by_server": {}}
+        with self.lock:
+            jobs = [
+                copy.deepcopy(job)
+                for job in getattr(self, "jobs", [])
+                if isinstance(job, dict)
+                and str(job.get("id") or "").strip()
+                and str(job.get("id") or "").strip() in retained_job_ids
+            ]
+        local_paths: list[str] = []
+        remote_by_server: dict[str, list[str]] = {}
+        for job in jobs:
+            log_path = str(job.get("log_path") or "").strip()
+            if log_path:
+                local_paths.append(log_path)
+            remote_path = str(job.get("remote_log_path") or "").strip()
+            server_id = str(job.get("server_id") or "").strip()
+            if remote_path and server_id:
+                remote_by_server.setdefault(server_id, []).append(remote_path)
+        return {"local": local_paths, "remote_by_server": remote_by_server}
+
+
+    def protected_runtime_log_paths(self) -> dict[str, Any]:
+        return _merge_runtime_log_path_payloads(
+            self.active_runtime_log_paths(),
+            self.retained_runtime_log_paths(),
+        )
+
+
     def reset_runtime_storage(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
         settings = reset_runtime_storage_settings()
         payload: dict[str, Any] = {"settings": settings, **self.runtime_storage_status()}
@@ -361,6 +607,7 @@ class FilesMixin:
         *,
         cleanup: bool = False,
         max_age_hours: int = 0,
+        max_file_mib: int = 0,
         max_size_mib: int = 0,
         remove_all: bool = False,
         preserve_paths_by_server: dict[str, list[str]] | None = None,
@@ -405,6 +652,7 @@ class FilesMixin:
                         timeout=timeout,
                         cleanup=cleanup,
                         max_age_hours=max_age_hours,
+                        max_file_mib=max_file_mib,
                         max_size_mib=max_size_mib,
                         remove_all=remove_all,
                         preserve_paths=(preserve_paths_by_server or {}).get(server.id, []),
@@ -429,11 +677,13 @@ class FilesMixin:
         include_remote = bool(data.get("include_remote", True))
         remove_all = bool(data.get("remove_all", False))
         settings = normalize_runtime_storage_settings({**load_runtime_storage_settings(), **data})
-        protected = self.active_runtime_log_paths()
+        log_file_mib = int(settings.get("log_max_file_mib") or 0)
+        protected = self.protected_runtime_log_paths()
         result: dict[str, Any] = {
             "preview_cache": None,
             "local_logs": None,
             "remote_logs": [],
+            "log_tail_snapshots": None,
         }
         if include_preview:
             result["preview_cache"] = cleanup_preview_cache(
@@ -443,8 +693,10 @@ class FilesMixin:
             )
             self.prune_preview_cache_index()
         if include_logs:
+            result["log_tail_snapshots"] = self.snapshot_retained_run_job_log_tails()
             result["local_logs"] = cleanup_runtime_logs(
                 max_age_hours=0 if remove_all else int(settings.get("log_max_age_hours") or 0),
+                max_file_mib=0 if remove_all else log_file_mib,
                 max_size_mib=0 if remove_all else int(settings.get("log_max_size_mib") or 0),
                 remove_all=remove_all,
                 preserve_paths=protected.get("local") if isinstance(protected, dict) else [],
@@ -453,6 +705,7 @@ class FilesMixin:
                 result["remote_logs"] = self.remote_runtime_log_statuses(
                     cleanup=True,
                     max_age_hours=0 if remove_all else int(settings.get("log_max_age_hours") or 0),
+                    max_file_mib=0 if remove_all else log_file_mib,
                     max_size_mib=0 if remove_all else int(settings.get("log_max_size_mib") or 0),
                     remove_all=remove_all,
                     preserve_paths_by_server=(
@@ -468,15 +721,17 @@ class FilesMixin:
         preview_age = int(settings.get("preview_max_age_hours") or 0)
         preview_size = int(settings.get("preview_max_size_mib") or 0)
         log_age = int(settings.get("log_max_age_hours") or 0)
+        log_file_size = int(settings.get("log_max_file_mib") or 0)
         log_size = int(settings.get("log_max_size_mib") or 0)
-        if preview_age <= 0 and preview_size <= 0 and log_age <= 0 and log_size <= 0:
+        if preview_age <= 0 and preview_size <= 0 and log_age <= 0 and log_file_size <= 0 and log_size <= 0:
             return None
         now = time.time()
         interval = max(300, int(settings.get("auto_cleanup_interval_minutes") or 60) * 60)
         if not force and now - float(getattr(self, "last_runtime_storage_cleanup", 0.0) or 0.0) < interval:
             return None
         self.last_runtime_storage_cleanup = now
-        protected = self.active_runtime_log_paths()
+        protected = self.protected_runtime_log_paths()
+        log_tail_snapshots = self.snapshot_retained_run_job_log_tails()
         result: dict[str, Any] = {
             "preview_cache": cleanup_preview_cache(
                 max_age_hours=preview_age,
@@ -484,16 +739,19 @@ class FilesMixin:
             ),
             "local_logs": cleanup_runtime_logs(
                 max_age_hours=log_age,
+                max_file_mib=log_file_size,
                 max_size_mib=log_size,
                 preserve_paths=protected.get("local") if isinstance(protected, dict) else [],
             ),
             "remote_logs": [],
+            "log_tail_snapshots": log_tail_snapshots,
         }
         self.prune_preview_cache_index()
-        if settings.get("remote_log_cleanup_enabled") and (log_age > 0 or log_size > 0):
+        if settings.get("remote_log_cleanup_enabled") and (log_age > 0 or log_file_size > 0 or log_size > 0):
             result["remote_logs"] = self.remote_runtime_log_statuses(
                 cleanup=True,
                 max_age_hours=log_age,
+                max_file_mib=log_file_size,
                 max_size_mib=log_size,
                 preserve_paths_by_server=(
                     protected.get("remote_by_server") if isinstance(protected, dict) else {}
