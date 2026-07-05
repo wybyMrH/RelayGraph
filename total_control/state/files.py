@@ -647,6 +647,7 @@ class FilesMixin:
         max_size_mib: int = 0,
         remove_all: bool = False,
         preserve_paths_by_server: dict[str, list[str]] | None = None,
+        remove_paths_by_server: dict[str, list[str]] | None = None,
     ) -> list[dict[str, Any]]:
         with self.lock:
             servers = [copy.deepcopy(server) for server in self.servers if server.mode != "local" and server.enabled]
@@ -692,6 +693,7 @@ class FilesMixin:
                         max_size_mib=max_size_mib,
                         remove_all=remove_all,
                         preserve_paths=(preserve_paths_by_server or {}).get(server.id, []),
+                        remove_paths=(remove_paths_by_server or {}).get(server.id, []),
                     )
                 )
             except Exception as exc:  # noqa: BLE001 - one remote host should not block maintenance UI.
@@ -712,6 +714,21 @@ class FilesMixin:
         include_logs = bool(data.get("include_logs", True))
         include_remote = bool(data.get("include_remote", True))
         remove_all = bool(data.get("remove_all", False))
+        remove_log_paths = data.get("remove_log_paths") if isinstance(data.get("remove_log_paths"), dict) else {}
+        remove_local_paths = [
+            str(item or "").strip()
+            for item in (remove_log_paths.get("local") if isinstance(remove_log_paths.get("local"), list) else [])
+            if str(item or "").strip()
+        ]
+        remove_remote_paths_by_server = {
+            str(server_id or "").strip(): [
+                str(item or "").strip()
+                for item in (paths if isinstance(paths, list) else [])
+                if str(item or "").strip()
+            ]
+            for server_id, paths in (remove_log_paths.get("remote_by_server") if isinstance(remove_log_paths.get("remote_by_server"), dict) else {}).items()
+            if str(server_id or "").strip()
+        }
         settings = normalize_runtime_storage_settings({**load_runtime_storage_settings(), **data})
         log_file_mib = int(settings.get("log_max_file_mib") or 0)
         protected = self.protected_runtime_log_paths()
@@ -736,6 +753,7 @@ class FilesMixin:
                 max_size_mib=0 if remove_all else int(settings.get("log_max_size_mib") or 0),
                 remove_all=remove_all,
                 preserve_paths=protected.get("local") if isinstance(protected, dict) else [],
+                remove_paths=remove_local_paths,
             )
             if include_remote:
                 result["remote_logs"] = self.remote_runtime_log_statuses(
@@ -747,6 +765,7 @@ class FilesMixin:
                     preserve_paths_by_server=(
                         protected.get("remote_by_server") if isinstance(protected, dict) else {}
                     ),
+                    remove_paths_by_server=remove_remote_paths_by_server,
                 )
         result["status"] = self.runtime_storage_status(include_remote=include_remote)
         return result

@@ -745,8 +745,9 @@ def _compact_run_event_text(value: Any, limit: int = 800) -> str:
     return text[:limit]
 
 
-def _compact_run_event_payload(payload: Any) -> dict[str, Any]:
+def _compact_run_event_payload(payload: Any, *, event_type: str = "") -> dict[str, Any]:
     source = payload if isinstance(payload, dict) else {}
+    is_delta_event = str(event_type or "").strip().endswith(".delta")
     compact: dict[str, Any] = {}
     for key in (
         "node_id",
@@ -766,6 +767,11 @@ def _compact_run_event_payload(payload: Any) -> dict[str, Any]:
         "runtime_control",
         "runtime_side_effect",
         "runtime_status",
+        "byte_count",
+        "line_count",
+        "truncated",
+        "skipped_bytes",
+        "final",
     ):
         if key in source:
             compact[key] = copy.deepcopy(source.get(key))
@@ -775,9 +781,12 @@ def _compact_run_event_payload(payload: Any) -> dict[str, Any]:
         compact["observation_summary"] = _compact_run_event_text(source.get("observation_summary"), 1000)
     if source.get("error") is not None:
         compact["error"] = _compact_run_event_text(source.get("error"), 500)
-    if source.get("delta") is not None:
+    if is_delta_event:
+        compact["content_retention"] = "summary_only"
+        compact["content"] = "omitted"
+    elif source.get("delta") is not None:
         compact["delta"] = _compact_run_event_text(source.get("delta"), 500)
-    if source.get("accumulated") is not None:
+    if not is_delta_event and source.get("accumulated") is not None:
         compact["accumulated"] = _compact_run_event_text(source.get("accumulated"), 2000)
 
     run = source.get("run") if isinstance(source.get("run"), dict) else {}
@@ -835,15 +844,16 @@ def _compact_run_event_payload(payload: Any) -> dict[str, Any]:
             "id": str(message.get("id") or "").strip(),
             "role": str(message.get("role") or "").strip(),
             "status": str(message.get("status") or "").strip(),
-            "text": _compact_run_event_text(message.get("text"), 1000),
         }
+        if not is_delta_event:
+            compact["message"]["text"] = _compact_run_event_text(message.get("text"), 1000)
     return compact
 
 
 def normalize_workspace_run_event(value: Any) -> dict[str, Any]:
     payload = value if isinstance(value, dict) else {}
     event_type = str(payload.get("type") or "message").strip() or "message"
-    compact_payload = _compact_run_event_payload(payload.get("payload"))
+    compact_payload = _compact_run_event_payload(payload.get("payload"), event_type=event_type)
     workspace_id = str(payload.get("workspace_id") or compact_payload.get("workspace_id") or "").strip()
     run_id = str(payload.get("run_id") or compact_payload.get("run_id") or "").strip()
     if not workspace_id or not run_id:
@@ -901,6 +911,152 @@ def normalize_workspace_run_events(
     return events[-max(limit, 1):]
 
 
+def _workspace_delta_event_text(event_type: str, payload: dict[str, Any]) -> str:
+    if event_type == "job.log.delta":
+        return str(payload.get("log") or "")
+    delta = str(payload.get("delta") or "")
+    if delta:
+        return delta
+    return str(payload.get("accumulated") or "")
+
+
+def _workspace_delta_evidence_id_list(value: Any, *, limit: int = 24) -> list[str]:
+    raw_items = value if isinstance(value, list) else []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def normalize_workspace_run_delta_evidence(value: Any) -> dict[str, Any]:
+    data = value if isinstance(value, dict) else {}
+    by_type_source = data.get("by_type") if isinstance(data.get("by_type"), dict) else {}
+    by_type: dict[str, dict[str, Any]] = {}
+    for event_type, item in by_type_source.items():
+        event_key = str(event_type or "").strip()
+        if not event_key:
+            continue
+        source = item if isinstance(item, dict) else {}
+        by_type[event_key] = {
+            "event_count": safe_int(source.get("event_count"), 0),
+            "byte_count": safe_int(source.get("byte_count"), 0),
+            "line_count": safe_int(source.get("line_count"), 0),
+            "truncated_count": safe_int(source.get("truncated_count"), 0),
+            "skipped_bytes": safe_int(source.get("skipped_bytes"), 0),
+            "last_at": str(source.get("last_at") or "").strip(),
+        }
+    recent: list[dict[str, Any]] = []
+    for item in data.get("recent") if isinstance(data.get("recent"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        event_type = str(item.get("type") or "").strip()
+        if not event_type:
+            continue
+        recent.append(
+            {
+                "type": event_type,
+                "created_at": str(item.get("created_at") or "").strip(),
+                "job_id": str(item.get("job_id") or "").strip(),
+                "agent_execution_id": str(item.get("agent_execution_id") or "").strip(),
+                "byte_count": safe_int(item.get("byte_count"), 0),
+                "line_count": safe_int(item.get("line_count"), 0),
+                "truncated": bool(item.get("truncated")),
+                "skipped_bytes": safe_int(item.get("skipped_bytes"), 0),
+                "content": "omitted",
+            }
+        )
+    recent = recent[-WORKSPACE_RUN_DELTA_EVIDENCE_RECENT_MAX:]
+    return {
+        "schema": "relaygraph.run.delta_evidence.v1",
+        "content_retention": "summary_only",
+        "total_events": safe_int(data.get("total_events"), 0),
+        "total_bytes": safe_int(data.get("total_bytes"), 0),
+        "total_lines": safe_int(data.get("total_lines"), 0),
+        "truncated_events": safe_int(data.get("truncated_events"), 0),
+        "skipped_bytes": safe_int(data.get("skipped_bytes"), 0),
+        "event_types": sorted(by_type),
+        "job_ids": _workspace_delta_evidence_id_list(data.get("job_ids")),
+        "agent_execution_ids": _workspace_delta_evidence_id_list(data.get("agent_execution_ids")),
+        "by_type": by_type,
+        "recent": recent,
+        "updated_at": str(data.get("updated_at") or "").strip(),
+    }
+
+
+def workspace_run_delta_evidence_from_event(current: Any, event: dict[str, Any]) -> dict[str, Any]:
+    event_type = str(event.get("type") or "").strip()
+    if not event_type.endswith(".delta"):
+        return normalize_workspace_run_delta_evidence(current)
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    text = _workspace_delta_event_text(event_type, payload)
+    fallback_byte_count = len(text.encode("utf-8", errors="replace"))
+    fallback_line_count = len(text.splitlines()) if text else 0
+    byte_count = safe_int(payload.get("byte_count"), -1)
+    if byte_count <= 0 and fallback_byte_count:
+        byte_count = fallback_byte_count
+    byte_count = max(byte_count, 0)
+    line_count = safe_int(payload.get("line_count"), -1)
+    if line_count <= 0 and fallback_line_count:
+        line_count = fallback_line_count
+    line_count = max(line_count, 0)
+    skipped_bytes = safe_int(payload.get("skipped_bytes"), 0)
+    truncated = bool(payload.get("truncated")) or skipped_bytes > 0
+    created_at = str(event.get("created_at") or now_iso()).strip() or now_iso()
+    job_id = str(event.get("job_id") or payload.get("job_id") or "").strip()
+    agent_execution_id = str(event.get("agent_execution_id") or payload.get("agent_execution_id") or "").strip()
+
+    evidence = normalize_workspace_run_delta_evidence(current)
+    evidence["total_events"] = safe_int(evidence.get("total_events"), 0) + 1
+    evidence["total_bytes"] = safe_int(evidence.get("total_bytes"), 0) + byte_count
+    evidence["total_lines"] = safe_int(evidence.get("total_lines"), 0) + line_count
+    evidence["skipped_bytes"] = safe_int(evidence.get("skipped_bytes"), 0) + skipped_bytes
+    if truncated:
+        evidence["truncated_events"] = safe_int(evidence.get("truncated_events"), 0) + 1
+    evidence["updated_at"] = created_at
+    if job_id:
+        evidence["job_ids"] = _workspace_delta_evidence_id_list([*evidence.get("job_ids", []), job_id])
+    if agent_execution_id:
+        evidence["agent_execution_ids"] = _workspace_delta_evidence_id_list(
+            [*evidence.get("agent_execution_ids", []), agent_execution_id]
+        )
+
+    by_type = evidence.get("by_type") if isinstance(evidence.get("by_type"), dict) else {}
+    item = by_type.get(event_type) if isinstance(by_type.get(event_type), dict) else {}
+    by_type[event_type] = {
+        "event_count": safe_int(item.get("event_count"), 0) + 1,
+        "byte_count": safe_int(item.get("byte_count"), 0) + byte_count,
+        "line_count": safe_int(item.get("line_count"), 0) + line_count,
+        "truncated_count": safe_int(item.get("truncated_count"), 0) + (1 if truncated else 0),
+        "skipped_bytes": safe_int(item.get("skipped_bytes"), 0) + skipped_bytes,
+        "last_at": created_at,
+    }
+    evidence["by_type"] = by_type
+    evidence["event_types"] = sorted(by_type)
+    recent = evidence.get("recent") if isinstance(evidence.get("recent"), list) else []
+    recent.append(
+        {
+            "type": event_type,
+            "created_at": created_at,
+            "job_id": job_id,
+            "agent_execution_id": agent_execution_id,
+            "byte_count": byte_count,
+            "line_count": line_count,
+            "truncated": truncated,
+            "skipped_bytes": skipped_bytes,
+            "content": "omitted",
+        }
+    )
+    evidence["recent"] = recent[-WORKSPACE_RUN_DELTA_EVIDENCE_RECENT_MAX:]
+    return normalize_workspace_run_delta_evidence(evidence)
+
+
 def normalize_workspace_execution_run(
     value: Any,
     *,
@@ -949,6 +1105,9 @@ def normalize_workspace_execution_run(
         }
     raw_events = payload.get("events") if isinstance(payload.get("events"), list) else current.get("events")
     events = normalize_workspace_run_events(raw_events)
+    delta_evidence = normalize_workspace_run_delta_evidence(
+        payload.get("delta_evidence") if isinstance(payload.get("delta_evidence"), dict) else current.get("delta_evidence")
+    )
     created_at = str(payload.get("created_at") or current.get("created_at") or now_iso()).strip() or now_iso()
     return {
         "id": run_id,
@@ -962,6 +1121,7 @@ def normalize_workspace_execution_run(
         "package_snapshot": copy.deepcopy(package_snapshot) if isinstance(package_snapshot, dict) else {},
         "package_id": package_id,
         "events": events,
+        "delta_evidence": delta_evidence,
         "created_at": created_at,
         "updated_at": str(payload.get("updated_at") or current.get("updated_at") or created_at).strip() or created_at,
     }
@@ -1252,6 +1412,9 @@ def workspace_execution_run_timeline(run: dict[str, Any]) -> list[dict[str, Any]
 def workspace_execution_run_replay_run_summary(run: dict[str, Any]) -> dict[str, Any]:
     package_snapshot = run.get("package_snapshot") if isinstance(run.get("package_snapshot"), dict) else {}
     run_events = normalize_workspace_run_events(run.get("events") if isinstance(run.get("events"), list) else [])
+    delta_evidence = normalize_workspace_run_delta_evidence(
+        run.get("delta_evidence") if isinstance(run.get("delta_evidence"), dict) else {}
+    )
     delivery = package_snapshot.get("delivery_closure") if isinstance(package_snapshot.get("delivery_closure"), dict) else {}
     return {
         "run": {
@@ -1263,11 +1426,13 @@ def workspace_execution_run_replay_run_summary(run: dict[str, Any]) -> dict[str,
             "progress": copy.deepcopy(run.get("progress") if isinstance(run.get("progress"), dict) else {}),
             "package_id": str(run.get("package_id") or package_snapshot.get("package_id") or "").strip(),
             "event_count": len(run_events),
+            "delta_evidence_count": safe_int(delta_evidence.get("total_events"), 0),
             "created_at": str(run.get("created_at") or "").strip(),
             "updated_at": str(run.get("updated_at") or "").strip(),
         },
         "timeline": workspace_execution_run_timeline(run),
         "event_timeline": run_events,
+        "delta_evidence": delta_evidence,
         "package_snapshot": copy.deepcopy(package_snapshot),
         "delivery_closure": copy.deepcopy(delivery),
     }
@@ -1323,6 +1488,7 @@ def workspace_execution_run_replay_payload(
         "run": root_replay["run"],
         "timeline": root_replay["timeline"],
         "event_timeline": root_replay["event_timeline"],
+        "delta_evidence": root_replay["delta_evidence"],
         "linked_runs": [
             workspace_execution_run_replay_run_summary(linked_run)
             for linked_run in linked_runs
@@ -1492,6 +1658,12 @@ def workspace_run_export_manifest(
         for item in linked_runs
         if isinstance(item, dict) and isinstance(item.get("event_timeline"), list)
     )
+    delta_evidence = replay.get("delta_evidence") if isinstance(replay.get("delta_evidence"), dict) else {}
+    linked_delta_event_count = sum(
+        safe_int(item.get("delta_evidence", {}).get("total_events"), 0)
+        for item in linked_runs
+        if isinstance(item, dict) and isinstance(item.get("delta_evidence"), dict)
+    )
     all_timeline = [
         *timeline,
         *[
@@ -1548,10 +1720,12 @@ def workspace_run_export_manifest(
         "included": {
             "timeline_steps": len(timeline),
             "event_timeline": len(event_timeline),
+            "delta_evidence_events": safe_int(delta_evidence.get("total_events"), 0),
             "linked_runs": len(linked_runs),
             "linked_runs_truncated": bool(linked_run_closure.get("truncated")),
             "linked_timeline_steps": linked_timeline_steps,
             "linked_event_timeline": linked_event_count,
+            "linked_delta_evidence_events": linked_delta_event_count,
             "linked_jobs": len(replay.get("linked_jobs") if isinstance(replay.get("linked_jobs"), list) else []),
             "agent_executions": len(replay.get("agent_execution_ids") if isinstance(replay.get("agent_execution_ids"), list) else []),
             "logs_returned": len(logs),
@@ -1568,6 +1742,7 @@ def workspace_run_export_manifest(
             "reports": 12,
             "child_refs_per_step": WORKSPACE_RUN_CHILD_REF_MAX,
             "linked_runs": safe_int(linked_run_closure.get("limit"), WORKSPACE_LINKED_RUN_CLOSURE_MAX),
+            "delta_evidence_recent_per_run": WORKSPACE_RUN_DELTA_EVIDENCE_RECENT_MAX,
         },
         "truncation": {
             "linked_runs": bool(linked_run_closure.get("truncated")),
@@ -1575,6 +1750,15 @@ def workspace_run_export_manifest(
             "missing_linked_run_count": safe_int(linked_run_closure.get("missing_count"), 0),
             "log_tails": len(truncated_logs),
             "omitted_log_bytes": omitted_log_bytes,
+            "delta_evidence_truncated_events": safe_int(delta_evidence.get("truncated_events"), 0)
+            + sum(
+                safe_int(item.get("delta_evidence", {}).get("truncated_events"), 0)
+                for item in linked_runs
+                if isinstance(item, dict) and isinstance(item.get("delta_evidence"), dict)
+            ),
+            "delta_evidence_omitted_content": bool(
+                safe_int(delta_evidence.get("total_events"), 0) or linked_delta_event_count
+            ),
             "child_ref_steps": sum(
                 1
                 for step in all_timeline
@@ -1598,6 +1782,7 @@ def workspace_run_export_readme(manifest: dict[str, Any]) -> str:
         f"- Delivery: {str(manifest.get('delivery_status') or '').strip() or 'unknown'}",
         f"- Steps: {safe_int(included.get('timeline_steps'), 0)}",
         f"- Events: {safe_int(included.get('event_timeline'), 0)}",
+        f"- Realtime delta evidence: {safe_int(included.get('delta_evidence_events'), 0)} summary-only events",
         f"- Linked runs: {safe_int(included.get('linked_runs'), 0)}",
         f"- Linked jobs: {safe_int(included.get('linked_jobs'), 0)}",
         f"- Logs included: {safe_int(included.get('logs_returned'), 0)}",
@@ -1615,6 +1800,8 @@ def workspace_run_export_readme(manifest: dict[str, Any]) -> str:
             f"- Missing linked run references: {safe_int(truncation.get('missing_linked_run_count'), 0)}",
             f"- Logs with truncated tails: {safe_int(truncation.get('log_tails'), 0)}",
             f"- Omitted log bytes before included tails: {safe_int(truncation.get('omitted_log_bytes'), 0)}",
+            f"- Realtime delta content omitted: {bool(truncation.get('delta_evidence_omitted_content'))}",
+            f"- Realtime delta events with skipped content: {safe_int(truncation.get('delta_evidence_truncated_events'), 0)}",
             f"- Steps with truncated child refs: {safe_int(truncation.get('child_ref_steps'), 0)}",
             "",
             "## Commands",
@@ -1637,8 +1824,9 @@ def workspace_run_export_readme(manifest: dict[str, Any]) -> str:
             lines.append(f"  - #{safe_int(step.get('index'), 0) + 1} {label}: {status}{' - ' + error if error else ''}")
     else:
         lines.append("- No failed, blocked, or stopped steps were recorded.")
-    lines.append("- Use `replay.timeline` for ordered step history, `replay.event_timeline` for SSE-derived runtime events, and `logs[].tail` for cached job output.")
+    lines.append("- Use `replay.timeline` for ordered step history, `replay.event_timeline` for persisted runtime events, `replay.delta_evidence` for summary-only realtime stream coverage, and `logs[].tail` for cached job output.")
     return "\n".join(lines).strip() + "\n"
+
 
 def workspace_execution_run_export_payload(
     workspace: dict[str, Any],

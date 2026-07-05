@@ -94,6 +94,7 @@ class BaseMixin:
         self.last_preview_cache_cleanup = 0.0
         self.last_runtime_storage_cleanup = 0.0
         self.job_log_stream_positions: dict[str, str] = {}
+        self.workspace_delta_evidence_save_state: dict[str, dict[str, Any]] = {}
         self.stop_event = threading.Event()
         if self.bootstrap_queue_ranks():
             write_json(JOBS_PATH, self.jobs)

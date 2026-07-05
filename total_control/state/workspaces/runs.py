@@ -16,6 +16,8 @@ def _workspace_public_payload_with_full_runs(state: Any, workspace: dict[str, An
 
 
 class RunsMixin:
+    DELTA_EVIDENCE_SAVE_INTERVAL_SECONDS = 5.0
+    DELTA_EVIDENCE_SAVE_EVENT_COUNT = 20
     PERSISTED_RUN_EVENT_TYPES = {
         "run.created",
         "run.updated",
@@ -29,11 +31,76 @@ class RunsMixin:
         "agent.failed",
     }
 
+    def _workspace_delta_evidence_should_save(self, key: str, *, final: bool = False) -> bool:
+        state = getattr(self, "workspace_delta_evidence_save_state", None)
+        if not isinstance(state, dict):
+            state = {}
+            self.workspace_delta_evidence_save_state = state
+        now = time.time()
+        item = state.get(key) if isinstance(state.get(key), dict) else {}
+        pending = safe_int(item.get("pending"), 0) + 1
+        last_saved = safe_float(item.get("last_saved"), 0.0)
+        should_save = (
+            final
+            or pending >= self.DELTA_EVIDENCE_SAVE_EVENT_COUNT
+            or not last_saved
+            or now - last_saved >= self.DELTA_EVIDENCE_SAVE_INTERVAL_SECONDS
+        )
+        state[key] = {
+            "pending": 0 if should_save else pending,
+            "last_saved": now if should_save else last_saved,
+        }
+        return should_save
+
+    def _workspace_delta_evidence_mark_saved(self, key: str) -> None:
+        state = getattr(self, "workspace_delta_evidence_save_state", None)
+        if not isinstance(state, dict):
+            state = {}
+            self.workspace_delta_evidence_save_state = state
+        state[key] = {"pending": 0, "last_saved": time.time()}
+
     def record_workspace_run_event(self, event: dict[str, Any]) -> bool:
         if not isinstance(event, dict):
             return False
         event_type = str(event.get("type") or "").strip()
-        if event_type not in self.PERSISTED_RUN_EVENT_TYPES or event_type.endswith(".delta"):
+        if event_type.endswith(".delta"):
+            normalized_event = normalize_workspace_run_event(event)
+            if not normalized_event:
+                return False
+            workspace_id = str(normalized_event.get("workspace_id") or "").strip()
+            run_id = str(normalized_event.get("run_id") or "").strip()
+            changed = False
+            should_save = False
+            with self.lock:
+                workspace_index = next(
+                    (idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id),
+                    -1,
+                )
+                if workspace_index < 0:
+                    return False
+                workspace = self.workspaces[workspace_index]
+                runs = normalize_workspace_execution_runs(workspace.get("runs"))
+                run_index = next((idx for idx, item in enumerate(runs) if str(item.get("id") or "") == run_id), -1)
+                if run_index < 0:
+                    return False
+                current_run = runs[run_index]
+                current_run["delta_evidence"] = workspace_run_delta_evidence_from_event(
+                    current_run.get("delta_evidence"),
+                    event,
+                )
+                current_run["updated_at"] = str(normalized_event.get("created_at") or now_iso()).strip() or now_iso()
+                runs[run_index] = normalize_workspace_execution_run(current_run, existing=current_run)
+                workspace["runs"] = normalize_workspace_execution_runs(runs)
+                event_payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+                should_save = self._workspace_delta_evidence_should_save(
+                    f"{workspace_id}:{run_id}",
+                    final=bool(event_payload.get("final")),
+                )
+                changed = True
+            if changed and should_save:
+                self.save_workspaces()
+            return changed
+        if event_type not in self.PERSISTED_RUN_EVENT_TYPES:
             return False
         normalized_event = normalize_workspace_run_event(event)
         if not normalized_event:
@@ -68,6 +135,7 @@ class RunsMixin:
             changed = True
         if changed:
             self.save_workspaces()
+            self._workspace_delta_evidence_mark_saved(f"{workspace_id}:{run_id}")
         return changed
 
 

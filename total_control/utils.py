@@ -900,14 +900,14 @@ def cleanup_runtime_logs(
     max_size_mib: int = 0,
     remove_all: bool = False,
     preserve_paths: list[str] | None = None,
+    remove_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     root = runtime_log_root()
     entries = iter_runtime_log_files()
-    preserved: set[Path] = set()
-    for value in preserve_paths or []:
+    def normalize_runtime_log_path(value: Any) -> Path | None:
         text = str(value or "").strip()
         if not text:
-            continue
+            return None
         try:
             if text == "data/logs" or text.startswith("data/logs/"):
                 path = root / Path(text).relative_to("data/logs")
@@ -918,10 +918,23 @@ def cleanup_runtime_logs(
             resolved = path.resolve()
             resolved.relative_to(root)
         except (OSError, ValueError):
-            continue
-        preserved.add(resolved)
+            return None
+        return resolved
+
+    preserved: set[Path] = set()
+    for value in preserve_paths or []:
+        resolved = normalize_runtime_log_path(value)
+        if resolved is not None:
+            preserved.add(resolved)
+    targeted: set[Path] = set()
+    for value in remove_paths or []:
+        resolved = normalize_runtime_log_path(value)
+        if resolved is not None:
+            targeted.add(resolved)
     to_remove: list[dict[str, Any]] = []
-    if remove_all:
+    if targeted:
+        to_remove = [item for item in entries if Path(item["path"]).resolve() in targeted]
+    elif remove_all:
         to_remove = list(entries)
     else:
         now = time.time()
@@ -1044,6 +1057,11 @@ for item in OPTIONS.get("preserve_paths") or []:
     normalized = normalize_remote_log_path(item)
     if normalized:
         PRESERVE_PATHS.add(normalized)
+REMOVE_PATHS = set()
+for item in OPTIONS.get("remove_paths") or []:
+    normalized = normalize_remote_log_path(item)
+    if normalized:
+        REMOVE_PATHS.add(normalized)
 
 def entries():
     result = []
@@ -1110,7 +1128,9 @@ if OPTIONS.get("cleanup"):
     max_file_mib = safe_int(OPTIONS.get("max_file_mib"))
     max_size_mib = safe_int(OPTIONS.get("max_size_mib"))
     to_remove = []
-    if remove_all:
+    if REMOVE_PATHS:
+        to_remove = [item for item in items if os.path.realpath(item["path"]) in REMOVE_PATHS]
+    elif remove_all:
         to_remove = list(items)
     else:
         now = time.time()
@@ -1174,6 +1194,7 @@ def remote_runtime_log_payload(
     max_size_mib: int = 0,
     remove_all: bool = False,
     preserve_paths: list[str] | None = None,
+    remove_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     from .infra.shell_pkg.ssh import ssh_command
 
@@ -1185,6 +1206,7 @@ def remote_runtime_log_payload(
         "max_size_mib": max(0, int(max_size_mib or 0)),
         "remove_all": bool(remove_all),
         "preserve_paths": [str(item) for item in (preserve_paths or []) if str(item or "").strip()],
+        "remove_paths": [str(item) for item in (remove_paths or []) if str(item or "").strip()],
     }
     command = (
         "python3 -c "

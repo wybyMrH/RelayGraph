@@ -138,8 +138,6 @@ def normalize_agent_trace_event(value: Any) -> dict[str, Any]:
         "tool_id",
         "arguments_summary",
         "observation_summary",
-        "delta",
-        "accumulated",
         "status",
         "side_effect",
         "error",
@@ -148,9 +146,31 @@ def normalize_agent_trace_event(value: Any) -> dict[str, Any]:
         "runtime_control",
         "runtime_side_effect",
         "runtime_status",
+        "content_retention",
+        "delta_byte_count",
+        "delta_char_count",
+        "delta_line_count",
+        "accumulated_byte_count",
+        "accumulated_char_count",
+        "accumulated_line_count",
     ):
         if key in source and source.get(key) not in (None, ""):
             normalized[key] = source[key]
+    if normalized.get("content_retention") == "summary_only":
+        normalized["content"] = "omitted"
+    delta_text = str(source.get("delta") or "")
+    accumulated_text = str(source.get("accumulated") or "")
+    if delta_text or accumulated_text:
+        normalized["content_retention"] = "summary_only"
+        normalized["content"] = "omitted"
+        if delta_text:
+            normalized["delta_byte_count"] = len(delta_text.encode("utf-8", errors="replace"))
+            normalized["delta_char_count"] = len(delta_text)
+            normalized["delta_line_count"] = len(delta_text.splitlines())
+        if accumulated_text:
+            normalized["accumulated_byte_count"] = len(accumulated_text.encode("utf-8", errors="replace"))
+            normalized["accumulated_char_count"] = len(accumulated_text)
+            normalized["accumulated_line_count"] = len(accumulated_text.splitlines())
     if "controlled" in source:
         normalized["controlled"] = bool(source.get("controlled"))
     return normalized
