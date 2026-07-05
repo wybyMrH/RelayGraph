@@ -19109,6 +19109,109 @@ function workspaceInputMappingFromEntries(entries = []) {
   }, {});
 }
 
+function workflowTemplateMappingSourceStatus(source = "", sourceOptions = [], options = {}) {
+  const value = String(source || "").trim();
+  if (!value) return { status: "blocked", message: "来源为空" };
+  if (value === "$prev.output" && options.requiresPreviousOutput && !options.sourceOutputKey) {
+    return { status: "blocked", message: "上一节点缺 output_key" };
+  }
+  const known = sourceOptions.some((option) => String(option.value || "") === value);
+  if (known) return { status: "ready", message: "" };
+  if (value === "$input" || value.startsWith("$input.")) return { status: "ready", message: "" };
+  if (value === "$context.outputs") return { status: "ready", message: "" };
+  if (value.startsWith("$context.outputs.")) {
+    return { status: "warning", message: "未出现在上游输出候选" };
+  }
+  if (value.startsWith("$prev.")) return { status: "warning", message: "自定义上一节点来源" };
+  if (value.startsWith("$context.")) return { status: "warning", message: "自定义上下文来源" };
+  return { status: "warning", message: "自定义来源" };
+}
+
+function workflowTemplateMappingHealth(rows = [], options = {}) {
+  const normalizedRows = (Array.isArray(rows) ? rows : [])
+    .map((entry, index) => ({
+      index,
+      name: String(entry?.name || "").trim(),
+      source: String(entry?.source || "").trim(),
+      messages: [],
+      status: "ready",
+    }))
+    .filter((entry) => entry.name || entry.source);
+  const counts = normalizedRows.reduce((acc, entry) => {
+    if (entry.name) acc[entry.name] = (acc[entry.name] || 0) + 1;
+    return acc;
+  }, {});
+  const targetInputs = (Array.isArray(options.targetInputs) ? options.targetInputs : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  const sourceOptions = Array.isArray(options.sourceOptions) ? options.sourceOptions : [];
+  const rowHealth = normalizedRows.map((entry) => {
+    const messages = [];
+    let status = "ready";
+    if (!entry.name) {
+      status = "blocked";
+      messages.push("输入名为空");
+    }
+    if (!entry.source) {
+      status = "blocked";
+      messages.push("来源为空");
+    }
+    if (entry.name && counts[entry.name] > 1) {
+      if (status !== "blocked") status = "warning";
+      messages.push("输入名重复，保存时会被后面的同名项覆盖");
+    }
+    const sourceStatus = workflowTemplateMappingSourceStatus(entry.source, sourceOptions, options);
+    if (sourceStatus.status === "blocked") status = "blocked";
+    else if (sourceStatus.status === "warning" && status !== "blocked") status = "warning";
+    if (sourceStatus.message) messages.push(sourceStatus.message);
+    return { ...entry, status, messages };
+  });
+  const mappedNames = new Set(rowHealth.map((entry) => entry.name).filter(Boolean));
+  const missingInputs = targetInputs.filter((name) => !mappedNames.has(name));
+  const incompleteCount = rowHealth.filter((entry) => entry.status === "blocked").length;
+  const warningCount = rowHealth.filter((entry) => entry.status === "warning").length + missingInputs.length;
+  const draftDefault = Number(options.savedCount ?? rowHealth.length) === 0 && rowHealth.length > 0;
+  const status = incompleteCount
+    ? "blocked"
+    : warningCount || draftDefault
+      ? "warning"
+      : rowHealth.length
+        ? "ready"
+        : targetInputs.length
+          ? "blocked"
+          : "warning";
+  const summaryParts = [];
+  if (rowHealth.length) summaryParts.push(`${rowHealth.length} 条映射`);
+  else summaryParts.push("暂无映射");
+  if (missingInputs.length) summaryParts.push(`缺 ${missingInputs.length} 个声明输入`);
+  if (incompleteCount) summaryParts.push(`${incompleteCount} 条不完整`);
+  if (warningCount && !incompleteCount) summaryParts.push(`${warningCount} 个提示`);
+  if (draftDefault) summaryParts.push("默认预览未保存");
+  return {
+    status,
+    rowHealth,
+    missingInputs,
+    incompleteCount,
+    warningCount,
+    draftDefault,
+    summary: summaryParts.join(" · "),
+  };
+}
+
+function workflowTemplateMappingHealthMarkup(health = {}) {
+  const status = String(health.status || "warning");
+  const missing = Array.isArray(health.missingInputs) ? health.missingInputs : [];
+  const detail = missing.length ? `缺少：${missing.slice(0, 5).join(" / ")}` : "";
+  const draft = health.draftDefault ? "默认映射还没有写入模板" : "";
+  const parts = [detail, draft].filter(Boolean);
+  return `
+    <div class="workflow-template-mapping-health status-${escapeHtml(status)}" data-mapping-health-summary>
+      <strong>${escapeHtml(health.summary || "等待映射")}</strong>
+      ${parts.length ? `<span title="${escapeHtml(parts.join(" · "))}">${escapeHtml(parts.join(" · "))}</span>` : ""}
+    </div>
+  `;
+}
+
 function workflowTemplateNodeIndex(node = selectedWorkflowTemplateNode()) {
   const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
   return Math.max(0, nodes.findIndex((item) => String(item?.id || "") === String(node?.id || "")));
@@ -19143,12 +19246,25 @@ function workflowTemplateInputMappingEditorMarkup(node = {}, index = 0) {
     .filter((item) => item.name);
   const sourceOptions = workflowTemplateMappingSourceOptions(node, index);
   const outputKey = String(node.output_key || contract.output || "").trim();
+  const previousNode = (Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [])[index - 1] || null;
+  const previousContract = previousNode ? workspaceNodeIoContract(previousNode.kind || "", index - 1) : {};
+  const previousOutputKey = previousNode
+    ? String(previousNode.output_key || previousContract.output || "").trim()
+    : "";
+  const health = workflowTemplateMappingHealth(rows, {
+    targetInputs: Array.isArray(contract.inputs) ? contract.inputs : [],
+    sourceOptions,
+    sourceOutputKey: previousOutputKey,
+    requiresPreviousOutput: index > 0,
+    savedCount: entries.length,
+  });
   const rowMarkup = workflowTemplateMappingRowsMarkup(rows, sourceOptions, {
     nameAttr: "data-manage-input-mapping-name",
     sourceAttr: "data-manage-input-mapping-source",
     sourceSelectAttr: "data-manage-input-mapping-source-select",
     removeAction: "remove-template-input-mapping",
     sourcePlaceholder: "$context.outputs.repo_profile",
+    health,
   });
   return `
     <section class="workflow-template-mapping-editor">
@@ -19159,6 +19275,7 @@ function workflowTemplateInputMappingEditorMarkup(node = {}, index = 0) {
         </div>
         <button class="secondary mini" type="button" data-action="add-template-input-mapping" title="添加一条 input_mapping">添加映射</button>
       </div>
+      ${workflowTemplateMappingHealthMarkup(health)}
       <div class="workflow-template-mapping-grid">
         <span>输入名</span>
         <span>常用来源</span>
@@ -19181,6 +19298,7 @@ function workflowTemplateMappingRowsMarkup(rows = [], sourceOptions = [], option
   const removeAction = options.removeAction || "remove-template-input-mapping";
   const sourcePlaceholder = options.sourcePlaceholder || "$context.outputs.repo_profile";
   const emptyText = options.emptyText || "还没有输入映射。可以点“添加映射”补一条。";
+  const rowHealth = Array.isArray(options.health?.rowHealth) ? options.health.rowHealth : [];
   return rows.length ? rows.map((entry, rowIndex) => {
     const source = String(entry.source || "").trim();
     const hasSourceOption = source && sourceOptions.some((option) => option.value === source);
@@ -19188,14 +19306,24 @@ function workflowTemplateMappingRowsMarkup(rows = [], sourceOptions = [], option
       ...sourceOptions,
       ...(hasSourceOption || !source ? [] : [{ value: source, label: `${source} · 自定义` }]),
     ];
+    const health = rowHealth.find((item) => item.index === rowIndex) || {};
+    const status = String(health.status || "ready");
+    const message = Array.isArray(health.messages) && health.messages.length
+      ? health.messages.join(" / ")
+      : status === "ready"
+        ? "映射正常"
+        : "映射待确认";
     return `
-      <div class="workflow-template-mapping-row" data-mapping-row="${rowIndex}">
+      <div class="workflow-template-mapping-row status-${escapeHtml(status)}" data-mapping-row="${rowIndex}" title="${escapeHtml(message)}">
         <input ${nameAttr}="${rowIndex}" value="${escapeHtml(entry.name || "")}" placeholder="输入名，如 dataset_profile" />
         <select ${sourceSelectAttr}="${rowIndex}" title="选择常用来源">
           ${rowOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === source ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
         </select>
         <input ${sourceAttr}="${rowIndex}" value="${escapeHtml(source)}" placeholder="${escapeHtml(sourcePlaceholder)}" />
-        <button class="secondary mini danger" type="button" data-action="${escapeHtml(removeAction)}" data-index="${rowIndex}" title="删除这条输入映射">删除</button>
+        <span class="workflow-template-mapping-row-actions">
+          <em class="mapping-row-state">${escapeHtml(status === "ready" ? "ok" : status === "blocked" ? "阻塞" : "提示")}</em>
+          <button class="secondary mini danger" type="button" data-action="${escapeHtml(removeAction)}" data-index="${rowIndex}" title="删除这条输入映射">删除</button>
+        </span>
       </div>
     `;
   }).join("") : `<div class="empty">${escapeHtml(emptyText)}</div>`;
@@ -19231,7 +19359,7 @@ function workflowTemplateEdgeState(nodes = [], selectedIndex = 0) {
   const sourceOutputKey = sourceNode
     ? String(sourceNode.output_key || sourceContract?.output || "").trim()
     : "$input";
-  const sourceRef = sourceNode && sourceOutputKey ? `$context.outputs.${sourceOutputKey}` : "$input";
+  const sourceRef = sourceNode ? sourceOutputKey ? `$context.outputs.${sourceOutputKey}` : "$prev.output" : "$input";
   const targetMapping = targetNode?.input_mapping && typeof targetNode.input_mapping === "object" ? targetNode.input_mapping : {};
   const targetInputs = Array.isArray(targetContract?.inputs) ? targetContract.inputs : [];
   const rows = workspaceInputMappingEntries(targetMapping);
@@ -19287,12 +19415,19 @@ function workflowTemplateEdgeInspectorMarkup(nodes = [], selectedIndex = 0) {
   const sourceMeta = edge.sourceNode
     ? edge.sourceOutputKey ? `$context.outputs.${edge.sourceOutputKey}` : "等待上游 output_key"
     : "$input";
-  const statusText = edge.status === "ready"
-    ? `${edge.rows.length} 条映射已保存`
-    : edge.status === "blocked"
-      ? "上游缺 output_key"
-      : "等待确认映射";
   const sourceOptions = workflowTemplateEdgeSourceOptions(edge);
+  const health = workflowTemplateMappingHealth(edge.displayRows, {
+    targetInputs: edge.targetInputs,
+    sourceOptions,
+    sourceOutputKey: edge.sourceOutputKey,
+    requiresPreviousOutput: edge.targetIndex > 0,
+    savedCount: edge.rows.length,
+  });
+  const statusText = health.status === "ready"
+    ? `${edge.rows.length} 条映射已保存`
+    : health.status === "blocked"
+      ? health.summary || "映射阻塞"
+      : health.summary || "等待确认映射";
   const rowMarkup = workflowTemplateMappingRowsMarkup(edge.displayRows, sourceOptions, {
     nameAttr: "data-edge-input-mapping-name",
     sourceAttr: "data-edge-input-mapping-source",
@@ -19300,11 +19435,12 @@ function workflowTemplateEdgeInspectorMarkup(nodes = [], selectedIndex = 0) {
     removeAction: "remove-template-edge-mapping",
     sourcePlaceholder: edge.sourceRef || "$prev.output",
     emptyText: "当前节点没有声明输入，可手动添加一条边映射。",
+    health,
   });
-  const canMapPrevious = Boolean(edge.sourceRef);
+  const canMapPrevious = edge.targetIndex === 0 || Boolean(edge.sourceOutputKey);
   const canClear = edge.rows.length > 0;
   return `
-    <section class="workflow-template-edge-inspector status-${escapeHtml(edge.status)}" data-edge-target-id="${escapeHtml(target.id || "")}">
+    <section class="workflow-template-edge-inspector status-${escapeHtml(health.status)}" data-edge-target-id="${escapeHtml(target.id || "")}">
       <div class="workflow-template-edge-head">
         <div>
           <strong>交接映射</strong>
@@ -19323,6 +19459,7 @@ function workflowTemplateEdgeInspectorMarkup(nodes = [], selectedIndex = 0) {
         <button class="secondary mini" type="button" data-action="add-template-edge-mapping" title="添加一条交接映射">添加映射</button>
         <button class="secondary mini danger" type="button" data-action="clear-template-edge-mapping" title="清空当前节点 input_mapping" ${canClear ? "" : "disabled"}>清空</button>
       </div>
+      ${workflowTemplateMappingHealthMarkup(health)}
       <div class="workflow-template-edge-grid workflow-template-mapping-grid">
         <span>下游输入</span>
         <span>来源快捷</span>
@@ -19345,6 +19482,65 @@ function workflowTemplateDefaultEdgeEntries(mode = "previous") {
       ? "$input"
       : edge.sourceRef || "$prev.output";
   return names.map((name) => ({ name: String(name || "").trim(), source })).filter((item) => item.name);
+}
+
+function refreshWorkflowTemplateMappingEditorHealth(editor, options = {}) {
+  if (!editor) return;
+  const edgeMode = Boolean(options.edge);
+  const node = selectedWorkflowTemplateNode();
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  const index = workflowTemplateNodeIndex(node);
+  const entries = edgeMode
+    ? workflowTemplateEdgeMappingEntriesFromEditor(editor)
+    : workflowTemplateInputMappingEntriesFromEditor(editor);
+  let health;
+  let sourceOptions;
+  if (edgeMode) {
+    const edge = workflowTemplateEdgeState(nodes, index);
+    sourceOptions = workflowTemplateEdgeSourceOptions(edge);
+    health = workflowTemplateMappingHealth(entries, {
+      targetInputs: edge.targetInputs,
+      sourceOptions,
+      sourceOutputKey: edge.sourceOutputKey,
+      requiresPreviousOutput: edge.targetIndex > 0,
+      savedCount: entries.length,
+    });
+  } else {
+    const contract = workspaceNodeIoContract(node?.kind || "", index);
+    sourceOptions = workflowTemplateMappingSourceOptions(node, index);
+    const previousNode = nodes[index - 1] || null;
+    const previousContract = previousNode ? workspaceNodeIoContract(previousNode.kind || "", index - 1) : {};
+    const previousOutputKey = previousNode
+      ? String(previousNode.output_key || previousContract.output || "").trim()
+      : "";
+    health = workflowTemplateMappingHealth(entries, {
+      targetInputs: Array.isArray(contract.inputs) ? contract.inputs : [],
+      sourceOptions,
+      sourceOutputKey: previousOutputKey,
+      requiresPreviousOutput: index > 0,
+      savedCount: entries.length,
+    });
+  }
+  const summary = editor.querySelector("[data-mapping-health-summary]");
+  if (summary) {
+    const replacement = document.createElement("div");
+    replacement.innerHTML = workflowTemplateMappingHealthMarkup(health).trim();
+    summary.replaceWith(replacement.firstElementChild);
+  }
+  Array.from(editor.querySelectorAll(".workflow-template-mapping-row")).forEach((row, rowIndex) => {
+    const rowHealth = health.rowHealth.find((item) => item.index === rowIndex) || {};
+    const status = String(rowHealth.status || "ready");
+    row.classList.remove("status-ready", "status-warning", "status-blocked");
+    row.classList.add(`status-${status}`);
+    const message = Array.isArray(rowHealth.messages) && rowHealth.messages.length
+      ? rowHealth.messages.join(" / ")
+      : status === "ready"
+        ? "映射正常"
+        : "映射待确认";
+    row.title = message;
+    const stateLabel = row.querySelector(".mapping-row-state");
+    if (stateLabel) stateLabel.textContent = status === "ready" ? "ok" : status === "blocked" ? "阻塞" : "提示";
+  });
 }
 
 function renderWorkspaceNodeEditor() {
@@ -26683,27 +26879,29 @@ function bindEvents() {
       setSelectedWorkflowTemplateInputMapping({}, { render: "canvas" });
     }
   });
-  $("workflowTemplateCanvas")?.addEventListener("input", (event) => {
-    const target = event.target;
-    if (!target.matches("[data-edge-input-mapping-name], [data-edge-input-mapping-source]")) return;
-    const editor = target.closest(".workflow-template-edge-inspector");
-    setSelectedWorkflowTemplateInputMapping(
-      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
-      { render: false, renderParts: true },
-    );
-  });
-  $("workflowTemplateCanvas")?.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!target.matches("[data-edge-input-mapping-source-select]")) return;
-    const row = target.closest(".workflow-template-mapping-row");
+	  $("workflowTemplateCanvas")?.addEventListener("input", (event) => {
+	    const target = event.target;
+	    if (!target.matches("[data-edge-input-mapping-name], [data-edge-input-mapping-source]")) return;
+	    const editor = target.closest(".workflow-template-edge-inspector");
+	    setSelectedWorkflowTemplateInputMapping(
+	      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
+	      { render: false, renderParts: true },
+	    );
+	    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
+	  });
+	  $("workflowTemplateCanvas")?.addEventListener("change", (event) => {
+	    const target = event.target;
+	    if (!target.matches("[data-edge-input-mapping-source-select]")) return;
+	    const row = target.closest(".workflow-template-mapping-row");
     const sourceInput = row?.querySelector("[data-edge-input-mapping-source]");
     if (sourceInput) sourceInput.value = target.value || "";
     const editor = target.closest(".workflow-template-edge-inspector");
-    setSelectedWorkflowTemplateInputMapping(
-      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
-      { render: false, renderParts: true },
-    );
-  });
+	    setSelectedWorkflowTemplateInputMapping(
+	      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
+	      { render: false, renderParts: true },
+	    );
+	    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
+	  });
   $("workflowTemplateNodeList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='select-template-node']");
     if (button?.dataset.nodeId) {
@@ -26744,23 +26942,25 @@ function bindEvents() {
       });
       return;
     }
-    if (target.matches("[data-manage-input-mapping-name], [data-manage-input-mapping-source]")) {
-      const editor = target.closest(".workflow-template-mapping-editor");
-      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
-      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
-      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
-      return;
-    }
-    if (target.matches("[data-manage-input-mapping-source-select]")) {
-      const row = target.closest(".workflow-template-mapping-row");
-      const sourceInput = row?.querySelector("[data-manage-input-mapping-source]");
+	    if (target.matches("[data-manage-input-mapping-name], [data-manage-input-mapping-source]")) {
+	      const editor = target.closest(".workflow-template-mapping-editor");
+	      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
+	      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
+	      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
+	      refreshWorkflowTemplateMappingEditorHealth(editor);
+	      return;
+	    }
+	    if (target.matches("[data-manage-input-mapping-source-select]")) {
+	      const row = target.closest(".workflow-template-mapping-row");
+	      const sourceInput = row?.querySelector("[data-manage-input-mapping-source]");
       if (sourceInput) sourceInput.value = target.value || "";
       const editor = target.closest(".workflow-template-mapping-editor");
-      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
-      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
-      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
-      return;
-    }
+	      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
+	      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
+	      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
+	      refreshWorkflowTemplateMappingEditorHealth(editor);
+	      return;
+	    }
     if (target.matches("[data-config-key]")) {
       const key = target.dataset.configKey;
       updateSelectedWorkflowTemplateNode((node) => ({
