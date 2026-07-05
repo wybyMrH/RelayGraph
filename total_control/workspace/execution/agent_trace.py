@@ -11,6 +11,21 @@ TRACE_ARGS_LIMIT = 160
 TRACE_OBS_LIMIT = 280
 MAX_TRACE_EVENTS = 48
 MAX_TRACE_STEPS = 24
+SENSITIVE_ARGUMENT_KEYS = {
+    "api_key",
+    "apikey",
+    "x-api-key",
+    "authorization",
+    "auth",
+    "access_token",
+    "token",
+    "secret",
+    "password",
+    "passphrase",
+    "credential",
+    "credentials",
+    "headers",
+}
 
 
 def summarize_trace_text(text: str, limit: int = TRACE_TEXT_LIMIT) -> str:
@@ -21,12 +36,30 @@ def summarize_trace_text(text: str, limit: int = TRACE_TEXT_LIMIT) -> str:
     return value[:limit] + "…"
 
 
+def redact_sensitive_arguments(value: Any, *, depth: int = 0) -> Any:
+    if depth > 6:
+        return "***"
+    if isinstance(value, dict):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key or "").strip()
+            key_lower = key_text.lower().replace("_", "-")
+            if key_lower in SENSITIVE_ARGUMENT_KEYS or any(term in key_lower for term in ("api-key", "token", "secret", "password", "passphrase")):
+                redacted[key_text] = "***" if item not in (None, "") else ""
+                continue
+            redacted[key_text] = redact_sensitive_arguments(item, depth=depth + 1)
+        return redacted
+    if isinstance(value, list):
+        return [redact_sensitive_arguments(item, depth=depth + 1) for item in value[:40]]
+    return value
+
+
 def compact_tool_arguments(arguments: Any) -> str:
     # 工具参数摘要
     if not isinstance(arguments, dict) or not arguments:
         return ""
     try:
-        raw = json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
+        raw = json.dumps(redact_sensitive_arguments(arguments), ensure_ascii=False, separators=(",", ":"))
     except TypeError:
         raw = str(arguments)
     return summarize_trace_text(raw, TRACE_ARGS_LIMIT)

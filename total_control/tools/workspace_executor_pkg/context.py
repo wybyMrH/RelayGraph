@@ -13,6 +13,8 @@ class WorkspaceToolContext:
     workspace: dict[str, Any]
     statuses: list[dict[str, Any]] = field(default_factory=list)
     jobs: list[dict[str, Any]] = field(default_factory=list)
+    provider_profiles: list[dict[str, Any]] = field(default_factory=list)
+    tool_definitions: list[dict[str, Any]] = field(default_factory=list)
     runtime: Any = None
 
     def node_config(self, kind: str) -> dict[str, Any]:
@@ -127,6 +129,33 @@ class WorkspaceToolContext:
         else:
             callback = getattr(runtime, name, None) if runtime is not None else None
         return callback if callable(callback) else None
+
+    def search_provider_profile(self, profile_id: str = "") -> dict[str, Any]:
+        target = str(profile_id or "").strip()
+        search_profiles: list[dict[str, Any]] = []
+        for profile in self.provider_profiles if isinstance(self.provider_profiles, list) else []:
+            if not isinstance(profile, dict):
+                continue
+            kind = str(profile.get("kind") or profile.get("profile_type") or profile.get("type") or "").strip().lower()
+            if kind not in {"search", "web_search", "web-search"}:
+                continue
+            if target and str(profile.get("id") or "").strip() == target:
+                return dict(profile)
+            search_profiles.append(profile)
+        if target:
+            return {}
+        default_profile = next((profile for profile in search_profiles if profile.get("is_default")), None)
+        return dict(default_profile or (search_profiles[0] if search_profiles else {}))
+
+    def tool_definition_by_id(self, tool_id: str) -> dict[str, Any]:
+        target = str(tool_id or "").strip()
+        for tool in self.tool_definitions if isinstance(self.tool_definitions, list) else []:
+            if isinstance(tool, dict) and str(tool.get("id") or "").strip() == target:
+                return dict(tool)
+        for tool in self.workspace.get("tools") if isinstance(self.workspace.get("tools"), list) else []:
+            if isinstance(tool, dict) and str(tool.get("id") or "").strip() == target:
+                return dict(tool)
+        return {}
 
     def submit_controlled_job(self, tool_id: str, arguments: dict[str, Any]) -> dict[str, Any]:
         callback = self.runtime_callback("submit_job")

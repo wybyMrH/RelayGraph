@@ -1349,9 +1349,28 @@ const PROVIDER_VENDOR_OPTIONS = [
   { value: "custom", label: "Custom (自定义)", base_url: "" },
 ];
 
+const SEARCH_PROVIDER_OPTIONS = [
+  { value: "", label: "未选择", base_url: "", key_required: true, endpoint_required: false },
+  { value: "firecrawl", label: "Firecrawl", base_url: "https://api.firecrawl.dev", key_required: true, endpoint_required: false },
+  { value: "serper", label: "Serper", base_url: "https://google.serper.dev/search", key_required: true, endpoint_required: false },
+  { value: "duckduckgo", label: "DuckDuckGo", base_url: "", key_required: false, endpoint_required: false },
+  { value: "endpoint", label: "HTTP Endpoint", base_url: "", key_required: false, endpoint_required: true },
+];
+
 function vendorDefaultBaseUrl(vendor = "") {
   const entry = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === String(vendor || "").trim());
   return entry?.base_url || "";
+}
+
+function searchProviderOption(provider = "") {
+  return SEARCH_PROVIDER_OPTIONS.find((item) => item.value === String(provider || "").trim()) || SEARCH_PROVIDER_OPTIONS[0];
+}
+
+function searchProviderOptionsMarkup(selectedValue = "") {
+  const selected = String(selectedValue || "").trim();
+  return SEARCH_PROVIDER_OPTIONS.map((option) => (
+    `<option value="${escapeHtml(option.value)}" ${option.value === selected ? "selected" : ""}>${escapeHtml(option.label)}</option>`
+  )).join("");
 }
 
 function providerVendorRequiresApiKey(vendor = "") {
@@ -1368,6 +1387,17 @@ function baseUrlIsVendorDefault(url = "") {
 }
 
 function providerProfileIsValid(profile = {}) {
+  if (providerProfileKind(profile) === "search") {
+    const provider = String(profile.vendor || "").trim();
+    const option = searchProviderOption(provider);
+    return Boolean(
+      profile
+      && String(profile.label || "").trim()
+      && provider
+      && (!option.endpoint_required || String(profile.base_url || "").trim())
+      && (!providerProfileRequiresApiKey(profile) || String(profile.api_key || "").trim() || profile.has_api_key),
+    );
+  }
   const keyRequired = providerProfileRequiresApiKey(profile);
   return Boolean(
     profile
@@ -1379,8 +1409,16 @@ function providerProfileIsValid(profile = {}) {
   );
 }
 
+function providerProfileKind(profile = {}) {
+  const value = String(profile?.kind || profile?.profile_type || "").trim().toLowerCase();
+  return value === "search" || value === "web_search" || value === "web-search" ? "search" : "llm";
+}
+
 function providerProfileRequiresApiKey(profile = {}) {
   if (profile && profile.key_required === false) return false;
+  if (providerProfileKind(profile) === "search") {
+    return searchProviderOption(profile.vendor).key_required !== false;
+  }
   const vendor = String(profile?.vendor || "").trim();
   const option = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === vendor);
   if (option && option.key_required === false) return false;
@@ -1414,7 +1452,22 @@ function workspaceConfigValue(kind, key, value) {
 }
 
 function configuredProviderProfiles(list = state.providerProfiles) {
-  return (Array.isArray(list) ? list : []).filter((profile) => providerProfileIsValid(profile));
+  return (Array.isArray(list) ? list : []).filter((profile) => providerProfileKind(profile) === "llm" && providerProfileIsValid(profile));
+}
+
+function searchProviderProfiles(list = state.providerProfiles) {
+  return (Array.isArray(list) ? list : []).filter((profile) => providerProfileKind(profile) === "search");
+}
+
+function configuredSearchProviderProfiles(list = state.providerProfiles) {
+  return searchProviderProfiles(list).filter((profile) => providerProfileIsValid(profile));
+}
+
+function selectedSearchProviderProfileId() {
+  const draftId = String(state.toolDefinitionDraft?.provider_profile_id || "").trim();
+  if (draftId && searchProviderProfiles().some((profile) => profile.id === draftId)) return draftId;
+  const defaultProfile = searchProviderProfiles().find((profile) => profile.is_default) || searchProviderProfiles()[0];
+  return defaultProfile?.id || "";
 }
 
 function providerRouteHealthStatus() {
@@ -2011,6 +2064,7 @@ function normalizeWorkspaceToolDraft(tool = {}, index = 0) {
     label: String(tool.label || tool.display_name || `Tool ${index + 1}`),
     category: String(tool.category || "general"),
     capability: String(tool.capability || "read"),
+    provider_profile_id: String(tool.provider_profile_id || ""),
     description: String(tool.description || ""),
     enabled: tool.enabled !== false,
     notes: String(tool.notes || ""),
@@ -2359,6 +2413,7 @@ function normalizeProviderProfile(profile = {}, index = 0) {
   // red and block save, instead of silently inventing defaults.
   return {
     id: String(profile.id || makeClientId("provider")),
+    kind: providerProfileKind(profile),
     label: String(profile.label || "").trim(),
     vendor: String(profile.vendor || profile.provider || "").trim(),
     base_url: String(profile.base_url || "").trim(),
@@ -2499,6 +2554,10 @@ function providerProfileById(profileId, list = state.providerProfiles) {
 
 function providerProfileLabel(profile) {
   if (!profile) return "未选择";
+  if (providerProfileKind(profile) === "search") {
+    const provider = searchProviderOption(profile.vendor).label || profile.vendor || "Search";
+    return `${profile.label || profile.id} · Search · ${provider}`;
+  }
   const vendor = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === profile.vendor)?.label || profile.vendor || "Custom";
   const model = String(profile.model || "").trim();
   return model ? `${profile.label} · ${vendor} · ${model}` : `${profile.label} · ${vendor}`;
@@ -2565,6 +2624,7 @@ async function loadProviderProfiles(options = {}) {
     // Transform backend format to frontend format
     const transformed = profiles.map((p) => ({
       id: p.id,
+      kind: p.kind || p.profile_type || "llm",
       label: p.name || p.label || "",
       vendor: p.provider || "",
       base_url: p.base_url || "",
@@ -2636,13 +2696,15 @@ function scheduleExecutionOverviewRefresh(delayMs = 700) {
 }
 
 async function saveProviderProfile(profile, options = {}) {
+  const kind = providerProfileKind(profile);
   const payload = {
     id: profile.id,
+    kind,
     name: profile.label || profile.id,
-    provider: profile.vendor || "openai",
+    provider: profile.vendor || (kind === "llm" ? "openai" : ""),
     base_url: profile.base_url || "",
     api_key: profile.api_key || "",
-    models: profile.model ? [profile.model] : [],
+    models: kind === "llm" && profile.model ? [profile.model] : [],
     is_default: profile.is_default || false,
     vendor_id: profile.vendor || "",
     key_required: providerProfileRequiresApiKey(profile),
@@ -15115,7 +15177,7 @@ function renderWorkspaceAgentControls() {
   }));
   setSelectOptions($("workspaceChatAgentSelect"), agentOptions, state.workspaceModelDraft.chat_agent_id, "项目默认 Agent");
   setSelectOptions($("workspaceModelChatAgentSelect"), agentOptions, state.workspaceModelDraft.chat_agent_id, "项目默认 Agent");
-  const modelOptions = state.providerProfiles.map((profile) => ({
+  const modelOptions = state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm").map((profile) => ({
     value: profile.id,
     label: providerProfileLabel(profile),
   }));
@@ -15350,7 +15412,7 @@ function renderWorkspaceAgents() {
   const debugState = state.workspaceAgentDebug;
   const profileOptions = [
     { value: "", label: "继承项目默认模型" },
-    ...state.providerProfiles.map((profile) => ({
+    ...state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm").map((profile) => ({
       value: profile.id,
       label: providerProfileLabel(profile),
     })),
@@ -15788,18 +15850,19 @@ function workspaceModelRoutingSummaryMarkup() {
 function renderWorkspaceModel() {
   const _focusCapture = captureActiveInput();
   renderWorkspaceAgentControls();
+  const llmProfiles = state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm");
   const profileCount = $("workspaceProviderCount");
-  if (profileCount) profileCount.textContent = `${state.providerProfiles.length} 个 profile`;
+  if (profileCount) profileCount.textContent = `${llmProfiles.length} 个 profile`;
   const summary = $("workspaceModelRoutingSummary");
   if (summary) summary.innerHTML = workspaceModelRoutingSummaryMarkup();
   const profileList = $("providerProfileList");
   if (profileList) {
-    if (!state.providerProfiles.length) {
+    if (!llmProfiles.length) {
       profileList.innerHTML = '<div class="empty">还没有本地模型 profile。先加一个厂商 / base URL / model / API key 组合。</div>';
     } else {
       profileList.innerHTML = `
         <div class="workspace-provider-stack">
-          ${state.providerProfiles.map((profile) => {
+          ${llmProfiles.map((profile) => {
             const active = profile.id === state.selectedProviderProfileId ? " active" : "";
             return `
               <button class="workspace-provider-card${active}" type="button" data-action="select-provider-profile" data-profile-id="${escapeHtml(profile.id)}" title="选择这个 Provider Profile，编辑模型、Base URL 和 API key">
@@ -15819,7 +15882,9 @@ function renderWorkspaceModel() {
   }
   const editor = $("providerProfileEditor");
   if (editor) {
-    const profile = selectedProviderProfile();
+    const profile = providerProfileKind(selectedProviderProfile() || {}) === "llm"
+      ? selectedProviderProfile()
+      : llmProfiles[0] || null;
     if (!profile) {
       editor.innerHTML = '<div class="empty">选择一个 profile 后，在这里编辑本地 API 配置。</div>';
     } else {
@@ -21653,7 +21718,7 @@ function renderManageTemplateModule() {
   if ($("templateEnvManagerSelect")) $("templateEnvManagerSelect").value = draft.env?.manager || "";
   if ($("templatePythonVersionInput")) $("templatePythonVersionInput").value = draft.env?.python || "";
   if ($("templateProviderProfileSelect")) {
-    $("templateProviderProfileSelect").innerHTML = `<option value="">未选择</option>${state.providerProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(providerProfileLabel(profile))}</option>`).join("")}`;
+    $("templateProviderProfileSelect").innerHTML = `<option value="">未选择</option>${state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm").map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(providerProfileLabel(profile))}</option>`).join("")}`;
     $("templateProviderProfileSelect").value = draft.model?.provider_profile_id || "";
   }
   if ($("templateRoutingModeSelect")) $("templateRoutingModeSelect").value = draft.model?.routing_mode || "workspace_default";
@@ -21719,7 +21784,13 @@ function defaultToolTestArguments(tool = selectedGlobalTool()) {
   const workspaceDir = String(workspace.workspace_dir || "").trim();
   const firstRef = Array.isArray(workspace.references) ? String(workspace.references[0] || "").trim() : "";
   const firstRepo = String(source.repo_url || (Array.isArray(inputs.repo_urls) ? inputs.repo_urls[0] : "") || "").trim();
-  if (toolId === "web.search" || toolId === "repo.search") return { query: goal || firstRepo || "RelayGraph smoke" };
+  if (toolId === "web.search") {
+    const args = { query: goal || firstRepo || "RelayGraph smoke", limit: 3 };
+    const profileId = String(tool?.provider_profile_id || selectedSearchProviderProfileId() || "").trim();
+    if (profileId) args.provider_profile_id = profileId;
+    return args;
+  }
+  if (toolId === "repo.search") return { query: goal || firstRepo || "RelayGraph smoke" };
   if (toolId === "file.read") return { path: firstRef || "README.md", limit: 4000 };
   if (toolId === "file.browse" || toolId === "dir.scan") return { path: workspaceDir || ".", max_entries: 24 };
   if (toolId === "repo.read" || toolId === "repo.inspect") return { path: workspaceDir || ".", focus_paths: ["README.md", "requirements.txt"] };
@@ -21796,7 +21867,7 @@ function providerRouteHealthMarkup() {
       <div class="workspace-node-editor-head">
         <div>
           <h4>Provider 路由健康</h4>
-          <p class="muted">${escapeHtml(`${Number(health.configured_profile_count || 0)}/${Number(health.profile_count || 0)} Profile 可用 · ${blockingCount} 阻塞 · ${Number(health.warning_count || 0)} 提示`)}</p>
+          <p class="muted">${escapeHtml(`LLM ${Number(health.configured_profile_count || 0)}/${Number(health.profile_count || 0)} · Search ${Number(health.configured_search_profile_count || configuredSearchProviderProfiles().length || 0)}/${Number(health.search_profile_count || searchProviderProfiles().length || 0)} · ${blockingCount} 阻塞 · ${Number(health.warning_count || 0)} 提示`)}</p>
         </div>
         <span class="state ${escapeHtml(status)}">${escapeHtml(healthLabel)}</span>
       </div>
@@ -21878,7 +21949,7 @@ function renderManageAgentModule() {
             Provider Profile 覆盖
             <select data-manage-agent-field="provider_profile_id">
               <option value="">未覆盖</option>
-              ${state.providerProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === agent.provider_profile_id ? "selected" : ""}>${escapeHtml(providerProfileLabel(profile))}</option>`).join("")}
+              ${state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm").map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === agent.provider_profile_id ? "selected" : ""}>${escapeHtml(providerProfileLabel(profile))}</option>`).join("")}
             </select>
           </label>
         </div>
@@ -22005,6 +22076,8 @@ function renderManageToolModule() {
     { id: "", name: "自动选择最近实例" },
     ...state.workspaces.map((workspace) => ({ id: workspace.id, name: workspace.name || workspace.brief || workspace.id })),
   ];
+  const searchProfilesForTool = searchProviderProfiles();
+  const selectedToolSearchProfileId = String(tool.provider_profile_id || selectedSearchProviderProfileId() || "").trim();
   editor.innerHTML = `
     <div class="workspace-node-editor-card workspace-manage-editor-stack">
       <div class="workspace-node-editor-head">
@@ -22071,6 +22144,15 @@ function renderManageToolModule() {
               ${workspaceOptions.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === testState.workspaceId ? "selected" : ""}>${escapeHtml(item.name)}</option>`).join("")}
             </select>
           </label>
+          ${tool.id === "web.search" ? `
+            <label>
+              Search Provider Profile
+              <select id="manageToolSearchProfileSelect">
+                <option value="" ${selectedToolSearchProfileId ? "" : "selected"}>自动 / 环境变量 / 种子 fallback</option>
+                ${searchProfilesForTool.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === selectedToolSearchProfileId ? "selected" : ""}>${escapeHtml(providerProfileLabel(profile))}</option>`).join("")}
+              </select>
+            </label>
+          ` : ""}
           <label>
             测试参数
             <textarea id="manageToolTestArguments" rows="4" spellcheck="false">${escapeHtml(testState.argumentsText || "{}")}</textarea>
@@ -22093,13 +22175,21 @@ function renderManageAiModule() {
     list.innerHTML = state.providerProfiles.length
       ? state.providerProfiles.map((profile) => {
           const active = profile.id === state.selectedProviderProfileId ? " active" : "";
+          const kind = providerProfileKind(profile);
+          const vendorLabel = kind === "search"
+            ? searchProviderOption(profile.vendor).label || profile.vendor || "Search"
+            : PROVIDER_VENDOR_OPTIONS.find((item) => item.value === profile.vendor)?.label || profile.vendor || "custom";
+          const meta = kind === "search"
+            ? `${providerProfileIsValid(profile) ? "搜索接入可用" : "搜索接入待配置"}${profile.is_default ? " · 默认" : ""}`
+            : `${profile.model || "未填 model"}${profile.is_default ? " · 默认" : ""}`;
           return `
             <button class="workspace-template-item${active}" type="button" data-action="select-provider-profile" data-profile-id="${escapeHtml(profile.id)}" title="选择这个 Provider Profile，编辑模型接入和默认路由">
               <div class="workspace-template-item-head">
                 <strong>${escapeHtml(profile.label || "(未命名)")}</strong>
-                <span class="server-badge subtle">${escapeHtml(profile.vendor || "custom")}</span>${profile.is_new ? '<span class="server-badge">草稿</span>' : ""}
+                <span class="server-badge subtle">${escapeHtml(kind === "search" ? "Search" : "LLM")}</span>
+                <span class="server-badge subtle">${escapeHtml(vendorLabel)}</span>${profile.is_new ? '<span class="server-badge">草稿</span>' : ""}
               </div>
-              <div class="workspace-template-item-meta">${escapeHtml(profile.model || "未填 model")}</div>
+              <div class="workspace-template-item-meta">${escapeHtml(meta)}</div>
               <div class="workspace-template-item-desc">${escapeHtml(profile.base_url || "默认 base URL")}</div>
             </button>
           `;
@@ -22108,6 +22198,9 @@ function renderManageAiModule() {
   }
   if (!editor) return;
   const profile = selectedProviderProfile();
+  const profileKind = providerProfileKind(profile || {});
+  const isSearchProfile = profileKind === "search";
+  const searchOption = searchProviderOption(profile?.vendor || "");
   const draft = normalizeWorkflowTemplateDraft(state.workflowTemplateDraft || selectedWorkflowTemplate() || defaultWorkflowTemplateDraft("repo"));
   editor.innerHTML = `
     ${providerRouteHealthMarkup()}
@@ -22127,13 +22220,32 @@ function renderManageAiModule() {
         <section class="workspace-manage-group">
           <div class="workspace-manage-group-head">
             <strong>接入信息</strong>
-            <span class="muted">选厂商会自动填 Base URL；模型可点"拉取"从端点获取，标红为必填。</span>
+            <span class="muted">${isSearchProfile ? "Search Profile 供 web.search 安全测试和 Agent 搜索工具使用。" : "选厂商会自动填 Base URL；模型可点“拉取”从端点获取，标红为必填。"}</span>
           </div>
           <div class="workspace-provider-editor-grid">
             <label>
               显示名
               <input data-manage-provider-field="label" class="${String(profile.label || "").trim() ? "" : "invalid"}" value="${escapeHtml(profile.label || "")}" placeholder="必填，如 DeepSeek 主号" />
             </label>
+            <label>
+              类型
+              <select data-manage-provider-field="kind">
+                <option value="llm" ${profileKind === "llm" ? "selected" : ""}>LLM</option>
+                <option value="search" ${profileKind === "search" ? "selected" : ""}>Search</option>
+              </select>
+            </label>
+            ${isSearchProfile ? `
+              <label>
+                Search Provider
+                <select data-manage-provider-field="vendor" class="${String(profile.vendor || "").trim() ? "" : "invalid"}">
+                  ${searchProviderOptionsMarkup(profile.vendor)}
+                </select>
+              </label>
+              <label>
+                Endpoint / Base URL
+                <input data-manage-provider-field="base_url" class="${searchOption.endpoint_required && !String(profile.base_url || "").trim() ? "invalid" : ""}" value="${escapeHtml(profile.base_url || "")}" placeholder="${searchOption.endpoint_required ? "必填，如 https://search.example.com?q={query}" : "可选，留空使用默认端点"}" />
+              </label>
+            ` : `
             <label>
               厂商
               <select data-manage-provider-field="vendor" class="${String(profile.vendor || "").trim() ? "" : "invalid"}">
@@ -22151,14 +22263,19 @@ function renderManageAiModule() {
                 <button type="button" class="mini" data-action="fetch-provider-models" title="从端点 GET /models 拉取可用模型列表">拉取</button>
               </span>
             </label>
+            `}
           </div>
-          <datalist id="providerModelOptions">${(state.ui.providerAvailableModels || []).map((m) => `<option value="${escapeHtml(m)}">`).join("")}</datalist>
+          ${isSearchProfile ? "" : `<datalist id="providerModelOptions">${(state.ui.providerAvailableModels || []).map((m) => `<option value="${escapeHtml(m)}">`).join("")}</datalist>`}
           <label class="provider-key-field">
             API Key
             <span class="provider-key-row">
-              <input data-manage-provider-field="api_key" class="${providerProfileRequiresApiKey(profile) && !String(profile.api_key || "").trim() && !profile.has_api_key ? "invalid" : ""}" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${providerProfileRequiresApiKey(profile) ? (profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值覆盖` : "必填 sk-...") : "本地免密，可留空"}" autocomplete="off" />
+              <input data-manage-provider-field="api_key" class="${providerProfileRequiresApiKey(profile) && !String(profile.api_key || "").trim() && !profile.has_api_key ? "invalid" : ""}" type="${state.ui.providerKeyVisible ? "text" : "password"}" value="${escapeHtml(profile.api_key || "")}" placeholder="${providerProfileRequiresApiKey(profile) ? (profile.api_key_masked ? `已保存 ${profile.api_key_masked}，输入新值覆盖` : "必填 sk-...") : (isSearchProfile ? "当前搜索 provider 可免密" : "本地免密，可留空")}" autocomplete="off" />
               <button type="button" class="provider-key-toggle mini" data-action="toggle-provider-key-visibility">${state.ui.providerKeyVisible ? "隐藏" : "显示"}</button>
             </span>
+          </label>
+          <label class="check">
+            <input data-manage-provider-checkbox="is_default" type="checkbox" ${profile.is_default ? "checked" : ""} />
+            设为当前类型默认 Profile
           </label>
           ${state.ui.providerTestResult ? `<p class="provider-test-result ${state.ui.providerTestResult.isError ? "error" : "ok"}">${escapeHtml(state.ui.providerTestResult.text)}${(state.ui.providerTestResult.models || []).length ? `<br><span class="muted">点模型名填入：${state.ui.providerTestResult.models.map((m) => ` <a href="#" data-action="pick-provider-model" data-model="${escapeHtml(m)}">${escapeHtml(m)}</a>`).join("")}</span>` : ""}</p>` : ""}
         </section>
@@ -22184,7 +22301,7 @@ function renderManageAiModule() {
             默认 Profile
             <select id="manageAiTemplateProfileSelect">
               <option value="">未选择</option>
-              ${state.providerProfiles.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === draft.model?.provider_profile_id ? "selected" : ""}>${escapeHtml(providerProfileLabel(item))}</option>`).join("")}
+              ${state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm").map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === draft.model?.provider_profile_id ? "selected" : ""}>${escapeHtml(providerProfileLabel(item))}</option>`).join("")}
             </select>
           </label>
           <label>
@@ -22884,6 +23001,7 @@ async function saveGlobalToolDefinition() {
     label: tool.label,
     category: tool.category,
     capability: tool.capability,
+    provider_profile_id: tool.provider_profile_id || "",
     description: tool.description,
     enabled: tool.enabled !== false,
     notes: tool.notes || "",
@@ -23025,9 +23143,12 @@ async function saveManageProviderProfile() {
     return;
   }
   if (!providerProfileIsValid(profile)) {
-    const requiredText = providerProfileRequiresApiKey(profile)
-      ? "显示名 / 厂商 / Base URL / Model / API Key"
-      : "显示名 / 厂商 / Base URL / Model";
+    const searchEndpointRequired = providerProfileKind(profile) === "search" && searchProviderOption(profile.vendor).endpoint_required;
+    const requiredText = providerProfileKind(profile) === "search"
+      ? `显示名 / Search Provider${searchEndpointRequired ? " / Endpoint" : ""}${providerProfileRequiresApiKey(profile) ? " / API Key" : ""}`
+      : providerProfileRequiresApiKey(profile)
+        ? "显示名 / 厂商 / Base URL / Model / API Key"
+        : "显示名 / 厂商 / Base URL / Model";
     state.ui.providerTestResult = { text: `✗ 必填项未填全（标红的：${requiredText}），无法保存。`, isError: true, models: [] };
     renderManageAiModule();
     return;
@@ -23053,9 +23174,17 @@ async function testManageProviderProfile() {
   }
   state.ui.providerTestResult = { text: "正在测试连接…", isError: false, models: [] };
   renderManageAiModule();
+  const kind = providerProfileKind(profile);
   const body = profile.api_key
-    ? { provider: profile.vendor, base_url: profile.base_url, api_key: profile.api_key, model: profile.model }
-    : { profile_id: profile.id, model: profile.model };
+    ? {
+        kind,
+        provider: profile.vendor,
+        base_url: profile.base_url,
+        api_key: profile.api_key,
+        model: kind === "llm" ? profile.model : "",
+        query: "RelayGraph search provider smoke",
+      }
+    : { profile_id: profile.id, model: kind === "llm" ? profile.model : "", query: "RelayGraph search provider smoke" };
   try {
     const res = await fetchJson("/api/provider-profiles/test", {
       method: "POST",
@@ -23064,9 +23193,15 @@ async function testManageProviderProfile() {
     });
     const t = res.test || {};
     const models = Array.isArray(t.available_models) ? t.available_models : [];
-    state.ui.providerTestResult = t.success
-      ? { text: `✓ 连接成功 · ${t.provider || ""} ${t.model || ""} · ${t.latency_ms || 0}ms · ${t.total_tokens || 0} tokens`, isError: false, models }
-      : { text: `✗ 连接失败 · ${t.base_url || ""} · ${t.error || "未知错误"}${models.length ? "（下方可点选正确模型）" : ""}`, isError: true, models };
+    if (kind === "search" || t.kind === "search") {
+      state.ui.providerTestResult = t.success
+        ? { text: `✓ 搜索接入可用 · ${t.provider || ""} · ${t.provider_status || t.status || "ready"} · ${t.result_count || 0} 结果 · ${t.latency_ms || 0}ms`, isError: false, models: [] }
+        : { text: `✗ 搜索接入未就绪 · ${t.provider || ""} · ${t.error || t.provider_status || "未知错误"}`, isError: true, models: [] };
+    } else {
+      state.ui.providerTestResult = t.success
+        ? { text: `✓ 连接成功 · ${t.provider || ""} ${t.model || ""} · ${t.latency_ms || 0}ms · ${t.total_tokens || 0} tokens`, isError: false, models }
+        : { text: `✗ 连接失败 · ${t.base_url || ""} · ${t.error || "未知错误"}${models.length ? "（下方可点选正确模型）" : ""}`, isError: true, models };
+    }
   } catch (error) {
     state.ui.providerTestResult = { text: `✗ 测试请求失败：${error.message || error}`, isError: true, models: [] };
   }
@@ -23076,6 +23211,11 @@ async function testManageProviderProfile() {
 async function fetchProviderModels() {
   const profile = selectedProviderProfile();
   if (!profile) return;
+  if (providerProfileKind(profile) === "search") {
+    state.ui.providerTestResult = { text: "Search Profile 不需要拉取模型；请在工具页对 web.search 做安全测试。", isError: false, models: [] };
+    renderManageAiModule();
+    return;
+  }
   state.ui.providerTestResult = { text: "正在拉取模型列表…", isError: false, models: [] };
   renderManageAiModule();
   const body = profile.api_key
@@ -28106,6 +28246,25 @@ function bindEvents() {
       state.toolDefinitionTest.error = "";
       return;
     }
+    if (target.id === "manageToolSearchProfileSelect") {
+      const profileId = target.value || "";
+      updateToolDefinitionDraft({ provider_profile_id: profileId });
+      let args = {};
+      try {
+        args = JSON.parse(state.toolDefinitionTest.argumentsText || "{}");
+        if (!args || typeof args !== "object" || Array.isArray(args)) args = {};
+      } catch (_) {
+        args = {};
+      }
+      if (profileId) args.provider_profile_id = profileId;
+      else delete args.provider_profile_id;
+      if (!args.query) args.query = defaultToolTestArguments({ id: "web.search" }).query || "RelayGraph smoke";
+      state.toolDefinitionTest.argumentsText = JSON.stringify(args, null, 2);
+      state.toolDefinitionTest.result = null;
+      state.toolDefinitionTest.error = "";
+      renderManageToolModule();
+      return;
+    }
     if (target.matches("[data-manage-tool-checkbox]")) {
       updateToolDefinitionDraft({ [target.dataset.manageToolCheckbox]: Boolean(target.checked) });
       return;
@@ -28161,10 +28320,31 @@ function bindEvents() {
     }
     if (target.matches("[data-manage-provider-field]")) {
       const key = target.dataset.manageProviderField;
+      if (key === "kind") {
+        updateSelectedProviderProfile((profile) => ({
+          ...profile,
+          kind: target.value === "search" ? "search" : "llm",
+          vendor: "",
+          base_url: "",
+          model: "",
+          key_required: true,
+        }));
+        state.ui.providerTestResult = null;
+        return;
+      }
       // Switching vendor auto-fills Base URL when it's empty or still a preset,
       // so the user doesn't end up with a mismatched endpoint (e.g. /anthropic).
       if (key === "vendor") {
         updateSelectedProviderProfile((profile) => {
+          if (providerProfileKind(profile) === "search") {
+            const option = searchProviderOption(target.value);
+            return {
+              ...profile,
+              vendor: target.value || "",
+              key_required: option.key_required !== false,
+              base_url: option.base_url || "",
+            };
+          }
           const next = {
             ...profile,
             vendor: target.value || "",
@@ -28178,6 +28358,10 @@ function bindEvents() {
         return;
       }
       updateSelectedProviderProfile((profile) => ({ ...profile, [key]: target.value || "" }));
+    }
+    if (target.matches("[data-manage-provider-checkbox]")) {
+      updateSelectedProviderProfile((profile) => ({ ...profile, [target.dataset.manageProviderCheckbox]: Boolean(target.checked) }));
+      return;
     }
   });
   $("manageAiEditor")?.addEventListener("click", (event) => {

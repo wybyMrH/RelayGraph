@@ -22,6 +22,10 @@ def _provider_catalog_for_profile(profile: dict[str, Any]) -> dict[str, Any]:
 
 
 def _provider_profile_key_required(profile: dict[str, Any]) -> bool:
+    kind = _provider_profile_kind(profile)
+    provider = str(profile.get("provider") or profile.get("vendor") or "").strip().lower()
+    if kind == "search" and provider in {"duckduckgo", "ddg"}:
+        return False
     if "key_required" in profile:
         return bool(profile.get("key_required"))
     vendor = _provider_catalog_for_profile(profile)
@@ -31,6 +35,18 @@ def _provider_profile_key_required(profile: dict[str, Any]) -> bool:
     if "localhost" in base_url or "127.0.0.1" in base_url:
         return False
     return True
+
+
+def _provider_profile_kind(profile: dict[str, Any]) -> str:
+    value = str(profile.get("kind") or profile.get("profile_type") or profile.get("type") or "").strip().lower()
+    if value in {"search", "web_search", "web-search"}:
+        return "search"
+    return "llm"
+
+
+def _search_provider_base_url_required(profile: dict[str, Any]) -> bool:
+    provider = str(profile.get("provider") or profile.get("vendor") or "").strip().lower()
+    return provider in {"endpoint", "generic", "http", "custom"}
 
 
 def _provider_profile_models(profile: dict[str, Any]) -> list[str]:
@@ -43,14 +59,21 @@ def _provider_profile_models(profile: dict[str, Any]) -> list[str]:
 
 def provider_profile_health(profile: dict[str, Any]) -> dict[str, Any]:
     source = profile if isinstance(profile, dict) else {}
+    kind = _provider_profile_kind(source)
     key_required = _provider_profile_key_required(source)
     has_api_key = bool(str(source.get("api_key") or "").strip()) or not key_required
     models = _provider_profile_models(source)
     base_url = str(source.get("base_url") or "").strip()
+    provider = str(source.get("provider") or source.get("vendor") or "").strip().lower()
     missing_fields: list[str] = []
-    if not base_url:
+    if kind == "search":
+        if not provider:
+            missing_fields.append("provider")
+        if _search_provider_base_url_required(source) and not base_url:
+            missing_fields.append("base_url")
+    elif not base_url:
         missing_fields.append("base_url")
-    if not models:
+    if kind == "llm" and not models:
         missing_fields.append("models")
     if key_required and not str(source.get("api_key") or "").strip():
         missing_fields.append("api_key")
@@ -58,6 +81,8 @@ def provider_profile_health(profile: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "ready" if ready else "blocked" if "api_key" in missing_fields or "base_url" in missing_fields else "warning",
         "ready": ready,
+        "kind": kind,
+        "provider": provider,
         "key_required": key_required,
         "has_api_key": has_api_key,
         "model_count": len(models),
@@ -150,6 +175,8 @@ class RegistryMixin:
                 workspace = copy.deepcopy(self.workspaces[0]) if getattr(self, "workspaces", []) else {}
             statuses = copy.deepcopy(getattr(self, "statuses", []))
             jobs = copy.deepcopy(getattr(self, "jobs", []))
+            provider_profiles = copy.deepcopy(getattr(self, "provider_profiles", []))
+            tool_definitions = copy.deepcopy(getattr(self, "tool_definitions", []))
         if not tool:
             raise ValueError("tool definition not found")
 
@@ -166,7 +193,7 @@ class RegistryMixin:
                 "safe": False,
                 "side_effect": side_effect,
                 "workspace": workspace_summary,
-                "arguments": copy.deepcopy(arguments),
+                "arguments": redact_sensitive_arguments(copy.deepcopy(arguments)),
                 "result": {
                     "status": "blocked",
                     "plan_only": True,
@@ -179,6 +206,8 @@ class RegistryMixin:
             getattr(self, "config", None),
             statuses=statuses,
             jobs=jobs,
+            provider_profiles=provider_profiles,
+            tool_definitions=tool_definitions,
             runtime=None,
         )
         started = time.time()
@@ -195,7 +224,7 @@ class RegistryMixin:
             "safe": True,
             "side_effect": side_effect,
             "workspace": workspace_summary,
-            "arguments": copy.deepcopy(arguments),
+            "arguments": redact_sensitive_arguments(copy.deepcopy(arguments)),
             "latency_ms": latency_ms,
             "result": parsed_result,
         }
@@ -220,10 +249,20 @@ class RegistryMixin:
             agents = copy.deepcopy(getattr(self, "agent_definitions", []))
             templates = copy.deepcopy(getattr(self, "workflow_templates", []))
             workspaces = copy.deepcopy(getattr(self, "workspaces", []))
-        profile_index = {
+        all_profile_index = {
             str(profile.get("id") or "").strip(): profile
             for profile in profiles
             if isinstance(profile, dict) and str(profile.get("id") or "").strip()
+        }
+        profile_index = {
+            profile_id: profile
+            for profile_id, profile in all_profile_index.items()
+            if _provider_profile_kind(profile) == "llm"
+        }
+        search_profile_index = {
+            profile_id: profile
+            for profile_id, profile in all_profile_index.items()
+            if _provider_profile_kind(profile) == "search"
         }
         profile_health = {
             profile_id: provider_profile_health(profile)
@@ -339,6 +378,11 @@ class RegistryMixin:
             "status": "blocked" if blocking_count else "warning" if warning_count else "ready",
             "profile_count": len(profile_index),
             "configured_profile_count": configured_profiles,
+            "search_profile_count": len(search_profile_index),
+            "configured_search_profile_count": sum(
+                1 for profile in search_profile_index.values()
+                if provider_profile_health(profile).get("ready")
+            ),
             "agent_count": len([item for item in agents if isinstance(item, dict)]),
             "template_count": len([item for item in templates if isinstance(item, dict)]),
             "workspace_count": len([item for item in workspaces if isinstance(item, dict)]),
@@ -1184,6 +1228,7 @@ class RegistryMixin:
         profile_name = str(name or "").strip() or str(vendor.get("name") or vendor_id).strip()
         payload = {
             "id": str(uuid.uuid4().hex[:10]),
+            "kind": "llm",
             "name": profile_name,
             "vendor_id": vendor_id,
             "provider": str(vendor.get("provider") or "openai").strip(),
@@ -1199,18 +1244,24 @@ class RegistryMixin:
     def create_provider_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Create a new provider profile."""
         profile_id = str(payload.get("id") or uuid.uuid4().hex[:8]).strip()
+        kind = _provider_profile_kind(payload)
         name = str(payload.get("name") or "").strip()
-        provider = str(payload.get("provider") or "openai").strip()
+        provider = str(payload.get("provider") or payload.get("search_provider") or ("openai" if kind == "llm" else "")).strip()
         base_url = str(payload.get("base_url") or "").strip()
         api_key = str(payload.get("api_key") or "").strip()
         models = payload.get("models") if isinstance(payload.get("models"), list) else []
         is_default = bool(payload.get("is_default"))
         vendor_id = str(payload.get("vendor_id") or payload.get("vendor") or "").strip()
-        key_required_source = payload if "key_required" in payload else {"base_url": base_url, "vendor_id": vendor_id, "provider": provider}
+        key_required_source = payload if "key_required" in payload else {
+            "kind": kind,
+            "base_url": base_url,
+            "vendor_id": vendor_id,
+            "provider": provider,
+        }
         key_required = _provider_profile_key_required(key_required_source)
 
         if not name:
-            name = f"{provider.title()} Profile"
+            name = f"{provider.title() or kind.title()} Profile"
 
         with self.lock:
             existing_profiles = [
@@ -1225,6 +1276,7 @@ class RegistryMixin:
             profile: dict[str, Any] = {
                 "id": profile_id,
                 "name": name,
+                "kind": kind,
                 "vendor_id": vendor_id,
                 "provider": provider,
                 "base_url": base_url,
@@ -1243,7 +1295,7 @@ class RegistryMixin:
                 item_id = str(item.get("id") or "").strip()
                 if item_id == profile_id:
                     continue
-                if is_default:
+                if is_default and _provider_profile_kind(item) == kind:
                     item = dict(item)
                     item["is_default"] = False
                 updated_profiles.append(item)
@@ -1277,9 +1329,11 @@ class RegistryMixin:
                 profile = copy.deepcopy(saved) if saved else None
         else:
             model = str(payload.get("model") or "").strip()
+            kind = _provider_profile_kind(payload)
             profile = {
                 "id": "test",
-                "provider": str(payload.get("provider") or payload.get("vendor") or "openai").strip(),
+                "kind": kind,
+                "provider": str(payload.get("provider") or payload.get("vendor") or ("openai" if kind == "llm" else "")).strip(),
                 "base_url": str(payload.get("base_url") or "").strip(),
                 "api_key": str(payload.get("api_key") or "").strip(),
                 "models": [model] if model else [],
@@ -1287,6 +1341,40 @@ class RegistryMixin:
             }
         if not profile:
             return {"success": False, "error": "provider profile not found", "model": ""}
+        if _provider_profile_kind(profile) == "search":
+            from ..tools.workspace_executor_pkg.context import WorkspaceToolContext
+            from ..tools.workspace_executor_pkg.web_search import execute_web_search
+
+            profile_id = str(profile.get("id") or payload.get("profile_id") or "draft-search-profile").strip()
+            query = str(payload.get("query") or "RelayGraph search provider smoke").strip()
+            context = WorkspaceToolContext(
+                workspace={"id": "provider-search-test", "inputs": {"goal_text": query}},
+                provider_profiles=[profile],
+            )
+            result = execute_web_search(
+                context,
+                {
+                    "query": query,
+                    "limit": max(1, min(safe_int(payload.get("limit"), 3), 5)),
+                    "provider_profile_id": profile_id,
+                },
+            )
+            provider_status = str(result.get("provider_status") or result.get("status") or "").strip()
+            success = bool(result.get("provider_configured")) and provider_status not in {"", "blocked", "error", "unconfigured"}
+            return {
+                "success": success,
+                "kind": "search",
+                "provider": result.get("provider") or profile.get("provider") or "",
+                "base_url": str(profile.get("base_url") or "").strip(),
+                "profile_id": profile_id,
+                "provider_status": provider_status,
+                "status": result.get("status") or "",
+                "latency_ms": result.get("latency_ms") or 0,
+                "result_count": result.get("result_count") or 0,
+                "result_provenance": result.get("result_provenance") or [],
+                "rate_limit": result.get("rate_limit") or {},
+                "error": result.get("error") or "",
+            }
         client = LLMClient(profile)
         if not client.api_key:
             return {
@@ -1333,9 +1421,11 @@ class RegistryMixin:
                 profile = copy.deepcopy(saved) if saved else None
         else:
             model = str(payload.get("model") or "").strip()
+            kind = _provider_profile_kind(payload)
             profile = {
                 "id": "models",
-                "provider": str(payload.get("provider") or payload.get("vendor") or "openai").strip(),
+                "kind": kind,
+                "provider": str(payload.get("provider") or payload.get("vendor") or ("openai" if kind == "llm" else "")).strip(),
                 "base_url": str(payload.get("base_url") or "").strip(),
                 "api_key": str(payload.get("api_key") or "").strip(),
                 "models": [model] if model else [],
@@ -1343,6 +1433,15 @@ class RegistryMixin:
             }
         if not profile:
             return {"success": False, "models": [], "error": "provider profile not found"}
+        if _provider_profile_kind(profile) == "search":
+            return {
+                "success": False,
+                "models": [],
+                "kind": "search",
+                "provider": str(profile.get("provider") or "").strip(),
+                "base_url": str(profile.get("base_url") or "").strip(),
+                "error": "search provider profiles do not expose LLM models",
+            }
         client = LLMClient(profile)
         if not client.api_key:
             return {"success": False, "models": [], "error": "API key not configured"}
@@ -1365,12 +1464,15 @@ class RegistryMixin:
                 raise ValueError("provider profile not found")
 
             # Update fields
+            if "kind" in payload or "profile_type" in payload or "type" in payload:
+                profile["kind"] = _provider_profile_kind(payload)
+            kind = _provider_profile_kind(profile)
             if "name" in payload:
                 profile["name"] = str(payload["name"] or "").strip()
             if "vendor_id" in payload or "vendor" in payload:
                 profile["vendor_id"] = str(payload.get("vendor_id") or payload.get("vendor") or "").strip()
-            if "provider" in payload:
-                profile["provider"] = str(payload["provider"] or "openai").strip()
+            if "provider" in payload or "search_provider" in payload:
+                profile["provider"] = str(payload.get("provider") or payload.get("search_provider") or ("openai" if kind == "llm" else "")).strip()
             if "base_url" in payload:
                 profile["base_url"] = str(payload["base_url"] or "").strip()
             if "key_required" in payload:
@@ -1383,7 +1485,8 @@ class RegistryMixin:
                 is_default = bool(payload["is_default"])
                 if is_default:
                     for p in self.provider_profiles:
-                        p["is_default"] = False
+                        if _provider_profile_kind(p) == _provider_profile_kind(profile):
+                            p["is_default"] = False
                 profile["is_default"] = is_default
             if not str(profile.get("api_key") or "").strip() and not _provider_profile_key_required(profile):
                 profile["api_key"] = "sk-no-key-required"

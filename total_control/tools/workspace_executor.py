@@ -18,6 +18,8 @@ def create_workspace_tool_executor(
     *,
     statuses: list[dict[str, Any]] | None = None,
     jobs: list[dict[str, Any]] | None = None,
+    provider_profiles: list[dict[str, Any]] | None = None,
+    tool_definitions: list[dict[str, Any]] | None = None,
     runtime: Any = None,
 ) -> Callable[[str, dict[str, Any]], str]:
     """Create a tool executor bound to a workspace snapshot."""
@@ -26,6 +28,8 @@ def create_workspace_tool_executor(
         workspace=workspace if isinstance(workspace, dict) else {},
         statuses=[item for item in (statuses or []) if isinstance(item, dict)],
         jobs=[item for item in (jobs or []) if isinstance(item, dict)],
+        provider_profiles=[item for item in (provider_profiles or []) if isinstance(item, dict)],
+        tool_definitions=[item for item in (tool_definitions or []) if isinstance(item, dict)],
         runtime=runtime,
     )
 

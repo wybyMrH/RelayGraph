@@ -23,6 +23,7 @@ def workspace_seed_results(context: Any) -> list[dict[str, str]]:
 
 def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     started = time.monotonic()
+    arguments = arguments if isinstance(arguments, dict) else {}
     source = context.source_payload()
     query = str(arguments.get("query") or source.get("goal_text") or "").strip()
     try:
@@ -30,8 +31,32 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
     except (TypeError, ValueError):
         limit = 5
     seeds = workspace_seed_results(context)
-    endpoint = str(arguments.get("endpoint") or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_ENDPOINT") or "").strip()
-    provider = str(arguments.get("provider") or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_PROVIDER") or "").strip().lower()
+    profile = _search_profile_for_arguments(context, arguments)
+    if str(arguments.get("provider_profile_id") or "").strip() and not profile:
+        return {
+            "status": "blocked",
+            "query": query,
+            "provider": "",
+            "provider_configured": False,
+            "provider_status": "blocked",
+            "fallback_used": bool(seeds),
+            "results": seeds[:limit],
+            "error": "search provider profile not found",
+            "message": "指定的 search provider profile 不存在，已返回 workspace 种子。" if seeds else "指定的 search provider profile 不存在。",
+        }
+    endpoint = str(
+        profile.get("base_url")
+        or arguments.get("endpoint")
+        or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_ENDPOINT")
+        or ""
+    ).strip()
+    provider = str(
+        profile.get("provider")
+        or profile.get("search_provider")
+        or arguments.get("provider")
+        or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_PROVIDER")
+        or ""
+    ).strip().lower()
     if not provider:
         if os.environ.get("TOTAL_CONTROL_FIRECRAWL_API_KEY"):
             provider = "firecrawl"
@@ -39,11 +64,11 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
             provider = "serper"
 
     if provider == "firecrawl":
-        payload = _execute_firecrawl_search(query, limit, seeds, arguments)
+        payload = _execute_firecrawl_search(query, limit, seeds, arguments, profile)
     elif provider == "serper":
-        payload = _execute_serper_search(query, limit, seeds, arguments)
+        payload = _execute_serper_search(query, limit, seeds, arguments, profile)
     elif endpoint:
-        payload = _execute_endpoint_search(endpoint, query, limit, seeds)
+        payload = _execute_endpoint_search(endpoint, query, limit, seeds, profile)
     elif provider in {"duckduckgo", "ddg"} or bool(arguments.get("network")):
         payload = _execute_duckduckgo_search(query, limit, seeds)
     else:
@@ -62,6 +87,9 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
         }
     latency_ms = round((time.monotonic() - started) * 1000, 1)
     results = payload.get("results") if isinstance(payload.get("results"), list) else []
+    if profile:
+        payload["provider_profile_id"] = str(profile.get("id") or "").strip()
+        payload["provider_profile_name"] = str(profile.get("name") or "").strip()
     payload["latency_ms"] = latency_ms
     payload["result_count"] = len(results)
     payload["result_provenance"] = [
@@ -81,9 +109,27 @@ def execute_web_search(context: Any, arguments: dict[str, Any]) -> dict[str, Any
     return payload
 
 
-def _configured_search_key(arguments: dict[str, Any], env_name: str) -> str:
-    # Prefer environment variables so Agent tool arguments and traces do not carry secrets.
-    return str(os.environ.get(env_name) or "").strip()
+def _search_profile_for_arguments(context: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    profile_id = str(arguments.get("provider_profile_id") or arguments.get("search_provider_profile_id") or "").strip()
+    resolver = getattr(context, "search_provider_profile", None)
+    if callable(resolver):
+        profile = resolver(profile_id)
+        if isinstance(profile, dict):
+            return profile
+    return {}
+
+
+def _configured_search_key_from_profile(profile: dict[str, Any], env_name: str) -> str:
+    return str(profile.get("api_key") or os.environ.get(env_name) or "").strip()
+
+
+def _sanitize_provider_error(error: Any, *, api_key: str = "") -> str:
+    text = str(error or "")
+    if api_key:
+        text = text.replace(api_key, "***")
+    text = re.sub(r"(?i)(api[_-]?key|x-api-key|access[_-]?token|token|secret|password)=([^&\s]+)", r"\1=***", text)
+    text = re.sub(r"(?i)(Authorization\s*[:=]\s*Bearer\s+)([^\s,;]+)", r"\1***", text)
+    return text[:800]
 
 
 def _json_request(
@@ -155,20 +201,22 @@ def _execute_firecrawl_search(
     limit: int,
     seeds: list[dict[str, str]],
     arguments: dict[str, Any],
+    profile: dict[str, Any],
 ) -> dict[str, Any]:
     if not query:
         return _query_required_payload(query=query, provider="firecrawl", seeds=seeds, limit=limit)
-    api_key = _configured_search_key(arguments, "TOTAL_CONTROL_FIRECRAWL_API_KEY")
+    api_key = _configured_search_key_from_profile(profile, "TOTAL_CONTROL_FIRECRAWL_API_KEY")
     if not api_key:
         return _missing_key_payload(
             query=query,
             provider="firecrawl",
-            env_name="TOTAL_CONTROL_FIRECRAWL_API_KEY",
+            env_name="search provider api_key / TOTAL_CONTROL_FIRECRAWL_API_KEY",
             seeds=seeds,
             limit=limit,
         )
     base_url = str(
-        arguments.get("base_url")
+        profile.get("base_url")
+        or arguments.get("base_url")
         or os.environ.get("TOTAL_CONTROL_FIRECRAWL_API_URL")
         or "https://api.firecrawl.dev"
     ).strip().rstrip("/")
@@ -220,7 +268,7 @@ def _execute_firecrawl_search(
             "provider_status": "error",
             "fallback_used": fallback_used,
             "results": seeds[:limit],
-            "error": str(exc),
+            "error": _sanitize_provider_error(exc, api_key=api_key),
             "message": "Firecrawl 搜索失败，已返回 workspace 种子。" if fallback_used else "Firecrawl 搜索失败。",
             "rate_limit_hint": "Firecrawl hosted/self-hosted quota 取决于账号或部署策略。",
         }
@@ -231,20 +279,22 @@ def _execute_serper_search(
     limit: int,
     seeds: list[dict[str, str]],
     arguments: dict[str, Any],
+    profile: dict[str, Any],
 ) -> dict[str, Any]:
     if not query:
         return _query_required_payload(query=query, provider="serper", seeds=seeds, limit=limit)
-    api_key = _configured_search_key(arguments, "TOTAL_CONTROL_SERPER_API_KEY")
+    api_key = _configured_search_key_from_profile(profile, "TOTAL_CONTROL_SERPER_API_KEY")
     if not api_key:
         return _missing_key_payload(
             query=query,
             provider="serper",
-            env_name="TOTAL_CONTROL_SERPER_API_KEY",
+            env_name="search provider api_key / TOTAL_CONTROL_SERPER_API_KEY",
             seeds=seeds,
             limit=limit,
         )
     endpoint = str(
-        arguments.get("endpoint")
+        profile.get("base_url")
+        or arguments.get("endpoint")
         or os.environ.get("TOTAL_CONTROL_SERPER_SEARCH_URL")
         or "https://google.serper.dev/search"
     ).strip()
@@ -282,16 +332,22 @@ def _execute_serper_search(
             "provider_status": "error",
             "fallback_used": fallback_used,
             "results": seeds[:limit],
-            "error": str(exc),
+            "error": _sanitize_provider_error(exc, api_key=api_key),
             "message": "Serper 搜索失败，已返回 workspace 种子。" if fallback_used else "Serper 搜索失败。",
             "rate_limit_hint": "Serper quota 取决于账号套餐。",
         }
 
 
-def _execute_endpoint_search(endpoint: str, query: str, limit: int, seeds: list[dict[str, str]]) -> dict[str, Any]:
+def _execute_endpoint_search(
+    endpoint: str,
+    query: str,
+    limit: int,
+    seeds: list[dict[str, str]],
+    profile: dict[str, Any],
+) -> dict[str, Any]:
     if not query:
         return _query_required_payload(query=query, provider="endpoint", seeds=seeds, limit=limit)
-    api_key = os.environ.get("TOTAL_CONTROL_WEB_SEARCH_API_KEY", "")
+    api_key = str(profile.get("api_key") or os.environ.get("TOTAL_CONTROL_WEB_SEARCH_API_KEY") or "").strip()
     url = endpoint
     data: bytes | None = None
     headers = {"Accept": "application/json"}
@@ -328,7 +384,7 @@ def _execute_endpoint_search(endpoint: str, query: str, limit: int, seeds: list[
             "provider_status": "error",
             "fallback_used": fallback_used,
             "results": seeds[:limit],
-            "error": str(exc),
+            "error": _sanitize_provider_error(exc, api_key=api_key),
             "message": "搜索 provider 失败，已返回 workspace 种子。" if fallback_used else "搜索 provider 失败。",
         }
 
@@ -370,7 +426,7 @@ def _execute_duckduckgo_search(query: str, limit: int, seeds: list[dict[str, str
             "provider_status": "error",
             "fallback_used": fallback_used,
             "results": seeds[:limit],
-            "error": str(exc),
+            "error": _sanitize_provider_error(exc),
             "message": "DuckDuckGo 搜索失败，已返回 workspace 种子。" if fallback_used else "DuckDuckGo 搜索失败。",
         }
 

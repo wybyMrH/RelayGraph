@@ -104,12 +104,22 @@ def create_workspace_tool_executor(
     *,
     statuses: list[dict[str, Any]] | None = None,
     jobs: list[dict[str, Any]] | None = None,
+    provider_profiles: list[dict[str, Any]] | None = None,
+    tool_definitions: list[dict[str, Any]] | None = None,
     runtime: Any = None,
 ) -> Callable[[str, dict[str, Any]], str]:
     """Create a workspace-bound tool executor (implementation in workspace_executor)."""
     from .workspace_executor import create_workspace_tool_executor as _factory
 
-    return _factory(workspace, server_config, statuses=statuses, jobs=jobs, runtime=runtime)
+    return _factory(
+        workspace,
+        server_config,
+        statuses=statuses,
+        jobs=jobs,
+        provider_profiles=provider_profiles,
+        tool_definitions=tool_definitions,
+        runtime=runtime,
+    )
 
 
 def summarize_mapped_inputs(mapped_inputs: dict[str, Any] | None, *, limit: int = 6) -> list[dict[str, str]]:

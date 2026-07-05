@@ -23,7 +23,7 @@ def _dedupe_provider_profiles(profiles: list[Any]) -> tuple[list[dict[str, Any]]
             continue
         changed = True
         merged = deduped[existing_index]
-        for key in ("name", "provider", "base_url", "created_at", "updated_at"):
+        for key in ("name", "kind", "provider", "vendor_id", "base_url", "created_at", "updated_at"):
             value = str(profile.get(key) or "").strip()
             if value:
                 merged[key] = value
@@ -31,6 +31,8 @@ def _dedupe_provider_profiles(profiles: list[Any]) -> tuple[list[dict[str, Any]]
             merged["models"] = list(profile.get("models") or [])
         if "is_default" in profile:
             merged["is_default"] = bool(profile.get("is_default"))
+        if "key_required" in profile:
+            merged["key_required"] = bool(profile.get("key_required"))
         api_key = str(profile.get("api_key") or "").strip()
         if api_key:
             merged["api_key"] = api_key

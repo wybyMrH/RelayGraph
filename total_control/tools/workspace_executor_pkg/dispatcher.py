@@ -52,7 +52,13 @@ def execute_tool(context: Any, tool_id: str, arguments: dict[str, Any]) -> str:
         )
 
     if tool_id == "web.search":
-        return json.dumps(execute_web_search(context, arguments), ensure_ascii=False, indent=2)
+        search_arguments = dict(arguments)
+        if not str(search_arguments.get("provider_profile_id") or search_arguments.get("search_provider_profile_id") or "").strip():
+            tool_definition = context.tool_definition_by_id("web.search") if hasattr(context, "tool_definition_by_id") else {}
+            profile_id = str(tool_definition.get("provider_profile_id") or "").strip() if isinstance(tool_definition, dict) else ""
+            if profile_id:
+                search_arguments["provider_profile_id"] = profile_id
+        return json.dumps(execute_web_search(context, search_arguments), ensure_ascii=False, indent=2)
 
     if tool_id == "file.read":
         return json.dumps(execute_file_read(context, arguments), ensure_ascii=False, indent=2)

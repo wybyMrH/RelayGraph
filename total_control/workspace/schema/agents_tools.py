@@ -76,6 +76,7 @@ def normalize_workspace_tool(
         "requires_runtime": bool(base.get("requires_runtime", registry_meta.get("requires_runtime", False))),
         "fallback": str(base.get("fallback") or registry_meta.get("fallback") or "").strip(),
         "runtime_control": str(base.get("runtime_control") or registry_meta.get("runtime_control") or "").strip(),
+        "provider_profile_id": str(base.get("provider_profile_id") or "").strip(),
         "description": str(base.get("description") or "").strip(),
         "enabled": bool(base.get("enabled", True)),
         "notes": str(base.get("notes") or "").strip(),

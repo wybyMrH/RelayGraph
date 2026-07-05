@@ -144,6 +144,8 @@ class DebugMixin:
                         preview_workspace_public,
                         statuses=copy.deepcopy(self.statuses),
                         jobs=copy.deepcopy(self.jobs),
+                        provider_profiles=copy.deepcopy(getattr(self, "provider_profiles", [])),
+                        tool_definitions=copy.deepcopy(getattr(self, "tool_definitions", [])),
                     )
                     executor = AgentExecutor(
                         agent={**agent, **({"max_iterations": max_iterations} if max_iterations > 0 else {})},

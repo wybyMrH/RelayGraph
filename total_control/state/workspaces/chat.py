@@ -328,6 +328,8 @@ class ChatMixin:
                         preview_workspace,
                         statuses=copy.deepcopy(self.statuses),
                         jobs=copy.deepcopy(self.jobs),
+                        provider_profiles=copy.deepcopy(getattr(self, "provider_profiles", [])),
+                        tool_definitions=copy.deepcopy(getattr(self, "tool_definitions", [])),
                         runtime=self.workspace_tool_runtime(preview_workspace),
                     )
                     execution_id = make_agent_execution_id()
@@ -678,6 +680,8 @@ class ChatMixin:
                         preview_workspace,
                         statuses=copy.deepcopy(self.statuses),
                         jobs=copy.deepcopy(self.jobs),
+                        provider_profiles=copy.deepcopy(getattr(self, "provider_profiles", [])),
+                        tool_definitions=copy.deepcopy(getattr(self, "tool_definitions", [])),
                         runtime=self.workspace_tool_runtime(preview_workspace),
                     )
                     execution_id = make_agent_execution_id()
