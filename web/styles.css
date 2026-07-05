@@ -5343,6 +5343,14 @@ textarea:focus {
   min-width: 0;
 }
 
+.workflow-template-mapping-head-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 0;
+}
+
 .workflow-template-mapping-head strong,
 .workflow-template-mapping-head span {
   min-width: 0;

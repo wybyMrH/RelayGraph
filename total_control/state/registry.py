@@ -592,14 +592,17 @@ class RegistryMixin:
             for ref in contract_node.get("missing_inputs") if isinstance(contract_node.get("missing_inputs"), list) else []:
                 if not isinstance(ref, dict):
                     continue
+                code = str(ref.get("code") or "blocked_input_mapping").strip()
                 add_issue(
                     "blocking",
                     "contract",
-                    "blocked_input_mapping",
+                    code,
                     f"{contract_node.get('title') or contract_node.get('id')} 的输入 {ref.get('name') or ''} 未能解析：{ref.get('detail') or ''}",
                     node_id=str(contract_node.get("id") or "").strip(),
                     source=str(ref.get("source") or "").strip(),
                     input_name=str(ref.get("name") or "").strip(),
+                    upstream_node_id=str(ref.get("upstream_node_id") or "").strip(),
+                    upstream_output_key=str(ref.get("upstream_output_key") or "").strip(),
                 )
 
         blocking_count = sum(1 for issue in issues if issue.get("severity") == "blocking")
@@ -629,6 +632,23 @@ class RegistryMixin:
             for item in contract_nodes
             if isinstance(item, dict) and str(item.get("id") or "").strip()
         }
+        issues = validation.get("issues") if isinstance(validation.get("issues"), list) else []
+        output_conflicts_by_node: dict[str, list[dict[str, Any]]] = {}
+        for issue in issues:
+            if not isinstance(issue, dict) or str(issue.get("code") or "").strip() != "duplicate_output_key":
+                continue
+            node_id = str(issue.get("node_id") or "").strip()
+            if not node_id:
+                continue
+            output_conflicts_by_node.setdefault(node_id, []).append(
+                {
+                    "code": "duplicate_output_key",
+                    "output_key": str(issue.get("output_key") or "").strip(),
+                    "upstream_node_id": str(issue.get("upstream_node_id") or "").strip(),
+                    "message": str(issue.get("message") or "").strip(),
+                }
+            )
+        seen_outputs: dict[str, dict[str, Any]] = {}
         preview_nodes: list[dict[str, Any]] = []
         for index, node in enumerate(template.get("nodes") if isinstance(template.get("nodes"), list) else []):
             if not isinstance(node, dict):
@@ -636,6 +656,40 @@ class RegistryMixin:
             node_id = str(node.get("id") or "").strip()
             handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
             contract = contract_by_id.get(node_id, {})
+            repair_actions: list[dict[str, Any]] = []
+            missing_inputs = contract.get("missing_inputs") if isinstance(contract.get("missing_inputs"), list) else []
+            for ref in missing_inputs:
+                if not isinstance(ref, dict):
+                    continue
+                input_name = str(ref.get("name") or "").strip()
+                if not input_name:
+                    continue
+                source = str(ref.get("source") or "").strip()
+                code = str(ref.get("code") or "").strip()
+                upstream_output_key = str(ref.get("upstream_output_key") or "").strip()
+                if upstream_output_key and upstream_output_key in seen_outputs:
+                    value = f"$context.outputs.{upstream_output_key}"
+                elif code == "first_node_prev_reference" or index == 0:
+                    value = "$input"
+                elif input_name in seen_outputs:
+                    value = f"$context.outputs.{input_name}"
+                elif source:
+                    value = source
+                else:
+                    value = "$prev.output"
+                repair_actions.append(
+                    {
+                        "id": safe_id(f"map-input-{node_id}-{input_name}") or f"map-input-{index}-{len(repair_actions)}",
+                        "kind": "set_input_mapping",
+                        "node_id": node_id,
+                        "label": f"映射 {input_name}",
+                        "patch": {
+                            "path": ["nodes", index, "input_mapping", input_name],
+                            "value": value,
+                        },
+                    }
+                )
+            output_key = str(contract.get("output_key") or node.get("output_key") or handler.get("output_key") or "").strip()
             preview_nodes.append(
                 {
                     "id": node_id,
@@ -647,13 +701,24 @@ class RegistryMixin:
                         "agent_id": str(handler.get("agent_id") or "").strip(),
                         "name": str(handler.get("name") or "").strip(),
                     },
-                    "output_key": str(contract.get("output_key") or node.get("output_key") or handler.get("output_key") or "").strip(),
+                    "output_key": output_key,
+                    "inputs": copy.deepcopy(contract.get("inputs") if isinstance(contract.get("inputs"), list) else []),
+                    "required_inputs": copy.deepcopy(contract.get("required_inputs") if isinstance(contract.get("required_inputs"), list) else []),
+                    "mapped_inputs": copy.deepcopy(contract.get("mapped_inputs") if isinstance(contract.get("mapped_inputs"), list) else []),
                     "input_mapping": copy.deepcopy(contract.get("input_mapping") if isinstance(contract.get("input_mapping"), dict) else {}),
+                    "input_refs": copy.deepcopy(contract.get("input_refs") if isinstance(contract.get("input_refs"), list) else []),
                     "input_status": str(contract.get("input_status") or "").strip(),
+                    "missing_inputs": copy.deepcopy(missing_inputs),
+                    "unmapped_required_inputs": copy.deepcopy(contract.get("unmapped_required_inputs") if isinstance(contract.get("unmapped_required_inputs"), list) else []),
+                    "input_gap_count": safe_int(contract.get("input_gap_count"), 0),
+                    "output_conflicts": output_conflicts_by_node.get(node_id, []),
+                    "repair_actions": repair_actions,
                     "tools": copy.deepcopy(contract.get("tools") if isinstance(contract.get("tools"), list) else []),
                     "model": copy.deepcopy(contract.get("model") if isinstance(contract.get("model"), dict) else {}),
                 }
             )
+            if output_key and output_key not in seen_outputs:
+                seen_outputs[output_key] = {"node_id": node_id, "index": index}
         source = template.get("source") if isinstance(template.get("source"), dict) else {}
         model = template.get("model") if isinstance(template.get("model"), dict) else {}
         return {

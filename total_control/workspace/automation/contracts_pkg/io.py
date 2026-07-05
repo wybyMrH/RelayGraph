@@ -69,10 +69,35 @@ def workspace_has_explicit_input_mapping(node: dict[str, Any]) -> bool:
     raw_mapping = node.get("input_mapping")
     return isinstance(raw_mapping, dict) and any(str(key or "").strip() for key in raw_mapping.keys())
 
+def workspace_required_input_names(contract: dict[str, Any]) -> list[str]:
+    inputs = contract.get("inputs") if isinstance(contract.get("inputs"), list) else []
+    return [str(item or "").strip() for item in inputs if str(item or "").strip()]
+
+def workspace_unmapped_required_inputs(
+    input_mapping: dict[str, str],
+    contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    mapped_names = {str(name or "").strip() for name in input_mapping.keys() if str(name or "").strip()}
+    return [
+        {
+            "name": name,
+            "source": "",
+            "status": "blocked",
+            "source_type": "unmapped",
+            "code": "unmapped_required_input",
+            "detail": "声明输入未配置 input_mapping",
+            "upstream_node_id": "",
+            "upstream_output_key": "",
+        }
+        for name in workspace_required_input_names(contract)
+        if name not in mapped_names
+    ]
+
 def workspace_contract_output_key_for_node(node: dict[str, Any], index: int) -> str:
     kind = str(node.get("kind") or "").strip()
     contract = workspace_io_contract_for_kind(kind, index)
-    return str(node.get("output_key") or contract.get("output_key") or f"step_{index + 1}").strip()
+    handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
+    return str(node.get("output_key") or handler.get("output_key") or contract.get("output_key") or f"step_{index + 1}").strip()
 
 def workspace_contract_input_ref_state(
     source: str,
@@ -82,22 +107,28 @@ def workspace_contract_input_ref_state(
 ) -> dict[str, Any]:
     ref = str(source or "").strip()
     if not ref:
-        return {"status": "draft", "source_type": "empty", "detail": "等待输入来源"}
+        return {"status": "draft", "source_type": "empty", "code": "empty_input_source", "detail": "等待输入来源"}
     if ref == "$input" or ref.startswith("$input."):
-        return {"status": "ready", "source_type": "input", "detail": "来自启动输入 input_data"}
+        return {"status": "ready", "source_type": "input", "code": "input_reference", "detail": "来自启动输入 input_data"}
     if ref == "$prev.output" or ref.startswith("$prev.output."):
         if index > 0 and previous_outputs:
             upstream = next(reversed(previous_outputs.values()))
             return {
                 "status": "ready",
                 "source_type": "previous",
+                "code": "previous_output_reference",
                 "detail": f"来自上一节点 {upstream.get('output_key') or 'output'}",
                 "upstream_node_id": str(upstream.get("node_id") or "").strip(),
                 "upstream_output_key": str(upstream.get("output_key") or "").strip(),
             }
-        return {"status": "blocked", "source_type": "previous", "detail": "首节点不能引用 $prev.output"}
+        return {"status": "blocked", "source_type": "previous", "code": "first_node_prev_reference", "detail": "首节点不能引用 $prev.output"}
     if ref == "$context":
-        return {"status": "ready" if previous_outputs else "warning", "source_type": "context", "detail": "引用整个工作流上下文"}
+        return {
+            "status": "ready" if previous_outputs else "warning",
+            "source_type": "context",
+            "code": "context_reference",
+            "detail": "引用整个工作流上下文",
+        }
     if ref.startswith("$context.outputs."):
         output_key = ref[len("$context.outputs."):].split(".", 1)[0]
         previous = previous_outputs.get(output_key)
@@ -105,6 +136,7 @@ def workspace_contract_input_ref_state(
             return {
                 "status": "ready",
                 "source_type": "context_output",
+                "code": "context_output_reference",
                 "detail": f"{output_key} 来自上游节点",
                 "upstream_node_id": str(previous.get("node_id") or "").strip(),
                 "upstream_output_key": output_key,
@@ -113,14 +145,18 @@ def workspace_contract_input_ref_state(
         if owner:
             owner_index = safe_int(owner.get("index"), -1)
             if owner_index == index:
+                code = "self_output_reference"
                 detail = f"{output_key} 引用了本节点自己的输出"
             elif owner_index > index:
+                code = "future_output_reference"
                 detail = f"{output_key} 来自下游节点，执行顺序倒挂"
             else:
+                code = "unavailable_output_reference"
                 detail = f"{output_key} 上游未进入当前上下文"
             return {
                 "status": "blocked",
                 "source_type": "context_output",
+                "code": code,
                 "detail": detail,
                 "upstream_node_id": str(owner.get("node_id") or "").strip(),
                 "upstream_output_key": output_key,
@@ -128,12 +164,13 @@ def workspace_contract_input_ref_state(
         return {
             "status": "blocked",
             "source_type": "context_output",
+            "code": "unknown_output_reference",
             "detail": f"{output_key} 没有对应 output_key",
             "upstream_output_key": output_key,
         }
     if ref.startswith("$context."):
-        return {"status": "warning", "source_type": "context", "detail": "上下文字段会在运行时解析"}
-    return {"status": "ready", "source_type": "literal", "detail": "固定值或节点配置"}
+        return {"status": "warning", "source_type": "context", "code": "context_field_reference", "detail": "上下文字段会在运行时解析"}
+    return {"status": "ready", "source_type": "literal", "code": "literal_reference", "detail": "固定值或节点配置"}
 
 def workspace_contract_input_refs(
     input_mapping: dict[str, str],
@@ -154,6 +191,7 @@ def workspace_contract_input_refs(
                 "source": source,
                 "status": str(state.get("status") or "draft").strip(),
                 "source_type": str(state.get("source_type") or "").strip(),
+                "code": str(state.get("code") or "").strip(),
                 "detail": str(state.get("detail") or "").strip(),
                 "upstream_node_id": str(state.get("upstream_node_id") or "").strip(),
                 "upstream_output_key": str(state.get("upstream_output_key") or "").strip(),

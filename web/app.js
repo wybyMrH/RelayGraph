@@ -19372,7 +19372,10 @@ function workflowTemplateInputMappingEditorMarkup(node = {}, index = 0) {
           <strong>结构化 input_mapping</strong>
           <span>${escapeHtml(outputKey ? `输出写入 $context.outputs.${outputKey}` : "先设置 output_key")}</span>
         </div>
-        <button class="secondary mini" type="button" data-action="add-template-input-mapping" title="添加一条 input_mapping">添加映射</button>
+        <span class="workflow-template-mapping-head-actions">
+          <button class="secondary mini" type="button" data-action="fill-template-input-mapping" title="为当前节点声明输入补齐缺失 input_mapping，不覆盖已有映射">补缺口</button>
+          <button class="secondary mini" type="button" data-action="add-template-input-mapping" title="添加一条 input_mapping">添加映射</button>
+        </span>
       </div>
       ${workflowTemplateMappingHealthMarkup(health)}
       <div class="workflow-template-mapping-grid">
@@ -19555,6 +19558,7 @@ function workflowTemplateEdgeInspectorMarkup(nodes = [], selectedIndex = 0) {
       <div class="workflow-template-edge-actions">
         <button class="secondary mini" type="button" data-action="map-template-edge-previous" title="把当前节点输入映射到上一节点显式输出" ${canMapPrevious ? "" : "disabled"}>上一节点输出</button>
         <button class="secondary mini" type="button" data-action="map-template-edge-context" title="把当前节点输入映射到整个上下文输出">全部上下文</button>
+        <button class="secondary mini" type="button" data-action="fill-template-edge-mapping" title="只补齐当前下游节点缺失的输入映射，不覆盖已有映射">补缺口</button>
         <button class="secondary mini" type="button" data-action="add-template-edge-mapping" title="添加一条交接映射">添加映射</button>
         <button class="secondary mini danger" type="button" data-action="clear-template-edge-mapping" title="清空当前节点 input_mapping" ${canClear ? "" : "disabled"}>清空</button>
       </div>
@@ -19581,6 +19585,84 @@ function workflowTemplateDefaultEdgeEntries(mode = "previous") {
       ? "$input"
       : edge.sourceRef || "$prev.output";
   return names.map((name) => ({ name: String(name || "").trim(), source })).filter((item) => item.name);
+}
+
+function workflowTemplatePriorOutputKeys(nodes = [], index = 0) {
+  const keys = new Set();
+  (Array.isArray(nodes) ? nodes : []).slice(0, Math.max(0, index)).forEach((node, nodeIndex) => {
+    if (!node || typeof node !== "object") return;
+    const contract = workspaceNodeIoContract(node.kind || "", nodeIndex);
+    const outputKey = String(node.output_key || contract.output || "").trim();
+    if (outputKey) keys.add(outputKey);
+  });
+  return keys;
+}
+
+function workflowTemplateDefaultInputSource(nodes = [], index = 0, inputName = "") {
+  const name = String(inputName || "").trim();
+  if (index <= 0) return "$input";
+  const priorOutputs = workflowTemplatePriorOutputKeys(nodes, index);
+  if (name && priorOutputs.has(name)) return `$context.outputs.${name}`;
+  const fallback = workspaceNodeIoFallbackMapping(name ? [name] : [], index);
+  const fallbackSource = String(fallback[name] || "").trim();
+  if (fallbackSource) return fallbackSource;
+  const previousNode = nodes[index - 1] || null;
+  if (!previousNode) return "$prev.output";
+  const previousContract = workspaceNodeIoContract(previousNode.kind || "", index - 1);
+  const outputKey = String(previousNode.output_key || previousContract.output || "").trim();
+  return outputKey ? `$context.outputs.${outputKey}` : "$prev.output";
+}
+
+function workflowTemplateMergedMissingInputMapping(node = {}, index = 0, nodes = []) {
+  const contract = workspaceNodeIoContract(node.kind || "", index);
+  const targetInputs = (Array.isArray(contract.inputs) ? contract.inputs : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  const current = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
+  const entries = workspaceInputMappingEntries(current);
+  const mapping = workspaceInputMappingFromEntries(entries);
+  let added = 0;
+  targetInputs.forEach((name) => {
+    if (mapping[name]) return;
+    mapping[name] = workflowTemplateDefaultInputSource(nodes, index, name);
+    added += 1;
+  });
+  return { mapping, added, targetInputs };
+}
+
+function fillSelectedWorkflowTemplateMissingInputMapping(options = {}) {
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+  const index = nodes.findIndex((item) => item.id === state.selectedTemplateNodeId);
+  if (index < 0) return 0;
+  const result = workflowTemplateMergedMissingInputMapping(nodes[index], index, nodes);
+  if (!result.targetInputs.length) {
+    setWorkspaceManageMessage("当前节点没有声明输入，不需要补齐 input_mapping。");
+    return 0;
+  }
+  if (!result.added) {
+    setWorkspaceManageMessage("当前节点 input_mapping 已完整。");
+    return 0;
+  }
+  setSelectedWorkflowTemplateInputMapping(result.mapping, options);
+  setWorkspaceManageMessage(`已为当前节点补齐 ${result.added} 条 input_mapping。`);
+  return result.added;
+}
+
+function fillAllWorkflowTemplateMissingInputMappings() {
+  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
+  let addedTotal = 0;
+  const nextNodes = nodes.map((node, index) => {
+    const result = workflowTemplateMergedMissingInputMapping(node, index, nodes);
+    if (!result.added) return node;
+    addedTotal += result.added;
+    return { ...node, input_mapping: result.mapping };
+  });
+  if (!addedTotal) {
+    setWorkspaceManageMessage("全链 input_mapping 已完整，没有新的缺口需要补齐。");
+    return;
+  }
+  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: nextNodes }));
+  setWorkspaceManageMessage(`已为全链补齐 ${addedTotal} 条 input_mapping，未覆盖已有手工映射。`);
 }
 
 function refreshWorkflowTemplateMappingEditorHealth(editor, options = {}) {
@@ -20783,6 +20865,7 @@ function renderWorkflowTemplateCanvas() {
         <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(selectedNode.id || "")}" data-direction="up" title="上移当前节点" ${selectedIndex > 0 ? "" : "disabled"}>上移</button>
         <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(selectedNode.id || "")}" data-direction="down" title="下移当前节点" ${selectedIndex < nodes.length - 1 ? "" : "disabled"}>下移</button>
         <button class="secondary mini" type="button" data-action="insert-template-node-after" data-node-id="${escapeHtml(selectedNode.id || "")}" title="在当前节点后插入左上角选择的节点类型">插入</button>
+        <button class="secondary mini" type="button" data-action="fill-template-all-missing-mapping" title="为全链声明输入补齐缺失 input_mapping，不覆盖已有手工映射">补齐映射</button>
       </div>
     </div>
     ${phaseMap}
@@ -27073,6 +27156,10 @@ function bindEvents() {
       insertWorkflowTemplateNode($("workflowTemplateNodeKindSelect")?.value || "custom.step");
       return;
     }
+    if (button.dataset.action === "fill-template-all-missing-mapping") {
+      fillAllWorkflowTemplateMissingInputMappings();
+      return;
+    }
     if (button.dataset.action === "delete-template-node") {
       removeWorkflowTemplateNode();
       return;
@@ -27089,6 +27176,10 @@ function bindEvents() {
         workspaceInputMappingFromEntries(workflowTemplateDefaultEdgeEntries("context")),
         { render: "canvas" },
       );
+      return;
+    }
+    if (button.dataset.action === "fill-template-edge-mapping") {
+      fillSelectedWorkflowTemplateMissingInputMapping({ render: "canvas" });
       return;
     }
     if (button.dataset.action === "add-template-edge-mapping") {
@@ -27211,7 +27302,14 @@ function bindEvents() {
     const entries = editor
       ? workflowTemplateInputMappingEntriesFromEditor(editor)
       : workspaceInputMappingEntries(node?.input_mapping || {});
+    if (button.dataset.action === "fill-template-input-mapping") {
+      fillSelectedWorkflowTemplateMissingInputMapping({ render: true });
+      return;
+    }
     if (button.dataset.action === "add-template-input-mapping") {
+      if (fillSelectedWorkflowTemplateMissingInputMapping({ render: true })) {
+        return;
+      }
       entries.push({ name: `input_${entries.length + 1}`, source: workflowTemplateNodeIndex(node) === 0 ? "$input" : "$prev.output" });
       setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: true });
       return;

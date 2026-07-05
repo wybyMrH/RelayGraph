@@ -21,6 +21,8 @@ from .io import (
     workspace_contract_input_ref_state,
     workspace_contract_input_refs,
     workspace_apply_auto_input_mapping_fallbacks,
+    workspace_required_input_names,
+    workspace_unmapped_required_inputs,
 )
 
 from .orchestration import (
@@ -49,6 +51,8 @@ __all__ = [
     "workspace_contract_input_ref_state",
     "workspace_contract_input_refs",
     "workspace_apply_auto_input_mapping_fallbacks",
+    "workspace_required_input_names",
+    "workspace_unmapped_required_inputs",
     "workspace_orchestration_gap_matches_node",
     "workspace_orchestration_status",
     "derive_workspace_orchestration_contract",

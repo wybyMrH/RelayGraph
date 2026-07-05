@@ -17,6 +17,8 @@ from .io import (
     workspace_io_contract_for_kind,
     workspace_io_input_mapping,
     workspace_node_config_signal,
+    workspace_required_input_names,
+    workspace_unmapped_required_inputs,
 )
 
 
@@ -85,13 +87,22 @@ def derive_workspace_workflow_contract(
         route = workspace_model_route_for_agent(model, agent if agent else None)
         next_node = nodes[index + 1] if index + 1 < len(nodes) and isinstance(nodes[index + 1], dict) else {}
         input_mapping = workspace_io_input_mapping(node, contract, index)
+        required_inputs = workspace_required_input_names(contract)
         input_refs = workspace_contract_input_refs(input_mapping, index, output_catalog, previous_outputs)
-        if not workspace_has_explicit_input_mapping(node):
+        has_explicit_mapping = workspace_has_explicit_input_mapping(node)
+        if not has_explicit_mapping:
             workspace_apply_auto_input_mapping_fallbacks(input_mapping, input_refs)
+        unmapped_required_inputs = (
+            workspace_unmapped_required_inputs(input_mapping, contract)
+            if has_explicit_mapping
+            else []
+        )
         missing_inputs = [
             ref for ref in input_refs
             if str(ref.get("status") or "") in {"blocked", "failed"}
         ]
+        if unmapped_required_inputs:
+            missing_inputs = [*missing_inputs, *copy.deepcopy(unmapped_required_inputs)]
         waiting_inputs = [
             ref for ref in input_refs
             if str(ref.get("status") or "") in {"draft", "warning", "pending"}
@@ -129,11 +140,19 @@ def derive_workspace_workflow_contract(
                 "phase": workspace_run_node_phase(kind),
                 "phase_label": workspace_run_phase_label(workspace_run_node_phase(kind)),
                 "status": status if status in {"ready", "warning", "blocked", "running", "done", "failed", "draft", "pending"} else "warning",
-                "inputs": list(input_mapping.keys()),
+                "inputs": required_inputs or list(input_mapping.keys()),
+                "required_inputs": required_inputs,
+                "optional_inputs": [
+                    str(item or "").strip()
+                    for item in (contract.get("optional_inputs") if isinstance(contract.get("optional_inputs"), list) else [])
+                    if str(item or "").strip()
+                ],
+                "mapped_inputs": list(input_mapping.keys()),
                 "input_mapping": input_mapping,
                 "input_refs": input_refs,
                 "input_status": input_status,
                 "missing_inputs": copy.deepcopy(missing_inputs),
+                "unmapped_required_inputs": copy.deepcopy(unmapped_required_inputs),
                 "input_gap_count": len(missing_inputs),
                 "output_key": workspace_contract_output_key_for_node(node, index),
                 "context": {

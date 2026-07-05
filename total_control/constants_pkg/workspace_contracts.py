@@ -106,9 +106,9 @@ AGENT_NODE_DEFAULT_INPUT_MAPPINGS: dict[str, dict[str, str]] = {
         "run_result": "$context.outputs.run_result",
     },
     "path.resolve": {
-        "repo_profile": "$context.outputs.repo_profile",
         "repo_checkout": "$context.outputs.repo_checkout",
-        "数据集 / 路径线索": "$input.references",
+        "工作目录": "$input.workspace_dir",
+        "数据 / 输出线索": "$input.references",
     },
     "artifact.collect": {
         "run_result": "$context.outputs.run_result",
