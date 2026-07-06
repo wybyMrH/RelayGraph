@@ -27484,15 +27484,18 @@ function bindEvents() {
     submitUseChat: submitWorkspaceUseChat,
     testStarterChain: testWorkspaceStarterChain,
   });
-  $("refreshBtn").addEventListener("click", () => loadStatus(true));
-  $("refreshSelectedServerBtn")?.addEventListener("click", () => {
-    if (!state.selectedServer) {
-      $("refreshMeta").textContent = "先选择一台服务器，再刷新单机状态。";
-      return;
-    }
-    void refreshServerStatus(state.selectedServer);
+  window.AppStatusActions?.bind?.({
+    element: $,
+    openTerminal,
+    refreshSelectedServer: () => {
+      if (!state.selectedServer) {
+        $("refreshMeta").textContent = "先选择一台服务器，再刷新单机状态。";
+        return;
+      }
+      void refreshServerStatus(state.selectedServer);
+    },
+    refreshStatus: () => loadStatus(true),
   });
-  $("terminalBtn").addEventListener("click", openTerminal);
   $("workspaceForm")?.addEventListener("submit", submitWorkspace);
   $("workspaceForm")?.addEventListener("input", (event) => {
     const field = event.target.name;
