@@ -27911,7 +27911,10 @@ function bindEvents() {
     selectWorkspace,
     updateRunFilter: updateWorkspaceRunFilter,
   });
-  $("jobForm").addEventListener("submit", submitJob);
+  window.JobFormActions?.bind?.({
+    element: $,
+    submitJob,
+  });
   window.TransferSurfaceActions?.bind?.({
     element: $,
     activateFilePickerRow: (path, isDir) => {
