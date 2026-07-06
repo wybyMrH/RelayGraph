@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import uuid
 from typing import Any
 
 from ...constants_pkg.provider_catalog import PROVIDER_CATALOG, provider_catalog_by_id
@@ -7,6 +9,44 @@ from ...constants_pkg.provider_catalog import PROVIDER_CATALOG, provider_catalog
 
 def normalized_provider_base_url(value: Any) -> str:
     return str(value or "").strip().rstrip("/")
+
+
+def provider_catalog_public_payload() -> dict[str, Any]:
+    return {"provider_catalog": copy.deepcopy(PROVIDER_CATALOG)}
+
+
+def build_provider_profile_catalog_payload(
+    vendor_id: str,
+    *,
+    api_key: str = "",
+    name: str = "",
+    models: list[Any] | None = None,
+    is_default: bool = False,
+) -> dict[str, Any]:
+    vendor = provider_catalog_by_id(vendor_id)
+    if not vendor:
+        raise ValueError(f"unknown provider catalog vendor: {vendor_id or '(empty)'}")
+    key_required = bool(vendor.get("key_required", True))
+    resolved_key = str(api_key or "").strip()
+    if key_required and not resolved_key:
+        raise ValueError(f"vendor {vendor_id} requires an api_key")
+    if not resolved_key:
+        resolved_key = "sk-no-key-required"
+
+    profile_models = models if isinstance(models, list) else list(vendor.get("models") or [])
+    profile_name = str(name or "").strip() or str(vendor.get("name") or vendor_id).strip()
+    return {
+        "id": str(uuid.uuid4().hex[:10]),
+        "kind": "llm",
+        "name": profile_name,
+        "vendor_id": vendor_id,
+        "provider": str(vendor.get("provider") or "openai").strip(),
+        "base_url": str(vendor.get("base_url") or "").strip(),
+        "api_key": resolved_key,
+        "models": profile_models,
+        "is_default": bool(is_default),
+        "key_required": key_required,
+    }
 
 
 def provider_catalog_for_profile(profile: dict[str, Any]) -> dict[str, Any]:

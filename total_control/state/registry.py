@@ -5,7 +5,9 @@ from .registry_pkg.execution_overview import (
     build_execution_overview_payload as _build_execution_overview_payload,
 )
 from .registry_pkg.provider_profiles import (
+    build_provider_profile_catalog_payload,
     build_provider_profile_draft,
+    provider_catalog_public_payload,
     provider_profile_key_required as _provider_profile_key_required,
     provider_profile_kind as _provider_profile_kind,
     provider_profile_public_payload,
@@ -329,7 +331,7 @@ class RegistryMixin:
 
     def list_provider_catalog(self) -> dict[str, Any]:
         """List known vendor presets so a profile can be created from a pick + key."""
-        return {"provider_catalog": copy.deepcopy(PROVIDER_CATALOG)}
+        return provider_catalog_public_payload()
 
 
     def create_provider_profile_from_catalog(
@@ -346,30 +348,13 @@ class RegistryMixin:
         Falls back to a non-empty sentinel key for local/no-key vendors
         (e.g. Ollama) so LLMClient's empty-key guard does not block them.
         """
-        vendor = provider_catalog_by_id(vendor_id)
-        if not vendor:
-            raise ValueError(f"unknown provider catalog vendor: {vendor_id or '(empty)'}")
-        key_required = bool(vendor.get("key_required", True))
-        resolved_key = str(api_key or "").strip()
-        if key_required and not resolved_key:
-            raise ValueError(f"vendor {vendor_id} requires an api_key")
-        if not resolved_key:
-            resolved_key = "sk-no-key-required"
-
-        profile_models = models if isinstance(models, list) else list(vendor.get("models") or [])
-        profile_name = str(name or "").strip() or str(vendor.get("name") or vendor_id).strip()
-        payload = {
-            "id": str(uuid.uuid4().hex[:10]),
-            "kind": "llm",
-            "name": profile_name,
-            "vendor_id": vendor_id,
-            "provider": str(vendor.get("provider") or "openai").strip(),
-            "base_url": str(vendor.get("base_url") or "").strip(),
-            "api_key": resolved_key,
-            "models": profile_models,
-            "is_default": bool(is_default),
-            "key_required": key_required,
-        }
+        payload = build_provider_profile_catalog_payload(
+            vendor_id,
+            api_key=api_key,
+            name=name,
+            models=models,
+            is_default=is_default,
+        )
         return self.create_provider_profile(payload)
 
 
