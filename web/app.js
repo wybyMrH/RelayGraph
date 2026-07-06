@@ -28345,11 +28345,9 @@ function bindEvents() {
     saveAlias,
     saveRuntimeStorageSettings,
   });
-  $("processStopConfirmCloseBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(false));
-  $("processStopConfirmCancelBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(false));
-  $("processStopConfirmSubmitBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(true));
-  $("processStopConfirmModal")?.addEventListener("click", (event) => {
-    if (event.target.id === "processStopConfirmModal") closeProcessStopConfirmModal(false);
+  window.MonitoringProcessStopActions?.bind?.({
+    element: $,
+    resolve: closeProcessStopConfirmModal,
   });
   if ($("processTable")) {
     loadProcessColumnWidths();
