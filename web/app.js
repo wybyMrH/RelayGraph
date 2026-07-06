@@ -27415,25 +27415,15 @@ function bindEvents() {
       node.classList.remove("dragging", "drop-before", "drop-after");
     });
   });
-  $("execTabs")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-tab]");
-    if (button) switchExecTab(button.dataset.tab);
-  });
-  $("mainNav")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-view]");
-    if (button) switchProductTab(button.dataset.view);
-  });
-  $("workspaceTabs")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-tab]");
-    if (button) switchWorkspaceTab(button.dataset.tab);
-  });
-  $("workspaceModuleCards")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-workspace-tab]");
-    if (button) switchWorkspaceTab(button.getAttribute("data-workspace-tab"));
-  });
-  $("workspaceModeSwitch")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-mode]");
-    if (button) switchWorkspaceMode(button.dataset.mode);
+  window.AppNavigationActions?.bind?.({
+    element: $,
+    query: (selector) => document.querySelector(selector),
+    switchActivityTab: (tab) => switchActivityTab(tab, { revealOutput: true }),
+    switchExecTab,
+    switchProductTab,
+    switchWorkspaceManageTab,
+    switchWorkspaceMode,
+    switchWorkspaceTab,
   });
   $("workspaceProjectConfigDrawer")?.addEventListener("toggle", (event) => {
     const open = Boolean(event.currentTarget?.open);
@@ -27446,18 +27436,6 @@ function bindEvents() {
     if (event.currentTarget?.open) {
       renderWorkspaceLauncherPreviewBand(selectedWorkspace());
     }
-  });
-  $("workspaceManageTabs")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-tab]");
-    if (button) switchWorkspaceManageTab(button.dataset.tab);
-  });
-  document.querySelector(".workspace-manage-tabs-secondary")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-tab]");
-    if (button) switchWorkspaceManageTab(button.dataset.tab);
-  });
-  $("workspaceManageOverviewCards")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='switch-workspace-manage-tab']");
-    if (button?.dataset.tab) switchWorkspaceManageTab(button.dataset.tab);
   });
   $("workflowTemplateStudioOverview")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
@@ -27554,10 +27532,6 @@ function bindEvents() {
       event.preventDefault();
       void submitWorkspaceUseChat();
     }
-  });
-  $("activityTabs")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-tab]");
-    if (button) switchActivityTab(button.dataset.tab, { revealOutput: true });
   });
   $("refreshBtn").addEventListener("click", () => loadStatus(true));
   $("refreshSelectedServerBtn")?.addEventListener("click", () => {
