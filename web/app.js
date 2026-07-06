@@ -18335,15 +18335,22 @@ function renderTransferProgress() {
   if (!list) return;
   const jobs = state.jobs.filter((job) => job.kind === "transfer").slice(0, 20);
   if (!jobs.length) {
-    list.innerHTML = '<div class="empty compact-empty">暂无文件传输任务。</div>';
+    const api = window.TransferProgressMarkup;
+    list.innerHTML = api && typeof api.transferProgressEmptyMarkup === "function"
+      ? api.transferProgressEmptyMarkup()
+      : '<div class="empty compact-empty">暂无文件传输任务。</div>';
     return;
   }
+  const api = window.TransferProgressMarkup;
   list.innerHTML = jobs
     .map((job) => {
       const cached = state.transfer.logs[job.id] || {};
       const pct = cached.progress ?? (job.status === "done" ? 100 : 0);
       const line = cached.line || (job.status === "running" ? "正在读取 rsync 输出..." : job.error || job.created_at);
       const canStop = ["running", "queued", "starting", "blocked"].includes(job.status);
+      if (api && typeof api.transferProgressItemMarkup === "function") {
+        return api.transferProgressItemMarkup(job, { canStop, line, pct }, { escapeHtml, zhStatus });
+      }
       return `
         <div class="transfer-progress-item" onclick="showLog('${escapeHtml(job.id)}')">
           <div class="transfer-progress-head">
