@@ -27634,13 +27634,13 @@ function bindEvents() {
     refreshMappingEditorHealth: refreshWorkflowTemplateMappingEditorHealth,
     setSelectedInputMapping: setSelectedWorkflowTemplateInputMapping,
   });
-  $("workflowTemplateNodeList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-template-node']");
-    if (button?.dataset.nodeId) {
-      state.selectedTemplateNodeId = button.dataset.nodeId;
+  window.WorkflowTemplateNodeListActions?.bind?.({
+    element: $,
+    selectTemplateNode: (nodeId) => {
+      state.selectedTemplateNodeId = nodeId;
       renderWorkspaceWorkbench();
-      revealWorkflowTemplateSelection(button.dataset.nodeId, { editor: true });
-    }
+      revealWorkflowTemplateSelection(nodeId, { editor: true });
+    },
   });
   window.WorkflowTemplateNodeEditorActions?.bind?.($("workflowTemplateNodeEditor"), {
     fillSelectedMissingMapping: fillSelectedWorkflowTemplateMissingInputMapping,
