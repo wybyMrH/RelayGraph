@@ -54,6 +54,9 @@
     element(callbacks, "workspaceList")?.addEventListener("click", (event) => {
       handleWorkspaceListClick(event, callbacks);
     });
+    element(callbacks, "workspaceHistoryList")?.addEventListener("click", (event) => {
+      handleWorkspaceListClick(event, callbacks);
+    });
     element(callbacks, "workspaceRunList")?.addEventListener("click", (event) => {
       call(callbacks, "handleRunSurfaceClick", event);
     });

@@ -27623,16 +27623,6 @@ function bindEvents() {
       renderWorkspaceHome();
     });
   });
-  $("workspaceHistoryList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='delete-workspace']");
-    if (button?.dataset.workspaceId) {
-      event.stopPropagation();
-      void deleteWorkspace(button.dataset.workspaceId);
-      return;
-    }
-    const item = event.target.closest("[data-action='select-workspace']");
-    if (item?.dataset.workspaceId) selectWorkspace(item.dataset.workspaceId);
-  });
   const updateTemplateTextField = (id, value) => {
     const fieldHandlers = {
       templateNameInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, name: value })),
