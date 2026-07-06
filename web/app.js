@@ -25186,17 +25186,25 @@ function renderJobs() {
 function renderTmuxSessions() {
   const list = $("tmuxList");
   $("tmuxCount").textContent = `${state.tmuxSessions.length} 个会话`;
+  const api = window.TmuxSessionMarkup;
   if (state.tmuxError) {
-    list.innerHTML = `<div class="empty error-text">${escapeHtml(state.tmuxError)}</div>`;
+    list.innerHTML = api && typeof api.tmuxErrorMarkup === "function"
+      ? api.tmuxErrorMarkup(state.tmuxError, { escapeHtml })
+      : `<div class="empty error-text">${escapeHtml(state.tmuxError)}</div>`;
     return;
   }
   if (!state.tmuxSessions.length) {
-    list.innerHTML = '<div class="empty">所选服务器暂无 tmux 会话。</div>';
+    list.innerHTML = api && typeof api.tmuxEmptyMarkup === "function"
+      ? api.tmuxEmptyMarkup()
+      : '<div class="empty">所选服务器暂无 tmux 会话。</div>';
     return;
   }
   list.innerHTML = state.tmuxSessions
     .map((session) => {
       const active = session.name === state.selectedTmux ? " active" : "";
+      if (api && typeof api.tmuxSessionItemMarkup === "function") {
+        return api.tmuxSessionItemMarkup(session, { activeClass: active }, { escapeHtml });
+      }
       return `
       <div class="tmux-item${active}" onclick="showTmux('${escapeHtml(session.name)}')">
         <span class="tmux-name">${escapeHtml(session.name)}</span>
