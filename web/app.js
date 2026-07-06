@@ -28085,41 +28085,15 @@ function bindEvents() {
       }));
     },
   });
-  $("workspaceList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='delete-workspace']");
-    if (button?.dataset.workspaceId) {
-      event.stopPropagation();
-      void deleteWorkspace(button.dataset.workspaceId);
-      return;
-    }
-    const item = event.target.closest("[data-action='select-workspace']");
-    if (item?.dataset.workspaceId) {
-      selectWorkspace(item.dataset.workspaceId);
-    }
-  });
-  $("workspaceRunList")?.addEventListener("click", (event) => {
-    handleWorkspaceRunSurfaceClick(event);
-  });
-  $("workspaceHomeRuns")?.addEventListener("click", (event) => {
-    handleWorkspaceRunSurfaceClick(event);
-  });
-  $("workspaceRunList")?.addEventListener("input", (event) => {
-    const target = event.target;
-    if (!target.matches("[data-workspace-run-filter]")) return;
-    updateWorkspaceRunFilter(target.dataset.workspaceRunFilter, target.value || "");
-  });
-  $("workspaceRunList")?.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!target.matches("[data-workspace-run-filter]")) return;
-    updateWorkspaceRunFilter(target.dataset.workspaceRunFilter, target.value || "");
-  });
-  $("workspaceRunList")?.addEventListener("keydown", (event) => {
-    if (!["Enter", " "].includes(event.key)) return;
-    const item = event.target.closest(".workspace-run-item[data-job-id], .workspace-execution-run-item[data-run-id]");
-    if (!item?.dataset.jobId && !item?.dataset.runId) return;
-    consumeClick(event);
-    if (item.dataset.jobId) void showLog(item.dataset.jobId);
-    else void openWorkspaceRunDetail(item.dataset.runId);
+  window.WorkspaceRunActions?.bind?.({
+    element: $,
+    consumeEvent: consumeClick,
+    deleteWorkspace,
+    handleRunSurfaceClick: handleWorkspaceRunSurfaceClick,
+    openJobLog: showLog,
+    openRunDetail: openWorkspaceRunDetail,
+    selectWorkspace,
+    updateRunFilter: updateWorkspaceRunFilter,
   });
   $("jobForm").addEventListener("submit", submitJob);
   window.TransferSurfaceActions?.bind?.({
