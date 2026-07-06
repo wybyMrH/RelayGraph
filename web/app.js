@@ -27876,101 +27876,68 @@ function bindEvents() {
     },
     updateDraft: updateToolDefinitionDraft,
   });
-  $("workspaceManageAddProviderBtn")?.addEventListener("click", addManageProviderProfile);
-  $("manageProviderProfileList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-provider-profile']");
-    if (button?.dataset.profileId) selectProviderProfile(button.dataset.profileId);
-  });
-  $("manageAiEditor")?.addEventListener("input", (event) => {
-    const target = event.target;
-    if (target.matches("[data-manage-provider-field]")) {
+  window.ConfigCenterProviderActions?.bind?.({
+    element: $,
+    addProfile: addManageProviderProfile,
+    deleteProfile: deleteManageProviderProfile,
+    fetchModels: fetchProviderModels,
+    pickModel: (model) => updateSelectedProviderProfile((profile) => ({ ...profile, model })),
+    saveProfile: saveManageProviderProfile,
+    saveTemplateRouting: saveWorkflowTemplate,
+    selectProfile: selectProviderProfile,
+    setProviderKind: (value) => {
       updateSelectedProviderProfile((profile) => ({
         ...profile,
-        [target.dataset.manageProviderField]: target.value || "",
+        kind: value === "search" ? "search" : "llm",
+        vendor: "",
+        base_url: "",
+        model: "",
+        key_required: true,
       }));
-    }
-  });
-  $("manageAiEditor")?.addEventListener("change", (event) => {
-    const target = event.target;
-    if (target.id === "manageAiTemplateProfileSelect") {
-      updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), provider_profile_id: target.value || "" } }));
-      return;
-    }
-    if (target.id === "manageAiTemplateRoutingSelect") {
-      updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), routing_mode: target.value || "workspace_default" } }));
-      return;
-    }
-    if (target.id === "manageAiTemplateChatAgentSelect") {
-      updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), chat_agent_id: target.value || "" } }));
-      return;
-    }
-    if (target.matches("[data-manage-provider-field]")) {
-      const key = target.dataset.manageProviderField;
-      if (key === "kind") {
-        updateSelectedProviderProfile((profile) => ({
-          ...profile,
-          kind: target.value === "search" ? "search" : "llm",
-          vendor: "",
-          base_url: "",
-          model: "",
-          key_required: true,
-        }));
-        state.ui.providerTestResult = null;
-        return;
-      }
-      // Switching vendor auto-fills Base URL when it's empty or still a preset,
-      // so the user doesn't end up with a mismatched endpoint (e.g. /anthropic).
-      if (key === "vendor") {
-        updateSelectedProviderProfile((profile) => {
-          if (providerProfileKind(profile) === "search") {
-            const option = searchProviderOption(target.value);
-            return {
-              ...profile,
-              vendor: target.value || "",
-              key_required: option.key_required !== false,
-              base_url: option.base_url || "",
-            };
-          }
-          const next = {
+      state.ui.providerTestResult = null;
+    },
+    setProviderVendor: (value) => {
+      updateSelectedProviderProfile((profile) => {
+        if (providerProfileKind(profile) === "search") {
+          const option = searchProviderOption(value);
+          return {
             ...profile,
-            vendor: target.value || "",
-            key_required: providerVendorRequiresApiKey(target.value),
+            vendor: value || "",
+            key_required: option.key_required !== false,
+            base_url: option.base_url || "",
           };
-          if (baseUrlIsVendorDefault(profile.base_url)) {
-            next.base_url = vendorDefaultBaseUrl(target.value);
-          }
-          return next;
-        });
-        return;
-      }
-      updateSelectedProviderProfile((profile) => ({ ...profile, [key]: target.value || "" }));
-    }
-    if (target.matches("[data-manage-provider-checkbox]")) {
-      updateSelectedProviderProfile((profile) => ({ ...profile, [target.dataset.manageProviderCheckbox]: Boolean(target.checked) }));
-      return;
-    }
-  });
-  $("manageAiEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "save-provider-profile") {
-      void saveManageProviderProfile();
-    } else if (button.dataset.action === "test-provider-profile") {
-      void testManageProviderProfile();
-    } else if (button.dataset.action === "fetch-provider-models") {
-      void fetchProviderModels();
-    } else if (button.dataset.action === "pick-provider-model") {
-      event.preventDefault();
-      const model = button.dataset.model || "";
-      if (model) updateSelectedProviderProfile((profile) => ({ ...profile, model }));
-    } else if (button.dataset.action === "toggle-provider-key-visibility") {
+        }
+        const next = {
+          ...profile,
+          vendor: value || "",
+          key_required: providerVendorRequiresApiKey(value),
+        };
+        if (baseUrlIsVendorDefault(profile.base_url)) {
+          next.base_url = vendorDefaultBaseUrl(value);
+        }
+        return next;
+      });
+    },
+    setTemplateChatAgentId: (value) => {
+      updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), chat_agent_id: value || "" } }));
+    },
+    setTemplateProfileId: (value) => {
+      updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), provider_profile_id: value || "" } }));
+    },
+    setTemplateRoutingMode: (value) => {
+      updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), routing_mode: value || "workspace_default" } }));
+    },
+    testProfile: testManageProviderProfile,
+    toggleKeyVisibility: () => {
       state.ui.providerKeyVisible = !state.ui.providerKeyVisible;
       renderManageAiModule();
-    } else if (button.dataset.action === "delete-provider-profile-manage") {
-      void deleteManageProviderProfile();
-    } else if (button.dataset.action === "save-template-routing") {
-      void saveWorkflowTemplate();
-    }
+    },
+    updateProviderCheckbox: (key, checked) => {
+      updateSelectedProviderProfile((profile) => ({ ...profile, [key]: Boolean(checked) }));
+    },
+    updateProviderField: (key, value) => {
+      updateSelectedProviderProfile((profile) => ({ ...profile, [key]: value || "" }));
+    },
   });
   $("workspaceManageRunsPanel")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
