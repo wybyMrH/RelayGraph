@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 from .files_pkg.runtime_logs import build_runtime_log_path_payload, merge_runtime_log_path_payloads
+from .files_pkg.runtime_storage_requests import parse_runtime_storage_cleanup_request
 from .files_pkg.runtime_state import build_runtime_state_status_payload
 
 
@@ -627,26 +628,14 @@ class FilesMixin:
 
 
     def cleanup_runtime_storage_manual(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        data = body if isinstance(body, dict) else {}
-        include_preview = bool(data.get("include_preview", True))
-        include_logs = bool(data.get("include_logs", True))
-        include_remote = bool(data.get("include_remote", True))
-        remove_all = bool(data.get("remove_all", False))
-        remove_log_paths = data.get("remove_log_paths") if isinstance(data.get("remove_log_paths"), dict) else {}
-        remove_local_paths = [
-            str(item or "").strip()
-            for item in (remove_log_paths.get("local") if isinstance(remove_log_paths.get("local"), list) else [])
-            if str(item or "").strip()
-        ]
-        remove_remote_paths_by_server = {
-            str(server_id or "").strip(): [
-                str(item or "").strip()
-                for item in (paths if isinstance(paths, list) else [])
-                if str(item or "").strip()
-            ]
-            for server_id, paths in (remove_log_paths.get("remote_by_server") if isinstance(remove_log_paths.get("remote_by_server"), dict) else {}).items()
-            if str(server_id or "").strip()
-        }
+        parsed_request = parse_runtime_storage_cleanup_request(body)
+        data = parsed_request["data"]
+        include_preview = parsed_request["include_preview"]
+        include_logs = parsed_request["include_logs"]
+        include_remote = parsed_request["include_remote"]
+        remove_all = parsed_request["remove_all"]
+        remove_local_paths = parsed_request["remove_local_paths"]
+        remove_remote_paths_by_server = parsed_request["remove_remote_paths_by_server"]
         settings = normalize_runtime_storage_settings({**load_runtime_storage_settings(), **data})
         log_file_mib = int(settings.get("log_max_file_mib") or 0)
         protected = self.protected_runtime_log_paths()
