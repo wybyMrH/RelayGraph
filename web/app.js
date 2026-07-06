@@ -17752,6 +17752,10 @@ function clearTransferSources() {
 }
 
 function transferPaneEmptyMarkup(title, hint = "", options = {}) {
+  const api = window.TransferSelectedSources;
+  if (api && typeof api.transferPaneEmptyMarkup === "function") {
+    return api.transferPaneEmptyMarkup(title, hint, options, { escapeHtml });
+  }
   const compactClass = options.compact ? " transfer-pane-empty-compact" : "";
   const icon = options.icon || "·";
   const hintHtml = hint ? `<p>${escapeHtml(hint)}</p>` : "";
@@ -17759,6 +17763,10 @@ function transferPaneEmptyMarkup(title, hint = "", options = {}) {
 }
 
 function transferPaneLoadingMarkup(text) {
+  const api = window.TransferSelectedSources;
+  if (api && typeof api.transferPaneLoadingMarkup === "function") {
+    return api.transferPaneLoadingMarkup(text, { escapeHtml });
+  }
   return `<div class="empty transfer-pane-empty transfer-pane-loading"><span>${escapeHtml(text)}</span></div>`;
 }
 
@@ -17766,12 +17774,20 @@ function renderSelectedSources() {
   const list = $("selectedSourceList");
   const count = $("selectedSourceCount");
   if (!list || !count) return;
-  count.textContent = `${state.transfer.sources.length} 项`;
-  if (!state.transfer.sources.length) {
+  const sources = Array.isArray(state.transfer.sources) ? state.transfer.sources : [];
+  const api = window.TransferSelectedSources;
+  count.textContent = api && typeof api.selectedSourceCountText === "function"
+    ? api.selectedSourceCountText(sources)
+    : `${sources.length} 项`;
+  if (api && typeof api.selectedSourceListMarkup === "function") {
+    list.innerHTML = api.selectedSourceListMarkup(sources, { escapeHtml });
+    return;
+  }
+  if (!sources.length) {
     list.innerHTML = transferPaneEmptyMarkup("还没有待传源项", "从文件树或弹窗把多个文件、文件夹加入这里。", { compact: true, icon: "+" });
     return;
   }
-  const rows = state.transfer.sources
+  const rows = sources
     .map((item) => `
       <div class="selected-source-item" title="${escapeHtml(item.value)}">
         <span>
