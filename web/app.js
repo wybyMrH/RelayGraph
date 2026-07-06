@@ -16743,6 +16743,7 @@ function upsertOutputTab(tab) {
 function renderOutputTabs() {
   const tabs = $("outputTabs");
   if (!tabs) return;
+  const api = window.OutputTabsMarkup;
   const actions = $("outputTabsActions");
   const closeActive = $("outputCloseActiveBtn");
   const closeAll = $("outputCloseAllBtn");
@@ -16751,13 +16752,18 @@ function renderOutputTabs() {
   if (closeActive) closeActive.disabled = !hasTabs;
   if (closeAll) closeAll.disabled = !hasTabs;
   if (!state.outputTabs.length) {
-    tabs.innerHTML = '<span class="output-tab-placeholder">选择任务、tmux、进程或打开终端。</span>';
+    tabs.innerHTML = api && typeof api.outputTabsPlaceholderMarkup === "function"
+      ? api.outputTabsPlaceholderMarkup()
+      : '<span class="output-tab-placeholder">选择任务、tmux、进程或打开终端。</span>';
     renderTerminalActivity();
     return;
   }
   tabs.innerHTML = state.outputTabs
     .map((tab) => {
       const active = tab.key === state.activeOutputKey ? " active" : "";
+      if (api && typeof api.outputTabItemMarkup === "function") {
+        return api.outputTabItemMarkup(tab, { activeClass: active }, { escapeHtml });
+      }
       return `
         <div class="output-tab${active}">
           <button class="output-tab-trigger" type="button" title="${escapeHtml(tab.title || "输出")}" onclick="activateOutputTab('${escapeHtml(tab.key)}')">
