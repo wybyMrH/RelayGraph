@@ -45,7 +45,7 @@ from .run_replay import (
     workspace_execution_run_timeline,
 )
 from .run_compare import workspace_execution_run_compare_payload
-from .run_export import workspace_run_export_manifest
+from .run_export import workspace_run_export_manifest, workspace_run_export_readme
 from .trace import workspace_node_artifacts, workspace_node_resources, workspace_node_trace
 
 
@@ -918,66 +918,6 @@ def filter_workspace_execution_runs(
             )
         ]
     return filtered
-
-
-def workspace_run_export_readme(manifest: dict[str, Any]) -> str:
-    included = manifest.get("included") if isinstance(manifest.get("included"), dict) else {}
-    failed_steps = manifest.get("failed_steps") if isinstance(manifest.get("failed_steps"), list) else []
-    commands = manifest.get("commands") if isinstance(manifest.get("commands"), dict) else {}
-    truncation = manifest.get("truncation") if isinstance(manifest.get("truncation"), dict) else {}
-    lines = [
-        "# RelayGraph Run Export",
-        "",
-        f"- Run: {str(manifest.get('run_id') or '').strip() or 'unknown'}",
-        f"- Status: {str(manifest.get('run_status') or '').strip() or 'unknown'}",
-        f"- Package: {str(manifest.get('package_id') or '').strip() or 'none'}",
-        f"- Delivery: {str(manifest.get('delivery_status') or '').strip() or 'unknown'}",
-        f"- Steps: {safe_int(included.get('timeline_steps'), 0)}",
-        f"- Events: {safe_int(included.get('event_timeline'), 0)}",
-        f"- Realtime delta evidence: {safe_int(included.get('delta_evidence_events'), 0)} summary-only events",
-        f"- Linked runs: {safe_int(included.get('linked_runs'), 0)}",
-        f"- Linked jobs: {safe_int(included.get('linked_jobs'), 0)}",
-        f"- Logs included: {safe_int(included.get('logs_returned'), 0)}",
-        f"- Artifacts included: {safe_int(included.get('artifacts_returned'), 0)}",
-        f"- Reports included: {safe_int(included.get('reports_returned'), 0)}",
-        "",
-        "## Commands",
-    ]
-    if truncation and any(bool(value) for value in truncation.values()):
-        lines[-1:] = [
-            "## Truncation",
-            "",
-            f"- Linked runs truncated: {bool(truncation.get('linked_runs'))}",
-            f"- Pending linked runs beyond limit: {safe_int(truncation.get('linked_run_pending_count'), 0)}",
-            f"- Missing linked run references: {safe_int(truncation.get('missing_linked_run_count'), 0)}",
-            f"- Logs with truncated tails: {safe_int(truncation.get('log_tails'), 0)}",
-            f"- Omitted log bytes before included tails: {safe_int(truncation.get('omitted_log_bytes'), 0)}",
-            f"- Realtime delta content omitted: {bool(truncation.get('delta_evidence_omitted_content'))}",
-            f"- Realtime delta events with skipped content: {safe_int(truncation.get('delta_evidence_truncated_events'), 0)}",
-            f"- Steps with truncated child refs: {safe_int(truncation.get('child_ref_steps'), 0)}",
-            "",
-            "## Commands",
-        ]
-    command_count = 0
-    for key in ("checkout", "setup", "run", "collect", "report"):
-        command = str(commands.get(key) or "").strip()
-        if command:
-            command_count += 1
-            lines.append(f"- {key}: `{command}`")
-    if command_count == 0:
-        lines.append("- No package commands were recorded.")
-    lines.extend(["", "## Triage"])
-    if failed_steps:
-        lines.append("- Failed or stopped steps:")
-        for step in failed_steps[:8]:
-            label = str(step.get("node_kind") or step.get("node_id") or "step").strip()
-            status = str(step.get("status") or "").strip()
-            error = str(step.get("error") or "").strip()
-            lines.append(f"  - #{safe_int(step.get('index'), 0) + 1} {label}: {status}{' - ' + error if error else ''}")
-    else:
-        lines.append("- No failed, blocked, or stopped steps were recorded.")
-    lines.append("- Use `replay.timeline` for ordered step history, `replay.event_timeline` for persisted runtime events, `replay.delta_evidence` for summary-only realtime stream coverage, and `logs[].tail` for cached job output.")
-    return "\n".join(lines).strip() + "\n"
 
 
 def workspace_execution_run_export_payload(
