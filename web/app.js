@@ -19122,24 +19122,30 @@ function renderFilePicker(payload = state.filePicker) {
   }
   if (chooseDir) chooseDir.textContent = payload.mode === "target" ? "选择当前目录" : "加入当前文件夹";
   input.value = payload.path || "";
-  const rootButtons = (payload.roots || [])
-    .map((root) => {
-      const active = payload.path && normalizePathForCompare(payload.path).startsWith(normalizePathForCompare(root.path));
-      return `
+  const filePickerMarkup = window.FilePickerMarkup;
+  const favoritesSidebarHtml = renderFilePickerFavoritesSidebar(payload.serverId, payload.path);
+  if (filePickerMarkup && typeof filePickerMarkup.filePickerRootsMarkup === "function") {
+    roots.innerHTML = filePickerMarkup.filePickerRootsMarkup(payload.roots || [], payload.path, favoritesSidebarHtml, { escapeHtml, normalizePathForCompare });
+  } else {
+    const rootButtons = (payload.roots || [])
+      .map((root) => {
+        const active = payload.path && normalizePathForCompare(payload.path).startsWith(normalizePathForCompare(root.path));
+        return `
         <button class="root-button${active ? " active" : ""}" type="button" data-path="${escapeHtml(root.path)}" title="快速跳到这个常用根目录">
           <strong>${escapeHtml(root.label)}</strong>
           <span title="${escapeHtml(root.path)}">${escapeHtml(root.path)}</span>
         </button>
       `;
-    })
-    .join("");
-  roots.innerHTML = `
+      })
+      .join("");
+    roots.innerHTML = `
     <div class="file-picker-sidebar-section">
       <div class="file-picker-sidebar-label">根目录</div>
       ${rootButtons || '<p class="file-picker-favorites-empty muted">暂无根目录。</p>'}
     </div>
-    ${renderFilePickerFavoritesSidebar(payload.serverId, payload.path)}
+    ${favoritesSidebarHtml}
   `;
+  }
   const favoriteBtn = $("filePickerFavoriteBtn");
   if (favoriteBtn) {
     const favorited = Boolean(payload.path) && isTransferPathFavorite(payload.serverId, payload.path);
@@ -19162,6 +19168,16 @@ function renderFilePicker(payload = state.filePicker) {
         entry.is_dir ? "文件夹" : (entry.size_text || "文件"),
         fmtDate(entry.mtime) || "",
       ].filter(Boolean).join(" · ");
+      if (filePickerMarkup && typeof filePickerMarkup.filePickerEntryRowMarkup === "function") {
+        return filePickerMarkup.filePickerEntryRowMarkup(entry, {
+          meta,
+          mode: payload.mode,
+          previewActiveClass: previewActive,
+          selectedClass: selected,
+          selectedSource,
+          sourceSelectedClass: sourceSelected,
+        }, { escapeHtml });
+      }
       return `
       <div class="file-picker-row${selected}${previewActive}${sourceSelected}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}">
         <div class="file-picker-row-main">
@@ -19179,7 +19195,9 @@ function renderFilePicker(payload = state.filePicker) {
     `;
     })
     .join("");
-  list.innerHTML = rows || '<div class="empty compact-empty">目录为空。</div>';
+  list.innerHTML = rows || (filePickerMarkup && typeof filePickerMarkup.filePickerEmptyListMarkup === "function"
+    ? filePickerMarkup.filePickerEmptyListMarkup()
+    : '<div class="empty compact-empty">目录为空。</div>');
   if (message) {
     message.textContent = payload.truncated ? "目录项较多，仅显示前一部分。" : "";
     message.classList.remove("error");
