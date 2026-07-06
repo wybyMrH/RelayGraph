@@ -20928,77 +20928,19 @@ function renderWorkflowTemplateNodeEditor() {
     box.innerHTML = '<div class="empty">选择一个节点后，在这里编辑配置。</div>';
     return;
   }
-  const meta = workspaceNodeMeta(node.kind);
-  const agentOptions = [
-    { value: "", label: "选择全局 Agent" },
-    ...state.agentDefinitions.map((agent) => ({
-      value: agent.id,
-      label: `${agent.name || agent.id} · ${agent.role || agent.id}`,
-    })),
-  ];
-  const configFields = (meta.configFields || [])
-    .map((field) => renderWorkspaceNodeField(field, node.config?.[field.key], node.kind))
-    .join("");
   const nodeIndex = workflowTemplateNodeIndex(node);
-  box.innerHTML = `
-    <div class="workspace-node-editor-card">
-      <div class="workspace-node-editor-head">
-        <div>
-          <h4>${escapeHtml(node.title || workspaceNodeLabel(node.kind))}</h4>
-          <p class="muted">${escapeHtml(meta.description || "编辑模板节点")}</p>
-        </div>
-        <span class="server-badge">${escapeHtml(workspaceNodeLabel(node.kind))}</span>
-      </div>
-      <div class="workspace-node-editor-grid">
-        <label>
-          节点标题
-          <input data-manage-node-field="title" value="${escapeHtml(node.title || "")}" placeholder="${escapeHtml(workspaceNodeLabel(node.kind))}" />
-        </label>
-        <label>
-          节点状态
-          <select data-manage-node-field="status">
-            ${["ready", "draft", "blocked", "running", "done"].map((status) => `<option value="${status}" ${status === node.status ? "selected" : ""}>${escapeHtml(workspaceStatusLabel(status))}</option>`).join("")}
-          </select>
-        </label>
-        <label>
-          执行者类型
-          <select data-manage-handler-field="mode">
-            <option value="human" ${node.handler?.mode === "human" ? "selected" : ""}>人工</option>
-            <option value="agent" ${node.handler?.mode === "agent" ? "selected" : ""}>Agent</option>
-            <option value="system" ${node.handler?.mode === "system" ? "selected" : ""}>系统</option>
-          </select>
-        </label>
-        <label>
-          归属 Agent
-          <select data-manage-handler-field="agent_id">
-            ${agentOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === node.handler?.agent_id ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-          </select>
-        </label>
-      </div>
-      <label>
-        显示名 / 责任人
-        <input data-manage-handler-field="name" value="${escapeHtml(node.handler?.name || "")}" placeholder="例如 Repo Scout" />
-      </label>
-      <label>
-        交接说明
-        <textarea data-manage-handler-field="handoff" rows="3" placeholder="这个节点结束后，下一步应该拿着什么继续执行">${escapeHtml(node.handler?.handoff || "")}</textarea>
-      </label>
-      <div class="workspace-node-editor-grid">
-        ${configFields || '<div class="empty">这个节点当前没有额外配置字段。</div>'}
-      </div>
-      <div class="workspace-node-io-edit-grid">
-        <label>
-          output_key
-          <input data-manage-node-field="output_key" value="${escapeHtml(node.output_key || "")}" placeholder="${escapeHtml(workspaceNodeIoContract(node.kind, 0).output || "step_output")}" />
-        </label>
-        ${workflowTemplateInputMappingEditorMarkup(node, nodeIndex)}
-      </div>
-      <label>
-        节点备注
-        <textarea data-manage-node-field="notes" rows="3" placeholder="可以写人工检查点、边界或特别说明">${escapeHtml(node.notes || "")}</textarea>
-      </label>
-    </div>
-  `;
+  box.innerHTML = window.WorkflowTemplateNodeEditor?.editorMarkup?.({
+    agentDefinitions: state.agentDefinitions,
+    escapeHtml,
+    inputMappingEditorMarkup: workflowTemplateInputMappingEditorMarkup,
+    node,
+    nodeIndex,
+    nodeLabel: workspaceNodeLabel,
+    nodeMeta: workspaceNodeMeta,
+    outputPlaceholder: workspaceNodeIoContract(node.kind, 0).output || "step_output",
+    renderNodeField: renderWorkspaceNodeField,
+    statusLabel: workspaceStatusLabel,
+  }) || '<div class="empty">模板节点编辑器暂不可用。</div>';
 }
 
 function renderManageTemplateModule() {
