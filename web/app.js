@@ -18740,35 +18740,40 @@ function renderRuntimeStoragePanel(payload = {}) {
   const remoteInput = $("runtimeRemoteCleanupEnabled");
   const message = $("runtimeStorageMessage");
   if (stats) {
-    const preview = payload.preview_cache || {};
-    const localLogs = payload.local_logs || {};
-    const remoteLogs = Array.isArray(payload.remote_logs) ? payload.remote_logs : [];
-    const remoteOk = remoteLogs.filter((item) => !item.error && !item.skipped);
-    const remoteIssues = remoteLogs.length - remoteOk.length;
-    const remoteBytes = remoteOk.reduce((sum, item) => sum + Number(item.total_bytes || 0), 0);
-    const remoteFiles = remoteOk.reduce((sum, item) => sum + Number(item.file_count || 0), 0);
-    const paths = payload.paths || {};
-    const localNewest = localLogs.newest_path
-      ? `本机最新日志：<code>${escapeHtml(localLogs.newest_path)}</code>${localLogs.newest_at ? ` · ${escapeHtml(localLogs.newest_at)}` : ""}`
-      : "本机最新日志：暂无";
-    const localLargest = localLogs.largest_path
-      ? `本机最大日志：<code>${escapeHtml(localLogs.largest_path)}</code> · ${escapeHtml(localLogs.largest_text || formatBytes(localLogs.largest_bytes))}`
-      : "";
-    const remoteNewestLines = remoteOk
-      .filter((item) => item.newest_path)
-      .slice(0, 3)
-      .map((item) => {
-        const serverName = item.server_name || item.server_id || "远程";
-        const newestAt = item.newest_at ? ` · ${escapeHtml(item.newest_at)}` : "";
-        return `远程最新日志：${escapeHtml(serverName)} <code>${escapeHtml(item.newest_path)}</code>${newestAt}`;
-      });
-    const lines = [
-      `本机日志 <code>${escapeHtml(paths.local_logs || localLogs.log_dir || "data/logs")}</code>：${Number(localLogs.file_count || 0)} 个文件 · ${escapeHtml(localLogs.total_text || formatBytes(localLogs.total_bytes))}`,
-      `远程日志 <code>${escapeHtml(paths.remote_logs || "$HOME/.total_control/logs")}</code>：${remoteOk.length} 台可读 · ${remoteFiles} 个文件 · ${escapeHtml(formatBytes(remoteBytes))}${remoteIssues ? ` · ${remoteIssues} 台不可读/已跳过` : ""}`,
-      `预览缓存 <code>${escapeHtml(paths.preview_cache || preview.cache_dir || "/tmp/total-control-file-preview")}</code>：${Number(preview.entry_count || 0)} 项 · ${escapeHtml(preview.total_text || formatBytes(preview.total_bytes))}`,
-    ];
-    const detailLines = [localNewest, localLargest, ...remoteNewestLines].filter(Boolean);
-    stats.innerHTML = `${lines.join("<br>")}${detailLines.length ? `<br>${detailLines.join("<br>")}` : ""}`;
+    const api = window.RuntimeStorageSummary;
+    if (api && typeof api.runtimeStorageStatsMarkup === "function") {
+      stats.innerHTML = api.runtimeStorageStatsMarkup(payload, { escapeHtml, formatBytes });
+    } else {
+      const preview = payload.preview_cache || {};
+      const localLogs = payload.local_logs || {};
+      const remoteLogs = Array.isArray(payload.remote_logs) ? payload.remote_logs : [];
+      const remoteOk = remoteLogs.filter((item) => !item.error && !item.skipped);
+      const remoteIssues = remoteLogs.length - remoteOk.length;
+      const remoteBytes = remoteOk.reduce((sum, item) => sum + Number(item.total_bytes || 0), 0);
+      const remoteFiles = remoteOk.reduce((sum, item) => sum + Number(item.file_count || 0), 0);
+      const paths = payload.paths || {};
+      const localNewest = localLogs.newest_path
+        ? `本机最新日志：<code>${escapeHtml(localLogs.newest_path)}</code>${localLogs.newest_at ? ` · ${escapeHtml(localLogs.newest_at)}` : ""}`
+        : "本机最新日志：暂无";
+      const localLargest = localLogs.largest_path
+        ? `本机最大日志：<code>${escapeHtml(localLogs.largest_path)}</code> · ${escapeHtml(localLogs.largest_text || formatBytes(localLogs.largest_bytes))}`
+        : "";
+      const remoteNewestLines = remoteOk
+        .filter((item) => item.newest_path)
+        .slice(0, 3)
+        .map((item) => {
+          const serverName = item.server_name || item.server_id || "远程";
+          const newestAt = item.newest_at ? ` · ${escapeHtml(item.newest_at)}` : "";
+          return `远程最新日志：${escapeHtml(serverName)} <code>${escapeHtml(item.newest_path)}</code>${newestAt}`;
+        });
+      const lines = [
+        `本机日志 <code>${escapeHtml(paths.local_logs || localLogs.log_dir || "data/logs")}</code>：${Number(localLogs.file_count || 0)} 个文件 · ${escapeHtml(localLogs.total_text || formatBytes(localLogs.total_bytes))}`,
+        `远程日志 <code>${escapeHtml(paths.remote_logs || "$HOME/.total_control/logs")}</code>：${remoteOk.length} 台可读 · ${remoteFiles} 个文件 · ${escapeHtml(formatBytes(remoteBytes))}${remoteIssues ? ` · ${remoteIssues} 台不可读/已跳过` : ""}`,
+        `预览缓存 <code>${escapeHtml(paths.preview_cache || preview.cache_dir || "/tmp/total-control-file-preview")}</code>：${Number(preview.entry_count || 0)} 项 · ${escapeHtml(preview.total_text || formatBytes(preview.total_bytes))}`,
+      ];
+      const detailLines = [localNewest, localLargest, ...remoteNewestLines].filter(Boolean);
+      stats.innerHTML = `${lines.join("<br>")}${detailLines.length ? `<br>${detailLines.join("<br>")}` : ""}`;
+    }
   }
   const settings = payload.settings || {};
   if (previewAgeInput) previewAgeInput.value = String(settings.preview_max_age_hours ?? 24);
@@ -18784,6 +18789,11 @@ function renderRuntimeStoragePanel(payload = {}) {
 function renderRuntimeStatePanel(payload = {}) {
   const stats = $("runtimeStateStats");
   if (!stats) return;
+  const api = window.RuntimeStorageSummary;
+  if (api && typeof api.runtimeStateStatsMarkup === "function") {
+    stats.innerHTML = api.runtimeStateStatsMarkup(payload, { escapeHtml });
+    return;
+  }
   const jobs = payload.jobs || {};
   const workspaces = payload.workspaces || {};
   const top = Array.isArray(workspaces.items) ? workspaces.items : [];
@@ -18945,16 +18955,21 @@ async function cleanupRuntimeStorageNow(removeAll = false) {
       }),
     });
     renderRuntimeStoragePanel(payload.status || {});
-    const previewRemoved = payload.preview_cache?.removed_text || "0 B";
-    const localRemoved = payload.local_logs?.removed_text || "0 B";
-    const remoteRemoved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.removed_bytes || 0), 0);
-    const localPreserved = Number(payload.local_logs?.preserved_count || 0);
-    const remotePreserved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.preserved_count || 0), 0);
-    const preservedText = localPreserved || remotePreserved
-      ? ` 已保留活跃任务或运行证据日志 ${localPreserved + remotePreserved} 个。`
-      : "";
     if (message) {
-      message.textContent = `${removeAll ? "已清空" : "已按策略清理"}：预览缓存 ${previewRemoved}，本机日志 ${localRemoved}，远程日志 ${formatBytes(remoteRemoved)}。${preservedText}`;
+      const api = window.RuntimeStorageSummary;
+      if (api && typeof api.runtimeStorageCleanupMessage === "function") {
+        message.textContent = api.runtimeStorageCleanupMessage(payload, removeAll, { formatBytes });
+      } else {
+        const previewRemoved = payload.preview_cache?.removed_text || "0 B";
+        const localRemoved = payload.local_logs?.removed_text || "0 B";
+        const remoteRemoved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.removed_bytes || 0), 0);
+        const localPreserved = Number(payload.local_logs?.preserved_count || 0);
+        const remotePreserved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.preserved_count || 0), 0);
+        const preservedText = localPreserved || remotePreserved
+          ? ` 已保留活跃任务或运行证据日志 ${localPreserved + remotePreserved} 个。`
+          : "";
+        message.textContent = `${removeAll ? "已清空" : "已按策略清理"}：预览缓存 ${previewRemoved}，本机日志 ${localRemoved}，远程日志 ${formatBytes(remoteRemoved)}。${preservedText}`;
+      }
     }
   } catch (error) {
     if (message) {
