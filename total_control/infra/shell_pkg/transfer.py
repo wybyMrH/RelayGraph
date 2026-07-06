@@ -14,6 +14,7 @@ from typing import Any
 from ...config import AppConfig, ServerConfig
 from ...constants import *  # noqa: F403
 from ...compat import public_api_override
+from ...path_safety import sensitive_path_block_reason
 from ...utils import *  # noqa: F403
 from .command import run_command, run_shell
 from .ssh import ssh_command
@@ -175,6 +176,9 @@ def _download_remote_file_to_local_impl(
     source_path = str(path_text or "").strip()
     if not source_path:
         raise ValueError("请选择要预览的远程文件。")
+    reason = sensitive_path_block_reason(source_path)
+    if reason:
+        raise ValueError(reason)
     destination = destination_dir.expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
     args = [

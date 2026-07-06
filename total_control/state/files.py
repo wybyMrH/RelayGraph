@@ -142,8 +142,19 @@ class FilesMixin:
         if not entry:
             raise ValueError("预览缓存不存在或已失效。")
         local_path = Path(str(entry.get("local_path") or "")).expanduser()
+        if file_browser_path_block_reason(entry.get("source_path"), local_path):
+            raise ValueError("预览缓存指向敏感路径，已阻止打开。")
+        try:
+            if local_path.is_symlink():
+                raise ValueError("预览缓存拒绝打开符号链接文件。")
+        except OSError as exc:
+            raise ValueError("预览缓存文件不可访问。") from exc
         if not local_path.exists() or not local_path.is_file():
             raise ValueError("预览缓存文件不存在。")
+        if entry.get("cached") and not is_under_preview_cache(local_path):
+            raise ValueError("预览缓存文件路径不在受控缓存目录内。")
+        if not entry.get("cached") and not file_browser_allowed(local_path):
+            raise ValueError("预览文件不在允许的本机浏览范围内。")
         entry["local_path"] = str(local_path.resolve())
         return entry
 
@@ -839,6 +850,12 @@ class FilesMixin:
                 cache_dir,
                 timeout=max(30, self.config.remote_timeout_seconds + 30),
             )
+            if file_browser_path_block_reason(source_path, local_path):
+                raise ValueError("预览缓存指向敏感路径，已阻止打开。")
+            if local_path.is_symlink():
+                raise ValueError("预览缓存拒绝打开符号链接文件。")
+            if not is_under_preview_cache(local_path):
+                raise ValueError("预览缓存文件路径不在受控缓存目录内。")
             if local_path.is_dir():
                 raise ValueError("当前路径是目录，请选择文件。")
             resolved_server_id = server.id

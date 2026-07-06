@@ -15,6 +15,11 @@ from typing import Any
 
 from .compat import public_api_value
 from .constants import *  # noqa: F403
+from .path_safety import (
+    SENSITIVE_PATH_PATTERN,
+    sensitive_path_block_reason,
+    sensitive_path_block_reason_for_path,
+)
 
 TEXT_PREVIEW_SUFFIXES = {
     ".bat",
@@ -200,6 +205,19 @@ def file_browser_allowed(path: Path) -> bool:
         allowed_roots.append(Path("/mnt").resolve())
     return any(resolved == root or resolved.is_relative_to(root) for root in allowed_roots)
 
+def file_browser_path_block_reason(path_text: Any = "", path: Path | str | None = None) -> str:
+    reason = sensitive_path_block_reason(path_text)
+    if reason:
+        return reason
+    if path is not None:
+        return sensitive_path_block_reason_for_path(path)
+    return ""
+
+def ensure_file_browser_path_safe(path_text: Any = "", path: Path | str | None = None) -> None:
+    reason = file_browser_path_block_reason(path_text, path)
+    if reason:
+        raise ValueError(reason)
+
 def file_entry(path: Path) -> dict[str, Any]:
     try:
         stat = path.stat()
@@ -220,6 +238,7 @@ def file_entry(path: Path) -> dict[str, Any]:
     }
 
 def resolve_local_browser_target(path_text: str = "") -> Path:
+    ensure_file_browser_path_safe(path_text)
     if path_text:
         target = Path(path_text).expanduser()
     else:
@@ -230,6 +249,7 @@ def resolve_local_browser_target(path_text: str = "") -> Path:
         target = target.resolve()
     except OSError as exc:
         raise ValueError(f"路径不可访问：{path_text}") from exc
+    ensure_file_browser_path_safe(path_text, target)
     if not file_browser_allowed(target):
         raise ValueError("只能浏览项目目录、Home、/tmp 或 /mnt 下的本机路径")
     if not target.exists():
@@ -248,12 +268,25 @@ def browse_local_files(path_text: str = "", max_entries: int = 300, dirs_only: b
             children = list(directory.iterdir())
         except OSError as exc:
             raise ValueError(f"目录不可读取：{directory}") from exc
+        children = [
+            child
+            for child in children
+            if not file_browser_path_block_reason(child.name, child)
+        ]
         if dirs_only:
             children = [child for child in children if child.is_dir()]
         children.sort(key=lambda item: (not item.is_dir(), item.name.lower()))
         for child in children[:limit]:
             entries.append(file_entry(child))
-    parent = directory.parent if directory.parent != directory and file_browser_allowed(directory.parent) else None
+    parent = (
+        directory.parent
+        if (
+            directory.parent != directory
+            and file_browser_allowed(directory.parent)
+            and not file_browser_path_block_reason("", directory.parent)
+        )
+        else None
+    )
     return {
         "roots": roots,
         "path": str(directory),
@@ -377,6 +410,7 @@ def browse_remote_files(
     dirs_only: bool = False,
     timeout: int = 8,
 ) -> dict[str, Any]:
+    ensure_file_browser_path_safe(path_text)
     marker = "__TC_FILE_BROWSE_JSON__"
     script = r"""
 import base64
@@ -384,17 +418,40 @@ import datetime
 import json
 import os
 import pathlib
+import re
 import sys
 
 marker = sys.argv[1]
 path_text = sys.argv[2] if len(sys.argv) > 2 else ""
 max_entries = int(sys.argv[3]) if len(sys.argv) > 3 else 300
 dirs_only = (sys.argv[4] if len(sys.argv) > 4 else "0") == "1"
+sensitive_pattern_text = sys.argv[5] if len(sys.argv) > 5 else ""
+sensitive_block_message = sys.argv[6] if len(sys.argv) > 6 else "路径指向敏感配置、密钥、令牌或进程环境，已阻止读取/枚举。"
+sensitive_pattern = re.compile(sensitive_pattern_text, re.IGNORECASE) if sensitive_pattern_text else None
+
+def sensitive_reason(*values):
+    if not sensitive_pattern:
+        return ""
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if sensitive_pattern.search(text.replace("\\", "/")):
+            return sensitive_block_message
+    return ""
+
+def reject_sensitive(*values):
+    reason = sensitive_reason(*values)
+    if reason:
+        raise SystemExit(reason)
+
 target = pathlib.Path(os.path.expanduser(path_text or "~"))
+reject_sensitive(path_text, str(target))
 try:
     target = target.resolve()
 except OSError:
     target = target.absolute()
+reject_sensitive(path_text, str(target))
 if not target.exists():
     raise SystemExit(f"路径不存在：{target}")
 
@@ -430,6 +487,16 @@ try:
     children = list(directory.iterdir()) if directory.exists() and directory.is_dir() else []
 except OSError as exc:
     raise SystemExit(f"目录不可读取：{directory}: {exc}")
+safe_children = []
+for child in children:
+    try:
+        resolved_child = child.resolve()
+    except OSError:
+        resolved_child = child.absolute()
+    if sensitive_reason(child.name, str(child), str(resolved_child)):
+        continue
+    safe_children.append(child)
+children = safe_children
 if dirs_only:
     children = [child for child in children if child.is_dir()]
 children.sort(key=lambda item: (not item.is_dir(), item.name.lower()))
@@ -440,11 +507,20 @@ roots = [
     {"label": "根目录", "path": "/"},
     {"label": "临时目录", "path": "/tmp"},
 ]
+roots = [root for root in roots if not sensitive_reason(root.get("path"))]
+parent = ""
+if directory.parent != directory:
+    try:
+        resolved_parent = directory.parent.resolve()
+    except OSError:
+        resolved_parent = directory.parent.absolute()
+    if not sensitive_reason(str(directory.parent), str(resolved_parent)):
+        parent = str(directory.parent)
 payload = {
     "roots": roots,
     "path": str(directory),
     "selected": selected,
-    "parent": str(directory.parent) if directory.parent != directory else "",
+    "parent": parent,
     "entries": [entry(child) for child in children[:limit]],
     "truncated": len(children) > limit,
 }
@@ -464,6 +540,10 @@ print(marker + "_END")
         + shlex.quote(str(max_entries))
         + " "
         + ("1" if dirs_only else "0")
+        + " "
+        + shlex.quote(SENSITIVE_PATH_PATTERN.pattern)
+        + " "
+        + shlex.quote(sensitive_path_block_reason(path_text) or "路径指向敏感配置、密钥、令牌或进程环境，已阻止读取/枚举。")
     )
     from .infra.shell_pkg.ssh import ssh_command
 
@@ -479,6 +559,7 @@ def read_remote_text_file(
     limit_bytes: int = 131072,
     timeout: int = 8,
 ) -> dict[str, Any]:
+    ensure_file_browser_path_safe(path_text)
     marker = "__TC_FILE_READ_JSON__"
     limit = clamp_file_preview_limit(limit_bytes)
     script = r"""
@@ -486,16 +567,39 @@ import base64
 import json
 import os
 import pathlib
+import re
 import sys
 
 marker = sys.argv[1]
 path_text = sys.argv[2] if len(sys.argv) > 2 else ""
 limit = int(sys.argv[3]) if len(sys.argv) > 3 else 131072
+sensitive_pattern_text = sys.argv[4] if len(sys.argv) > 4 else ""
+sensitive_block_message = sys.argv[5] if len(sys.argv) > 5 else "路径指向敏感配置、密钥、令牌或进程环境，已阻止读取/枚举。"
+sensitive_pattern = re.compile(sensitive_pattern_text, re.IGNORECASE) if sensitive_pattern_text else None
+
+def sensitive_reason(*values):
+    if not sensitive_pattern:
+        return ""
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        if sensitive_pattern.search(text.replace("\\", "/")):
+            return sensitive_block_message
+    return ""
+
+def reject_sensitive(*values):
+    reason = sensitive_reason(*values)
+    if reason:
+        raise SystemExit(reason)
+
 target = pathlib.Path(os.path.expanduser(path_text or "~"))
+reject_sensitive(path_text, str(target))
 try:
     target = target.resolve()
 except OSError:
     target = target.absolute()
+reject_sensitive(path_text, str(target))
 if not target.exists():
     raise SystemExit(f"路径不存在：{target}")
 if target.is_dir():
@@ -546,6 +650,10 @@ print(marker + "_END")
         + shlex.quote(path_text or "")
         + " "
         + shlex.quote(str(limit))
+        + " "
+        + shlex.quote(SENSITIVE_PATH_PATTERN.pattern)
+        + " "
+        + shlex.quote(sensitive_path_block_reason(path_text) or "路径指向敏感配置、密钥、令牌或进程环境，已阻止读取/枚举。")
     )
     from .infra.shell_pkg.ssh import ssh_command
 
