@@ -16650,23 +16650,31 @@ function setLogText(text, options = {}) {
     state.logSearch.activeIndex = -1;
     view.textContent = source;
   } else {
-    const regex = new RegExp(escapeRegExp(query), "gi");
-    let html = "";
-    let lastIndex = 0;
-    let matches = 0;
-    for (const match of source.matchAll(regex)) {
-      const start = match.index ?? 0;
-      const end = start + match[0].length;
-      html += escapeHtml(source.slice(lastIndex, start));
-      html += `<mark class="log-hit" data-hit-index="${matches}">${escapeHtml(match[0])}</mark>`;
-      lastIndex = end;
-      matches += 1;
+    const api = window.LogViewMarkup;
+    let result = null;
+    if (api && typeof api.buildLogHighlightMarkup === "function") {
+      result = api.buildLogHighlightMarkup(source, query, { escapeHtml, escapeRegExp });
     }
-    html += escapeHtml(source.slice(lastIndex));
-    view.innerHTML = html;
-    if (!matches) {
+    if (!result) {
+      const regex = new RegExp(escapeRegExp(query), "gi");
+      let html = "";
+      let lastIndex = 0;
+      let matches = 0;
+      for (const match of source.matchAll(regex)) {
+        const start = match.index ?? 0;
+        const end = start + match[0].length;
+        html += escapeHtml(source.slice(lastIndex, start));
+        html += `<mark class="log-hit" data-hit-index="${matches}">${escapeHtml(match[0])}</mark>`;
+        lastIndex = end;
+        matches += 1;
+      }
+      html += escapeHtml(source.slice(lastIndex));
+      result = { html, matches };
+    }
+    view.innerHTML = result.html;
+    if (!result.matches) {
       state.logSearch.activeIndex = -1;
-    } else if (options.keepSearchIndex !== true || state.logSearch.activeIndex < 0 || state.logSearch.activeIndex >= matches) {
+    } else if (options.keepSearchIndex !== true || state.logSearch.activeIndex < 0 || state.logSearch.activeIndex >= result.matches) {
       state.logSearch.activeIndex = 0;
     }
     focusLogSearchHit(state.logSearch.activeIndex, { scroll: Boolean(options.focusMatch) });
