@@ -25089,12 +25089,17 @@ function renderJobs() {
   $("jobCount").textContent = items.length === state.jobs.length
     ? `最近 ${Math.min(state.jobs.length, 100)} 个任务`
     : `筛选后 ${items.length} / ${Math.min(state.jobs.length, 100)} 个任务`;
+  const api = window.JobListMarkup;
   if (!state.jobs.length) {
-    list.innerHTML = '<div class="empty">暂无任务。</div>';
+    list.innerHTML = api && typeof api.jobListEmptyMarkup === "function"
+      ? api.jobListEmptyMarkup("noJobs")
+      : '<div class="empty">暂无任务。</div>';
     return;
   }
   if (!items.length) {
-    list.innerHTML = '<div class="empty">没有匹配的任务。</div>';
+    list.innerHTML = api && typeof api.jobListEmptyMarkup === "function"
+      ? api.jobListEmptyMarkup("noMatches")
+      : '<div class="empty">没有匹配的任务。</div>';
     return;
   }
   list.innerHTML = items
@@ -25118,13 +25123,34 @@ function renderJobs() {
       const meta = job.metadata || {};
       const template = meta.template ? ` · ${escapeHtml(meta.template)}` : "";
       const commandText = escapeHtml(job.command_display || job.command || "");
+      const transferProgressPct = state.transfer.logs[job.id]?.progress ?? 0;
       const progress = job.kind === "transfer"
         ? `
           <div class="job-progress">
-            <div class="bar"><div class="bar-fill${job.status === "running" ? " busy" : ""}" style="width:${state.transfer.logs[job.id]?.progress ?? 0}%"></div></div>
+            <div class="bar"><div class="bar-fill${job.status === "running" ? " busy" : ""}" style="width:${transferProgressPct}%"></div></div>
           </div>
         `
         : "";
+      if (api && typeof api.jobListItemMarkup === "function") {
+        return api.jobListItemMarkup(job, {
+          activeClass: active,
+          canDelete,
+          canReorder,
+          canRetry,
+          canStop,
+          commandText: job.command_display || job.command || "",
+          durationText,
+          gpuLabel: gpu,
+          kindLabel: zhKind(job.kind),
+          queueText,
+          serverLabel: requestedServer?.name || job.server_id || job.requested_server_id || "-",
+          showTransferProgress: job.kind === "transfer",
+          statusLabel: zhStatus(job.status),
+          statusTextLine,
+          templateText: meta.template ? ` · ${meta.template}` : "",
+          transferProgressPct,
+        }, { escapeHtml });
+      }
       return `
         <div class="job-item${active}" onclick="showLog('${escapeHtml(job.id)}')">
           <div>
