@@ -20034,36 +20034,27 @@ function openWorkflowTemplateStudio(options = {}) {
   }
 }
 
+function workflowTemplateCatalogApi() {
+  return window.WorkflowTemplateCatalog || {};
+}
+
+function workflowTemplateCatalogDeps() {
+  return {
+    escapeHtml,
+    agentById: globalAgentById,
+    nodeLabel: workspaceNodeLabel,
+    nodeSummary: workspaceNodeSummary,
+    providerProfileById,
+    providerProfileLabel,
+    statusLabel: workspaceStatusLabel,
+  };
+}
+
 function workflowTemplateSummaryMarkup(template) {
-  if (!template) return '<div class="empty">还没有模板。先在管理模式创建一条默认流。</div>';
-  const nodes = Array.isArray(template.nodes) ? template.nodes : [];
-  const chain = nodes
-    .map((node) => {
-      const handler = node.handler || {};
-      const owner = handler.name || globalAgentById(handler.agent_id)?.name || "";
-      return owner ? `${node.title || workspaceNodeLabel(node.kind)} · ${owner}` : node.title || workspaceNodeLabel(node.kind);
-    })
-    .slice(0, 6);
-  const model = template.model || {};
-  const profile = providerProfileById(model.provider_profile_id);
-  return `
-    <div class="workspace-template-summary-card">
-      <div class="workspace-template-summary-line">
-        <strong>${escapeHtml(template.name || template.id)}</strong>
-        <span class="server-badge subtle">${escapeHtml(template.source?.type || "repo")}</span>
-      </div>
-      <div class="workspace-template-summary-text">${escapeHtml(template.description || template.brief || "这条模板会被复制成实例快照，再进入执行链。")}</div>
-      <div class="workspace-template-summary-meta">
-        <span>${nodes.length} 个节点</span>
-        <span>${template.agent_count || template.agent_ids?.length || 0} 个 Agent</span>
-        <span>${template.tool_count || template.tool_ids?.length || 0} 个工具</span>
-        <span>${escapeHtml(profile ? providerProfileLabel(profile) : model.routing_mode || "workspace_default")}</span>
-      </div>
-      <div class="workspace-template-summary-chain">
-        ${chain.map((item) => `<span class="workspace-template-chip">${escapeHtml(item)}</span>`).join("") || '<span class="workspace-template-chip">空模板</span>'}
-      </div>
-    </div>
-  `;
+  return workflowTemplateCatalogApi().summaryMarkup?.({
+    template,
+    ...workflowTemplateCatalogDeps(),
+  }) || '<div class="empty">还没有模板。先在管理模式创建一条默认流。</div>';
 }
 
 function workspaceInspectorChatContext(workspace = selectedWorkspace(), node = null) {
@@ -20576,34 +20567,21 @@ function renderWorkspaceModeSwitch() {
 function renderManageTemplateList() {
   const list = $("workflowTemplateList");
   if (!list) return;
-  if (!state.workflowTemplates.length) {
-    list.innerHTML = '<div class="empty">还没有工作流模板。</div>';
-    return;
-  }
-  list.innerHTML = state.workflowTemplates.map((template) => {
-    const active = template.id === state.selectedWorkflowTemplateId ? " active" : "";
-    const nodeCount = Array.isArray(template.nodes) ? template.nodes.length : template.node_count || 0;
-    const versionCount = Array.isArray(template.version_history) ? template.version_history.length : 0;
-    return `
-      <button class="workspace-template-item${active}" type="button" data-action="select-workflow-template" data-template-id="${escapeHtml(template.id)}" title="选择这个 Starter Chain 模板并编辑默认节点链">
-        <div class="workspace-template-item-head">
-          <strong>${escapeHtml(template.name || template.id)}</strong>
-          <span class="state ${escapeHtml(template.status || "ready")}">${escapeHtml(workspaceStatusLabel(template.status || "ready"))}</span>
-        </div>
-        <div class="workspace-template-item-meta">${escapeHtml(template.source?.type || "repo")} · ${nodeCount} 个节点${versionCount ? ` · ${versionCount} 条版本` : ""}</div>
-        <div class="workspace-template-item-desc">${escapeHtml(template.description || template.brief || "未填写模板描述")}</div>
-      </button>
-    `;
-  }).join("");
+  list.innerHTML = workflowTemplateCatalogApi().templateListMarkup?.({
+    templates: state.workflowTemplates,
+    selectedTemplateId: state.selectedWorkflowTemplateId,
+    ...workflowTemplateCatalogDeps(),
+  }) || '<div class="empty">还没有工作流模板。</div>';
 }
 
 function renderWorkflowTemplateNodeKindOptions() {
   const select = $("workflowTemplateNodeKindSelect");
   if (!select) return;
   const current = select.value;
-  select.innerHTML = Object.entries(WORKSPACE_NODE_TYPES)
-    .map(([kind, meta]) => `<option value="${escapeHtml(kind)}">${escapeHtml(meta.label || kind)}</option>`)
-    .join("");
+  select.innerHTML = workflowTemplateCatalogApi().nodeKindOptionsMarkup?.({
+    nodeTypes: WORKSPACE_NODE_TYPES,
+    ...workflowTemplateCatalogDeps(),
+  }) || "";
   select.value = WORKSPACE_NODE_TYPES[current] ? current : "custom.step";
 }
 
@@ -20612,32 +20590,11 @@ function renderWorkflowTemplateNodeList() {
   if (!list) return;
   renderWorkflowTemplateNodeKindOptions();
   const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  if (!nodes.length) {
-    list.innerHTML = '<div class="empty">模板里还没有节点。</div>';
-    return;
-  }
-  list.innerHTML = nodes.map((node, index) => {
-    const active = node.id === state.selectedTemplateNodeId ? " active" : "";
-    const handler = node.handler || {};
-    const agent = globalAgentById(handler.agent_id || "");
-    return `
-      <div class="workspace-node-stack">
-        <button class="workspace-node-card${active}" type="button" data-action="select-template-node" data-node-id="${escapeHtml(node.id)}" title="选择这个模板节点，编辑默认配置和绑定 Agent">
-          <div class="workspace-node-head">
-            <span class="workspace-node-title">${escapeHtml(node.title || workspaceNodeLabel(node.kind))}</span>
-            <span class="server-badge subtle">${index + 1}</span>
-          </div>
-          <div class="workspace-node-meta">
-            <span class="state ${escapeHtml(node.status || "ready")}">${escapeHtml(workspaceStatusLabel(node.status || "ready"))}</span>
-            <span>${escapeHtml(workspaceNodeLabel(node.kind))}</span>
-            <span>${escapeHtml(handler.name || agent?.name || "未指派")}</span>
-          </div>
-          <div class="workspace-node-summary">${escapeHtml(workspaceNodeSummary(node))}</div>
-        </button>
-        ${index < nodes.length - 1 ? '<div class="workspace-node-link-row"><span class="workspace-node-link-arrow">↓</span><div><div class="workspace-node-link-title">顺序交接</div></div></div>' : ""}
-      </div>
-    `;
-  }).join("");
+  list.innerHTML = workflowTemplateCatalogApi().nodeListMarkup?.({
+    nodes,
+    selectedNodeId: state.selectedTemplateNodeId,
+    ...workflowTemplateCatalogDeps(),
+  }) || '<div class="empty">模板里还没有节点。</div>';
 }
 
 function workflowTemplateNodeSearchText(node = {}, index = 0, ioState = null) {
