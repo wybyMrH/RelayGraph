@@ -27838,32 +27838,19 @@ function bindEvents() {
     setMessage: setWorkspaceManageMessage,
     updateDraft: updateAgentDefinitionDraft,
   });
-  $("workspaceNewToolBtn")?.addEventListener("click", newGlobalToolDraft);
-  $("manageToolList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-global-tool']");
-    if (button?.dataset.toolId) selectGlobalTool(button.dataset.toolId);
-  });
-  $("manageToolEditor")?.addEventListener("input", (event) => {
-    const target = event.target;
-    if (target.matches("[data-manage-tool-field]")) {
-      updateToolDefinitionDraft({ [target.dataset.manageToolField]: target.value || "" });
-      return;
-    }
-    if (target.id === "manageToolTestArguments") {
-      state.toolDefinitionTest.argumentsText = target.value || "";
-    }
-  });
-  $("manageToolEditor")?.addEventListener("change", (event) => {
-    const target = event.target;
-    if (target.id === "manageToolTestWorkspaceSelect") {
-      state.toolDefinitionTest.workspaceId = target.value || "";
-      state.toolDefinitionTest.result = null;
-      state.toolDefinitionTest.error = "";
-      return;
-    }
-    if (target.id === "manageToolSearchProfileSelect") {
-      const profileId = target.value || "";
-      updateToolDefinitionDraft({ provider_profile_id: profileId });
+  window.ConfigCenterToolActions?.bind?.({
+    element: $,
+    copyTestResult: copyToolTestResult,
+    deleteTool: deleteGlobalToolDefinition,
+    newTool: newGlobalToolDraft,
+    resetTest: resetGlobalToolTest,
+    runTest: runGlobalToolTest,
+    saveTool: saveGlobalToolDefinition,
+    selectTool: selectGlobalTool,
+    setMessage: setWorkspaceManageMessage,
+    setSearchProfileId: (profileId) => {
+      const normalizedProfileId = profileId || "";
+      updateToolDefinitionDraft({ provider_profile_id: normalizedProfileId });
       let args = {};
       try {
         args = JSON.parse(state.toolDefinitionTest.argumentsText || "{}");
@@ -27871,39 +27858,23 @@ function bindEvents() {
       } catch (_) {
         args = {};
       }
-      if (profileId) args.provider_profile_id = profileId;
+      if (normalizedProfileId) args.provider_profile_id = normalizedProfileId;
       else delete args.provider_profile_id;
       if (!args.query) args.query = defaultToolTestArguments({ id: "web.search" }).query || "RelayGraph smoke";
       state.toolDefinitionTest.argumentsText = JSON.stringify(args, null, 2);
       state.toolDefinitionTest.result = null;
       state.toolDefinitionTest.error = "";
       renderManageToolModule();
-      return;
-    }
-    if (target.matches("[data-manage-tool-checkbox]")) {
-      updateToolDefinitionDraft({ [target.dataset.manageToolCheckbox]: Boolean(target.checked) });
-      return;
-    }
-    if (target.matches("[data-manage-tool-field]")) {
-      updateToolDefinitionDraft({ [target.dataset.manageToolField]: target.value || "" });
-    }
-  });
-  $("manageToolEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "save-global-tool") {
-      void saveGlobalToolDefinition();
-    } else if (button.dataset.action === "delete-global-tool") {
-      void deleteGlobalToolDefinition();
-    } else if (button.dataset.action === "reset-global-tool-test") {
-      resetGlobalToolTest();
-    } else if (button.dataset.action === "run-global-tool-test") {
-      void runGlobalToolTest();
-    } else if (button.dataset.action === "copy-tool-test-result") {
-      void copyToolTestResult()
-        .then(() => setWorkspaceManageMessage("工具测试结果已复制。"))
-        .catch((error) => setWorkspaceManageMessage(error.message || "复制工具测试结果失败。", true));
-    }
+    },
+    setTestArguments: (value) => {
+      state.toolDefinitionTest.argumentsText = value || "";
+    },
+    setTestWorkspaceId: (value) => {
+      state.toolDefinitionTest.workspaceId = value || "";
+      state.toolDefinitionTest.result = null;
+      state.toolDefinitionTest.error = "";
+    },
+    updateDraft: updateToolDefinitionDraft,
   });
   $("workspaceManageAddProviderBtn")?.addEventListener("click", addManageProviderProfile);
   $("manageProviderProfileList")?.addEventListener("click", (event) => {
