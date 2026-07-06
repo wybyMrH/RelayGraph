@@ -5,6 +5,11 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 
 RUNTIME_INPUT_REF_PREFIXES = ("$input.", "$context.", "$prev.output", "$node.config.")
+RUNTIME_OBSERVATION_SECRET_PATTERN = re.compile(
+    r"(?i)"
+    r"((?:api[_-]?key|access[_-]?token|secret|password|passphrase|credential)\s*[:=]\s*)"
+    r"([^\s'\";&|]+)"
+)
 
 
 def _agent_node_runtime_input_refs(
@@ -98,6 +103,17 @@ def _agent_node_runtime_input_refs(
         input_refs.append(blockers[-1])
         blocker_names.add(input_name)
     return input_refs, blockers
+
+
+def redact_runtime_observation_text(text: str) -> str:
+    value = str(text or "")
+    if not value:
+        return ""
+    value = re.sub(r"(?i)(authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/=-]{8,}", r"\1***", value)
+    value = re.sub(r"(?i)(authorization\s*[:=]\s*)(?!bearer\s+\*\*\*)[^\s'\";&|]+", r"\1***", value)
+    value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", r"\1***", value)
+    value = RUNTIME_OBSERVATION_SECRET_PATTERN.sub(r"\1***", value)
+    return value
 
 
 class AgentsMixin:
@@ -204,7 +220,11 @@ class AgentsMixin:
 
         sensitive_pattern = re.compile(
             r"(^|/)(\.ssh|\.gnupg|\.aws|\.azure|\.config/gcloud)(/|$)|"
+            r"(^|/)(\.kube|\.docker)(/|$)|"
             r"(^|/)(id_rsa|id_ed25519|known_hosts|authorized_keys|\.master_key)(\s|$)|"
+            r"(^|/)\.netrc(\s|$)|"
+            r"(^|/run/secrets)(/|$)|"
+            r"(^|/proc/[^/\s]+/(environ|cmdline))(\s|$)|"
             r"(api[_-]?key|access[_-]?token|secret|password)",
             re.IGNORECASE,
         )
@@ -242,6 +262,8 @@ class AgentsMixin:
             "whereis",
         }
         if executable in allowed_simple:
+            if executable == "ps":
+                return self.workspace_tool_host_exec_ps_block_reason(args)
             return self.workspace_tool_host_exec_option_block_reason(executable, args)
         if executable == "top":
             if self.workspace_tool_host_exec_top_is_bounded(args):
@@ -260,6 +282,58 @@ class AgentsMixin:
         if executable == "docker":
             return self.workspace_tool_host_exec_docker_block_reason(args)
         return "host.exec 仅允许主机/环境诊断命令；运行程序、训练或环境变更请使用配置化 job.run/env.prepare。"
+
+
+    def workspace_tool_host_exec_ps_block_reason(self, args: list[str]) -> str:
+        if not args:
+            return ""
+        safe_fields = {"pid", "ppid", "user", "uid", "stat", "comm"}
+        allowed_value_flags = {"-p", "--pid", "-o", "-eo"}
+        index = 0
+        saw_output_fields = False
+        while index < len(args):
+            arg = str(args[index] or "").strip()
+            lowered = arg.lower()
+            if lowered in {"-p", "--pid"}:
+                if index + 1 >= len(args) or not re.fullmatch(r"[0-9,]+", str(args[index + 1] or "").strip()):
+                    return "host.exec 的 ps -p/--pid 只允许明确的数字 PID。"
+                index += 2
+                continue
+            if lowered.startswith("--pid="):
+                pid_value = lowered.split("=", 1)[1]
+                if not re.fullmatch(r"[0-9,]+", pid_value):
+                    return "host.exec 的 ps --pid 只允许明确的数字 PID。"
+                index += 1
+                continue
+            if lowered in {"-o", "-eo"}:
+                if index + 1 >= len(args):
+                    return "host.exec 的 ps 必须显式声明安全输出字段。"
+                fields = [field.strip().lower() for field in str(args[index + 1] or "").split(",") if field.strip()]
+                if not fields or any(field not in safe_fields for field in fields):
+                    return "host.exec 的 ps 只允许输出 pid,ppid,user,uid,stat,comm 安全字段。"
+                saw_output_fields = True
+                index += 2
+                continue
+            if lowered.startswith("-eo") and len(lowered) > 3:
+                fields = [field.strip().lower() for field in lowered[3:].split(",") if field.strip()]
+                if not fields or any(field not in safe_fields for field in fields):
+                    return "host.exec 的 ps 只允许输出 pid,ppid,user,uid,stat,comm 安全字段。"
+                saw_output_fields = True
+                index += 1
+                continue
+            if lowered.startswith("-o") and len(lowered) > 2:
+                fields = [field.strip().lower() for field in lowered[2:].split(",") if field.strip()]
+                if not fields or any(field not in safe_fields for field in fields):
+                    return "host.exec 的 ps 只允许输出 pid,ppid,user,uid,stat,comm 安全字段。"
+                saw_output_fields = True
+                index += 1
+                continue
+            if lowered not in allowed_value_flags:
+                return "host.exec 的 ps 只允许明确 PID 和安全字段输出；请使用 ps -eo pid,ppid,user,stat,comm。"
+            index += 1
+        if not saw_output_fields:
+            return "host.exec 的 ps 必须显式使用安全输出字段，避免泄漏命令行参数。"
+        return self.workspace_tool_host_exec_option_block_reason("ps", args)
 
 
     def workspace_tool_host_exec_option_block_reason(self, executable: str, args: list[str]) -> str:
@@ -311,6 +385,8 @@ class AgentsMixin:
         if executable in {"tail"} and any(arg in {"-f", "--follow"} for arg in lowered):
             return "host.exec 诊断命令不允许持续跟随日志；请使用日志接口或受控 job 输出。"
         if executable == "printenv":
+            if not lowered:
+                return "host.exec 的 printenv 必须指定明确变量名，不能打印完整环境。"
             secret_terms = ("key", "token", "secret", "password", "credential")
             for arg in lowered:
                 if any(term in arg for term in secret_terms):
@@ -551,8 +627,9 @@ class AgentsMixin:
         if observed_run:
             payload["run"] = observed_run
         if log_tail:
-            payload["log_tail"] = log_tail
-            payload["log_line_count"] = len(log_tail.splitlines())
+            redacted_tail = redact_runtime_observation_text(log_tail)
+            payload["log_tail"] = redacted_tail
+            payload["log_line_count"] = len(redacted_tail.splitlines())
         if log_error:
             payload["log_error"] = log_error
         if result_status in {"failed", "stopped"}:
@@ -702,8 +779,12 @@ class AgentsMixin:
             if command and tool != "repo.clone":
                 job_payload["command"] = command
                 job_payload["command_display"] = command
-            if "wait_for_idle" in args:
+            if context is not None:
+                job_payload["wait_for_idle"] = True
+            elif "wait_for_idle" in args:
                 job_payload["wait_for_idle"] = bool(args.get("wait_for_idle"))
+            else:
+                job_payload["wait_for_idle"] = False
             if tool == "host.exec":
                 job_payload["gpu_index"] = "none"
                 metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}
