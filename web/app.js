@@ -22816,7 +22816,19 @@ function mergeWorkspaceCockpitPayload(workspaceId, payload = {}) {
   return next;
 }
 
+function workspaceRunStateMergeApi() {
+  return window.WorkspaceRunStateMerge && typeof window.WorkspaceRunStateMerge === "object"
+    ? window.WorkspaceRunStateMerge
+    : null;
+}
+
+function workspaceRunStateMergeOptions() {
+  return { timestampMs: statusTimestampMs };
+}
+
 function workspaceRunEventKey(event = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.eventKey === "function") return api.eventKey(event);
   const sseId = Number(event.sse_id || event.id || 0);
   if (Number.isFinite(sseId) && sseId > 0) return `sse:${sseId}`;
   const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
@@ -22836,6 +22848,8 @@ function workspaceRunEventKey(event = {}) {
 }
 
 function mergeWorkspaceRunEvents(existing = [], incoming = []) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.mergeEvents === "function") return api.mergeEvents(existing, incoming);
   const merged = [];
   const byKey = new Map();
   const append = (item) => {
@@ -22863,18 +22877,30 @@ function mergeWorkspaceRunEvents(existing = [], incoming = []) {
 }
 
 function workspaceRunStatus(run = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.runStatus === "function") return api.runStatus(run);
   return String(run?.status || "").trim();
 }
 
 function workspaceRunIsTerminal(run = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.runIsTerminal === "function") return api.runIsTerminal(run);
   return ["done", "failed", "stopped"].includes(workspaceRunStatus(run));
 }
 
 function workspaceRunTimestampMs(run = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.runTimestampMs === "function") {
+    return api.runTimestampMs(run, workspaceRunStateMergeOptions());
+  }
   return statusTimestampMs(run?.updated_at || run?.finished_at || run?.completed_at || run?.created_at);
 }
 
 function shouldKeepExistingWorkspaceRun(existing = {}, incoming = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.shouldKeepExistingRun === "function") {
+    return api.shouldKeepExistingRun(existing, incoming, workspaceRunStateMergeOptions());
+  }
   const existingStatus = workspaceRunStatus(existing);
   const incomingStatus = workspaceRunStatus(incoming);
   if (!existingStatus || !incomingStatus) return false;
@@ -22889,6 +22915,8 @@ function shouldKeepExistingWorkspaceRun(existing = {}, incoming = {}) {
 }
 
 function workspaceRunStepMergeKey(step = {}, index = 0) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.stepMergeKey === "function") return api.stepMergeKey(step, index);
   const source = step && typeof step === "object" ? step : {};
   const jobId = String(source.job_id || "").trim();
   if (jobId) return `job:${jobId}`;
@@ -22900,6 +22928,8 @@ function workspaceRunStepMergeKey(step = {}, index = 0) {
 }
 
 function mergeWorkspaceRunSteps(existingSteps = [], incomingSteps = []) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.mergeSteps === "function") return api.mergeSteps(existingSteps, incomingSteps);
   const existingItems = Array.isArray(existingSteps) ? existingSteps : [];
   const incomingItems = Array.isArray(incomingSteps) ? incomingSteps : [];
   if (!incomingItems.length) return existingItems.slice();
@@ -22921,6 +22951,10 @@ function mergeWorkspaceRunSteps(existingSteps = [], incomingSteps = []) {
 }
 
 function mergeWorkspaceRunSnapshot(existing = {}, incoming = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.mergeRunSnapshot === "function") {
+    return api.mergeRunSnapshot(existing, incoming, workspaceRunStateMergeOptions());
+  }
   const previous = existing && typeof existing === "object" ? existing : {};
   const next = incoming && typeof incoming === "object" ? incoming : {};
   const keepExisting = shouldKeepExistingWorkspaceRun(previous, next);
@@ -22937,6 +22971,10 @@ function mergeWorkspaceRunSnapshot(existing = {}, incoming = {}) {
 }
 
 function mergeWorkspaceRunListSnapshots(existingRuns = [], incomingRuns = []) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.mergeRunListSnapshots === "function") {
+    return api.mergeRunListSnapshots(existingRuns, incomingRuns, workspaceRunStateMergeOptions());
+  }
   const existingItems = Array.isArray(existingRuns) ? existingRuns : [];
   const incomingItems = Array.isArray(incomingRuns) ? incomingRuns : [];
   const existingById = new Map(
@@ -22959,6 +22997,8 @@ function mergeWorkspaceRunListSnapshots(existingRuns = [], incomingRuns = []) {
 }
 
 function collectWorkspaceRunEvents(workspaces = []) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.collectRunEvents === "function") return api.collectRunEvents(workspaces);
   const eventsByRun = new Map();
   (Array.isArray(workspaces) ? workspaces : []).forEach((workspace) => {
     (Array.isArray(workspace?.runs) ? workspace.runs : []).forEach((run) => {
@@ -22972,6 +23012,10 @@ function collectWorkspaceRunEvents(workspaces = []) {
 }
 
 function mergeWorkspaceSnapshotRunState(workspace = {}, previousWorkspace = null) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.mergeWorkspaceSnapshotRunState === "function") {
+    return api.mergeWorkspaceSnapshotRunState(workspace, previousWorkspace, workspaceRunStateMergeOptions());
+  }
   const previousEvents = previousWorkspace ? collectWorkspaceRunEvents([previousWorkspace]) : new Map();
   const nextWorkspace = mergeWorkspaceSnapshotRunEvents(workspace, previousEvents);
   if (!previousWorkspace || !Array.isArray(nextWorkspace?.runs)) return nextWorkspace;
@@ -22982,6 +23026,10 @@ function mergeWorkspaceSnapshotRunState(workspace = {}, previousWorkspace = null
 }
 
 function mergeWorkspaceSnapshotRunEvents(workspace = {}, eventsByRun = new Map()) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.mergeWorkspaceSnapshotRunEvents === "function") {
+    return api.mergeWorkspaceSnapshotRunEvents(workspace, eventsByRun);
+  }
   if (!workspace || typeof workspace !== "object") return workspace;
   const runs = Array.isArray(workspace.runs) ? workspace.runs : [];
   if (!runs.length) return workspace;
@@ -23001,6 +23049,8 @@ function mergeWorkspaceSnapshotRunEvents(workspace = {}, eventsByRun = new Map()
 }
 
 function compactWorkspaceStreamEventPayload(payload = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.compactStreamEventPayload === "function") return api.compactStreamEventPayload(payload);
   const source = payload && typeof payload === "object" ? payload : {};
   const compact = {};
   [
@@ -23079,6 +23129,12 @@ function compactWorkspaceStreamEventPayload(payload = {}) {
 }
 
 function normalizeWorkspaceRunEventFromStream(event = {}, payload = {}) {
+  const api = workspaceRunStateMergeApi();
+  if (typeof api?.normalizeRunEventFromStream === "function") {
+    return api.normalizeRunEventFromStream(event, payload, {
+      timelineEventTypes: WORKSPACE_RUN_TIMELINE_EVENT_TYPES,
+    });
+  }
   const eventType = String(event.type || "").trim();
   if (!WORKSPACE_RUN_TIMELINE_EVENT_TYPES.has(eventType)) return null;
   const source = payload && typeof payload === "object" ? payload : {};
