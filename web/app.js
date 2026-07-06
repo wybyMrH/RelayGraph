@@ -27425,17 +27425,31 @@ function bindEvents() {
     switchWorkspaceMode,
     switchWorkspaceTab,
   });
-  $("workspaceProjectConfigDrawer")?.addEventListener("toggle", (event) => {
-    const open = Boolean(event.currentTarget?.open);
-    if (state.ui.workspaceProjectConfigOpen !== open) markWorkspaceUiInteraction();
-    state.ui.workspaceProjectConfigOpen = open;
-    saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, open ? "1" : "0");
-    renderWorkspaceProjectDrawerMeta();
-  });
-  $("workspaceLauncherPreviewBand")?.addEventListener("toggle", (event) => {
-    if (event.currentTarget?.open) {
-      renderWorkspaceLauncherPreviewBand(selectedWorkspace());
-    }
+  window.WorkspaceShellActions?.bind?.({
+    element: $,
+    selectWorkspaceResourceServer: (next) => {
+      if (state.ui.workspaceResourceServerId !== next) markWorkspaceUiInteraction();
+      state.ui.workspaceResourceServerId = next;
+      saveStoredValue(STORAGE_KEYS.workspaceResourceServer, state.ui.workspaceResourceServerId);
+      renderWorkspaceCockpitOverview();
+      renderWorkspaceHome();
+    },
+    selectWorkspaceTemplate: (value) => {
+      state.selectedWorkflowTemplateId = value || "";
+      saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId);
+      renderWorkspaceWorkbench();
+    },
+    setProjectConfigDrawerOpen: (open) => {
+      if (state.ui.workspaceProjectConfigOpen !== open) markWorkspaceUiInteraction();
+      state.ui.workspaceProjectConfigOpen = open;
+      saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, open ? "1" : "0");
+      renderWorkspaceProjectDrawerMeta();
+    },
+    syncLauncherPreview: (open) => {
+      if (open) {
+        renderWorkspaceLauncherPreviewBand(selectedWorkspace());
+      }
+    },
   });
   $("workflowTemplateStudioOverview")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
@@ -27484,11 +27498,6 @@ function bindEvents() {
         setWorkspaceManageMessage(error.message || "创建迁移草稿失败。", true);
       });
     }
-  });
-  $("workspaceTemplateSelect")?.addEventListener("change", (event) => {
-    state.selectedWorkflowTemplateId = event.target.value || "";
-    saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId);
-    renderWorkspaceWorkbench();
   });
   window.WorkspaceLauncherActions?.bind?.({
     element: $,
@@ -27610,18 +27619,6 @@ function bindEvents() {
     element: $,
     handleAutomationAction: handleWorkspaceAutomationAction,
     query: (selector) => document.querySelector(selector),
-  });
-  ["workspaceHomeResources"].forEach((id) => {
-    $(id)?.addEventListener("change", (event) => {
-      const picker = event.target.closest("[data-role='workspace-resource-server-select']");
-      if (!picker) return;
-      const next = picker.value || "";
-      if (state.ui.workspaceResourceServerId !== next) markWorkspaceUiInteraction();
-      state.ui.workspaceResourceServerId = next;
-      saveStoredValue(STORAGE_KEYS.workspaceResourceServer, state.ui.workspaceResourceServerId);
-      renderWorkspaceCockpitOverview();
-      renderWorkspaceHome();
-    });
   });
   const updateTemplateTextField = (id, value) => {
     const fieldHandlers = {
