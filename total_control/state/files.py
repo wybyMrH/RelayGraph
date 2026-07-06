@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 from .files_pkg.runtime_logs import build_runtime_log_path_payload, merge_runtime_log_path_payloads
+from .files_pkg.runtime_state_requests import parse_runtime_state_cleanup_request
 from .files_pkg.runtime_storage_requests import parse_runtime_storage_cleanup_request
 from .files_pkg.runtime_state import build_runtime_state_status_payload
 
@@ -226,21 +227,13 @@ class FilesMixin:
 
 
     def cleanup_runtime_state_manual(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        data = body if isinstance(body, dict) else {}
-        clear_jobs = bool(data.get("clear_completed_jobs", True))
-        prune_runs = bool(data.get("prune_workspace_runs", True))
-        dry_run = bool(data.get("dry_run", False))
-        max_runs = max(1, min(safe_int(data.get("max_runs_per_workspace"), 20), 200))
-        requested_statuses = data.get("statuses")
-        if isinstance(requested_statuses, list) and requested_statuses:
-            deletable_statuses = {
-                str(item or "").strip()
-                for item in requested_statuses
-                if str(item or "").strip() in {"done", "failed", "stopped"}
-            }
-        else:
-            deletable_statuses = {"done", "failed", "stopped"}
-        active_statuses = {"queued", "starting", "running", "blocked"}
+        parsed_request = parse_runtime_state_cleanup_request(body)
+        clear_jobs = parsed_request["clear_jobs"]
+        prune_runs = parsed_request["prune_runs"]
+        dry_run = parsed_request["dry_run"]
+        max_runs = parsed_request["max_runs"]
+        deletable_statuses = parsed_request["deletable_statuses"]
+        active_statuses = parsed_request["active_statuses"]
         removed_jobs = 0
         preserved_jobs = 0
         removed_runs = 0
