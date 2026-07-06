@@ -20590,7 +20590,30 @@ function renderWorkflowTemplateNodeList() {
   }) || '<div class="empty">模板里还没有节点。</div>';
 }
 
+function workflowTemplateCanvasSearchApi() {
+  return window.WorkflowTemplateCanvasSearch && typeof window.WorkflowTemplateCanvasSearch === "object"
+    ? window.WorkflowTemplateCanvasSearch
+    : null;
+}
+
+function workflowTemplateCanvasSearchDeps() {
+  return {
+    agentById: globalAgentById,
+    nodeLabel: workspaceNodeLabel,
+    phaseFor: workspaceStarterNodePhase,
+  };
+}
+
 function workflowTemplateNodeSearchText(node = {}, index = 0, ioState = null) {
+  const api = workflowTemplateCanvasSearchApi();
+  if (typeof api?.nodeSearchText === "function") {
+    return api.nodeSearchText({
+      node,
+      index,
+      ioState,
+      ...workflowTemplateCanvasSearchDeps(),
+    });
+  }
   const handler = node.handler && typeof node.handler === "object" ? node.handler : {};
   const agent = globalAgentById(handler.agent_id || "");
   const mapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
@@ -20617,6 +20640,16 @@ function workflowTemplateNodeSearchText(node = {}, index = 0, ioState = null) {
 }
 
 function workflowTemplateNodeMatchesSearch(node = {}, index = 0, ioState = null, query = state.ui.workflowTemplateNodeSearch) {
+  const api = workflowTemplateCanvasSearchApi();
+  if (typeof api?.nodeMatchesSearch === "function") {
+    return api.nodeMatchesSearch({
+      node,
+      index,
+      ioState,
+      query,
+      ...workflowTemplateCanvasSearchDeps(),
+    });
+  }
   const text = String(query || "").trim().toLowerCase();
   if (!text) return true;
   return text.split(/\s+/).every((part) => workflowTemplateNodeSearchText(node, index, ioState).includes(part));
@@ -20624,6 +20657,16 @@ function workflowTemplateNodeMatchesSearch(node = {}, index = 0, ioState = null,
 
 function workflowTemplateCanvasSearchState(nodes = [], ioStates = []) {
   const query = String(state.ui.workflowTemplateNodeSearch || "").trim();
+  const api = workflowTemplateCanvasSearchApi();
+  if (typeof api?.searchState === "function") {
+    return api.searchState({
+      nodes,
+      ioStates,
+      query,
+      selectedNodeId: state.selectedTemplateNodeId,
+      ...workflowTemplateCanvasSearchDeps(),
+    });
+  }
   const matches = !query
     ? []
     : (Array.isArray(nodes) ? nodes : [])
