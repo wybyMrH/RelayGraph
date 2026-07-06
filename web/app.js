@@ -28151,25 +28151,28 @@ function bindEvents() {
     scheduleTaskPlan,
     toggleTaskTemplateFields,
   });
-  $("terminalServerSelect")?.addEventListener("change", (event) => {
-    state.selectedServer = event.target.value;
-    saveStoredValue(STORAGE_KEYS.selectedServer, state.selectedServer);
-    state.selectedGpu = "auto";
-    render();
-    loadTmuxSessions();
-  });
-  $("serverSelect").addEventListener("change", (event) => {
-    state.selectedServer = event.target.value;
-    saveStoredValue(STORAGE_KEYS.selectedServer, state.selectedServer);
-    state.selectedGpu = "auto";
-    clearTerminalMessage();
-    render();
-    loadTmuxSessions();
-  });
-  $("gpuSelect").addEventListener("change", (event) => {
-    state.selectedGpu = event.target.value;
-    renderGpuRows();
-    if (state.selectedGpu !== "auto") scrollGpuSelectionIntoView();
+  window.ServerSelectionActions?.bind?.({
+    element: $,
+    selectTerminalServer: (value) => {
+      state.selectedServer = value;
+      saveStoredValue(STORAGE_KEYS.selectedServer, state.selectedServer);
+      state.selectedGpu = "auto";
+      render();
+      loadTmuxSessions();
+    },
+    selectMainServer: (value) => {
+      state.selectedServer = value;
+      saveStoredValue(STORAGE_KEYS.selectedServer, state.selectedServer);
+      state.selectedGpu = "auto";
+      clearTerminalMessage();
+      render();
+      loadTmuxSessions();
+    },
+    selectGpu: (value) => {
+      state.selectedGpu = value;
+      renderGpuRows();
+      if (state.selectedGpu !== "auto") scrollGpuSelectionIntoView();
+    },
   });
   window.OutputTerminalActions?.bind?.({
     element: $,
