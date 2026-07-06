@@ -3247,25 +3247,12 @@ function workflowTemplateValidationIssueMarkup(validation = null, { limit = 4 } 
   }) || "";
 }
 
+function workflowTemplateRepairApi() {
+  return window.WorkflowTemplateRepair || {};
+}
+
 function workflowTemplateRepairActions(response = state.workflowTemplateValidation, { limit = 4 } = {}) {
-  const preview = response?.preview && typeof response.preview === "object" ? response.preview : {};
-  const nodes = Array.isArray(preview.nodes) ? preview.nodes : [];
-  const actions = [];
-  nodes.forEach((node) => {
-    const nodeActions = Array.isArray(node.repair_actions) ? node.repair_actions : [];
-    nodeActions.forEach((action) => {
-      if (!action || typeof action !== "object") return;
-      const id = String(action.id || "").trim();
-      if (!id) return;
-      actions.push({
-        ...action,
-        node_id: String(action.node_id || node.id || "").trim(),
-        node_title: String(node.title || node.kind || node.id || "").trim(),
-        node_index: Number(node.index || 0),
-      });
-    });
-  });
-  return Number.isFinite(limit) ? actions.slice(0, Math.max(0, limit)) : actions;
+  return workflowTemplateRepairApi().repairActions?.(response, { limit }) || [];
 }
 
 function workflowTemplateValidationRepairMarkup(response = state.workflowTemplateValidation) {
@@ -3293,64 +3280,15 @@ function workflowTemplateValidationMarkup(validation = state.workflowTemplateVal
 }
 
 function workflowTemplateRepairActionById(repairId = "", nodeId = "") {
-  const id = String(repairId || "").trim();
-  const targetNodeId = String(nodeId || "").trim();
-  return workflowTemplateRepairActions(state.workflowTemplateValidation, { limit: Infinity })
-    .find((action) => action.id === id && (!targetNodeId || action.node_id === targetNodeId)) || null;
-}
-
-function applyWorkflowTemplateRepairPatchToNodes(nextNodes = [], action = {}, patch = {}) {
-  const path = Array.isArray(patch.path) ? patch.path : [];
-  if (path[0] !== "nodes") return false;
-  let index = Number(path[1]);
-  const nodeId = String(action.node_id || "").trim();
-  const idIndex = nodeId ? nextNodes.findIndex((node) => String(node.id || "") === nodeId) : -1;
-  if (idIndex >= 0) index = idIndex;
-  if (!Number.isInteger(index) || index < 0 || index >= nextNodes.length) return false;
-  const value = patch.value == null ? "" : String(patch.value);
-  const field = String(path[2] || "").trim();
-  const target = nextNodes[index];
-  if (!target || typeof target !== "object") return false;
-  if (field === "input_mapping" && path.length === 4) {
-    const inputName = String(path[3] || "").trim();
-    if (!inputName) return false;
-    target.input_mapping = {
-      ...(target.input_mapping && typeof target.input_mapping === "object" ? target.input_mapping : {}),
-      [inputName]: value,
-    };
-  } else if (field === "output_key" && path.length === 3) {
-    if (!value.trim()) return false;
-    target.output_key = value.trim();
-    if (target.handler && typeof target.handler === "object" && String(target.handler.output_key || "").trim()) {
-      target.handler = { ...target.handler, output_key: value.trim() };
-    }
-  } else if (field === "handler" && path.length === 4 && String(path[3] || "") === "output_key") {
-    if (!value.trim()) return false;
-    target.handler = {
-      ...(target.handler && typeof target.handler === "object" ? target.handler : {}),
-      output_key: value.trim(),
-    };
-  } else {
-    return false;
-  }
-  state.selectedTemplateNodeId = String(target.id || state.selectedTemplateNodeId || "").trim();
-  return true;
+  return workflowTemplateRepairApi().repairActionById?.(state.workflowTemplateValidation, repairId, nodeId) || null;
 }
 
 function applyWorkflowTemplateRepairPatch(action = {}) {
   const currentNodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  const nextNodes = currentNodes.map((node) => deepClone(node, node));
-  const patches = Array.isArray(action.patches) && action.patches.length
-    ? action.patches
-    : action.patch && typeof action.patch === "object"
-      ? [action.patch]
-      : [];
-  let applied = 0;
-  patches.forEach((patch) => {
-    if (applyWorkflowTemplateRepairPatchToNodes(nextNodes, action, patch)) applied += 1;
-  });
-  if (!applied) return false;
-  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: nextNodes }));
+  const result = workflowTemplateRepairApi().applyRepairActionToNodes?.(currentNodes, action);
+  if (!result?.ok) return false;
+  if (result.selectedNodeId) state.selectedTemplateNodeId = result.selectedNodeId;
+  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: result.nodes }));
   return true;
 }
 
