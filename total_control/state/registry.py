@@ -5,6 +5,7 @@ from .registry_pkg.execution_overview import (
     build_execution_overview_payload as _build_execution_overview_payload,
 )
 from .registry_pkg.provider_profiles import (
+    build_provider_profile_draft,
     provider_profile_key_required as _provider_profile_key_required,
     provider_profile_kind as _provider_profile_kind,
     provider_profile_public_payload,
@@ -449,17 +450,7 @@ class RegistryMixin:
                 saved = self.provider_profile_by_id(profile_id)
                 profile = copy.deepcopy(saved) if saved else None
         else:
-            model = str(payload.get("model") or "").strip()
-            kind = _provider_profile_kind(payload)
-            profile = {
-                "id": "test",
-                "kind": kind,
-                "provider": str(payload.get("provider") or payload.get("vendor") or ("openai" if kind == "llm" else "")).strip(),
-                "base_url": str(payload.get("base_url") or "").strip(),
-                "api_key": str(payload.get("api_key") or "").strip(),
-                "models": [model] if model else [],
-                "key_required": bool(payload.get("key_required", True)),
-            }
+            profile = build_provider_profile_draft(payload, profile_id="test")
         if not profile:
             return {"success": False, "error": "provider profile not found", "model": ""}
         if _provider_profile_kind(profile) == "search":
@@ -541,17 +532,7 @@ class RegistryMixin:
                 saved = self.provider_profile_by_id(profile_id)
                 profile = copy.deepcopy(saved) if saved else None
         else:
-            model = str(payload.get("model") or "").strip()
-            kind = _provider_profile_kind(payload)
-            profile = {
-                "id": "models",
-                "kind": kind,
-                "provider": str(payload.get("provider") or payload.get("vendor") or ("openai" if kind == "llm" else "")).strip(),
-                "base_url": str(payload.get("base_url") or "").strip(),
-                "api_key": str(payload.get("api_key") or "").strip(),
-                "models": [model] if model else [],
-                "key_required": bool(payload.get("key_required", True)),
-            }
+            profile = build_provider_profile_draft(payload, profile_id="models")
         if not profile:
             return {"success": False, "models": [], "error": "provider profile not found"}
         if _provider_profile_kind(profile) == "search":

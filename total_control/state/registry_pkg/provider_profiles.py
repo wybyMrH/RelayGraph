@@ -59,6 +59,20 @@ def provider_profile_models(profile: dict[str, Any]) -> list[str]:
     ]
 
 
+def build_provider_profile_draft(payload: dict[str, Any], *, profile_id: str) -> dict[str, Any]:
+    model = str(payload.get("model") or "").strip()
+    kind = provider_profile_kind(payload)
+    return {
+        "id": str(profile_id or "").strip(),
+        "kind": kind,
+        "provider": str(payload.get("provider") or payload.get("vendor") or ("openai" if kind == "llm" else "")).strip(),
+        "base_url": str(payload.get("base_url") or "").strip(),
+        "api_key": str(payload.get("api_key") or "").strip(),
+        "models": [model] if model else [],
+        "key_required": bool(payload.get("key_required", True)),
+    }
+
+
 def provider_profile_health(profile: dict[str, Any]) -> dict[str, Any]:
     source = profile if isinstance(profile, dict) else {}
     kind = provider_profile_kind(source)
