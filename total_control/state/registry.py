@@ -13,6 +13,9 @@ from .registry_pkg.provider_profiles import (
 from .registry_pkg.provider_route_health import (
     build_provider_route_health as _build_provider_route_health,
 )
+from .registry_pkg.tool_testing import (
+    run_tool_definition_safe_test as _run_tool_definition_safe_test,
+)
 
 
 class RegistryMixin:
@@ -52,57 +55,18 @@ class RegistryMixin:
             jobs = copy.deepcopy(getattr(self, "jobs", []))
             provider_profiles = copy.deepcopy(getattr(self, "provider_profiles", []))
             tool_definitions = copy.deepcopy(getattr(self, "tool_definitions", []))
-        if not tool:
-            raise ValueError("tool definition not found")
-
-        side_effect = str(tool.get("side_effect") or tool_side_effect(requested_tool_id).value).strip()
         arguments = requested.get("arguments") if isinstance(requested.get("arguments"), dict) else {}
-        workspace_summary = {
-            "id": str(workspace.get("id") or "").strip(),
-            "name": str(workspace.get("name") or workspace.get("brief") or "").strip(),
-        }
-        if side_effect != ToolSideEffect.READ.value:
-            return {
-                "tool_id": requested_tool_id,
-                "status": "blocked",
-                "safe": False,
-                "side_effect": side_effect,
-                "workspace": workspace_summary,
-                "arguments": redact_sensitive_arguments(copy.deepcopy(arguments)),
-                "result": {
-                    "status": "blocked",
-                    "plan_only": True,
-                    "message": "配置中心只允许安全测试 read-only 工具；runtime/config/dangerous 工具必须通过 Agent trace 或受控 workflow/job 队列验证。",
-                },
-            }
-
-        executor = create_workspace_tool_executor(
-            workspace,
-            getattr(self, "config", None),
+        return _run_tool_definition_safe_test(
+            requested_tool_id,
+            tool=tool,
+            workspace=workspace,
+            arguments=arguments,
+            config=getattr(self, "config", None),
             statuses=statuses,
             jobs=jobs,
             provider_profiles=provider_profiles,
             tool_definitions=tool_definitions,
-            runtime=None,
         )
-        started = time.time()
-        observation = executor(requested_tool_id, arguments)
-        latency_ms = round((time.time() - started) * 1000, 1)
-        parsed_result: Any
-        try:
-            parsed_result = json.loads(observation)
-        except (TypeError, json.JSONDecodeError):
-            parsed_result = {"text": str(observation or "")[:4000]}
-        return {
-            "tool_id": requested_tool_id,
-            "status": "ok",
-            "safe": True,
-            "side_effect": side_effect,
-            "workspace": workspace_summary,
-            "arguments": redact_sensitive_arguments(copy.deepcopy(arguments)),
-            "latency_ms": latency_ms,
-            "result": parsed_result,
-        }
 
 
     def list_agent_definitions(self) -> dict[str, Any]:
