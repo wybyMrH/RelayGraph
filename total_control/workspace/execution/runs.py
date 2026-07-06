@@ -12,7 +12,7 @@ from .log_parser import (
     parse_workspace_resources_from_log,
     workspace_dedupe_artifacts,
 )
-from .paths import workspace_job_cached_log_tail, workspace_job_cached_log_tail_payload
+from .paths import workspace_job_cached_log_tail
 from .run_events import (
     _compact_run_event_payload,
     _compact_run_event_text,
@@ -30,7 +30,6 @@ from .run_refs import (
     workspace_execution_run_linked_run_closure,
     workspace_execution_run_linked_runs,
     workspace_job_matches_run_scope,
-    workspace_jobs_for_run,
     workspace_run_allowed_child_run_ids,
     workspace_run_child_run_ids,
     workspace_run_job_ids,
@@ -45,7 +44,11 @@ from .run_replay import (
     workspace_execution_run_timeline,
 )
 from .run_compare import workspace_execution_run_compare_payload
-from .run_export import workspace_run_export_manifest, workspace_run_export_readme
+from .run_export import (
+    workspace_execution_run_export_payload,
+    workspace_run_export_manifest,
+    workspace_run_export_readme,
+)
 from .trace import workspace_node_artifacts, workspace_node_resources, workspace_node_trace
 
 
@@ -919,142 +922,6 @@ def filter_workspace_execution_runs(
         ]
     return filtered
 
-
-def workspace_execution_run_export_payload(
-    workspace: dict[str, Any],
-    run: dict[str, Any],
-    *,
-    jobs: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    replay = workspace_execution_run_replay_payload(workspace, run, jobs=jobs)
-    timeline = replay.get("timeline") if isinstance(replay.get("timeline"), list) else []
-    event_timeline = replay.get("event_timeline") if isinstance(replay.get("event_timeline"), list) else []
-    workspace_payload = replay.get("workspace") if isinstance(replay.get("workspace"), dict) else {}
-    workspace_id = str(workspace_payload.get("id") or "").strip()
-    linked_runs = workspace_execution_run_linked_runs(workspace, run)
-    source_runs = [run, *linked_runs]
-    job_index = workspace_jobs_for_run(workspace_id, run, jobs, linked_runs=linked_runs)
-    log_items: list[dict[str, Any]] = []
-    artifacts: list[dict[str, Any]] = []
-    reports: list[dict[str, Any]] = []
-    seen_log_job_ids: set[str] = set()
-    for source_run in source_runs:
-        source_run_id = str(source_run.get("id") or "").strip()
-        source_steps = [step for step in (source_run.get("steps") if isinstance(source_run.get("steps"), list) else []) if isinstance(step, dict)]
-        source_timeline = workspace_execution_run_timeline(source_run)
-        for step_index, step in enumerate(source_timeline):
-            if not isinstance(step, dict):
-                continue
-            source_step = next(
-                (
-                    item for item in source_steps
-                    if safe_int(item.get("index"), -1) == safe_int(step.get("index"), -2)
-                    and str(item.get("node_id") or "").strip() == str(step.get("node_id") or "").strip()
-                ),
-                source_steps[step_index] if step_index < len(source_steps) else {},
-            )
-            for job_id in workspace_run_step_job_ids(step):
-                job = job_index.get(job_id)
-                if not job or job_id in seen_log_job_ids:
-                    continue
-                log_payload = workspace_job_cached_log_tail_payload(
-                    job,
-                    max_lines=80,
-                    max_bytes=24000,
-                    tail_chars=12000,
-                )
-                log_text = str(log_payload.get("tail") or "")
-                if not log_text:
-                    continue
-                seen_log_job_ids.add(job_id)
-                tail_source = str(log_payload.get("tail_source") or "snapshot").strip() or "snapshot"
-                display_log_path = str(log_payload.get("display_log_path") or "").strip()
-                if not display_log_path:
-                    display_log_path = runtime_log_display_path(log_payload.get("log_path") or job.get("log_path"))
-                log_items.append(
-                    {
-                        "run_id": source_run_id,
-                        "job_id": job_id,
-                        "node_id": str(step.get("node_id") or "").strip(),
-                        "node_kind": str(step.get("node_kind") or "").strip(),
-                        "status": str(job.get("status") or step.get("status") or "").strip(),
-                        "log_path": display_log_path,
-                        "display_log_path": display_log_path,
-                        "remote_log_path": remote_runtime_log_display_path(log_payload.get("remote_log_path") or job.get("remote_log_path")),
-                        "tail_source": tail_source,
-                        "snapshot_captured_at": str(log_payload.get("snapshot_captured_at") or "").strip() if tail_source == "snapshot" else "",
-                        "file_size": safe_int(log_payload.get("file_size"), 0),
-                        "read_bytes": safe_int(log_payload.get("read_bytes"), 0),
-                        "tail_bytes": safe_int(log_payload.get("tail_bytes"), len(log_text.encode("utf-8", errors="replace"))),
-                        "skipped_bytes": safe_int(log_payload.get("skipped_bytes"), 0),
-                        "line_count": safe_int(log_payload.get("line_count"), len(log_text.splitlines())),
-                        "truncated": bool(log_payload.get("truncated")),
-                        "truncation_reasons": list(log_payload.get("truncation_reasons") if isinstance(log_payload.get("truncation_reasons"), list) else []),
-                        "tail": log_text,
-                    }
-                )
-            for artifact in source_step.get("artifacts") if isinstance(source_step.get("artifacts"), list) else []:
-                if not isinstance(artifact, dict):
-                    continue
-                item = copy.deepcopy(artifact)
-                item.setdefault("run_id", source_run_id)
-                item.setdefault("node_id", str(step.get("node_id") or "").strip())
-                item.setdefault("node_kind", str(step.get("node_kind") or "").strip())
-                artifacts.append(item)
-                artifact_type = str(item.get("type") or "").strip()
-                label = str(item.get("label") or "").strip().lower()
-                if artifact_type == "report" or label in {"report", "eval_report", "evaluation_report"}:
-                    reports.append(copy.deepcopy(item))
-
-        source_package = source_run.get("package_snapshot") if isinstance(source_run.get("package_snapshot"), dict) else {}
-        source_delivery = source_package.get("delivery_closure") if isinstance(source_package.get("delivery_closure"), dict) else {}
-        report_payload = source_delivery.get("report") if isinstance(source_delivery.get("report"), dict) else {}
-        for report in report_payload.get("artifacts") if isinstance(report_payload.get("artifacts"), list) else []:
-            if isinstance(report, dict):
-                item = copy.deepcopy(report)
-                item.setdefault("run_id", source_run_id)
-                reports.append(item)
-
-    artifacts = workspace_dedupe_artifacts(artifacts)[:48]
-    reports = reports[:12]
-    log_items = log_items[:12]
-    manifest = workspace_run_export_manifest(replay, logs=log_items, artifacts=artifacts, reports=reports)
-    readme = workspace_run_export_readme(manifest)
-    run_payload = replay.get("run") if isinstance(replay.get("run"), dict) else {}
-    delivery = replay.get("delivery_closure") if isinstance(replay.get("delivery_closure"), dict) else {}
-    run_id = str(run_payload.get("id") or "").strip()
-    package_id = str(run_payload.get("package_id") or "").strip()
-    filename_bits = [workspace_id or "workspace", run_id or "run", package_id or "export"]
-    filename = "relaygraph-run-" + "-".join(safe_id(bit) for bit in filename_bits if bit) + ".json"
-    return {
-        "schema": "relaygraph.run.export.v1",
-        "exported_at": now_iso(),
-        "filename": filename,
-        "workspace": copy.deepcopy(workspace_payload),
-        "run": copy.deepcopy(run_payload),
-        "summary": {
-            "step_count": len(timeline),
-            "linked_run_count": len(linked_runs),
-            "linked_step_count": sum(
-                len(workspace_execution_run_timeline(linked_run))
-                for linked_run in linked_runs
-                if isinstance(linked_run, dict)
-            ),
-            "linked_job_count": len(replay.get("linked_jobs") if isinstance(replay.get("linked_jobs"), list) else []),
-            "agent_execution_count": len(replay.get("agent_execution_ids") if isinstance(replay.get("agent_execution_ids"), list) else []),
-            "event_count": len(event_timeline),
-            "artifact_count": len(artifacts),
-            "report_count": len(reports),
-            "log_count": len(log_items),
-            "delivery_status": str(delivery.get("status") or "").strip(),
-        },
-        "manifest": manifest,
-        "readme_markdown": readme,
-        "replay": replay,
-        "logs": log_items,
-        "artifacts": artifacts,
-        "reports": reports,
-    }
 
 def workspace_run_step_from_job(job: dict[str, Any], index: int) -> dict[str, Any]:
     metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
