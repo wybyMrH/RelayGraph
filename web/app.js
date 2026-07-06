@@ -27637,17 +27637,47 @@ function bindEvents() {
   });
   $("workspaceAddAgentBtn")?.addEventListener("click", addWorkspaceAgent);
   $("workspaceAddToolBtn")?.addEventListener("click", addWorkspaceTool);
-  $("workspaceModelProfileSelect")?.addEventListener("change", (event) => {
-    updateWorkspaceModelDraft({ provider_profile_id: event.target.value || "" });
-  });
-  $("workspaceModelRoutingSelect")?.addEventListener("change", (event) => {
-    updateWorkspaceModelDraft({ routing_mode: event.target.value || "workspace_default" });
-  });
-  $("workspaceModelChatAgentSelect")?.addEventListener("change", (event) => {
-    updateWorkspaceModelDraft({ chat_agent_id: event.target.value || "" });
-  });
-  $("workspaceModelNotes")?.addEventListener("input", (event) => {
-    updateWorkspaceModelDraft({ notes: event.target.value || "" });
+  window.WorkspaceModelProviderActions?.bind?.({
+    element: $,
+    addProvider: addProviderProfile,
+    removeProvider: removeProviderProfile,
+    selectProvider: selectProviderProfile,
+    setModelChatAgentId: (value) => {
+      updateWorkspaceModelDraft({ chat_agent_id: value || "" });
+    },
+    setModelNotes: (value) => {
+      updateWorkspaceModelDraft({ notes: value || "" });
+    },
+    setModelProfileId: (value) => {
+      updateWorkspaceModelDraft({ provider_profile_id: value || "" });
+    },
+    setModelRoutingMode: (value) => {
+      updateWorkspaceModelDraft({ routing_mode: value || "workspace_default" });
+    },
+    setProviderVendor: (value) => {
+      updateSelectedProviderProfile((profile) => {
+        const next = {
+          ...profile,
+          vendor: value || "",
+          key_required: providerVendorRequiresApiKey(value),
+        };
+        if (baseUrlIsVendorDefault(profile.base_url)) {
+          next.base_url = vendorDefaultBaseUrl(value);
+        }
+        return next;
+      });
+    },
+    testProvider: testProviderConnectionFromEditor,
+    toggleKeyVisibility: () => {
+      state.ui.providerKeyVisible = !state.ui.providerKeyVisible;
+      renderWorkspaceModel();
+    },
+    updateProviderField: (key, value) => {
+      updateSelectedProviderProfile((profile) => ({
+        ...profile,
+        [key]: value,
+      }));
+    },
   });
   $("workspaceExecutionBoard")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
@@ -27960,7 +27990,6 @@ function bindEvents() {
       scheduleExecutionOverviewRefresh(100);
     },
   });
-  $("workspaceAddProviderBtn")?.addEventListener("click", addProviderProfile);
   window.WorkspaceNodeActions?.bind?.({
     element: $,
     addNode: () => insertWorkspaceNode($("workspaceNodeKindSelect")?.value || "custom.step"),
@@ -28092,49 +28121,6 @@ function bindEvents() {
     if (item.dataset.jobId) void showLog(item.dataset.jobId);
     else void openWorkspaceRunDetail(item.dataset.runId);
   });
-  $("providerProfileList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-provider-profile']");
-    if (button?.dataset.profileId) selectProviderProfile(button.dataset.profileId);
-  });
-  $("providerProfileEditor")?.addEventListener("click", (event) => {
-    const action = event.target.closest("[data-action]");
-    if (!action) return;
-    if (action.dataset.action === "remove-provider-profile" && action.dataset.profileId) {
-      removeProviderProfile(action.dataset.profileId);
-    } else if (action.dataset.action === "test-provider-profile") {
-      void testProviderConnectionFromEditor();
-    } else if (action.dataset.action === "toggle-provider-key-visibility") {
-      state.ui.providerKeyVisible = !state.ui.providerKeyVisible;
-      renderWorkspaceModel();
-    }
-  });
-  const handleProviderField = (event) => {
-    const target = event.target;
-    if (!target.matches("[data-provider-field]")) return;
-    const key = target.dataset.providerField;
-    // Switching vendor auto-fills Base URL when it's empty or still a preset,
-    // so the user doesn't end up with a mismatched endpoint.
-    if (key === "vendor") {
-      updateSelectedProviderProfile((profile) => {
-        const next = {
-          ...profile,
-          vendor: target.value || "",
-          key_required: providerVendorRequiresApiKey(target.value),
-        };
-        if (baseUrlIsVendorDefault(profile.base_url)) {
-          next.base_url = vendorDefaultBaseUrl(target.value);
-        }
-        return next;
-      });
-      return;
-    }
-    updateSelectedProviderProfile((profile) => ({
-      ...profile,
-      [key]: target.value,
-    }));
-  };
-  $("providerProfileEditor")?.addEventListener("input", handleProviderField);
-  $("providerProfileEditor")?.addEventListener("change", handleProviderField);
   $("jobForm").addEventListener("submit", submitJob);
   $("transferForm")?.addEventListener("submit", submitTransfer);
   $("transferConflictCloseBtn")?.addEventListener("click", () => {
