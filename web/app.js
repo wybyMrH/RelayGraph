@@ -13265,166 +13265,32 @@ function workspaceRunReplayState(runId = "", workspaceId = state.selectedWorkspa
   };
 }
 
-function workspaceRunReplayTimeline(replay = {}) {
-  const rootRun = replay.run && typeof replay.run === "object" ? replay.run : {};
-  const rootRunId = String(rootRun.id || "").trim();
-  const rootItems = (Array.isArray(replay.timeline) ? replay.timeline : [])
-    .filter((item) => item && typeof item === "object")
-    .map((item) => ({ ...item, replay_run_id: String(item.run_id || rootRunId).trim(), linked: false }));
-  const linkedItems = (Array.isArray(replay.linked_runs) ? replay.linked_runs : [])
-    .filter((item) => item && typeof item === "object")
-    .flatMap((item) => {
-      const linkedRun = item.run && typeof item.run === "object" ? item.run : {};
-      const linkedRunId = String(linkedRun.id || "").trim();
-      return (Array.isArray(item.timeline) ? item.timeline : [])
-        .filter((step) => step && typeof step === "object")
-        .map((step) => ({ ...step, replay_run_id: String(step.run_id || linkedRunId).trim(), linked: true }));
-    });
-  return [...rootItems, ...linkedItems];
+function workspaceRunReplayDeps() {
+  return {
+    escapeHtml,
+    fmtDate,
+    zhStatus,
+    workspaceStatusLabel,
+    workspaceRunEventLabel,
+    workspaceRunEventDetail,
+    compactText,
+  };
 }
 
 function workspaceRunReplayCountSummary(replay = {}) {
-  const rootRun = replay.run && typeof replay.run === "object" ? replay.run : {};
-  const timeline = workspaceRunReplayTimeline(replay);
-  const linkedRuns = Array.isArray(replay.linked_runs) ? replay.linked_runs.filter((item) => item && typeof item === "object") : [];
-  const linkedJobs = Array.isArray(replay.linked_jobs) ? replay.linked_jobs.filter((item) => item && typeof item === "object") : [];
-  const events = Array.isArray(replay.event_timeline) ? replay.event_timeline.filter((item) => item && typeof item === "object") : [];
-  const delta = replay.delta_evidence && typeof replay.delta_evidence === "object" ? replay.delta_evidence : {};
-  return {
-    stepCount: timeline.length,
-    linkedRunCount: linkedRuns.length,
-    linkedJobCount: linkedJobs.length,
-    eventCount: Number(rootRun.event_count || events.length || 0),
-    deltaCount: Number(rootRun.delta_evidence_count || delta.total_events || 0),
-  };
-}
-
-function workspaceRunReplayStepLine(step = {}) {
-  const title = String(step.node_title || step.node_kind || "步骤").trim();
-  const bits = [
-    step.linked ? `子运行 ${String(step.replay_run_id || step.run_id || "").trim()}` : "",
-    String(step.executor || "").trim(),
-    String(step.job_id || "").trim() ? `job ${step.job_id}` : "",
-    String(step.agent_execution_id || "").trim() ? `agent ${step.agent_execution_id}` : "",
-    String(step.output_key || "").trim(),
-  ].filter(Boolean);
-  const error = String(step.error || "").trim();
-  return {
-    title: `${Number(step.index || 0) + 1}. ${title}`,
-    meta: compactText(bits.join(" · "), 150),
-    status: String(step.status || "pending").trim(),
-    error: compactText(error, 180),
-  };
+  if (window.WorkspaceRunReplay?.countSummary) return window.WorkspaceRunReplay.countSummary(replay);
+  return { stepCount: 0, linkedRunCount: 0, linkedJobCount: 0, eventCount: 0, deltaCount: 0 };
 }
 
 function workspaceRunReplayPreviewMarkup(run = {}) {
   const runId = String(run.id || "").trim();
   const replayState = workspaceRunReplayState(runId);
-  if (!replayState.open) return "";
-  if (replayState.busy && !replayState.replay) {
-    return `
-      <div class="workspace-run-replay-preview loading">
-        <div class="workspace-run-replay-head">
-          <strong>回放预览</strong>
-          <span>正在读取结构化回放...</span>
-        </div>
-      </div>
-    `;
-  }
-  if (replayState.error && !replayState.replay) {
-    return `
-      <div class="workspace-run-replay-preview status-failed">
-        <div class="workspace-run-replay-head">
-          <strong>回放预览</strong>
-          <span>${escapeHtml(replayState.error)}</span>
-        </div>
-      </div>
-    `;
-  }
-  const replay = replayState.replay && typeof replayState.replay === "object" ? replayState.replay : null;
-  if (!replay) {
-    return `
-      <div class="workspace-run-replay-preview">
-        <div class="workspace-run-replay-head">
-          <strong>回放预览</strong>
-          <span>等待加载</span>
-        </div>
-      </div>
-    `;
-  }
-  const summary = workspaceRunReplayCountSummary(replay);
-  const rootRun = replay.run && typeof replay.run === "object" ? replay.run : {};
-  const delivery = replay.delivery_closure && typeof replay.delivery_closure === "object" ? replay.delivery_closure : {};
-  const closure = replay.linked_run_closure && typeof replay.linked_run_closure === "object" ? replay.linked_run_closure : {};
-  const timeline = workspaceRunReplayTimeline(replay);
-  const highlightedSteps = timeline.filter((step) => {
-    const stepStatus = String(step.status || "").trim();
-    return step.linked
-      || ["failed", "blocked", "stopped"].includes(stepStatus)
-      || Number(step.child_job_ref_count || 0) > 0
-      || Number(step.child_run_ref_count || 0) > 0;
+  if (!window.WorkspaceRunReplay?.previewMarkup) return "";
+  return window.WorkspaceRunReplay.previewMarkup({
+    run,
+    replayState,
+    ...workspaceRunReplayDeps(),
   });
-  const visibleSteps = highlightedSteps.slice(0, 4).map((step) => workspaceRunReplayStepLine(step));
-  const linkedJobs = (Array.isArray(replay.linked_jobs) ? replay.linked_jobs : [])
-    .filter((item) => item && typeof item === "object")
-    .slice(0, 4);
-  const visibleEvents = (Array.isArray(replay.event_timeline) ? replay.event_timeline : [])
-    .filter((item) => item && typeof item === "object")
-    .slice(-3)
-    .reverse();
-  const deliveryStatus = String(delivery.status || "").trim();
-  const packageId = String(rootRun.package_id || "").trim();
-  const closureIssue = closure.truncated
-    ? `子运行截断 ${Number(closure.included_count || 0)}/${Number(closure.included_count || 0) + Number(closure.pending_count || 0) + Number(closure.missing_count || 0)}`
-    : "";
-  return `
-    <div class="workspace-run-replay-preview status-${escapeHtml(rootRun.status || run.status || "pending")}">
-      <div class="workspace-run-replay-head">
-        <div>
-          <strong>回放预览</strong>
-          <span>${escapeHtml([replay.schema || "relaygraph.run.replay.v1", fmtDate(replay.exported_at || "")].filter(Boolean).join(" · "))}</span>
-        </div>
-        <em>${escapeHtml([packageId ? `pkg ${packageId}` : "", deliveryStatus ? `交付 ${workspaceStatusLabel(deliveryStatus)}` : "", closureIssue].filter(Boolean).join(" · ") || "结构化执行证据")}</em>
-      </div>
-      <div class="workspace-run-replay-stats">
-        <span><strong>${summary.stepCount}</strong>步骤</span>
-        <span><strong>${summary.eventCount}</strong>事件</span>
-        <span><strong>${summary.linkedJobCount}</strong>Job</span>
-        <span><strong>${summary.linkedRunCount}</strong>子运行</span>
-        <span><strong>${summary.deltaCount}</strong>实时增量</span>
-      </div>
-      ${visibleSteps.length ? `
-        <ol class="workspace-run-replay-steps">
-          ${visibleSteps.map((item) => `
-            <li class="status-${escapeHtml(item.status || "pending")}">
-              <strong>${escapeHtml(item.title)}</strong>
-              ${item.status ? `<span>${escapeHtml(zhStatus(item.status))}</span>` : ""}
-              ${item.meta ? `<em title="${escapeHtml(item.meta)}">${escapeHtml(item.meta)}</em>` : ""}
-              ${item.error ? `<p title="${escapeHtml(item.error)}">${escapeHtml(item.error)}</p>` : ""}
-            </li>
-          `).join("")}
-        </ol>
-      ` : ""}
-      ${linkedJobs.length ? `
-        <div class="workspace-run-replay-events">
-          ${linkedJobs.map((job) => {
-            const statusText = job.status ? zhStatus(job.status) : "未知状态";
-            const serverText = job.server_id ? ` · ${job.server_id}` : "";
-            return `<span title="${escapeHtml(job.command || job.error || job.id || "")}">${escapeHtml(`Job ${job.id || "-"} · ${statusText}${serverText}`)}</span>`;
-          }).join("")}
-        </div>
-      ` : ""}
-      ${visibleEvents.length ? `
-        <div class="workspace-run-replay-events">
-          ${visibleEvents.map((event) => {
-            const label = workspaceRunEventLabel(event.type || "");
-            const detail = workspaceRunEventDetail(event);
-            return `<span title="${escapeHtml(detail || label)}">${escapeHtml(label)}${detail ? ` · ${compactText(detail, 70)}` : ""}</span>`;
-          }).join("")}
-        </div>
-      ` : ""}
-    </div>
-  `;
 }
 
 function workspaceRunEvidenceNoticeMarkup(run = {}) {

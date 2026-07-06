@@ -551,16 +551,18 @@ class AgentsMixin:
         deadline = started + seconds
         timed_out = False
         last_job = self.workspace_tool_job_snapshot(job_id)
+        monitored_once = False
 
         while True:
             if last_job and str(last_job.get("status") or "").strip() in terminal_statuses:
                 break
-            if time.monotonic() > deadline:
+            if monitored_once and time.monotonic() > deadline:
                 timed_out = True
                 break
             try:
                 self.refresh_status()
                 self.monitor_jobs()
+                monitored_once = True
             except Exception as exc:  # noqa: BLE001 - observation reports scheduler issues in-band.
                 return {
                     "observed": True,
