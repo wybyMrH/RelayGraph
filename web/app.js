@@ -27961,34 +27961,53 @@ function bindEvents() {
     },
   });
   $("workspaceAddProviderBtn")?.addEventListener("click", addProviderProfile);
-  $("workspaceAddNodeBtn")?.addEventListener("click", () => insertWorkspaceNode($("workspaceNodeKindSelect")?.value || "custom.step"));
-  $("workspaceRebuildGraphBtn")?.addEventListener("click", rebuildWorkspaceStarterChain);
-  $("workspaceNodeList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    const nodeId = button.dataset.nodeId || "";
-    if (button.dataset.action === "select-workspace-node") {
-      selectWorkspaceNode(nodeId);
-    } else if (button.dataset.action === "move-workspace-node") {
-      moveWorkspaceNode(nodeId, button.dataset.direction || "down");
-    } else if (button.dataset.action === "remove-workspace-node") {
-      removeWorkspaceNode(nodeId);
-    } else if (button.dataset.action === "run-workspace-node") {
-      void runWorkspaceNode(nodeId);
-    } else if (button.dataset.action === "fill-job-from-node") {
-      fillJobFormFromNode(state.workspaceNodesDraft.find((node) => node.id === nodeId));
-    }
-  });
-  $("workspaceNodeEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "sync-form-from-node") {
+  window.WorkspaceNodeActions?.bind?.({
+    element: $,
+    addNode: () => insertWorkspaceNode($("workspaceNodeKindSelect")?.value || "custom.step"),
+    fillJobFromNode: (nodeId) => fillJobFormFromNode(state.workspaceNodesDraft.find((node) => node.id === nodeId)),
+    moveNode: moveWorkspaceNode,
+    rebuildGraph: rebuildWorkspaceStarterChain,
+    removeNode: removeWorkspaceNode,
+    runNode: runWorkspaceNode,
+    selectNode: selectWorkspaceNode,
+    syncFormFromSelectedNode: () => syncWorkspaceFormFromNode(selectedWorkspaceNode()),
+    updateConfigField: (key, value) => {
+      updateSelectedWorkspaceNode((node) => ({
+        ...node,
+        config: { ...(node.config || {}), [key]: value },
+      }));
       syncWorkspaceFormFromNode(selectedWorkspaceNode());
-    } else if (button.dataset.action === "run-workspace-node") {
-      void runWorkspaceNode(button.dataset.nodeId || "");
-    } else if (button.dataset.action === "fill-job-from-node") {
-      fillJobFormFromNode(state.workspaceNodesDraft.find((node) => node.id === button.dataset.nodeId));
-    }
+    },
+    updateHandlerField: (key, value) => {
+      if (key === "agent_id") {
+        const linkedAgent = workspaceAgentById(value);
+        updateSelectedWorkspaceNode((node) => ({
+          ...node,
+          handler: {
+            ...(node.handler || {}),
+            agent_id: value,
+            name: linkedAgent?.name || node.handler?.name || "",
+          },
+        }));
+        return;
+      }
+      updateSelectedWorkspaceNode((node) => ({
+        ...node,
+        handler: { ...(node.handler || {}), [key]: value },
+      }));
+    },
+    updateInputMapping: (value) => {
+      const mapping = workspaceInputMappingFromText(value || "");
+      updateSelectedWorkspaceNode((node) => {
+        const next = { ...node };
+        if (Object.keys(mapping).length) next.input_mapping = mapping;
+        else delete next.input_mapping;
+        return next;
+      });
+    },
+    updateNodeField: (key, value) => {
+      updateSelectedWorkspaceNode((node) => ({ ...node, [key]: value }));
+    },
   });
   window.WorkspaceAgentToolActions?.bind?.({
     element: $,
@@ -28116,55 +28135,6 @@ function bindEvents() {
   };
   $("providerProfileEditor")?.addEventListener("input", handleProviderField);
   $("providerProfileEditor")?.addEventListener("change", handleProviderField);
-  const handleNodeEditorField = (event) => {
-    const target = event.target;
-    if (target.matches("[data-node-field]")) {
-      const key = target.dataset.nodeField;
-      updateSelectedWorkspaceNode((node) => ({ ...node, [key]: target.value }));
-      return;
-    }
-    if (target.matches("[data-handler-field]")) {
-      const key = target.dataset.handlerField;
-      if (key === "agent_id") {
-        const linkedAgent = workspaceAgentById(target.value);
-        updateSelectedWorkspaceNode((node) => ({
-          ...node,
-          handler: {
-            ...(node.handler || {}),
-            agent_id: target.value,
-            name: linkedAgent?.name || node.handler?.name || "",
-          },
-        }));
-        return;
-      }
-      updateSelectedWorkspaceNode((node) => ({
-        ...node,
-        handler: { ...(node.handler || {}), [key]: target.value },
-      }));
-      return;
-    }
-    if (target.matches("[data-node-input-mapping]")) {
-      const mapping = workspaceInputMappingFromText(target.value || "");
-      updateSelectedWorkspaceNode((node) => {
-        const next = { ...node };
-        if (Object.keys(mapping).length) next.input_mapping = mapping;
-        else delete next.input_mapping;
-        return next;
-      });
-      return;
-    }
-    if (target.matches("[data-config-key]")) {
-      const key = target.dataset.configKey;
-      updateSelectedWorkspaceNode((node) => ({
-        ...node,
-        config: { ...(node.config || {}), [key]: target.value },
-      }));
-      syncWorkspaceFormFromNode(selectedWorkspaceNode());
-      return;
-    }
-  };
-  $("workspaceNodeEditor")?.addEventListener("input", handleNodeEditorField);
-  $("workspaceNodeEditor")?.addEventListener("change", handleNodeEditorField);
   $("jobForm").addEventListener("submit", submitJob);
   $("transferForm")?.addEventListener("submit", submitTransfer);
   $("transferConflictCloseBtn")?.addEventListener("click", () => {
