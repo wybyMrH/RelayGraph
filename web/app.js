@@ -11398,7 +11398,10 @@ function renderTransferPathFavoriteBar(mode) {
   box.hidden = false;
   box.className = "transfer-path-favorites compact";
   box.title = "收藏路径仅保存在本机浏览器，不会写入项目或提交到 Git";
-  box.innerHTML = `
+  const api = window.TransferPathFavoritesMarkup;
+  box.innerHTML = api && typeof api.transferPathFavoritesListMarkup === "function"
+    ? api.transferPathFavoritesListMarkup(mode, favorites, { escapeHtml, pathBaseName })
+    : `
     <div class="transfer-path-favorites-list">
       ${favorites.map((item) => `
         <span class="transfer-path-favorite-item">
@@ -11437,6 +11440,10 @@ function updateTransferPathFavoriteButtons() {
 
 function renderFilePickerFavoritesSidebar(serverId, currentPath) {
   const favorites = transferPathFavoritesForServer(serverId);
+  const api = window.TransferPathFavoritesMarkup;
+  if (api && typeof api.filePickerFavoritesSidebarMarkup === "function") {
+    return api.filePickerFavoritesSidebarMarkup(favorites, currentPath, { escapeHtml, pathBaseName, normalizePathForCompare });
+  }
   if (!favorites.length) {
     return `
       <div class="file-picker-sidebar-section">
