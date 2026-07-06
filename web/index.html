@@ -430,7 +430,7 @@
                         <button id="workspaceCreateTaskBtn" class="secondary mini" type="button" title="只建实例快照，不提交发现链或运行队列">仅建实例</button>
                         <button id="workspaceCreateDiscoverTaskBtn" class="primary mini" type="button" title="建实例后只跑安全发现链，先收集路径、数据、环境和 GPU 证据">建实例 + 发现</button>
                         <button id="workspaceCreateRunTaskBtn" class="secondary mini" type="button" title="建实例后交给自动推进；首次通常先跑安全发现">建实例 + 推进</button>
-                        <button id="workspaceTestChainBtn" class="secondary mini" type="button" title="检查当前输入、链路模板、发现链、资源和执行包是否就绪，不创建实例">测试链路</button>
+                        <button id="workspaceTestChainBtn" class="secondary mini" type="button" title="启动前检查当前输入、链路模板、发现链、资源和执行包是否就绪，不创建实例">启动检查</button>
                         <button id="workspaceResetLauncherBtn" class="secondary mini" type="button" title="清空启动器输入、取消历史实例选择并恢复默认模板">Reset</button>
                       </div>
                     </div>
@@ -1556,7 +1556,7 @@
                     <div class="subsection-head-actions">
                       <button id="transferSourceTreeUpBtn" class="secondary mini" type="button" hidden title="返回当前源目录的上一级">上级</button>
                       <button id="transferSourceTreeForwardBtn" class="secondary mini" type="button" hidden title="回到刚才打开过的下级源目录">返回</button>
-                      <button id="transferSourceTreeClearBtn" class="secondary mini" type="button" hidden title="清空源目录树和路径输入">清空</button>
+                      <button id="transferSourceTreeClearBtn" class="secondary mini" type="button" hidden title="清空源目录树和路径输入">清源路径</button>
                       <button id="transferTreeClearPreviewBtn" class="secondary mini" type="button" hidden title="关闭右侧文件快览">清空快览</button>
                       <span id="transferTreeMeta" class="muted">选择源路径后显示文件树</span>
                     </div>

@@ -636,16 +636,18 @@ class FilesMixin:
 
     def reset_runtime_storage(self, body: dict[str, Any] | None = None) -> dict[str, Any]:
         settings = reset_runtime_storage_settings()
-        payload: dict[str, Any] = {"settings": settings, **self.runtime_storage_status()}
+        include_remote = bool(body.get("include_remote", True)) if isinstance(body, dict) else True
+        payload: dict[str, Any] = {"settings": settings}
         if isinstance(body, dict) and body.get("cleanup"):
             payload["cleanup"] = self.cleanup_runtime_storage_manual(
                 {
                     "include_preview": True,
                     "include_logs": True,
-                    "include_remote": bool(body.get("include_remote", True)),
+                    "include_remote": include_remote,
                     "remove_all": True,
                 }
             )
+        payload.update(self.runtime_storage_status(include_remote=include_remote))
         return payload
 
 

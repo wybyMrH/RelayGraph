@@ -223,6 +223,7 @@ const state = {
     agentDefinitionDirty: false,
     toolDefinitionDirty: false,
     providerProfileDirty: false,
+    runtimeStorageBusy: false,
   },
 };
 
@@ -2546,6 +2547,12 @@ function maskSecret(value) {
   if (!text) return "未填写";
   if (text.length <= 8) return `${text.slice(0, 2)}***${text.slice(-1)}`;
   return `${text.slice(0, 4)}...${text.slice(-4)}`;
+}
+
+function providerProfileSecretLabel(profile = {}) {
+  if (profile.api_key) return maskSecret(profile.api_key);
+  if (profile.api_key_masked) return `已保存 ${profile.api_key_masked}`;
+  return profile.has_api_key ? "已保存 API key" : "未填写";
 }
 
 function providerProfileById(profileId, list = state.providerProfiles) {
@@ -13384,16 +13391,16 @@ function testWorkspaceStarterChain() {
   renderWorkspaceLaunchClosure();
   if (blocked.length) {
     const labels = blocked.map((item) => item.label).join("、");
-    setWorkspaceUseMessage(`链路未通过：${labels} 仍有断点，请按启动闭环提示补齐。`, true);
+    setWorkspaceUseMessage(`启动检查未通过：${labels} 仍有断点，请按启动闭环提示补齐。`, true);
     revealWorkspacePanelTarget("workspaceLaunchClosure", { block: "nearest" });
     return;
   }
   if (warnings.length) {
     const labels = warnings.map((item) => item.label).join("、");
-    setWorkspaceUseMessage(`链路可建实例，但 ${labels} 仍需注意（${ready.length}/${items.length} 就绪）。`, true);
+    setWorkspaceUseMessage(`启动检查允许建实例，但 ${labels} 仍需注意（${ready.length}/${items.length} 就绪）。`, true);
     return;
   }
-  setWorkspaceUseMessage(`链路诊断通过（${ready.length}/${items.length} 就绪），可以创建并推进。`, false);
+  setWorkspaceUseMessage(`启动检查通过（${ready.length}/${items.length} 就绪），可以创建并推进。`, false);
 }
 
 function renderWorkspaceUseMonitor() {
@@ -15897,7 +15904,7 @@ function renderWorkspaceModel() {
                 </div>
                 <div class="workspace-provider-meta">${escapeHtml(profile.model || "未设置模型")}</div>
                 <div class="workspace-provider-meta">${escapeHtml(profile.base_url || "默认 base URL")}</div>
-                <div class="workspace-provider-secret">${escapeHtml(maskSecret(profile.api_key))}</div>
+                <div class="workspace-provider-secret">${escapeHtml(providerProfileSecretLabel(profile))}</div>
               </button>
             `;
           }).join("")}
@@ -18120,7 +18127,7 @@ function renderSelectedSources() {
   list.innerHTML = `
     <div class="selected-source-toolbar">
       <span class="muted">提交时会依次传输这些源项。</span>
-      <button class="secondary mini" type="button" data-action="clear-transfer-sources" title="清空当前所有待传源项">清空</button>
+      <button class="secondary mini" type="button" data-action="clear-transfer-sources" title="清空当前所有待传源项">清空待传</button>
     </div>
     ${rows}
   `;
@@ -19151,6 +19158,22 @@ function runtimeStorageSettingsInputPayload() {
   };
 }
 
+const RUNTIME_STORAGE_CONTROL_IDS = [
+  "runtimeStorageSaveBtn",
+  "runtimeStorageCleanupBtn",
+  "runtimeStoragePurgeBtn",
+  "runtimeStateCleanupBtn",
+  "runtimeStorageResetBtn",
+];
+
+function setRuntimeStorageControlsBusy(busy) {
+  state.ui.runtimeStorageBusy = Boolean(busy);
+  RUNTIME_STORAGE_CONTROL_IDS.forEach((id) => {
+    const button = $(id);
+    if (button) button.disabled = Boolean(busy);
+  });
+}
+
 async function loadRuntimeStoragePanel() {
   const message = $("runtimeStorageMessage");
   try {
@@ -19173,11 +19196,13 @@ async function loadRuntimeStoragePanel() {
 }
 
 async function saveRuntimeStorageSettings() {
+  if (state.ui.runtimeStorageBusy) return;
   const message = $("runtimeStorageMessage");
   if (message) {
     message.textContent = "正在保存...";
     message.classList.remove("error");
   }
+  setRuntimeStorageControlsBusy(true);
   try {
     const payload = await fetchJson("/api/admin/runtime-storage/settings", {
       method: "PUT",
@@ -19191,16 +19216,20 @@ async function saveRuntimeStorageSettings() {
       message.textContent = humanizeFetchError(error, "保存设置");
       message.classList.add("error");
     }
+  } finally {
+    setRuntimeStorageControlsBusy(false);
   }
 }
 
 async function cleanupRuntimeStateNow() {
+  if (state.ui.runtimeStorageBusy) return;
   const message = $("runtimeStorageMessage");
   if (!confirm("确定清理已完成/失败/停止的任务记录，并把每个项目的旧运行记录裁剪到最近 20 条吗？这不会删除运行日志、缓存、项目配置、聊天或密钥。")) return;
   if (message) {
     message.textContent = "正在清理运行记录...";
     message.classList.remove("error");
   }
+  setRuntimeStorageControlsBusy(true);
   try {
     const payload = await fetchJson("/api/admin/runtime-state/cleanup", {
       method: "POST",
@@ -19221,10 +19250,13 @@ async function cleanupRuntimeStateNow() {
       message.textContent = humanizeFetchError(error, "清理运行记录");
       message.classList.add("error");
     }
+  } finally {
+    setRuntimeStorageControlsBusy(false);
   }
 }
 
 async function cleanupRuntimeStorageNow(removeAll = false) {
+  if (state.ui.runtimeStorageBusy) return;
   const message = $("runtimeStorageMessage");
   const remoteInput = $("runtimeRemoteCleanupEnabled");
   const includeRemote = remoteInput?.checked !== false;
@@ -19238,6 +19270,7 @@ async function cleanupRuntimeStorageNow(removeAll = false) {
     message.textContent = removeAll ? "正在清空..." : "正在按策略清理...";
     message.classList.remove("error");
   }
+  setRuntimeStorageControlsBusy(true);
   try {
     const payload = await fetchJson("/api/admin/runtime-storage/cleanup", {
       method: "POST",
@@ -19267,16 +19300,20 @@ async function cleanupRuntimeStorageNow(removeAll = false) {
       message.textContent = humanizeFetchError(error, "清理运行数据");
       message.classList.add("error");
     }
+  } finally {
+    setRuntimeStorageControlsBusy(false);
   }
 }
 
 async function resetRuntimeStorageSettings() {
+  if (state.ui.runtimeStorageBusy) return;
   const message = $("runtimeStorageMessage");
   if (!confirm("确定恢复默认自动清理策略吗？这不会删除已有日志或缓存。")) return;
   if (message) {
     message.textContent = "正在重置...";
     message.classList.remove("error");
   }
+  setRuntimeStorageControlsBusy(true);
   try {
     const payload = await fetchJson("/api/admin/runtime-storage/reset", {
       method: "POST",
@@ -19290,6 +19327,8 @@ async function resetRuntimeStorageSettings() {
       message.textContent = humanizeFetchError(error, "重置清理策略");
       message.classList.add("error");
     }
+  } finally {
+    setRuntimeStorageControlsBusy(false);
   }
 }
 
@@ -24855,7 +24894,7 @@ const WORKSPACE_AUTOMATION_ACTION_LABELS = {
   "create-workspace": "仅建实例",
   "create-workspace-discover": "建实例 + 发现",
   "create-workspace-run": "建实例 + 推进",
-  "test-workspace-chain": "测试链路",
+  "test-workspace-chain": "启动检查",
   "run-workspace-node": "运行节点",
   "run-workspace-node-agent": "Agent 运行",
   "run-workspace-node-job": "Job 运行",
@@ -24918,7 +24957,7 @@ const WORKSPACE_AUTOMATION_ACTION_HELP = {
   "create-workspace": "只建实例快照，不提交发现链或运行队列。",
   "create-workspace-discover": "建实例后只跑安全发现链，先收集源码、路径、数据、环境、GPU 和产物证据。",
   "create-workspace-run": "建实例后交给自动推进；首次通常先跑安全发现，门禁通过后再完整运行。",
-  "test-workspace-chain": "检查当前输入、链路模板、发现链、资源和执行包是否就绪，不创建实例。",
+  "test-workspace-chain": "启动前检查当前输入、链路模板、发现链、资源和执行包是否就绪，不创建实例。",
   "run-workspace-node": "按自动策略提交当前节点（Agent 优先，失败则回退 Job）。",
   "run-workspace-node-agent": "由绑定的 Agent 执行当前节点，可调用 workflow.edit / artifact.write 写回配置。",
   "run-workspace-node-job": "把当前节点作为 shell Job 提交到队列，适合发现链与 run.command。",
@@ -26140,11 +26179,19 @@ const transferConflictState = {
   decisions: {},
 };
 
-function hideTransferConflictModal() {
+function hideTransferConflictModal(options = {}) {
   $("transferConflictModal")?.setAttribute("hidden", "");
   transferConflictState.pending = null;
   transferConflictState.queue = [];
   transferConflictState.decisions = {};
+  const messageText = typeof options === "string" ? options : String(options?.message || "");
+  if (messageText) {
+    const message = $("transferMessage");
+    if (message) {
+      message.textContent = messageText;
+      message.classList.remove("error");
+    }
+  }
 }
 
 function renderTransferConflictModal(conflicts = []) {
@@ -28849,7 +28896,9 @@ function bindEvents() {
   $("workspaceNodeEditor")?.addEventListener("change", handleNodeEditorField);
   $("jobForm").addEventListener("submit", submitJob);
   $("transferForm")?.addEventListener("submit", submitTransfer);
-  $("transferConflictCloseBtn")?.addEventListener("click", hideTransferConflictModal);
+  $("transferConflictCloseBtn")?.addEventListener("click", () => {
+    hideTransferConflictModal({ message: "已取消本次文件传输。" });
+  });
   $("transferConflictOverwriteAllBtn")?.addEventListener("click", () => {
     const pending = transferConflictState.pending;
     if (!pending) return;

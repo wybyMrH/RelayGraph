@@ -166,9 +166,15 @@ def read_json(path: Path, default: Any) -> Any:
 
 def write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def file_browser_roots() -> list[dict[str, str]]:
@@ -1084,10 +1090,10 @@ def cleanup_runtime_logs(
             path.relative_to(root)
         except ValueError:
             continue
-        removed_bytes += int(item["size"])
         try:
             path.unlink()
             removed_count += 1
+            removed_bytes += int(item["size"])
         except OSError:
             pass
     stats = local_runtime_log_stats()
