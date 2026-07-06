@@ -17661,12 +17661,20 @@ function renderIgnoreChips() {
   const box = $("ignoreChips");
   const count = $("ignoreCount");
   if (!box || !count) return;
-  count.textContent = `${state.transfer.ignores.length} 项`;
-  if (!state.transfer.ignores.length) {
+  const ignores = Array.isArray(state.transfer.ignores) ? state.transfer.ignores : [];
+  const api = window.TransferIgnoreChips;
+  count.textContent = api && typeof api.ignoreCountText === "function"
+    ? api.ignoreCountText(ignores)
+    : `${ignores.length} 项`;
+  if (api && typeof api.ignoreChipsMarkup === "function") {
+    box.innerHTML = api.ignoreChipsMarkup(ignores, { escapeHtml });
+    return;
+  }
+  if (!ignores.length) {
     box.innerHTML = '<span class="muted">可以从左侧文件树点“忽略”加入。</span>';
     return;
   }
-  box.innerHTML = state.transfer.ignores
+  box.innerHTML = ignores
     .map((item) => `
       <span class="ignore-chip" title="${escapeHtml(item)}">
         <span>${escapeHtml(item)}</span>
