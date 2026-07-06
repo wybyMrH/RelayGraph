@@ -3434,94 +3434,33 @@ async function applyAllWorkflowTemplateRepairActions() {
   }
 }
 
-function workflowTemplateVersionModeLabel(mode = "") {
-  const value = String(mode || "").trim();
-  if (value === "create") return "创建";
-  if (value === "update") return "更新";
-  return "记录";
-}
-
-function workflowTemplateVersionSummary(record = {}) {
-  const summary = record.summary && typeof record.summary === "object" ? record.summary : {};
-  const bits = [
-    Number(summary.changed_count || 0) ? `${Number(summary.changed_count || 0)} 处变化` : "",
-    Number(summary.added_node_count || 0) ? `+${Number(summary.added_node_count || 0)} 节点` : "",
-    Number(summary.removed_node_count || 0) ? `-${Number(summary.removed_node_count || 0)} 节点` : "",
-    Number(summary.changed_node_count || 0) ? `${Number(summary.changed_node_count || 0)} 节点改动` : "",
-    Number(summary.added_link_count || 0) ? `+${Number(summary.added_link_count || 0)} 连接` : "",
-    Number(summary.removed_link_count || 0) ? `-${Number(summary.removed_link_count || 0)} 连接` : "",
-    summary.link_topology_changed ? "拓扑变化" : summary.link_order_changed ? "顺序变化" : "",
-  ].filter(Boolean);
-  const fields = Array.isArray(record.changed_fields) ? record.changed_fields.filter(Boolean).slice(0, 3) : [];
-  if (fields.length) bits.push(`字段 ${fields.join(", ")}`);
-  return bits.join(" · ") || "无结构变化";
-}
-
 function workflowTemplateVersionHistoryMarkup(template = state.workflowTemplateDraft || {}) {
-  const history = Array.isArray(template.version_history) ? template.version_history : [];
-  if (!history.length) {
-    return `
-      <div class="workspace-template-version-history empty-state">
-        <span class="workspace-cockpit-label">版本历史</span>
-        <strong>暂无历史记录</strong>
-        <p>保存模板后会记录轻量变更摘要，便于后续迁移审计。</p>
-      </div>
-    `;
-  }
-  return `
-    <div class="workspace-template-version-history">
-      <div class="workspace-template-version-head">
-        <span class="workspace-cockpit-label">版本历史</span>
-        <div>
-          <strong>${history.length} 条记录</strong>
-          <button class="secondary mini" type="button" data-action="copy-template-version-history" title="复制当前模板版本历史摘要 JSON，便于迁移审计和排错">复制历史</button>
-        </div>
-      </div>
-      <div class="workspace-template-version-list">
-        ${history.slice(0, 4).map((record) => `
-          <article class="workspace-template-version-item" title="${escapeHtml(workflowTemplateVersionSummary(record))}">
-            <div>
-              <strong>${escapeHtml(workflowTemplateVersionModeLabel(record.mode))}</strong>
-              <span>${escapeHtml(fmtDate(record.recorded_at || record.to_updated_at || "") || record.recorded_at || "")}</span>
-            </div>
-            <p>${escapeHtml(workflowTemplateVersionSummary(record))}</p>
-          </article>
-        `).join("")}
-      </div>
-    </div>
-  `;
+  if (!window.WorkflowTemplateVersionHistory?.historyMarkup) return "";
+  return window.WorkflowTemplateVersionHistory.historyMarkup({
+    template,
+    escapeHtml,
+    fmtDate,
+  });
 }
 
 function workflowTemplateVersionAuditPayload(template = state.workflowTemplateDraft || {}) {
   const normalized = normalizeWorkflowTemplateDraft(template || {});
-  const history = Array.isArray(normalized.version_history) ? normalized.version_history : [];
-  return {
-    schema: "relaygraph.workflow_template.version_history.copy.v1",
-    copied_at: new Date().toISOString(),
-    template_id: normalized.id || state.selectedWorkflowTemplateId || "",
-    template_name: normalized.name || "",
-    dirty: Boolean(state.ui.workflowTemplateDirty),
-    source_type: normalized.source?.type || "repo",
-    node_count: Array.isArray(normalized.nodes) ? normalized.nodes.length : 0,
-    link_count: Array.isArray(normalized.links) ? normalized.links.length : 0,
-    updated_at: normalized.updated_at || "",
-    history_count: history.length,
-    history: history.map((record) => ({
-      id: record.id || "",
-      mode: record.mode || "update",
-      recorded_at: record.recorded_at || "",
-      from_updated_at: record.from_updated_at || "",
-      to_updated_at: record.to_updated_at || "",
-      from_node_count: Number(record.from_node_count || 0),
-      to_node_count: Number(record.to_node_count || 0),
-      summary: record.summary && typeof record.summary === "object" ? { ...record.summary } : {},
-      changed_fields: Array.isArray(record.changed_fields) ? record.changed_fields.slice(0, 12) : [],
-      added_nodes: Array.isArray(record.added_nodes) ? record.added_nodes.slice(0, 8) : [],
-      removed_nodes: Array.isArray(record.removed_nodes) ? record.removed_nodes.slice(0, 8) : [],
-      changed_nodes: Array.isArray(record.changed_nodes) ? record.changed_nodes.slice(0, 8) : [],
-      warnings: Array.isArray(record.warnings) ? record.warnings.slice(0, 12) : [],
-    })),
-  };
+  if (!window.WorkflowTemplateVersionHistory?.auditPayload) {
+    return {
+      schema: "relaygraph.workflow_template.version_history.copy.v1",
+      copied_at: new Date().toISOString(),
+      template_id: normalized.id || state.selectedWorkflowTemplateId || "",
+      template_name: normalized.name || "",
+      dirty: Boolean(state.ui.workflowTemplateDirty),
+      history_count: 0,
+      history: [],
+    };
+  }
+  return window.WorkflowTemplateVersionHistory.auditPayload({
+    template: normalized,
+    selectedTemplateId: state.selectedWorkflowTemplateId,
+    dirty: state.ui.workflowTemplateDirty,
+  });
 }
 
 async function copyWorkflowTemplateVersionHistory() {
@@ -3537,11 +3476,12 @@ async function copyWorkflowTemplateVersionHistory() {
   setWorkspaceManageMessage("模板版本历史 JSON 已复制。");
 }
 
-function workspaceTemplateDiffMarkup() {
+function workspaceTemplateDiffMarkup(options = {}) {
   if (!window.WorkspaceTemplateDiff?.diffMarkup) return '<div class="empty">模板差异视图暂不可用。</div>';
   return window.WorkspaceTemplateDiff.diffMarkup({
     workspace: selectedWorkspace(),
     cached: state.workspaceTemplateDiff || {},
+    readOnly: Boolean(options.readOnly),
     escapeHtml,
   });
 }
@@ -6366,8 +6306,21 @@ function workspaceAutomationGapQueueItems(workspace = selectedWorkspace(), formD
   }];
 }
 
-function workspaceAutomationGapQueueMarkup(workspace = selectedWorkspace(), formData = workspaceFormPayload(), resources = workspaceUseResourceSummary(), template = selectedWorkflowTemplate()) {
+function workspaceAutomationGapQueueReadOnlyAction(item = {}) {
+  const action = item.action || {};
+  const nodeId = String(action.nodeId || item.nodeId || "").trim();
+  if (String(action.action || "") === "select-execution-node" && nodeId) {
+    return { label: "定位节点", action: "select-execution-node", nodeId };
+  }
+  if (String(action.action || "") === "open-workspace-node" && nodeId) {
+    return { label: "定位节点", action: "select-execution-node", nodeId };
+  }
+  return null;
+}
+
+function workspaceAutomationGapQueueMarkup(workspace = selectedWorkspace(), formData = workspaceFormPayload(), resources = workspaceUseResourceSummary(), template = selectedWorkflowTemplate(), options = {}) {
   const items = workspaceAutomationGapQueueItems(workspace, formData, resources, template);
+  const readOnly = Boolean(options.readOnly);
   const blocked = items.filter((item) => ["blocked", "failed"].includes(String(item.status || ""))).length;
   const ready = items.filter((item) => ["ready", "done"].includes(String(item.status || ""))).length;
   const visible = items.slice(0, 5);
@@ -6379,15 +6332,15 @@ function workspaceAutomationGapQueueMarkup(workspace = selectedWorkspace(), form
           <span>缺口 / 证据队列</span>
           <strong>${escapeHtml(`${blocked} 阻塞 · ${ready} 可用 · ${items.length} 项`)}</strong>
         </div>
-        <small>把 source / data / env / gpu / run / artifact 映射到节点字段</small>
+        <small>${readOnly ? "只读定位缺口；修复请回到对应配置页或驾驶舱动作区" : "把 source / data / env / gpu / run / artifact 映射到节点字段"}</small>
       </div>
       <div class="workspace-gap-queue-list">
         ${visible.map((item) => {
-          const action = item.action || {};
+          const action = readOnly ? workspaceAutomationGapQueueReadOnlyAction(item) : item.action || {};
           const actionAttrs = [
-            `data-action="${escapeHtml(action.action || "")}"`,
-            action.nodeId || item.nodeId ? `data-node-id="${escapeHtml(action.nodeId || item.nodeId || "")}"` : "",
-            action.tab ? `data-tab="${escapeHtml(action.tab)}"` : "",
+            action ? `data-action="${escapeHtml(action.action || "")}"` : "",
+            action?.nodeId || item.nodeId ? `data-node-id="${escapeHtml(action?.nodeId || item.nodeId || "")}"` : "",
+            action?.tab ? `data-tab="${escapeHtml(action.tab)}"` : "",
           ].filter(Boolean).join(" ");
           return `
             <article class="workspace-gap-queue-item status-${escapeHtml(item.status || "draft")}">
@@ -6397,7 +6350,9 @@ function workspaceAutomationGapQueueMarkup(workspace = selectedWorkspace(), form
                 <em title="${escapeHtml(item.detail || "")}">${escapeHtml(item.detail || "")}</em>
                 <small title="${escapeHtml(item.target || "")}">${escapeHtml(item.target || "目标字段待定")}</small>
               </div>
-              <button class="secondary mini" type="button" ${actionAttrs} title="${escapeHtml(action.label || "处理")}">${escapeHtml(action.label || "处理")}</button>
+              ${action
+                ? `<button class="secondary mini" type="button" ${actionAttrs} title="${escapeHtml(action.label || "定位")}">${escapeHtml(action.label || "定位")}</button>`
+                : '<span class="muted">只读</span>'}
             </article>
           `;
         }).join("")}
@@ -6698,7 +6653,7 @@ function workspaceAutomationPlaybookMarkup(workspace = selectedWorkspace(), { co
   `;
 }
 
-function workspaceAutomationExecutionReadinessMarkup(workspace = selectedWorkspace(), { limit = 6 } = {}) {
+function workspaceAutomationExecutionReadinessMarkup(workspace = selectedWorkspace(), { limit = 6, readOnly = false } = {}) {
   const readiness = workspaceAutomationSummary(workspace)?.executionReadiness;
   if (!readiness) return '<div class="empty">还没有执行准备清单。</div>';
   const steps = Array.isArray(readiness.steps) ? readiness.steps.slice(0, limit) : [];
@@ -6733,7 +6688,7 @@ function workspaceAutomationExecutionReadinessMarkup(workspace = selectedWorkspa
           <strong>${escapeHtml(String(jobState.failed_count || 0))}</strong>
         </article>
       </div>
-      ${workspaceAutomationStateMachineMarkup(workspace)}
+      ${workspaceAutomationStateMachineMarkup(workspace, { readOnly })}
       <div class="workspace-readiness-gate status-${escapeHtml(gate.status || "draft")}">
         <div>
           <span>运行门禁</span>
@@ -6835,9 +6790,10 @@ function workspaceStateMachineActionButton(action = {}, current = false) {
   `;
 }
 
-function workspaceAutomationStateMachineMarkup(workspace = selectedWorkspace()) {
+function workspaceAutomationStateMachineMarkup(workspace = selectedWorkspace(), options = {}) {
   const readiness = workspaceAutomationSummary(workspace)?.executionReadiness;
   if (!workspace?.id || !readiness) return "";
+  const readOnly = Boolean(options.readOnly);
   const steps = Array.isArray(readiness.steps) ? readiness.steps : [];
   if (!steps.length) return "";
   const next = readiness.next_action && typeof readiness.next_action === "object" ? readiness.next_action : {};
@@ -6873,7 +6829,7 @@ function workspaceAutomationStateMachineMarkup(workspace = selectedWorkspace()) 
                 <strong title="${escapeHtml(step.title || "")}">${escapeHtml(step.title || workspaceStatusLabel(step.status || "draft"))}</strong>
                 <em title="${escapeHtml(step.detail || step.action || "")}">${escapeHtml(step.detail || step.action || "")}</em>
                 <div class="workspace-state-step-actions">
-                  ${workspaceStateMachineActionButton(action, current)}
+                  ${readOnly ? '<span class="muted">只读</span>' : workspaceStateMachineActionButton(action, current)}
                 </div>
               </div>
             </article>
@@ -11037,7 +10993,7 @@ function renderWorkspaceChainInspectPanel() {
     summaryRoot.innerHTML = workspaceChainInspectSummaryMarkup(workspace, template);
   }
   if (templateDiffRoot) {
-    templateDiffRoot.innerHTML = workspaceTemplateDiffMarkup();
+    templateDiffRoot.innerHTML = workspaceTemplateDiffMarkup({ readOnly: true });
   }
   const focusNodeId = cockpitNext?.focus_node_id || state.selectedWorkspaceExecutionNodeId || "";
   chainRoot.innerHTML = workspaceCockpitChainMarkup(workspace, template, { focusNodeId });
@@ -11045,12 +11001,12 @@ function renderWorkspaceChainInspectPanel() {
     handoffRoot.innerHTML = workspaceCockpitHandoffMapMarkup(workspace, template);
   }
   if (gapRoot) {
-    gapRoot.innerHTML = workspaceAutomationGapQueueMarkup(workspace, formData, resources, template)
+    gapRoot.innerHTML = workspaceAutomationGapQueueMarkup(workspace, formData, resources, template, { readOnly: true })
       || '<div class="empty">当前链路没有登记缺口。</div>';
   }
   if (readinessRoot) {
     readinessRoot.innerHTML = automation
-      ? workspaceAutomationExecutionReadinessMarkup(workspace, { limit: 8 })
+      ? workspaceAutomationExecutionReadinessMarkup(workspace, { limit: 8, readOnly: true })
       : workspaceCockpitStarterReadinessMarkup(inputs, template, next, resources);
   }
 }

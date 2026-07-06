@@ -175,6 +175,7 @@
   function migrationPlanMarkup(plan = null, options = {}) {
     const deps = { escapeHtml: options.escapeHtml };
     if (!plan || typeof plan !== "object") return "";
+    const readOnly = Boolean(options.readOnly);
     const status = String(plan.status || "draft");
     const strategy = String(plan.strategy || "");
     const statusClass = migrationStatusClass(status);
@@ -190,8 +191,10 @@
         </div>
         <div class="workspace-template-diff-plan-actions">
           <button class="secondary mini" type="button" data-action="copy-template-migration-plan" title="复制模板差异迁移计划 JSON，供迁移前审计和复核">复制计划</button>
-          <button class="secondary mini" type="button" data-action="apply-template-migration" title="${escapeFor(deps, canApply ? "手动应用当前模板的安全字段，并记录迁移历史" : "此差异包含结构性变化，建议新建实例或人工重建")}" ${canApply ? "" : "disabled"}>应用安全迁移</button>
-          ${canCreateDraft ? `<button class="secondary mini" type="button" data-action="create-template-migration-draft" title="从当前实例输入和当前模板创建一个新草稿，旧实例和运行历史保持不变">新建迁移草稿</button>` : ""}
+          ${readOnly ? '<span class="muted">只读诊断</span>' : `
+            <button class="secondary mini" type="button" data-action="apply-template-migration" title="${escapeFor(deps, canApply ? "手动应用当前模板的安全字段，并记录迁移历史" : "此差异包含结构性变化，建议新建实例或人工重建")}" ${canApply ? "" : "disabled"}>应用安全迁移</button>
+            ${canCreateDraft ? `<button class="secondary mini" type="button" data-action="create-template-migration-draft" title="从当前实例输入和当前模板创建一个新草稿，旧实例和运行历史保持不变">新建迁移草稿</button>` : ""}
+          `}
         </div>
       </div>
       ${steps.length ? `
@@ -206,6 +209,7 @@
 
   function diffMarkup(options = {}) {
     const deps = { escapeHtml: options.escapeHtml };
+    const readOnly = Boolean(options.readOnly);
     const workspace = options.workspace && typeof options.workspace === "object" ? options.workspace : null;
     if (!workspace?.id) {
       return '<div class="empty">选择一个实例后显示它与当前模板的快照差异。</div>';
@@ -260,7 +264,7 @@
       ` : '<p class="workspace-chain-inspect-summary-note">当前实例仍保持创建时的独立快照；模板变化不会自动改写它。</p>'}
       ${structurePreviewMarkup(structurePreview, deps)}
       ${linkPreviewMarkup(linkPreview, deps)}
-      ${migrationPlanMarkup(migrationPlan, deps)}
+      ${migrationPlanMarkup(migrationPlan, { ...deps, readOnly })}
     `;
   }
 
