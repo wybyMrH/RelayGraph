@@ -18474,6 +18474,17 @@ function previewPathMatchesState(path, serverId = "") {
 
 function buildFilePreviewDisplay(emptyMessage = "选择文件查看预览。") {
   const server = serverById(state.filePreview.serverId || state.filePicker.serverId || "");
+  const api = window.FilePreviewMarkup;
+  if (api && typeof api.buildFilePreviewDisplay === "function") {
+    return api.buildFilePreviewDisplay(
+      state.filePreview,
+      {
+        emptyMessage,
+        serverName: server?.name || "",
+      },
+      { escapeHtml, formatPreviewText, pathBaseName },
+    );
+  }
   if (state.filePreview.loading) {
     return {
       title: "文件快览",
