@@ -17826,10 +17826,14 @@ function renderTransferTreeNode(entry, level = 0) {
   const previewing = previewPathMatchesState(entry.path, transferSourceServerId()) ? " previewing" : "";
   const selectedSource = transferSourceItemByPath(entry.path, entry.is_dir);
   const selectedClass = selectedSource ? " transfer-source-selected" : "";
-  const sourceAction = selectedSource
-    ? `<button class="file-action selected-source-toggle" type="button" data-action="remove-transfer-source" data-source-key="${escapeHtml(selectedSource.key)}" title="取消加入这个待传源项">取消</button>`
-    : `<button class="file-action primary-soft" type="button" data-action="add-transfer-source" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="把这个文件或目录加入待传源项">加入</button>`;
-  const row = `
+  const api = window.TransferTreeMarkup;
+  const row = api && typeof api.sourceTreeNodeRowMarkup === "function"
+    ? api.sourceTreeNodeRowMarkup(entry, { level, icon, previewingClass: previewing, selectedClass, selectedSource }, { escapeHtml })
+    : (() => {
+        const sourceAction = selectedSource
+          ? `<button class="file-action selected-source-toggle" type="button" data-action="remove-transfer-source" data-source-key="${escapeHtml(selectedSource.key)}" title="取消加入这个待传源项">取消</button>`
+          : `<button class="file-action primary-soft" type="button" data-action="add-transfer-source" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="把这个文件或目录加入待传源项">加入</button>`;
+        return `
     <div class="file-tree-row${level === 0 ? " root-row" : ""}${previewing}${selectedClass}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" style="padding-left:${6 + level * 18}px">
       <button class="file-toggle" type="button" data-action="toggle-transfer-node" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="${entry.is_dir ? "展开或收起这个目录" : "文件项不可展开"}">${icon}</button>
       <div class="file-tree-main">
@@ -17843,6 +17847,7 @@ function renderTransferTreeNode(entry, level = 0) {
       </span>
     </div>
   `;
+      })();
   if (!entry.is_dir || !open) return row;
   const childRows = children
     .map((child) => renderTransferTreeNode(child, level + 1))
@@ -17971,7 +17976,10 @@ function renderTargetTreeNode(entry, level = 0) {
   const selected = normalizePathForCompare(entry.path) === normalizePathForCompare(state.transfer.target?.path || "")
     ? " selected"
     : "";
-  const row = `
+  const api = window.TransferTreeMarkup;
+  const row = api && typeof api.targetTreeNodeRowMarkup === "function"
+    ? api.targetTreeNodeRowMarkup(entry, { level, icon, selectedClass: selected }, { escapeHtml })
+    : `
     <div class="file-tree-row${level === 0 ? " root-row" : ""}${selected}" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" style="padding-left:${6 + level * 18}px">
       <button class="file-toggle" type="button" data-action="toggle-target-node" data-path="${escapeHtml(entry.path)}" data-dir="${entry.is_dir ? "1" : "0"}" title="展开或收起这个目标目录">${icon}</button>
       <div class="file-tree-main">
