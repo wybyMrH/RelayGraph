@@ -3449,121 +3449,58 @@ async function refreshWorkspaceTemplateDiff(workspaceId = state.selectedWorkspac
   }
 }
 
-async function copyWorkspaceTemplateMigrationPlan() {
-  const workspace = selectedWorkspace();
-  if (!workspace?.id) {
-    setWorkspaceManageMessage("先选择一个实例，再复制模板迁移计划。", true);
-    return;
-  }
-  let payload = state.workspaceTemplateDiff?.workspaceId === workspace.id
-    ? state.workspaceTemplateDiff.payload
+function workspaceTemplateMigrationActionsApi() {
+  return window.WorkspaceTemplateMigrationActions && typeof window.WorkspaceTemplateMigrationActions === "object"
+    ? window.WorkspaceTemplateMigrationActions
     : null;
-  if (!payload?.diff?.migration_plan) {
-    payload = await refreshWorkspaceTemplateDiff(workspace.id, { quiet: true, render: true });
-  }
-  const plan = payload?.diff?.migration_plan;
-  if (!plan) {
-    setWorkspaceManageMessage("还没有可复制的模板迁移计划。", true);
+}
+
+function workspaceTemplateMigrationActionDeps() {
+  return {
+    cachedDiff: () => state.workspaceTemplateDiff || {},
+    confirmAction: (message) => confirm(message),
+    copyTextToClipboard,
+    fetchJson,
+    loadStatus,
+    mergeWorkspaceExecutionResultPayload,
+    refreshWorkspaceTemplateDiff,
+    selectedWorkspace,
+    selectedWorkspaceExecutionNodeId: () => state.selectedWorkspaceExecutionNodeId,
+    selectedWorkspaceNodeId: () => state.selectedWorkspaceNodeId,
+    selectWorkspace,
+    setWorkspaceManageMessage,
+    setWorkspaceTemplateDiff: (value) => {
+      state.workspaceTemplateDiff = value;
+    },
+    upsertWorkspaceInState,
+  };
+}
+
+async function copyWorkspaceTemplateMigrationPlan() {
+  const api = workspaceTemplateMigrationActionsApi();
+  if (!api?.copyPlan) {
+    setWorkspaceManageMessage("模板迁移动作模块暂不可用。", true);
     return;
   }
-  await copyTextToClipboard(JSON.stringify({
-    schema: "relaygraph.workflow_template.migration_plan.copy.v1",
-    workspace_id: workspace.id,
-    workspace_name: workspace.name || "",
-    template_id: payload.template_id || workspace.template_id || "",
-    template_name: payload.template_name || workspace.template_name || "",
-    diff_summary: payload.diff?.summary || {},
-    migration_plan: plan,
-  }, null, 2));
-  setWorkspaceManageMessage("模板迁移计划 JSON 已复制。");
+  return await api.copyPlan(workspaceTemplateMigrationActionDeps());
 }
 
 async function applyWorkspaceTemplateMigration() {
-  const workspace = selectedWorkspace();
-  if (!workspace?.id) {
-    setWorkspaceManageMessage("先选择一个实例，再应用模板迁移。", true);
+  const api = workspaceTemplateMigrationActionsApi();
+  if (!api?.applyMigration) {
+    setWorkspaceManageMessage("模板迁移动作模块暂不可用。", true);
     return null;
   }
-  const payload = state.workspaceTemplateDiff?.workspaceId === workspace.id
-    ? state.workspaceTemplateDiff.payload
-    : await refreshWorkspaceTemplateDiff(workspace.id, { quiet: true, render: true });
-  const plan = payload?.diff?.migration_plan;
-  if (!plan?.can_manual_apply) {
-    setWorkspaceManageMessage("当前模板差异包含结构性变化，请新建实例或人工重建。", true);
-    return null;
-  }
-  if (!confirm("应用当前模板的安全迁移？会更新此实例的模板派生字段，并保留运行记录与迁移历史。运行前仍需重新通过链路诊断和执行包 gate。")) {
-    return null;
-  }
-  const response = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/template-migration/apply`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirm: true }),
-  });
-  const merged = mergeWorkspaceExecutionResultPayload(workspace.id, response) || response.workspace || workspace;
-  state.workspaceTemplateDiff = {
-    workspaceId: workspace.id,
-    busy: false,
-    error: "",
-    payload: {
-      workspace_id: workspace.id,
-      template_id: response.template_id || response.workspace?.template_id || merged.template_id || "",
-      template_name: response.template_name || response.workspace?.template_name || merged.template_name || "",
-      diff: response.diff || null,
-    },
-  };
-  selectWorkspace(workspace.id, {
-    persist: true,
-    selectedNodeId: state.selectedWorkspaceNodeId,
-    selectedExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
-    refreshCockpit: true,
-  });
-  setWorkspaceManageMessage("模板安全迁移已应用。请重新检查链路诊断和执行包 readiness gate。");
-  return response;
+  return await api.applyMigration(workspaceTemplateMigrationActionDeps());
 }
 
 async function createWorkspaceTemplateMigrationDraft() {
-  const workspace = selectedWorkspace();
-  if (!workspace?.id) {
-    setWorkspaceManageMessage("先选择一个实例，再创建迁移草稿。", true);
+  const api = workspaceTemplateMigrationActionsApi();
+  if (!api?.createDraft) {
+    setWorkspaceManageMessage("模板迁移动作模块暂不可用。", true);
     return null;
   }
-  const payload = state.workspaceTemplateDiff?.workspaceId === workspace.id
-    ? state.workspaceTemplateDiff.payload
-    : await refreshWorkspaceTemplateDiff(workspace.id, { quiet: true, render: true });
-  const plan = payload?.diff?.migration_plan;
-  if (!plan?.can_create_draft) {
-    setWorkspaceManageMessage("当前模板差异不需要迁移草稿。", true);
-    return null;
-  }
-  if (!confirm("从当前实例输入和当前模板创建一个新的迁移草稿？旧实例、运行记录和任务不会被修改。")) {
-    return null;
-  }
-  const response = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/template-migration/create-draft`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ confirm: true }),
-  });
-  const draft = response.workspace && typeof response.workspace === "object" ? response.workspace : null;
-  if (draft?.id) {
-    upsertWorkspaceInState(draft);
-    state.workspaceTemplateDiff = {
-      workspaceId: draft.id,
-      busy: false,
-      error: "",
-      payload: {
-        workspace_id: draft.id,
-        template_id: draft.template_id || "",
-        template_name: draft.template_name || "",
-        diff: response.diff || null,
-      },
-    };
-    selectWorkspace(draft.id, { persist: true, refreshCockpit: true });
-  } else {
-    await loadStatus(true, { renderWorkspace: true });
-  }
-  setWorkspaceManageMessage("迁移草稿已创建。请在新实例里重新检查链路诊断和执行包 readiness gate。");
-  return response;
+  return await api.createDraft(workspaceTemplateMigrationActionDeps());
 }
 
 async function previewWorkflowTemplate(options = {}) {
