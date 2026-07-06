@@ -210,6 +210,7 @@ const state = {
     workspaceRunFilterNodeKind: "",
     workspaceRunFilterJobId: "",
     workspaceRunFilterAgentExecutionId: "",
+    workspaceRunFilterTimeRange: "",
     executionOverviewQuery: "",
     executionOverviewStatus: "",
     executionOverviewKind: "all",
@@ -15781,6 +15782,7 @@ function workspaceRunFilterState() {
     nodeKind: String(state.ui.workspaceRunFilterNodeKind || "").trim(),
     jobId: String(state.ui.workspaceRunFilterJobId || "").trim().toLowerCase(),
     agentExecutionId: String(state.ui.workspaceRunFilterAgentExecutionId || "").trim().toLowerCase(),
+    timeRange: String(state.ui.workspaceRunFilterTimeRange || "").trim(),
   };
 }
 
@@ -15839,6 +15841,7 @@ function updateWorkspaceRunFilter(key = "", value = "") {
     nodeKind: "workspaceRunFilterNodeKind",
     jobId: "workspaceRunFilterJobId",
     agentExecutionId: "workspaceRunFilterAgentExecutionId",
+    timeRange: "workspaceRunFilterTimeRange",
   };
   const field = fieldMap[normalized];
   if (!field) return;
@@ -15851,6 +15854,7 @@ function clearWorkspaceRunFilterState() {
   state.ui.workspaceRunFilterNodeKind = "";
   state.ui.workspaceRunFilterJobId = "";
   state.ui.workspaceRunFilterAgentExecutionId = "";
+  state.ui.workspaceRunFilterTimeRange = "";
 }
 
 function resetWorkspaceRunFilters() {

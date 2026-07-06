@@ -524,6 +524,8 @@ class RunsMixin:
         node_kind: str = "",
         job_id: str = "",
         agent_execution_id: str = "",
+        created_after: str = "",
+        created_before: str = "",
     ) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         self.sync_workspace_execution_runs_from_jobs(workspace_id)
@@ -539,6 +541,8 @@ class RunsMixin:
             node_kind=node_kind,
             job_id=job_id,
             agent_execution_id=agent_execution_id,
+            created_after=created_after,
+            created_before=created_before,
         )
         return {
             "workspace_id": workspace_id,

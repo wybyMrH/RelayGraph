@@ -1161,12 +1161,29 @@ def filter_workspace_execution_runs(
     node_kind: str = "",
     job_id: str = "",
     agent_execution_id: str = "",
+    created_after: str = "",
+    created_before: str = "",
 ) -> list[dict[str, Any]]:
-    # 按状态、节点类型、任务或 Agent 执行 id 过滤运行记录
+    # 按状态、节点类型、任务、Agent 执行 id 或时间范围过滤运行记录。
     filtered = [run for run in runs if isinstance(run, dict)]
     status_filter = str(status or "").strip().lower()
     if status_filter:
         filtered = [run for run in filtered if str(run.get("status") or "").strip().lower() == status_filter]
+    after_ts = parse_iso_timestamp(created_after)
+    before_ts = parse_iso_timestamp(created_before)
+    if after_ts or before_ts:
+        def run_ts(run: dict[str, Any]) -> float:
+            return (
+                parse_iso_timestamp(run.get("created_at"))
+                or parse_iso_timestamp(run.get("started_at"))
+                or parse_iso_timestamp(run.get("updated_at"))
+                or parse_iso_timestamp(run.get("completed_at"))
+            )
+
+        if after_ts:
+            filtered = [run for run in filtered if run_ts(run) >= after_ts]
+        if before_ts:
+            filtered = [run for run in filtered if run_ts(run) <= before_ts]
     node_kind_filter = str(node_kind or "").strip()
     if node_kind_filter:
         filtered = [

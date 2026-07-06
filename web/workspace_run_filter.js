@@ -2,6 +2,13 @@
   "use strict";
 
   const STATUS_ORDER = ["queued", "starting", "running", "blocked", "failed", "stopped", "done"];
+  const TIME_RANGE_OPTIONS = [
+    { value: "", label: "全部时间", ms: 0 },
+    { value: "1h", label: "近 1 小时", ms: 60 * 60 * 1000 },
+    { value: "24h", label: "近 24 小时", ms: 24 * 60 * 60 * 1000 },
+    { value: "7d", label: "近 7 天", ms: 7 * 24 * 60 * 60 * 1000 },
+    { value: "30d", label: "近 30 天", ms: 30 * 24 * 60 * 60 * 1000 },
+  ];
 
   function fallbackEscapeHtml(value) {
     return String(value ?? "")
@@ -22,6 +29,7 @@
       nodeKind: String(filters.nodeKind || "").trim(),
       jobId: String(filters.jobId || "").trim().toLowerCase(),
       agentExecutionId: String(filters.agentExecutionId || "").trim().toLowerCase(),
+      timeRange: String(filters.timeRange || "").trim(),
     };
   }
 
@@ -32,7 +40,27 @@
       normalized.nodeKind,
       normalized.jobId,
       normalized.agentExecutionId,
+      normalized.timeRange,
     ].filter(Boolean).length;
+  }
+
+  function timeRangeMs(value = "") {
+    const option = TIME_RANGE_OPTIONS.find((item) => item.value === String(value || "").trim());
+    return Number(option?.ms || 0);
+  }
+
+  function runTimestamp(run = {}) {
+    const candidates = [
+      run.created_at,
+      run.started_at,
+      run.updated_at,
+      run.completed_at,
+    ];
+    for (const item of candidates) {
+      const parsed = Date.parse(String(item || ""));
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return 0;
   }
 
   function stepList(run = {}) {
@@ -57,6 +85,11 @@
     const normalized = normalizeFilters(filters);
     const steps = stepList(run);
     if (normalized.status && String(run.status || "").trim() !== normalized.status) return false;
+    const rangeMs = timeRangeMs(normalized.timeRange);
+    if (rangeMs) {
+      const ts = runTimestamp(run);
+      if (!ts || ts < Date.now() - rangeMs) return false;
+    }
     if (normalized.nodeKind && !steps.some((step) => String(step.node_kind || "").trim() === normalized.nodeKind)) return false;
     if (normalized.jobId) {
       const jobIds = steps.flatMap((step) => stepJobIds(step));
@@ -128,6 +161,12 @@
           </select>
         </label>
         <label>
+          时间
+          <select data-workspace-run-filter="timeRange" title="按运行创建时间过滤">
+            ${TIME_RANGE_OPTIONS.map((option) => `<option value="${escapeFor(deps, option.value)}" ${filters.timeRange === option.value ? "selected" : ""}>${escapeFor(deps, option.label)}</option>`).join("")}
+          </select>
+        </label>
+        <label>
           Job
           <input data-workspace-run-filter="jobId" value="${escapeFor(deps, filters.jobId)}" placeholder="job id" />
         </label>
@@ -151,5 +190,6 @@
     stepAgentExecutionIds,
     stepJobIds,
     stepList,
+    timeRangeMs,
   };
 })();

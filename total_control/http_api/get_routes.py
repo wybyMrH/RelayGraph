@@ -303,6 +303,8 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
                     node_kind=str((query.get("node_kind") or [""])[0]),
                     job_id=str((query.get("job_id") or [""])[0]),
                     agent_execution_id=str((query.get("agent_execution_id") or [""])[0]),
+                    created_after=str((query.get("created_after") or query.get("created_after_iso") or [""])[0]),
+                    created_before=str((query.get("created_before") or query.get("created_before_iso") or [""])[0]),
                 )
             )
         except ValueError:
