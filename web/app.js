@@ -21742,6 +21742,34 @@ function executionOverviewFilters() {
   };
 }
 
+function normalizeExecutionOverviewFilters(filters = {}) {
+  const source = filters && typeof filters === "object" ? filters : {};
+  const kind = String(source.kind || "all").trim();
+  return {
+    query: String(source.query || "").trim().toLowerCase(),
+    status: String(source.status || "").trim(),
+    kind: ["all", "runs", "jobs"].includes(kind) ? kind : "all",
+  };
+}
+
+function executionOverviewFiltersMatch(a = {}, b = {}) {
+  const left = normalizeExecutionOverviewFilters(a);
+  const right = normalizeExecutionOverviewFilters(b);
+  return left.query === right.query && left.status === right.status && left.kind === right.kind;
+}
+
+function backendFilteredExecutionOverviewItems(runs = [], jobs = [], filters = executionOverviewFilters()) {
+  const normalized = normalizeExecutionOverviewFilters(filters);
+  const showRuns = normalized.kind !== "jobs";
+  const showJobs = normalized.kind !== "runs";
+  return {
+    runs: showRuns ? (Array.isArray(runs) ? runs : []) : [],
+    jobs: showJobs ? (Array.isArray(jobs) ? jobs : []) : [],
+    showRuns,
+    showJobs,
+  };
+}
+
 function executionOverviewRecordSearchText(record = {}, type = "") {
   const module = workspaceExecutionOverviewModule();
   if (typeof module?.recordSearchText === "function") return module.recordSearchText(record, type);
@@ -21760,8 +21788,12 @@ function executionOverviewRecordSearchText(record = {}, type = "") {
     record.server_id,
     record.node_id,
     record.agent_id,
+    record.agent_execution_id,
     Array.isArray(record.job_ids) ? record.job_ids.join(" ") : "",
     Array.isArray(record.agent_execution_ids) ? record.agent_execution_ids.join(" ") : "",
+    Array.isArray(record.node_ids) ? record.node_ids.join(" ") : "",
+    Array.isArray(record.node_kinds) ? record.node_kinds.join(" ") : "",
+    Array.isArray(record.server_ids) ? record.server_ids.join(" ") : "",
     progress.done,
     progress.total,
     progress.percent,
@@ -21896,7 +21928,10 @@ function renderManageRunsModule() {
   const runs = Array.isArray(overview.runs) ? overview.runs : [];
   const jobs = Array.isArray(overview.jobs) ? overview.jobs : [];
   const filters = executionOverviewFilters();
-  const filtered = filteredExecutionOverviewItems(runs, jobs, filters);
+  const backendFilters = overview.filters && typeof overview.filters === "object" ? overview.filters : null;
+  const filtered = backendFilters && executionOverviewFiltersMatch(backendFilters, filters)
+    ? backendFilteredExecutionOverviewItems(runs, jobs, filters)
+    : filteredExecutionOverviewItems(runs, jobs, filters);
   syncExecutionOverviewFilterControls(filters, {
     totalRuns: Number(summary.run_count ?? runs.length),
     totalJobs: Number(summary.job_count ?? jobs.length),
