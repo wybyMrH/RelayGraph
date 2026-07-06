@@ -27621,51 +27621,14 @@ function bindEvents() {
       }));
     },
   });
-  $("workspaceExecutionBoard")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (button) handleWorkspaceAutomationAction(button);
-  });
-  document.querySelector(".workspace-execution-inspector")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (button) handleWorkspaceAutomationAction(button);
-  });
-  $("workspaceExecutionDetail")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (button) handleWorkspaceAutomationAction(button);
+  window.WorkspaceActionSurfaces?.bind?.({
+    element: $,
+    handleAutomationAction: handleWorkspaceAutomationAction,
+    query: (selector) => document.querySelector(selector),
   });
   $("workspaceUseChatAgentSelect")?.addEventListener("change", (event) => {
     state.ui.workspaceInspectorChatAgentId = String(event.target.value || "").trim();
     renderWorkspaceUseChat();
-  });
-  [
-    "workspaceLauncherPlan",
-    "workspaceLauncherDetails",
-    "workspaceCapabilityBaseline",
-    "workspaceHomeDecision",
-    "workspaceHomeCockpit",
-    "workspaceHomePreflight",
-    "workspaceHomeContext",
-    "workspaceHomeActions",
-    "workspaceHomeQuickLinks",
-    "workspaceProjectQueue",
-    "workspaceWorkflowSummary",
-    "workspaceHomeFlow",
-    "workspaceHomeReadiness",
-    "workspaceHomeResources",
-    "workspaceHomeTopology",
-    "workspaceHomeRuns",
-    "workspaceAgentCoverageSummary",
-    "workspaceToolCatalogSummary",
-    "workspaceModelRoutingSummary",
-    "workspaceManageInspectChain",
-    "workspaceManageInspectHandoff",
-    "workspaceManageInspectGaps",
-    "workspaceManageInspectReadiness",
-  ].forEach((id) => {
-    $(id)?.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-action]");
-      if (button) handleWorkspaceAutomationAction(button);
-    });
   });
   ["workspaceHomeResources"].forEach((id) => {
     $(id)?.addEventListener("change", (event) => {
