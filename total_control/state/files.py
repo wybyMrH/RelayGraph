@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
+from .files_pkg.runtime_log_snapshots import build_log_tail_snapshot_payload, build_remote_log_tail_payload
 from .files_pkg.runtime_logs import build_runtime_log_path_payload, merge_runtime_log_path_payloads
 from .files_pkg.runtime_state_requests import parse_runtime_state_cleanup_request
 from .files_pkg.runtime_storage_requests import parse_runtime_storage_cleanup_request
@@ -374,38 +375,6 @@ class FilesMixin:
                 and str(job.get("id") or "").strip() in retained_job_ids
             ]
 
-        def snapshot_payload_from_log_tail(
-            job: dict[str, Any],
-            payload: dict[str, Any],
-            *,
-            source: str,
-        ) -> dict[str, Any]:
-            tail = str(payload.get("tail") or "").strip("\n")
-            if not tail:
-                return {}
-            display_log_path = str(payload.get("display_log_path") or "").strip()
-            if not display_log_path:
-                display_log_path = runtime_log_display_path(payload.get("log_path") or job.get("log_path"))
-            return {
-                "schema": "relaygraph.job.log_tail_snapshot.v1",
-                "captured_at": now_iso(),
-                "source": source,
-                "line_count": len(tail.splitlines()),
-                "file_size": safe_int(payload.get("file_size"), 0),
-                "read_bytes": safe_int(payload.get("read_bytes"), safe_int(payload.get("byte_count"), 0)),
-                "tail_bytes": safe_int(payload.get("tail_bytes"), len(tail.encode("utf-8", errors="replace"))),
-                "skipped_bytes": safe_int(payload.get("skipped_bytes"), 0),
-                "truncated": bool(payload.get("truncated")),
-                "truncation_reasons": [
-                    str(item or "").strip()
-                    for item in payload.get("truncation_reasons", [])
-                    if str(item or "").strip()
-                ],
-                "display_log_path": display_log_path,
-                "remote_log_path": remote_runtime_log_display_path(payload.get("remote_log_path") or job.get("remote_log_path")),
-                "tail": tail,
-            }
-
         def read_local_tail_payload(job: dict[str, Any]) -> dict[str, Any]:
             payload = workspace_job_cached_log_tail_payload(
                 job,
@@ -429,29 +398,13 @@ class FilesMixin:
                 return {}
             if chunk.get("error"):
                 return {}
-            text = str(chunk.get("log") or "")
-            if not text:
-                return {}
-            line_limited = "\n".join(text.splitlines()[-max(1, int(max_lines or 1)):])
-            reasons = []
-            if bool(chunk.get("truncated")) or safe_int(chunk.get("skipped_bytes"), 0) > 0:
-                reasons.append("byte_window")
-            if len(text.splitlines()) > max(1, int(max_lines or 1)):
-                reasons.append("line_limit")
-            if tail_chars > 0 and len(line_limited) > tail_chars:
-                line_limited = line_limited[-tail_chars:]
-                reasons.append("tail_char_limit")
-            return {
-                "tail": line_limited,
-                "tail_source": "remote",
-                "file_size": safe_int(chunk.get("file_size"), safe_int(chunk.get("next_offset"), 0)),
-                "read_bytes": safe_int(chunk.get("byte_count"), len(text.encode("utf-8", errors="replace"))),
-                "tail_bytes": len(line_limited.encode("utf-8", errors="replace")),
-                "skipped_bytes": safe_int(chunk.get("skipped_bytes"), 0),
-                "truncated": bool(chunk.get("truncated")) or bool(reasons),
-                "truncation_reasons": list(dict.fromkeys(reasons)),
-                "remote_log_path": remote_runtime_log_display_path(job.get("remote_log_path")),
-            }
+            return build_remote_log_tail_payload(
+                job,
+                chunk,
+                max_lines=max_lines,
+                max_bytes=max_bytes,
+                tail_chars=tail_chars,
+            )
 
         snapshots_by_id: dict[str, dict[str, Any]] = {}
         for job in retained_jobs:
@@ -459,10 +412,10 @@ class FilesMixin:
             if not job_id:
                 continue
             local_payload = read_local_tail_payload(job)
-            snapshot = snapshot_payload_from_log_tail(job, local_payload, source="runtime_log_cache")
+            snapshot = build_log_tail_snapshot_payload(job, local_payload, source="runtime_log_cache")
             if not snapshot:
                 remote_payload = read_remote_tail_payload(job)
-                snapshot = snapshot_payload_from_log_tail(job, remote_payload, source="remote_runtime_log")
+                snapshot = build_log_tail_snapshot_payload(job, remote_payload, source="remote_runtime_log")
             if not snapshot:
                 continue
             snapshots_by_id[job_id] = snapshot
