@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import fnmatch
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    import tomli as tomllib
 
 from .constants import DEFAULT_CONFIG  # noqa: F401
 from .utils import safe_id, safe_int  # noqa: F401
