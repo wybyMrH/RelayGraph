@@ -5,6 +5,7 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 
 WORKSPACE_LINKED_RUN_CLOSURE_MAX = 64
+WORKSPACE_RUN_CHILD_REF_MAX = 64
 
 
 def _unique_run_ref_list(value: Any) -> list[str]:
