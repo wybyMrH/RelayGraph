@@ -21139,7 +21139,17 @@ function ensureToolDefinitionTestState(tool = selectedGlobalTool()) {
   };
 }
 
+function configCenterDiagnosticsApi() {
+  return window.ConfigCenterDiagnostics && typeof window.ConfigCenterDiagnostics === "object"
+    ? window.ConfigCenterDiagnostics
+    : null;
+}
+
 function toolTestResultMarkup(testState = state.toolDefinitionTest) {
+  const api = configCenterDiagnosticsApi();
+  if (typeof api?.toolTestResultMarkup === "function") {
+    return api.toolTestResultMarkup({ testState, escapeHtml });
+  }
   if (testState.busy) return '<div class="workspace-agent-debug-warning">正在执行安全测试...</div>';
   if (testState.error) return `<div class="workspace-agent-debug-warning">${escapeHtml(testState.error)}</div>`;
   const result = testState.result;
@@ -21171,6 +21181,17 @@ function toolTestResultMarkup(testState = state.toolDefinitionTest) {
 
 function providerRouteHealthMarkup() {
   const health = providerRouteHealthStatus();
+  const api = configCenterDiagnosticsApi();
+  if (typeof api?.providerRouteHealthMarkup === "function") {
+    return api.providerRouteHealthMarkup({
+      health,
+      configuredSearchProfileCount: configuredSearchProviderProfiles().length,
+      searchProfileCount: searchProviderProfiles().length,
+      escapeHtml,
+      issueLabel: providerHealthIssueLabel,
+      statusLabel: workspaceStatusLabel,
+    });
+  }
   const issues = Array.isArray(health.issues) ? health.issues : [];
   const status = String(health.effective_status || health.status || "draft");
   const firstIssues = issues.slice(0, 5);
