@@ -28144,10 +28144,13 @@ function bindEvents() {
     },
     updateFavoriteButtons: updateTransferPathFavoriteButtons,
   });
-  $("taskPlanForm")?.addEventListener("submit", scheduleTaskPlan);
-  $("taskPlanPreviewBtn")?.addEventListener("click", previewTaskPlan);
-  $("taskTemplateSelect")?.addEventListener("change", toggleTaskTemplateFields);
-  $("planServerSelect")?.addEventListener("change", renderTaskPlanOptions);
+  window.TaskPlanActions?.bind?.({
+    element: $,
+    previewTaskPlan,
+    renderTaskPlanOptions,
+    scheduleTaskPlan,
+    toggleTaskTemplateFields,
+  });
   $("terminalServerSelect")?.addEventListener("change", (event) => {
     state.selectedServer = event.target.value;
     saveStoredValue(STORAGE_KEYS.selectedServer, state.selectedServer);
