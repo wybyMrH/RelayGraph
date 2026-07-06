@@ -18,6 +18,39 @@
     return typeof deps[name] === "function" ? deps[name] : fallback;
   }
 
+  function defaultToolTestArguments(options = {}) {
+    const tool = options.tool && typeof options.tool === "object" ? options.tool : {};
+    const workspace = options.workspace && typeof options.workspace === "object" ? options.workspace : {};
+    const toolId = String(tool.id || "").trim();
+    const inputs = workspace.inputs && typeof workspace.inputs === "object" ? workspace.inputs : {};
+    const source = workspace.source && typeof workspace.source === "object" ? workspace.source : {};
+    const goal = String(inputs.goal_text || workspace.brief || source.idea_text || "").trim();
+    const workspaceDir = String(workspace.workspace_dir || "").trim();
+    const firstRef = Array.isArray(workspace.references) ? String(workspace.references[0] || "").trim() : "";
+    const firstRepo = String(source.repo_url || (Array.isArray(inputs.repo_urls) ? inputs.repo_urls[0] : "") || "").trim();
+    if (toolId === "web.search") {
+      const args = { query: goal || firstRepo || "RelayGraph smoke", limit: 3 };
+      const profileId = String(tool.provider_profile_id || options.selectedSearchProviderProfileId || "").trim();
+      if (profileId) args.provider_profile_id = profileId;
+      return args;
+    }
+    if (toolId === "repo.search") return { query: goal || firstRepo || "RelayGraph smoke" };
+    if (toolId === "file.read") return { path: firstRef || "README.md", limit: 4000 };
+    if (toolId === "file.browse" || toolId === "dir.scan") return { path: workspaceDir || ".", max_entries: 24 };
+    if (toolId === "repo.read" || toolId === "repo.inspect") return { path: workspaceDir || ".", focus_paths: ["README.md", "requirements.txt"] };
+    if (toolId === "path.resolve") return { workspace_dir: workspaceDir || ".", data_roots: [] };
+    if (toolId === "dataset.find") return { query: goal || "dataset", data_roots: [] };
+    if (toolId === "gpu.inspect" || toolId === "gpu.allocate") return { min_free_memory_gib: 1 };
+    if (toolId === "env.inspect" || toolId === "env.infer") return { manifest_paths: ["requirements.txt", "environment.yml"] };
+    if (toolId === "artifact.read" || toolId === "artifact.collect") return { artifact_paths: ["runs", "outputs", "logs"] };
+    if (toolId === "log.read" || toolId === "execution.package" || toolId === "workflow.plan") return {};
+    if (toolId === "job.run" || toolId === "host.exec") return { command: "echo relaygraph-tool-test", cwd: workspaceDir || "." };
+    if (toolId === "repo.clone") return { repo_url: firstRepo, workspace_dir: workspaceDir };
+    if (toolId === "env.prepare" || toolId === "env.create") return { command: "python --version", env_name: workspace.env?.name || "" };
+    if (toolId === "job.stop" || toolId === "job.reorder") return { latest: true };
+    return {};
+  }
+
   function toolTestResultMarkup(options = {}) {
     const deps = { escapeHtml: options.escapeHtml };
     const testState = options.testState && typeof options.testState === "object" ? options.testState : {};
@@ -88,6 +121,7 @@
   }
 
   window.ConfigCenterDiagnostics = {
+    defaultToolTestArguments,
     providerRouteHealthMarkup,
     toolTestResultMarkup,
   };

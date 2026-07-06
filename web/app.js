@@ -21032,8 +21032,16 @@ function selectGlobalTool(toolId) {
 }
 
 function defaultToolTestArguments(tool = selectedGlobalTool()) {
-  const toolId = String(tool?.id || "").trim();
   const workspace = selectedWorkspace() || state.workspaces[0] || {};
+  const api = configCenterDiagnosticsApi();
+  if (typeof api?.defaultToolTestArguments === "function") {
+    return api.defaultToolTestArguments({
+      tool,
+      workspace,
+      selectedSearchProviderProfileId: selectedSearchProviderProfileId(),
+    });
+  }
+  const toolId = String(tool?.id || "").trim();
   const inputs = workspace.inputs && typeof workspace.inputs === "object" ? workspace.inputs : {};
   const source = workspace.source && typeof workspace.source === "object" ? workspace.source : {};
   const goal = String(inputs.goal_text || workspace.brief || source.idea_text || "").trim();
