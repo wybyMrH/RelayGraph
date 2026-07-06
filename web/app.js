@@ -27490,48 +27490,16 @@ function bindEvents() {
     saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId);
     renderWorkspaceWorkbench();
   });
-  [
-    "workspaceTaskGoalInput",
-    "workspaceTaskRepoInput",
-    "workspaceTaskPaperInput",
-    "workspaceTaskReferenceInput",
-    "workspaceTaskContextInput",
-  ].forEach((id) => {
-    $(id)?.addEventListener("input", () => {
-      saveWorkspaceLauncherDraft();
-      renderWorkspaceCockpitOverview();
-    });
-  });
-  $("workspaceCreateTaskBtn")?.addEventListener("click", () => {
-    void createWorkspaceTask("create");
-  });
-  $("workspaceCreateDiscoverTaskBtn")?.addEventListener("click", () => {
-    void createWorkspaceTask("discover");
-  });
-  $("workspaceCreateRunTaskBtn")?.addEventListener("click", () => {
-    void createWorkspaceTask("run");
-  });
-  $("workspaceTestChainBtn")?.addEventListener("click", () => {
-    testWorkspaceStarterChain();
-  });
-  $("workspaceResetLauncherBtn")?.addEventListener("click", () => {
-    resetWorkspaceLauncherToDefaults();
-  });
-  $("workspaceUseChatSendBtn")?.addEventListener("click", () => {
-    void submitWorkspaceUseChat();
-  });
-  $("workspaceOpenChainInspectBtn")?.addEventListener("click", () => {
-    openWorkspaceChainInspect();
-  });
-  $("workspaceUseChatList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (button) handleWorkspaceAutomationAction(button);
-  });
-  $("workspaceUseChatInput")?.addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      void submitWorkspaceUseChat();
-    }
+  window.WorkspaceLauncherActions?.bind?.({
+    element: $,
+    createWorkspaceTask,
+    handleAutomationAction: handleWorkspaceAutomationAction,
+    openChainInspect: openWorkspaceChainInspect,
+    renderCockpitOverview: renderWorkspaceCockpitOverview,
+    resetLauncherToDefaults: resetWorkspaceLauncherToDefaults,
+    saveLauncherDraft: saveWorkspaceLauncherDraft,
+    submitUseChat: submitWorkspaceUseChat,
+    testStarterChain: testWorkspaceStarterChain,
   });
   $("refreshBtn").addEventListener("click", () => loadStatus(true));
   $("refreshSelectedServerBtn")?.addEventListener("click", () => {
