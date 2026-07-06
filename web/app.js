@@ -17121,8 +17121,11 @@ function renderServers() {
     : "";
   renderServerSortControl();
   list.innerHTML = `${onlineHtml}${offlineHtml}`;
-  $("offlineServerGroup")?.addEventListener("toggle", (event) => {
-    state.ui.offlineServersOpen = event.currentTarget.open;
+  window.ServerListActions?.bindOfflineServerGroup?.({
+    element: $,
+    setOfflineServersOpen: (open) => {
+      state.ui.offlineServersOpen = open;
+    },
   });
 }
 

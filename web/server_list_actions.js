@@ -88,6 +88,12 @@
     call(callbacks, "endServerDrag", event);
   }
 
+  function bindOfflineServerGroup(callbacks = {}) {
+    element(callbacks, "offlineServerGroup")?.addEventListener("toggle", (event) => {
+      call(callbacks, "setOfflineServersOpen", event?.currentTarget?.open, event);
+    });
+  }
+
   function bind(callbacks = {}) {
     const list = element(callbacks, "serverList");
     element(callbacks, "serverSortSelect")?.addEventListener("change", (event) => {
@@ -127,6 +133,7 @@
 
   window.ServerListActions = {
     bind,
+    bindOfflineServerGroup,
     dragPosition,
     handleServerListDragEnd,
     handleServerListDragOver,
