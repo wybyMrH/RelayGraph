@@ -17855,8 +17855,14 @@ async function navigateTransferSourceParent() {
 }
 
 async function navigateTransferSourceForward() {
-  const stack = Array.isArray(state.transfer.sourceForwardStack) ? state.transfer.sourceForwardStack : [];
-  const next = stack.shift();
+  const api = window.TransferTreeNavigation;
+  const forwardState = api && typeof api.forwardNavigationState === "function"
+    ? api.forwardNavigationState(state.transfer.sourceForwardStack)
+    : null;
+  const stack = forwardState
+    ? forwardState.forwardStack
+    : Array.isArray(state.transfer.sourceForwardStack) ? state.transfer.sourceForwardStack : [];
+  const next = forwardState ? forwardState.nextPath : stack.shift();
   state.transfer.sourceForwardStack = stack;
   if (!next) {
     updateTransferTreeClearButtons();
@@ -17872,8 +17878,14 @@ async function navigateTransferTargetParent() {
 }
 
 async function navigateTransferTargetForward() {
-  const stack = Array.isArray(state.transfer.targetForwardStack) ? state.transfer.targetForwardStack : [];
-  const next = stack.shift();
+  const api = window.TransferTreeNavigation;
+  const forwardState = api && typeof api.forwardNavigationState === "function"
+    ? api.forwardNavigationState(state.transfer.targetForwardStack)
+    : null;
+  const stack = forwardState
+    ? forwardState.forwardStack
+    : Array.isArray(state.transfer.targetForwardStack) ? state.transfer.targetForwardStack : [];
+  const next = forwardState ? forwardState.nextPath : stack.shift();
   state.transfer.targetForwardStack = stack;
   if (!next) {
     updateTransferTreeClearButtons();
@@ -17889,12 +17901,23 @@ function updateTransferTreeClearButtons() {
   const targetUpBtn = $("transferTargetTreeUpBtn");
   const sourceForwardBtn = $("transferSourceTreeForwardBtn");
   const targetForwardBtn = $("transferTargetTreeForwardBtn");
-  if (sourceBtn) sourceBtn.hidden = !state.transfer.source;
-  if (targetBtn) targetBtn.hidden = !state.transfer.target;
-  if (sourceUpBtn) sourceUpBtn.hidden = !parentDirectoryPath(state.transfer.source?.path || "");
-  if (targetUpBtn) targetUpBtn.hidden = !parentDirectoryPath(state.transfer.target?.path || "");
-  if (sourceForwardBtn) sourceForwardBtn.hidden = !(Array.isArray(state.transfer.sourceForwardStack) && state.transfer.sourceForwardStack.length);
-  if (targetForwardBtn) targetForwardBtn.hidden = !(Array.isArray(state.transfer.targetForwardStack) && state.transfer.targetForwardStack.length);
+  const api = window.TransferTreeNavigation;
+  const buttonState = api && typeof api.treeButtonState === "function"
+    ? api.treeButtonState(state.transfer, { parentDirectoryPath })
+    : {
+        sourceClear: Boolean(state.transfer.source),
+        targetClear: Boolean(state.transfer.target),
+        sourceUp: Boolean(parentDirectoryPath(state.transfer.source?.path || "")),
+        targetUp: Boolean(parentDirectoryPath(state.transfer.target?.path || "")),
+        sourceForward: Boolean(Array.isArray(state.transfer.sourceForwardStack) && state.transfer.sourceForwardStack.length),
+        targetForward: Boolean(Array.isArray(state.transfer.targetForwardStack) && state.transfer.targetForwardStack.length),
+      };
+  if (sourceBtn) sourceBtn.hidden = !buttonState.sourceClear;
+  if (targetBtn) targetBtn.hidden = !buttonState.targetClear;
+  if (sourceUpBtn) sourceUpBtn.hidden = !buttonState.sourceUp;
+  if (targetUpBtn) targetUpBtn.hidden = !buttonState.targetUp;
+  if (sourceForwardBtn) sourceForwardBtn.hidden = !buttonState.sourceForward;
+  if (targetForwardBtn) targetForwardBtn.hidden = !buttonState.targetForward;
 }
 
 function renderTransferTree() {
@@ -18097,7 +18120,13 @@ async function loadTransferSourceTree(path = transferSourceBrowsePath(), options
     return;
   }
   if (options.rememberForward && previousPath && normalizePathForCompare(previousPath) !== normalizePathForCompare(target)) {
-    state.transfer.sourceForwardStack = [previousPath, ...(state.transfer.sourceForwardStack || []).filter((item) => normalizePathForCompare(item) !== normalizePathForCompare(previousPath))].slice(0, 8);
+    const api = window.TransferTreeNavigation;
+    state.transfer.sourceForwardStack = api && typeof api.rememberForwardStack === "function"
+      ? api.rememberForwardStack(state.transfer.sourceForwardStack, previousPath, target, {
+          normalizePathForCompare,
+          limit: 8,
+        })
+      : [previousPath, ...(state.transfer.sourceForwardStack || []).filter((item) => normalizePathForCompare(item) !== normalizePathForCompare(previousPath))].slice(0, 8);
   } else if (!options.keepForward) {
     state.transfer.sourceForwardStack = [];
   }
@@ -18141,7 +18170,13 @@ async function loadTransferTargetTree(path = transferTargetBrowsePath(), options
   const previousPath = state.transfer.target?.path || "";
   const target = String(parseRsyncTargetPath(path) || path || "").trim();
   if (options.rememberForward && previousPath && normalizePathForCompare(previousPath) !== normalizePathForCompare(target)) {
-    state.transfer.targetForwardStack = [previousPath, ...(state.transfer.targetForwardStack || []).filter((item) => normalizePathForCompare(item) !== normalizePathForCompare(previousPath))].slice(0, 8);
+    const api = window.TransferTreeNavigation;
+    state.transfer.targetForwardStack = api && typeof api.rememberForwardStack === "function"
+      ? api.rememberForwardStack(state.transfer.targetForwardStack, previousPath, target, {
+          normalizePathForCompare,
+          limit: 8,
+        })
+      : [previousPath, ...(state.transfer.targetForwardStack || []).filter((item) => normalizePathForCompare(item) !== normalizePathForCompare(previousPath))].slice(0, 8);
   } else if (!options.keepForward) {
     state.transfer.targetForwardStack = [];
   }
