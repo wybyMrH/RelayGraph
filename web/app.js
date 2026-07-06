@@ -11143,23 +11143,19 @@ function renderWorkspaceManageOverview() {
   }
   const cardsRoot = $("workspaceManageOverviewCards");
   if (cardsRoot) {
-    cardsRoot.innerHTML = workspaceManageOverviewCards().map((card) => `
-      <button class="workspace-manage-overview-card status-${escapeHtml(card.state || "draft")}${card.tab === activeTab ? " active" : ""}" type="button" data-action="switch-workspace-manage-tab" data-tab="${escapeHtml(card.tab)}" title="切换到${escapeHtml(card.label)}配置页：${escapeHtml(card.detail)}">
-        <span class="workspace-cockpit-label">${escapeHtml(card.label)}</span>
-        <strong>${escapeHtml(card.title)}</strong>
-        <p title="${escapeHtml(card.detail)}">${escapeHtml(card.detail)}</p>
-        <em>${escapeHtml(card.next)}</em>
-      </button>
-    `).join("");
+    cardsRoot.innerHTML = window.WorkflowTemplateStudioOverview?.manageOverviewCardsMarkup?.({
+      activeTab,
+      cards: workspaceManageOverviewCards(),
+      escapeHtml,
+    }) || "";
   }
   const focusRoot = $("workspaceManageFocusSummary");
   if (focusRoot) {
     const focus = workspaceManageFocusSummary(activeTab);
-    focusRoot.innerHTML = `
-      <strong>${escapeHtml(focus.title)}</strong>
-      <span>${escapeHtml(focus.detail)}</span>
-      <em>${escapeHtml(focus.action)}</em>
-    `;
+    focusRoot.innerHTML = window.WorkflowTemplateStudioOverview?.manageFocusMarkup?.({
+      escapeHtml,
+      focus,
+    }) || "";
   }
 }
 
@@ -11224,13 +11220,10 @@ function renderWorkflowTemplateStudioOverview() {
       state: configuredProfiles.length ? "ready" : profiles.length ? "blocked" : "draft",
     },
   ];
-  root.innerHTML = cards.map((card) => `
-    <article class="workspace-template-studio-card status-${escapeHtml(card.state || "draft")}">
-      <span class="workspace-cockpit-label">${escapeHtml(card.label)}</span>
-      <strong>${escapeHtml(card.title)}</strong>
-      <p title="${escapeHtml(card.detail)}">${escapeHtml(card.detail)}</p>
-    </article>
-  `).join("") + workflowTemplateValidationMarkup() + workflowTemplateVersionHistoryMarkup(draft);
+  root.innerHTML = (window.WorkflowTemplateStudioOverview?.studioCardsMarkup?.({
+    cards,
+    escapeHtml,
+  }) || "") + workflowTemplateValidationMarkup() + workflowTemplateVersionHistoryMarkup(draft);
 }
 
 function hydrateWorkspaceUseInputsFromWorkspace(workspace) {
