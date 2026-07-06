@@ -17,6 +17,12 @@ from .agent_runtime_safety import (
     workspace_tool_host_exec_top_is_bounded as _runtime_top_is_bounded,
     workspace_tool_host_exec_version_only as _runtime_version_only,
 )
+from .agent_runtime_observation import (
+    observe_workspace_tool_job as _observe_workspace_tool_job,
+    workspace_tool_job_snapshot as _workspace_tool_job_snapshot,
+    workspace_tool_observe_options as _workspace_tool_observe_options,
+    workspace_tool_run_snapshot as _workspace_tool_run_snapshot,
+)
 
 RUNTIME_INPUT_REF_PREFIXES = ("$input.", "$context.", "$prev.output", "$node.config.")
 
@@ -221,50 +227,15 @@ class AgentsMixin:
 
 
     def workspace_tool_observe_options(self, args: dict[str, Any]) -> dict[str, Any]:
-        data = args if isinstance(args, dict) else {}
-        requested = bool(
-            data.get("wait_for_completion")
-            or data.get("wait_until_complete")
-            or data.get("observe")
-            or data.get("observe_job")
-        )
-        seconds = safe_float(data.get("observe_seconds"), 0.0)
-        if seconds <= 0:
-            seconds = safe_float(data.get("wait_timeout_seconds"), 0.0)
-        if seconds <= 0 and requested:
-            seconds = 30.0
-        seconds = min(max(seconds, 0.0), 300.0)
-        poll_interval = safe_float(data.get("poll_interval_seconds"), 0.5)
-        poll_interval = min(max(poll_interval, 0.05), 5.0)
-        log_tail_lines = safe_int(data.get("log_tail_lines"), 120)
-        log_tail_lines = min(max(log_tail_lines, 0), 2000)
-        return {
-            "enabled": requested or seconds > 0,
-            "seconds": seconds,
-            "poll_interval": poll_interval,
-            "log_tail_lines": log_tail_lines,
-        }
+        return _workspace_tool_observe_options(args)
 
 
     def workspace_tool_job_snapshot(self, job_id: str) -> dict[str, Any] | None:
-        target = str(job_id or "").strip()
-        if not target:
-            return None
-        with self.lock:
-            job = next((item for item in self.jobs if str(item.get("id") or "").strip() == target), None)
-            return copy.deepcopy(job) if isinstance(job, dict) else None
+        return _workspace_tool_job_snapshot(self, job_id)
 
 
     def workspace_tool_run_snapshot(self, workspace_id: str, run_id: str) -> dict[str, Any] | None:
-        workspace_id = str(workspace_id or "").strip()
-        run_id = str(run_id or "").strip()
-        if not workspace_id or not run_id:
-            return None
-        with self.lock:
-            workspace = self.workspace_by_id(workspace_id)
-            runs = workspace.get("runs") if isinstance(workspace, dict) and isinstance(workspace.get("runs"), list) else []
-            run = next((item for item in runs if str(item.get("id") or "").strip() == run_id), None)
-            return copy.deepcopy(run) if isinstance(run, dict) else None
+        return _workspace_tool_run_snapshot(self, workspace_id, run_id)
 
 
     def observe_workspace_tool_job(
@@ -275,99 +246,13 @@ class AgentsMixin:
         run_id: str,
         options: dict[str, Any],
     ) -> dict[str, Any]:
-        workspace_id = str(workspace_id or "").strip()
-        job_id = str(job_id or "").strip()
-        run_id = str(run_id or "").strip()
-        seconds = safe_float(options.get("seconds"), 0.0)
-        poll_interval = safe_float(options.get("poll_interval"), 0.5)
-        log_tail_lines = safe_int(options.get("log_tail_lines"), 120)
-        terminal_statuses = {"done", "failed", "stopped"}
-        started = time.monotonic()
-        deadline = started + seconds
-        timed_out = False
-        last_job = self.workspace_tool_job_snapshot(job_id)
-        monitored_once = False
-
-        while True:
-            if last_job and str(last_job.get("status") or "").strip() in terminal_statuses:
-                break
-            if monitored_once and time.monotonic() > deadline:
-                timed_out = True
-                break
-            try:
-                self.refresh_status()
-                self.monitor_jobs()
-                monitored_once = True
-            except Exception as exc:  # noqa: BLE001 - observation reports scheduler issues in-band.
-                return {
-                    "observed": True,
-                    "status": "error",
-                    "runtime_status": "error",
-                    "job_status": str((last_job or {}).get("status") or "").strip(),
-                    "error": f"job observation failed: {exc}",
-                    "observe_seconds": round(time.monotonic() - started, 3),
-                }
-            last_job = self.workspace_tool_job_snapshot(job_id)
-            if last_job and str(last_job.get("status") or "").strip() in terminal_statuses:
-                break
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                timed_out = True
-                break
-            wait_for = min(max(poll_interval, 0.05), remaining)
-            stop_event = getattr(self, "stop_event", None)
-            if stop_event is not None and stop_event.wait(wait_for):
-                timed_out = True
-                break
-            if stop_event is None:
-                time.sleep(wait_for)
-
-        if workspace_id:
-            self.sync_workspace_execution_runs_from_jobs(workspace_id)
-        last_job = self.workspace_tool_job_snapshot(job_id) or last_job or {}
-        job_status = str(last_job.get("status") or "").strip()
-        result_status = job_status if job_status in terminal_statuses else "timeout" if timed_out else job_status or "unknown"
-        log_tail = ""
-        log_error = ""
-        if log_tail_lines > 0 and last_job:
-            try:
-                if hasattr(self, "job_log_payload"):
-                    payload = self.job_log_payload(last_job, lines=log_tail_lines)
-                    log_tail = str(payload.get("log") or "")
-                else:
-                    log_tail = str(self.tail_log(last_job, lines=log_tail_lines))
-            except Exception as exc:  # noqa: BLE001 - log tail should not hide job status.
-                log_error = str(exc)
-        if len(log_tail) > 12000:
-            log_tail = log_tail[-12000:]
-        observed_run = self.workspace_tool_run_snapshot(workspace_id, run_id)
-        payload: dict[str, Any] = {
-            "observed": True,
-            "status": result_status,
-            "runtime_status": result_status,
-            "job_status": job_status,
-            "timed_out": bool(timed_out),
-            "observe_seconds": round(time.monotonic() - started, 3),
-            "job": public_job_payload(last_job) if isinstance(last_job, dict) else {},
-            "job_id": job_id,
-        }
-        if run_id:
-            payload["run_id"] = run_id
-        if observed_run:
-            payload["run"] = observed_run
-        if log_tail:
-            redacted_tail = redact_runtime_observation_text(log_tail)
-            payload["log_tail"] = redacted_tail
-            payload["log_line_count"] = len(redacted_tail.splitlines())
-        if log_error:
-            payload["log_error"] = log_error
-        if result_status in {"failed", "stopped"}:
-            payload["error"] = str(last_job.get("error") or f"job {result_status}").strip()
-        elif result_status == "timeout":
-            payload["message"] = "观察窗口已结束，任务仍在队列或运行中；后续状态会继续通过 run/job 事件同步。"
-        elif result_status == "done":
-            payload["message"] = "任务已完成，观察结果和日志尾部已返回。"
-        return payload
+        return _observe_workspace_tool_job(
+            self,
+            workspace_id=workspace_id,
+            job_id=job_id,
+            run_id=run_id,
+            options=options,
+        )
 
 
     def submit_workspace_tool_job(
