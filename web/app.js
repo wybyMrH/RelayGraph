@@ -28352,15 +28352,24 @@ function bindEvents() {
       renderProcesses();
     },
   });
-  $("manageServersBtn").addEventListener("click", openServerModal);
-  $("runtimeStorageSaveBtn")?.addEventListener("click", () => void saveRuntimeStorageSettings());
-  $("runtimeStorageCleanupBtn")?.addEventListener("click", () => void cleanupRuntimeStorageNow(false));
-  $("runtimeStoragePurgeBtn")?.addEventListener("click", () => void cleanupRuntimeStorageNow(true));
-  $("runtimeStateCleanupBtn")?.addEventListener("click", () => void cleanupRuntimeStateNow());
-  $("runtimeStorageResetBtn")?.addEventListener("click", () => void resetRuntimeStorageSettings());
-  $("closeModalBtn").addEventListener("click", closeServerModal);
-  $("serverModal").addEventListener("click", (event) => {
-    if (event.target.id === "serverModal") closeServerModal();
+  window.ServerAdminActions?.bind?.({
+    element: $,
+    addServer,
+    cancelEdit,
+    checkServer: checkServerConnection,
+    cleanupRuntimeState: cleanupRuntimeStateNow,
+    cleanupRuntimeStorage: cleanupRuntimeStorageNow,
+    closeServerModal,
+    editServer,
+    openServerModal,
+    removeServer: async (serverId) => {
+      if (!confirm("确认从列表移除该服务器？")) return;
+      await removeServer(serverId);
+    },
+    resetRuntimeStorageSettings,
+    restoreDiscovery,
+    saveAlias,
+    saveRuntimeStorageSettings,
   });
   $("processStopConfirmCloseBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(false));
   $("processStopConfirmCancelBtn")?.addEventListener("click", () => closeProcessStopConfirmModal(false));
@@ -28368,9 +28377,6 @@ function bindEvents() {
   $("processStopConfirmModal")?.addEventListener("click", (event) => {
     if (event.target.id === "processStopConfirmModal") closeProcessStopConfirmModal(false);
   });
-  $("addServerForm").addEventListener("submit", addServer);
-  const cancelEditBtn = $("addServerForm").querySelector(".cancel-edit-btn");
-  if (cancelEditBtn) cancelEditBtn.addEventListener("click", cancelEdit);
   if ($("processTable")) {
     loadProcessColumnWidths();
     bindProcessColumnResize();
@@ -28497,30 +28503,6 @@ async function loadAdminServers() {
         `;
       })
       .join("");
-    list.querySelectorAll(".alias-save").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const id = btn.dataset.id;
-        const input = list.querySelector(`.alias-input[data-id="${CSS.escape(id)}"]`);
-        await saveAlias(id, input.value);
-      });
-    });
-    list.querySelectorAll(".alias-remove").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm("确认从列表移除该服务器？")) return;
-        await removeServer(btn.dataset.id);
-      });
-    });
-    list.querySelectorAll(".server-check").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        await checkServerConnection(btn.dataset.id);
-      });
-    });
-    list.querySelectorAll(".server-edit").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        editServer(btn.dataset.id);
-      });
-    });
-
     const aliases = payload.aliases || {};
     const disabled = payload.disabled_discovery || [];
     if (disabled.length) {
@@ -28543,11 +28525,6 @@ async function loadAdminServers() {
             .join("")}
         </div>
       `;
-      hidden.querySelectorAll(".restore-btn").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          await restoreDiscovery(btn.dataset.alias);
-        });
-      });
     }
     void aliases;
   } catch (error) {
