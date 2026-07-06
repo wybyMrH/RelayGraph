@@ -27939,31 +27939,26 @@ function bindEvents() {
       updateSelectedProviderProfile((profile) => ({ ...profile, [key]: value || "" }));
     },
   });
-  $("workspaceManageRunsPanel")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "refresh-execution-overview") {
-      void loadExecutionOverview({ render: true });
-    } else if (button.dataset.action === "reset-execution-overview-filters") {
-      resetExecutionOverviewFilters();
-    } else if (button.dataset.action === "open-overview-workspace") {
-      openWorkspaceFromExecutionOverview(button.dataset.workspaceId || "");
-    }
-  });
-  $("workspaceExecutionOverviewSearch")?.addEventListener("input", (event) => {
-    state.ui.executionOverviewQuery = event.target.value || "";
-    renderManageRunsModule();
-    scheduleExecutionOverviewRefresh(300);
-  });
-  $("workspaceExecutionOverviewStatusFilter")?.addEventListener("change", (event) => {
-    state.ui.executionOverviewStatus = event.target.value || "";
-    renderManageRunsModule();
-    scheduleExecutionOverviewRefresh(100);
-  });
-  $("workspaceExecutionOverviewKindFilter")?.addEventListener("change", (event) => {
-    state.ui.executionOverviewKind = event.target.value || "all";
-    renderManageRunsModule();
-    scheduleExecutionOverviewRefresh(100);
+  window.ConfigCenterExecutionOverviewActions?.bind?.({
+    element: $,
+    openWorkspace: openWorkspaceFromExecutionOverview,
+    refreshOverview: () => loadExecutionOverview({ render: true }),
+    resetFilters: resetExecutionOverviewFilters,
+    setKind: (value) => {
+      state.ui.executionOverviewKind = value || "all";
+      renderManageRunsModule();
+      scheduleExecutionOverviewRefresh(100);
+    },
+    setQuery: (value) => {
+      state.ui.executionOverviewQuery = value || "";
+      renderManageRunsModule();
+      scheduleExecutionOverviewRefresh(300);
+    },
+    setStatus: (value) => {
+      state.ui.executionOverviewStatus = value || "";
+      renderManageRunsModule();
+      scheduleExecutionOverviewRefresh(100);
+    },
   });
   $("workspaceAddProviderBtn")?.addEventListener("click", addProviderProfile);
   $("workspaceAddNodeBtn")?.addEventListener("click", () => insertWorkspaceNode($("workspaceNodeKindSelect")?.value || "custom.step"));
