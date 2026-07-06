@@ -85,6 +85,7 @@ from .transfer import (
     normalize_rsync_directory_source,
     transfer_item_destination_path,
     transfer_path_exists,
+    validate_transfer_spec_paths,
     check_transfer_conflicts,
     build_transfer_command,
     check_detail_text,
@@ -154,4 +155,5 @@ __all__ = [
     "tmux_resize_shell_script",
     "transfer_item_destination_path",
     "transfer_path_exists",
+    "validate_transfer_spec_paths",
 ]

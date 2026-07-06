@@ -266,8 +266,10 @@ class ExecutionJobsMixin:
             runtime_display = str(job.get("command_display") or runtime_command)
             metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
             transfer_spec = metadata.get("transfer_spec") if isinstance(metadata.get("transfer_spec"), dict) else None
-            if str(job.get("kind") or "") == "transfer" and transfer_spec:
+            if str(job.get("kind") or "") == "transfer":
                 try:
+                    if not transfer_spec:
+                        raise ValueError("transfer spec is required")
                     runtime_command, runtime_display = build_transfer_command(transfer_spec, self.servers)
                     job["command"] = runtime_display
                     job["command_display"] = runtime_display

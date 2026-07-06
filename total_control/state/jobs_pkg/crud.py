@@ -27,12 +27,20 @@ class CrudJobsMixin:
 
     def create_job(self, payload: dict[str, Any], *, publish_events: bool = True) -> dict[str, Any]:
         config = getattr(self, "config", AppConfig())
-        command = str(payload.get("command") or "").strip()
-        if not command:
-            raise ValueError("command is required")
         server_id = str(payload.get("server_id") or "local")
         if server_id != "auto" and not self.server_by_id(server_id):
             raise ValueError(f"unknown server: {server_id}")
+        job_kind = str(payload.get("kind") or "command")
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        transfer_spec = metadata.get("transfer_spec") if isinstance(metadata.get("transfer_spec"), dict) else None
+        if job_kind == "transfer":
+            if not transfer_spec:
+                raise ValueError("transfer spec is required")
+            _runtime_command, command = build_transfer_command(transfer_spec, self.servers)
+        else:
+            command = str(payload.get("command") or "").strip()
+            if not command:
+                raise ValueError("command is required")
 
         gpu_value = payload.get("gpu_index", "auto")
         gpu_index: int | str | None
@@ -45,7 +53,6 @@ class CrudJobsMixin:
             gpu_index = safe_int(gpu_value)
 
         wait_for_idle = bool(payload.get("wait_for_idle", True))
-        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
         job_id = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
         job = {
             "id": job_id,
@@ -56,7 +63,7 @@ class CrudJobsMixin:
             "gpu_index": gpu_index,
             "requested_gpu_index": gpu_index,
             "command": command,
-            "command_display": str(payload.get("command_display") or command),
+            "command_display": command if job_kind == "transfer" else str(payload.get("command_display") or command),
             "cwd": str(payload.get("cwd") or "").strip(),
             "env_name": str(payload.get("env_name") or "").strip(),
             "min_free_mib": safe_int(payload.get("min_free_mib"), config.idle_min_free_mib),
@@ -64,7 +71,7 @@ class CrudJobsMixin:
             "wait_for_idle": wait_for_idle,
             "status": "queued" if wait_for_idle else "starting",
             "session": make_session_name(job_id),
-            "kind": str(payload.get("kind") or "command"),
+            "kind": job_kind,
             "target_job_ids": list(payload.get("target_job_ids") or []),
             "profile_key": str(payload.get("profile_key") or ""),
             "profile_measured_mib": 0,

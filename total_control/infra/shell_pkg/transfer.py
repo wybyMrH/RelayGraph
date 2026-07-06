@@ -20,6 +20,35 @@ from .command import run_command, run_shell
 from .ssh import ssh_command
 from ..web_terminal import set_terminal_winsize
 
+SENSITIVE_TRANSFER_EXCLUDES = [
+    ".ssh/***",
+    ".gnupg/***",
+    ".aws/***",
+    ".azure/***",
+    ".config/gcloud/***",
+    ".kube/***",
+    ".docker/***",
+    ".env",
+    ".master_key",
+    ".netrc",
+    ".pypirc",
+    ".npmrc",
+    "id_rsa",
+    "id_ed25519",
+    "known_hosts",
+    "authorized_keys",
+    "api_key*",
+    "access_token*",
+    "auth_token*",
+    "secret*",
+    "secrets/***",
+    "password*",
+    "passwd",
+    "credential*",
+    "credentials/***",
+    "run/secrets/***",
+]
+
 
 def rsync_endpoint_prefix(value: str) -> str:
     text = str(value or "").strip()
@@ -58,6 +87,15 @@ def server_for_rsync_endpoint(servers: list[ServerConfig], endpoint: str) -> Ser
     if not prefix:
         return None
     return next((server for server in servers if server.mode != "local" and server_matches_rsync_prefix(server, prefix)), None)
+
+def looks_like_rsync_endpoint(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text or text.startswith("/"):
+        return False
+    if ":" not in text:
+        return False
+    prefix = text.split(":", 1)[0].strip()
+    return bool(prefix and "/" not in prefix and "\\" not in prefix)
 
 def shell_join(parts: list[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in parts)
@@ -167,6 +205,46 @@ finally:
 def remote_file_download_endpoint(server: ServerConfig, path_text: str) -> str:
     return f"{server.target_label()}:{str(path_text or '').strip()}"
 
+def rsync_endpoint_path(value: str) -> str:
+    text = str(value or "").strip()
+    prefix = rsync_endpoint_prefix(text)
+    if prefix:
+        return text.split(":", 1)[1]
+    return text
+
+def transfer_path_block_reason(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        reason = sensitive_path_block_reason(text, rsync_endpoint_path(text))
+        if reason:
+            return reason.replace("读取/枚举", "传输")
+    return ""
+
+def ensure_transfer_path_safe(label: str, *values: Any) -> None:
+    reason = transfer_path_block_reason(*values)
+    if reason:
+        prefix = f"{label}：" if label else ""
+        raise ValueError(prefix + reason)
+
+def validate_transfer_endpoint(value: Any, servers: list[ServerConfig], *, label: str) -> None:
+    text = str(value or "").strip()
+    if not text:
+        return
+    if "\n" in text or "\r" in text:
+        raise ValueError(f"{label}：传输路径不能包含换行。")
+    path_text = rsync_endpoint_path(text)
+    if path_text.startswith("-"):
+        raise ValueError(f"{label}：传输路径不能以 '-' 开头。")
+    prefix = rsync_endpoint_prefix(text)
+    if prefix:
+        if not server_for_rsync_endpoint(servers, text):
+            raise ValueError(f"{label}：远程传输只能使用已配置服务器。")
+        return
+    if looks_like_rsync_endpoint(text):
+        raise ValueError(f"{label}：远程传输路径必须使用已配置服务器的绝对路径，例如 server:/path。")
+
 def _download_remote_file_to_local_impl(
     server: ServerConfig,
     path_text: str,
@@ -241,28 +319,36 @@ def transfer_item_destination_path(source_path: str, is_dir: bool, target: str) 
         return f"{prefix}:{dest_path}"
     return dest_path
 
+def transfer_conflict_candidate_paths(source_path: str, is_dir: bool, target: str, *, source_count: int = 1) -> list[str]:
+    primary = transfer_item_destination_path(source_path, is_dir, target)
+    target_text = str(target or "").strip()
+    if source_count != 1 or is_dir or not target_text or target_text.endswith("/"):
+        return [primary] if primary else []
+    candidates = [target_text]
+    if primary and primary != target_text:
+        candidates.append(primary)
+    return candidates
+
 def transfer_path_exists(path_text: str, servers: list[ServerConfig], timeout: int = 8) -> bool:
     text = str(path_text or "").strip()
     if not text:
         return False
+    ensure_transfer_path_safe("传输目标", text)
+    validate_transfer_endpoint(text, servers, label="传输目标")
     prefix = rsync_endpoint_prefix(text)
     remote_path = text.split(":", 1)[1] if prefix else text
     if prefix:
         server = server_for_rsync_endpoint(servers, text)
         if not server:
-            return False
+            raise ValueError("传输目标：远程传输只能使用已配置服务器。")
         script = f"test -e {shlex.quote(remote_path)}"
         result = ssh_command(server, f"bash -lc {shlex.quote(script)}", timeout)
         return result.returncode == 0
     return Path(remote_path).exists()
 
-def check_transfer_conflicts(spec: dict[str, Any], servers: list[ServerConfig]) -> dict[str, Any]:
-    target = str(spec.get("target") or "").strip()
-    raw_sources = spec.get("sources") or []
-    if not target or not raw_sources:
-        return {"conflicts": [], "checked": False}
-    conflicts: list[dict[str, Any]] = []
-    for item in raw_sources:
+def iter_transfer_source_specs(raw_sources: Any) -> list[tuple[str, str, bool]]:
+    result: list[tuple[str, str, bool]] = []
+    for item in raw_sources if isinstance(raw_sources, list) else []:
         if isinstance(item, dict):
             source_path = str(item.get("path") or item.get("value") or "").strip()
             is_dir = bool(item.get("is_dir"))
@@ -271,25 +357,56 @@ def check_transfer_conflicts(spec: dict[str, Any], servers: list[ServerConfig]) 
             source_path = str(item or "").strip()
             is_dir = source_path.endswith("/")
             source_value = source_path
+        if source_path or source_value:
+            result.append((source_path, source_value, is_dir))
+    return result
+
+def validate_transfer_spec_paths(spec: dict[str, Any], servers: list[ServerConfig] | None = None) -> None:
+    server_list = servers or []
+    target = str(spec.get("target") or "").strip()
+    raw_sources = spec.get("sources") or []
+    if target:
+        ensure_transfer_path_safe("传输目标", target)
+        validate_transfer_endpoint(target, server_list, label="传输目标")
+    if not target or not raw_sources:
+        return
+    for source_path, source_value, is_dir in iter_transfer_source_specs(raw_sources):
+        ensure_transfer_path_safe("传输源", source_path, source_value)
+        validate_transfer_endpoint(source_value or source_path, server_list, label="传输源")
+        for destination in transfer_conflict_candidate_paths(source_path or source_value, is_dir, target):
+            ensure_transfer_path_safe("传输目标", destination)
+            validate_transfer_endpoint(destination, server_list, label="传输目标")
+
+def check_transfer_conflicts(spec: dict[str, Any], servers: list[ServerConfig]) -> dict[str, Any]:
+    target = str(spec.get("target") or "").strip()
+    raw_sources = spec.get("sources") or []
+    if not target or not raw_sources:
+        return {"conflicts": [], "checked": False}
+    validate_transfer_spec_paths(spec, servers)
+    conflicts: list[dict[str, Any]] = []
+    source_specs = iter_transfer_source_specs(raw_sources)
+    for source_path, source_value, is_dir in source_specs:
         if not source_path:
             continue
-        destination = transfer_item_destination_path(source_path, is_dir, target)
-        if not destination:
-            continue
-        if transfer_path_exists(destination, servers):
-            conflicts.append(
-                {
-                    "source_path": source_path,
-                    "source_value": source_value,
-                    "is_dir": is_dir,
-                    "destination": destination,
-                    "name": Path(source_path.rstrip("/")).name,
-                }
-            )
+        for destination in transfer_conflict_candidate_paths(source_path, is_dir, target, source_count=len(source_specs)):
+            if not destination:
+                continue
+            if transfer_path_exists(destination, servers):
+                conflicts.append(
+                    {
+                        "source_path": source_path,
+                        "source_value": source_value,
+                        "is_dir": is_dir,
+                        "destination": destination,
+                        "name": Path(source_path.rstrip("/")).name,
+                    }
+                )
+                break
     return {"conflicts": conflicts, "checked": True}
 
 def build_transfer_command(spec: dict[str, Any], servers: list[ServerConfig]) -> tuple[str, str]:
     raw_sources = spec.get("sources") or []
+    validate_transfer_spec_paths(spec, servers)
     skip_sources = {
         str(item).strip()
         for item in spec.get("skip_sources") or []
@@ -322,7 +439,7 @@ def build_transfer_command(spec: dict[str, Any], servers: list[ServerConfig]) ->
 
     options = dict(spec.get("options") or {})
     excludes = [str(item).strip() for item in spec.get("excludes") or [] if str(item).strip()]
-    base_args = ["rsync", "-avPh", "--info=progress2"]
+    base_args = ["rsync", "-avPh", "--protect-args", "--info=progress2"]
     if bool(options.get("checksum")):
         base_args.append("--checksum")
     elif bool(options.get("size_only", True)):
@@ -331,6 +448,8 @@ def build_transfer_command(spec: dict[str, Any], servers: list[ServerConfig]) ->
         base_args.extend(["--partial", "--append-verify"])
     if bool(options.get("ignore_existing")):
         base_args.append("--ignore-existing")
+    for item in SENSITIVE_TRANSFER_EXCLUDES:
+        base_args.extend(["--exclude", item])
     for item in excludes:
         base_args.extend(["--exclude", item])
 
@@ -342,8 +461,10 @@ def build_transfer_command(spec: dict[str, Any], servers: list[ServerConfig]) ->
         password = remote_server.password if remote_server else None
         args = list(base_args)
         if remote_endpoint:
+            if not remote_server:
+                raise ValueError("传输路径：远程传输只能使用已配置服务器。")
             args.extend(["-e", rsync_remote_shell(remote_server, bool(password))])
-        args.extend([source, target])
+        args.extend(["--", source, target])
         display = shell_join(args)
         if remote_endpoint and password:
             display += "  # 使用 secrets.toml 中的 SSH 密码"
