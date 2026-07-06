@@ -27456,48 +27456,50 @@ function bindEvents() {
     },
     refreshStatus: () => loadStatus(true),
   });
-  $("workspaceForm")?.addEventListener("submit", submitWorkspace);
-  $("workspaceForm")?.addEventListener("input", (event) => {
-    const field = event.target.name;
-    if (!field) return;
-    if (field === "source_type") return;
-    const syncNodeFields = [
-      "brief",
-      "repo_url",
-      "repo_ref",
-      "paper_url",
-      "idea_text",
-      "workspace_dir",
-      "env_name",
-      "env_manager",
-      "python_version",
-      "setup_command",
-      "run_command",
-      "report_command",
-      "schedule",
-    ];
-    const renderOnlyFields = ["name", "references", "tags", "status", "notes"];
-    if (syncNodeFields.includes(field)) {
-      syncWorkspaceNodesFromForm();
-      preserveActiveInput(() => renderWorkspacePanels());
-      return;
-    }
-    if (renderOnlyFields.includes(field)) {
-      preserveActiveInput(() => renderWorkspacePanels());
-      return;
-    }
-    preserveActiveInput(() => renderWorkspaceHeader());
+  window.WorkspaceFormActions?.bind?.({
+    clearWorkspaceForm,
+    element: $,
+    fillJobFormFromWorkspace,
+    handleWorkspaceFormInput: (field) => {
+      if (!field) return;
+      if (field === "source_type") return;
+      const syncNodeFields = [
+        "brief",
+        "repo_url",
+        "repo_ref",
+        "paper_url",
+        "idea_text",
+        "workspace_dir",
+        "env_name",
+        "env_manager",
+        "python_version",
+        "setup_command",
+        "run_command",
+        "report_command",
+        "schedule",
+      ];
+      const renderOnlyFields = ["name", "references", "tags", "status", "notes"];
+      if (syncNodeFields.includes(field)) {
+        syncWorkspaceNodesFromForm();
+        preserveActiveInput(() => renderWorkspacePanels());
+        return;
+      }
+      if (renderOnlyFields.includes(field)) {
+        preserveActiveInput(() => renderWorkspacePanels());
+        return;
+      }
+      preserveActiveInput(() => renderWorkspaceHeader());
+    },
+    handleWorkspaceSourceTypeChange: (value) => {
+      toggleWorkspaceSourceFields();
+      replacePrimarySourceNodeKind(value || "repo");
+      persistFormState("workspaceForm");
+    },
+    runWorkspaceWorkflow: () => {
+      void runWorkspaceWorkflow();
+    },
+    submitWorkspace,
   });
-  $("workspaceSourceType")?.addEventListener("change", () => {
-    toggleWorkspaceSourceFields();
-    replacePrimarySourceNodeKind($("workspaceSourceType")?.value || "repo");
-    persistFormState("workspaceForm");
-  });
-  $("workspaceResetBtn")?.addEventListener("click", clearWorkspaceForm);
-  $("workspaceRunFlowBtn")?.addEventListener("click", () => {
-    void runWorkspaceWorkflow();
-  });
-  $("workspaceFillJobBtn")?.addEventListener("click", fillJobFormFromWorkspace);
   window.WorkspaceChatActions?.bind?.({
     element: $,
     handleAutomationAction: handleWorkspaceAutomationAction,
