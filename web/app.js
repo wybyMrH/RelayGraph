@@ -27814,65 +27814,29 @@ function bindEvents() {
     syncMappingAdvancedText: syncWorkflowTemplateMappingAdvancedText,
     updateNode: updateSelectedWorkflowTemplateNode,
   });
-  $("workspaceNewAgentBtn")?.addEventListener("click", newGlobalAgentDraft);
-  $("manageAgentList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-global-agent']");
-    if (button?.dataset.agentId) selectGlobalAgent(button.dataset.agentId);
-  });
-  $("manageAgentEditor")?.addEventListener("input", (event) => {
-    const target = event.target;
-    if (target.matches("[data-manage-agent-field]")) {
-      const key = target.dataset.manageAgentField;
-      updateAgentDefinitionDraft({ [key]: key === "tools" ? parseTagList(target.value || "") : target.value || "" });
-      return;
-    }
-    if (target.matches("[data-manage-agent-number]")) {
-      updateAgentDefinitionDraft({ [target.dataset.manageAgentNumber]: positiveNumberOrBlank(target.value) });
-      return;
-    }
-    if (target.id === "manageAgentDebugInput") {
-      state.manageAgentDebug.input = target.value || "";
-    }
-  });
-  $("manageAgentEditor")?.addEventListener("change", (event) => {
-    const target = event.target;
-    if (target.id === "manageAgentDebugExecuteLlm") {
-      state.manageAgentDebug.executeLlm = Boolean(target.checked);
+  window.ConfigCenterAgentActions?.bind?.({
+    element: $,
+    copyDebugTranscript: copyAgentDebugTranscript,
+    deleteAgent: deleteGlobalAgentDefinition,
+    newAgent: newGlobalAgentDraft,
+    parseTags: parseTagList,
+    positiveNumberOrBlank,
+    runDebug: runGlobalAgentDebug,
+    saveAgent: saveGlobalAgentDefinition,
+    selectAgent: selectGlobalAgent,
+    setDebugExecuteLlm: (checked) => {
+      state.manageAgentDebug.executeLlm = Boolean(checked);
       state.manageAgentDebug.result = null;
       state.manageAgentDebug.error = "";
-      return;
-    }
-    if (target.matches("[data-manage-agent-checkbox]")) {
-      updateAgentDefinitionDraft({ [target.dataset.manageAgentCheckbox]: Boolean(target.checked) });
-      return;
-    }
-    if (target.id === "manageAgentDebugTemplateSelect") {
-      state.manageAgentDebug.templateId = target.value || "";
-      return;
-    }
-    if (target.matches("[data-manage-agent-field]")) {
-      const key = target.dataset.manageAgentField;
-      updateAgentDefinitionDraft({ [key]: key === "tools" ? parseTagList(target.value || "") : target.value || "" });
-      return;
-    }
-    if (target.matches("[data-manage-agent-number]")) {
-      updateAgentDefinitionDraft({ [target.dataset.manageAgentNumber]: positiveNumberOrBlank(target.value) });
-    }
-  });
-  $("manageAgentEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "save-global-agent") {
-      void saveGlobalAgentDefinition();
-    } else if (button.dataset.action === "delete-global-agent") {
-      void deleteGlobalAgentDefinition();
-    } else if (button.dataset.action === "run-global-agent-debug") {
-      void runGlobalAgentDebug();
-    } else if (button.dataset.action === "copy-agent-debug-transcript") {
-      void copyAgentDebugTranscript(button.dataset.debugScope || "manage")
-        .then(() => setWorkspaceManageMessage("Agent 调试结果已复制。"))
-        .catch((error) => setWorkspaceManageMessage(error.message || "复制 Agent 调试结果失败。", true));
-    }
+    },
+    setDebugInput: (value) => {
+      state.manageAgentDebug.input = value || "";
+    },
+    setDebugTemplateId: (value) => {
+      state.manageAgentDebug.templateId = value || "";
+    },
+    setMessage: setWorkspaceManageMessage,
+    updateDraft: updateAgentDefinitionDraft,
   });
   $("workspaceNewToolBtn")?.addEventListener("click", newGlobalToolDraft);
   $("manageToolList")?.addEventListener("click", (event) => {
