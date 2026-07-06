@@ -20732,12 +20732,42 @@ function workflowTemplateConnectorMarkup(leftNode = {}, rightNode = {}, rightInd
   });
 }
 
+function workflowTemplateIoStateApi() {
+  return window.WorkflowTemplateIoState && typeof window.WorkflowTemplateIoState === "object"
+    ? window.WorkflowTemplateIoState
+    : null;
+}
+
+function workflowTemplateIoStateDeps(nodeList = workflowTemplateMappingNodes()) {
+  return {
+    fallbackMapping: workspaceNodeIoFallbackMapping,
+    inputMappingEntries: workspaceInputMappingEntries,
+    mappingHealth: workflowTemplateMappingHealth,
+    mappingSourceOptions: (node, index) => workflowTemplateMappingApi().sourceOptions?.({
+      node,
+      index,
+      nodes: nodeList,
+      ...workflowTemplateMappingDeps(),
+    }) || workflowTemplateMappingSourceOptions(node, index),
+    nodeIoContract: workspaceNodeIoContract,
+  };
+}
+
 function workflowTemplateNodeIoState(node = {}, index = 0, nodes = null) {
   const nodeList = Array.isArray(nodes)
     ? nodes
     : Array.isArray(state.workflowTemplateDraft?.nodes)
       ? state.workflowTemplateDraft.nodes
       : [];
+  const api = workflowTemplateIoStateApi();
+  if (typeof api?.nodeIoState === "function") {
+    return api.nodeIoState({
+      node,
+      index,
+      nodes: nodeList,
+      ...workflowTemplateIoStateDeps(nodeList),
+    });
+  }
   const contract = workspaceNodeIoContract(node.kind || "", index);
   const outputKey = String(node.output_key || contract.output || "").trim();
   const inputMapping = node.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
