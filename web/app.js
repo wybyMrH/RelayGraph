@@ -3227,34 +3227,24 @@ function setWorkspaceManageMessage(text = "", isError = false) {
   box.classList.toggle("error", Boolean(isError));
 }
 
+function workflowTemplateValidationApi() {
+  return window.WorkflowTemplateValidation || {};
+}
+
 function workflowTemplateValidationLabel(status = "") {
-  const value = String(status || "").trim();
-  if (value === "ready") return "通过";
-  if (value === "warning") return "有警告";
-  if (value === "blocked") return "阻塞";
-  return "未校验";
+  return workflowTemplateValidationApi().label?.(status) || "未校验";
 }
 
 function workflowTemplateValidationSummary(validation = null) {
-  if (!validation || typeof validation !== "object") return "等待后端校验";
-  return validation.summary
-    || `${Number(validation.node_count || 0)} 个节点 · ${Number(validation.blocking_count || 0)} 个阻塞 · ${Number(validation.warning_count || 0)} 个警告`;
+  return workflowTemplateValidationApi().summary?.(validation) || "等待后端校验";
 }
 
 function workflowTemplateValidationIssueMarkup(validation = null, { limit = 4 } = {}) {
-  const issues = Array.isArray(validation?.issues) ? validation.issues : [];
-  if (!issues.length) return '<div class="workspace-template-validation-empty">没有发现阻塞项。</div>';
-  return `
-    <div class="workspace-template-validation-issues">
-      ${issues.slice(0, limit).map((issue) => `
-        <div class="workspace-template-validation-issue severity-${escapeHtml(issue.severity || "warning")}">
-          <span>${escapeHtml(workspaceStatusLabel(issue.severity === "blocking" ? "blocked" : "warning"))}</span>
-          <strong>${escapeHtml(issue.message || issue.code || "配置检查项")}</strong>
-        </div>
-      `).join("")}
-      ${issues.length > limit ? `<div class="workspace-template-validation-more">还有 ${issues.length - limit} 个检查项，可切到链路诊断查看上下文。</div>` : ""}
-    </div>
-  `;
+  return workflowTemplateValidationApi().issueMarkup?.(validation, {
+    escapeHtml,
+    statusLabel: workspaceStatusLabel,
+    limit,
+  }) || "";
 }
 
 function workflowTemplateRepairActions(response = state.workflowTemplateValidation, { limit = 4 } = {}) {
@@ -3280,49 +3270,26 @@ function workflowTemplateRepairActions(response = state.workflowTemplateValidati
 
 function workflowTemplateValidationRepairMarkup(response = state.workflowTemplateValidation) {
   const actions = workflowTemplateRepairActions(response, { limit: 4 });
-  if (!actions.length) return "";
   const allCount = workflowTemplateRepairActions(response, { limit: Infinity }).length;
-  return `
-    <div class="workspace-template-validation-repairs">
-      <div>
-        <span>建议修复</span>
-        <em>${allCount > actions.length ? `显示 ${actions.length}/${allCount}` : `${actions.length} 项`}</em>
-      </div>
-      <div class="workspace-template-validation-repair-actions">
-        ${allCount > 1 ? '<button class="secondary mini" type="button" data-action="apply-template-repair-all" title="按当前后端预览给出的顺序应用全部可安全修复项">全部应用</button>' : ""}
-        ${actions.map((action) => {
-          const value = action.patch?.value == null ? "" : String(action.patch.value);
-          const title = [action.node_title, action.label || action.kind || "应用修复", value].filter(Boolean).join(" · ");
-          return `
-            <button
-              class="secondary mini"
-              type="button"
-              data-action="apply-template-repair"
-              data-repair-id="${escapeHtml(action.id)}"
-              data-node-id="${escapeHtml(action.node_id)}"
-              title="${escapeHtml(title)}"
-            >${escapeHtml(action.label || "应用修复")}</button>
-          `;
-        }).join("")}
-      </div>
-    </div>
-  `;
+  return workflowTemplateValidationApi().repairMarkup?.({
+    escapeHtml,
+    actions,
+    allCount,
+  }) || "";
 }
 
 function workflowTemplateValidationMarkup(validation = state.workflowTemplateValidation?.validation || null) {
-  const status = String(validation?.status || "").trim() || "draft";
-  const blocking = Number(validation?.blocking_count || 0);
-  const warnings = Number(validation?.warning_count || 0);
-  return `
-    <article class="workspace-template-studio-card workspace-template-validation-card status-${escapeHtml(status)}">
-      <span class="workspace-cockpit-label">后端校验</span>
-      <strong>${state.ui.workflowTemplateValidationBusy ? "校验中..." : workflowTemplateValidationLabel(status)}</strong>
-      <p title="${escapeHtml(workflowTemplateValidationSummary(validation))}">${escapeHtml(workflowTemplateValidationSummary(validation))}</p>
-      <em>${blocking ? `${blocking} 个阻塞会阻止保存` : warnings ? `${warnings} 个警告，可保存但建议处理` : "保存前会自动校验"}</em>
-      ${workflowTemplateValidationIssueMarkup(validation)}
-      ${workflowTemplateValidationRepairMarkup()}
-    </article>
-  `;
+  const response = state.workflowTemplateValidation;
+  const actions = workflowTemplateRepairActions(response, { limit: 4 });
+  const allCount = workflowTemplateRepairActions(response, { limit: Infinity }).length;
+  return workflowTemplateValidationApi().markup?.({
+    escapeHtml,
+    statusLabel: workspaceStatusLabel,
+    busy: state.ui.workflowTemplateValidationBusy,
+    validation,
+    actions,
+    allCount,
+  }) || "";
 }
 
 function workflowTemplateRepairActionById(repairId = "", nodeId = "") {
