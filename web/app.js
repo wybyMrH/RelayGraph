@@ -15785,108 +15785,51 @@ function workspaceRunFilterState() {
 }
 
 function workspaceRunFilterActiveCount(filters = workspaceRunFilterState()) {
-  return [
-    filters.status,
-    filters.nodeKind,
-    filters.jobId,
-    filters.agentExecutionId,
-  ].filter(Boolean).length;
+  if (window.WorkspaceRunFilter?.activeCount) return window.WorkspaceRunFilter.activeCount(filters);
+  return Object.values(filters || {}).filter(Boolean).length;
 }
 
 function workspaceRunStepList(run = {}) {
+  if (window.WorkspaceRunFilter?.stepList) return window.WorkspaceRunFilter.stepList(run);
   return Array.isArray(run.steps) ? run.steps.filter((step) => step && typeof step === "object") : [];
 }
 
 function workspaceRunStepJobIds(step = {}) {
-  return [
-    step.job_id,
-    ...(Array.isArray(step.child_job_ids) ? step.child_job_ids : []),
-  ].map((item) => String(item || "").trim()).filter(Boolean);
+  if (window.WorkspaceRunFilter?.stepJobIds) return window.WorkspaceRunFilter.stepJobIds(step);
+  return [step.job_id].map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 function workspaceRunStepAgentExecutionIds(step = {}) {
-  return [
-    step.agent_execution_id,
-    ...(Array.isArray(step.agent_execution_ids) ? step.agent_execution_ids : []),
-  ].map((item) => String(item || "").trim()).filter(Boolean);
+  if (window.WorkspaceRunFilter?.stepAgentExecutionIds) return window.WorkspaceRunFilter.stepAgentExecutionIds(step);
+  return [step.agent_execution_id].map((item) => String(item || "").trim()).filter(Boolean);
 }
 
 function workspaceRunMatchesFilters(run = {}, filters = workspaceRunFilterState()) {
-  const steps = workspaceRunStepList(run);
-  if (filters.status && String(run.status || "").trim() !== filters.status) return false;
-  if (filters.nodeKind && !steps.some((step) => String(step.node_kind || "").trim() === filters.nodeKind)) return false;
-  if (filters.jobId) {
-    const jobIds = steps.flatMap((step) => workspaceRunStepJobIds(step));
-    if (!jobIds.some((jobId) => jobId.toLowerCase().includes(filters.jobId))) return false;
-  }
-  if (filters.agentExecutionId) {
-    const agentIds = steps.flatMap((step) => workspaceRunStepAgentExecutionIds(step));
-    if (!agentIds.some((agentId) => agentId.toLowerCase().includes(filters.agentExecutionId))) return false;
-  }
+  if (window.WorkspaceRunFilter?.matches) return window.WorkspaceRunFilter.matches(run, filters);
   return true;
 }
 
 function filterWorkspaceExecutionRuns(runs = [], filters = workspaceRunFilterState()) {
-  const list = Array.isArray(runs) ? runs : [];
-  if (!workspaceRunFilterActiveCount(filters)) return list;
-  return list.filter((run) => workspaceRunMatchesFilters(run, filters));
+  if (window.WorkspaceRunFilter?.filterRuns) return window.WorkspaceRunFilter.filterRuns(runs, filters);
+  return Array.isArray(runs) ? runs : [];
 }
 
 function workspaceRunFilterOptions(runs = []) {
-  const statusOrder = ["queued", "starting", "running", "blocked", "failed", "stopped", "done"];
-  const statuses = new Set();
-  const nodeKinds = new Set();
-  (Array.isArray(runs) ? runs : []).forEach((run) => {
-    const status = String(run?.status || "").trim();
-    if (status) statuses.add(status);
-    workspaceRunStepList(run).forEach((step) => {
-      const kind = String(step.node_kind || "").trim();
-      if (kind) nodeKinds.add(kind);
-    });
-  });
-  return {
-    statuses: Array.from(statuses).sort((left, right) => {
-      const leftIndex = statusOrder.indexOf(left);
-      const rightIndex = statusOrder.indexOf(right);
-      if (leftIndex !== rightIndex) return (leftIndex < 0 ? 999 : leftIndex) - (rightIndex < 0 ? 999 : rightIndex);
-      return left.localeCompare(right);
-    }),
-    nodeKinds: Array.from(nodeKinds).sort((left, right) => left.localeCompare(right)),
-  };
+  if (window.WorkspaceRunFilter?.options) return window.WorkspaceRunFilter.options(runs);
+  return { statuses: [], nodeKinds: [] };
 }
 
 function workspaceRunFilterBarMarkup(runs = [], filteredRuns = []) {
   const filters = workspaceRunFilterState();
-  const activeCount = workspaceRunFilterActiveCount(filters);
-  const options = workspaceRunFilterOptions(runs);
-  return `
-    <div class="workspace-run-filterbar">
-      <label>
-        状态
-        <select data-workspace-run-filter="status" title="按 run 状态过滤">
-          <option value="">全部</option>
-          ${options.statuses.map((status) => `<option value="${escapeHtml(status)}" ${filters.status === status ? "selected" : ""}>${escapeHtml(zhStatus(status))}</option>`).join("")}
-        </select>
-      </label>
-      <label>
-        节点
-        <select data-workspace-run-filter="nodeKind" title="按 run step 的 node_kind 过滤">
-          <option value="">全部节点</option>
-          ${options.nodeKinds.map((kind) => `<option value="${escapeHtml(kind)}" ${filters.nodeKind === kind ? "selected" : ""}>${escapeHtml(workspaceNodeLabel(kind))}</option>`).join("")}
-        </select>
-      </label>
-      <label>
-        Job
-        <input data-workspace-run-filter="jobId" value="${escapeHtml(filters.jobId)}" placeholder="job id" />
-      </label>
-      <label>
-        Agent
-        <input data-workspace-run-filter="agentExecutionId" value="${escapeHtml(filters.agentExecutionId)}" placeholder="agent execution id" />
-      </label>
-      <span class="workspace-run-filter-count">${escapeHtml(activeCount ? `${filteredRuns.length}/${runs.length}` : `${runs.length}`)} 条</span>
-      <button class="secondary mini" type="button" data-action="reset-workspace-run-filters" title="清空运行记录筛选" ${activeCount ? "" : "disabled"}>重置</button>
-    </div>
-  `;
+  if (!window.WorkspaceRunFilter?.barMarkup) return "";
+  return window.WorkspaceRunFilter.barMarkup({
+    runs,
+    filteredRuns,
+    filters,
+    escapeHtml,
+    statusLabel: zhStatus,
+    nodeLabel: workspaceNodeLabel,
+  });
 }
 
 function updateWorkspaceRunFilter(key = "", value = "") {
