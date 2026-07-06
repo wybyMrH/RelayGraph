@@ -409,6 +409,16 @@ print(json.dumps(payload, ensure_ascii=False))
             raise ValueError("invalid pid")
         context = self.realtime_process_stop_context(server, target_pid)
         data = body if isinstance(body, dict) else {}
+        if bool(data.get("check_only")):
+            return {
+                "ok": True,
+                "check_only": True,
+                "server_id": server.id,
+                "pid": target_pid,
+                "requires_confirmation": bool(context.get("confirmation_required")),
+                "would_require_confirmation": bool(context.get("confirmation_required")),
+                "process_stop": context,
+            }
         if context["confirmation_required"] and not bool(data.get("confirm_non_owner")):
             raise PermissionError("关闭非当前用户或归属未知的进程前需要确认。")
         result = stop_server_process(
