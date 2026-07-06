@@ -19,6 +19,13 @@
     fn(callbacks, name, () => {})(...args);
   }
 
+  function serverItemFromEvent(event, list) {
+    const item = eventTarget(event)?.closest(".server-item[data-id]");
+    if (!item?.dataset.id) return null;
+    if (list && typeof list.contains === "function" && !list.contains(item)) return null;
+    return item;
+  }
+
   function handleServerListClick(event, callbacks = {}) {
     const target = eventTarget(event);
     const refreshButton = target?.closest("[data-action='refresh-server']");
@@ -35,17 +42,59 @@
     if (item?.dataset.id) call(callbacks, "selectServer", item.dataset.id, event, item);
   }
 
+  function handleServerListPointerOver(event, callbacks = {}, list = null) {
+    const item = serverItemFromEvent(event, list);
+    if (item) call(callbacks, "showServerResource", item.dataset.id, item, event);
+  }
+
+  function handleServerListPointerOut(event, callbacks = {}, list = null) {
+    const item = serverItemFromEvent(event, list);
+    if (item) call(callbacks, "hideServerResource", item.dataset.id, item, event);
+  }
+
+  function handleServerListFocusIn(event, callbacks = {}, list = null) {
+    const item = serverItemFromEvent(event, list);
+    if (item) call(callbacks, "showServerResource", item.dataset.id, item, event);
+  }
+
+  function handleServerListFocusOut(event, callbacks = {}, list = null) {
+    const item = eventTarget(event)?.closest(".server-item[data-id]") || null;
+    if (item && list && typeof list.contains === "function" && !list.contains(item)) return;
+    call(callbacks, "hideServerResource", item?.dataset?.id || "", item, event);
+  }
+
   function bind(callbacks = {}) {
+    const list = element(callbacks, "serverList");
     element(callbacks, "serverSortSelect")?.addEventListener("change", (event) => {
       call(callbacks, "setServerSort", event?.target?.value || "default", event);
     });
-    element(callbacks, "serverList")?.addEventListener("click", (event) => {
+    list?.addEventListener("click", (event) => {
       handleServerListClick(event, callbacks);
     });
+    list?.addEventListener("pointerover", (event) => {
+      handleServerListPointerOver(event, callbacks, list);
+    });
+    list?.addEventListener("pointerout", (event) => {
+      handleServerListPointerOut(event, callbacks, list);
+    });
+    list?.addEventListener("focusin", (event) => {
+      handleServerListFocusIn(event, callbacks, list);
+    });
+    list?.addEventListener("focusout", (event) => {
+      handleServerListFocusOut(event, callbacks, list);
+    });
+    list?.addEventListener("scroll", (event) => {
+      call(callbacks, "positionServerResource", event);
+    }, { passive: true });
   }
 
   window.ServerListActions = {
     bind,
     handleServerListClick,
+    handleServerListFocusIn,
+    handleServerListFocusOut,
+    handleServerListPointerOut,
+    handleServerListPointerOver,
+    serverItemFromEvent,
   };
 })();

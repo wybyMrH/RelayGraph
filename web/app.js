@@ -27303,36 +27303,22 @@ function bindEvents() {
       void refreshServerStatus(serverId);
     },
     selectServer,
+    hideServerResource: (serverId, item, event) => {
+      const overlay = $("serverResourceOverlay");
+      if (event?.relatedTarget && (item?.contains(event.relatedTarget) || overlay?.contains(event.relatedTarget))) return;
+      scheduleHideServerResourcePopover();
+    },
+    positionServerResource: () => positionServerResourcePopover(),
     setServerSort: (value) => {
       state.ui.serverSort = value || "default";
       saveStoredValue(STORAGE_KEYS.serverSort, state.ui.serverSort);
       renderServers();
     },
+    showServerResource: (serverId, item, event) => {
+      if (event?.relatedTarget && item?.contains(event.relatedTarget)) return;
+      showServerResourcePopover(serverId, item);
+    },
   });
-  $("serverList")?.addEventListener("pointerover", (event) => {
-    const item = event.target.closest(".server-item[data-id]");
-    if (!item?.dataset.id || !$("serverList")?.contains(item)) return;
-    if (event.relatedTarget && item.contains(event.relatedTarget)) return;
-    showServerResourcePopover(item.dataset.id, item);
-  });
-  $("serverList")?.addEventListener("pointerout", (event) => {
-    const item = event.target.closest(".server-item[data-id]");
-    if (!item?.dataset.id) return;
-    const overlay = $("serverResourceOverlay");
-    if (event.relatedTarget && (item.contains(event.relatedTarget) || overlay?.contains(event.relatedTarget))) return;
-    scheduleHideServerResourcePopover();
-  });
-  $("serverList")?.addEventListener("focusin", (event) => {
-    const item = event.target.closest(".server-item[data-id]");
-    if (item?.dataset.id) showServerResourcePopover(item.dataset.id, item);
-  });
-  $("serverList")?.addEventListener("focusout", (event) => {
-    const item = event.target.closest(".server-item[data-id]");
-    const overlay = $("serverResourceOverlay");
-    if (event.relatedTarget && (item?.contains(event.relatedTarget) || overlay?.contains(event.relatedTarget))) return;
-    scheduleHideServerResourcePopover();
-  });
-  $("serverList")?.addEventListener("scroll", () => positionServerResourcePopover(), { passive: true });
   window.addEventListener("resize", () => {
     syncLogPaneMetrics();
     positionServerResourcePopover();
