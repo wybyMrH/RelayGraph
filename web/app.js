@@ -329,8 +329,6 @@ const WORKSPACE_FLOW_CANVAS = {
   zoomStep: 0.08,
 };
 
-let workspaceFlowCanvasPanState = null;
-
 const WORKSPACE_FLOW_PHASE_TONES = {
   输入: "input",
   发现: "discovery",
@@ -340,43 +338,64 @@ const WORKSPACE_FLOW_PHASE_TONES = {
   其他: "other",
 };
 
-function workspaceFlowZoomLevel() {
+function workspaceFlowCanvasControlsApi() {
+  return window.WorkspaceFlowCanvasControls && typeof window.WorkspaceFlowCanvasControls === "object"
+    ? window.WorkspaceFlowCanvasControls
+    : null;
+}
+
+function workspaceFlowCanvasControlDeps() {
+  return {
+    board: () => $("workspaceExecutionBoard"),
+    config: WORKSPACE_FLOW_CANVAS,
+    getPan: () => ({
+      x: state.ui.workspaceFlowPanX,
+      y: state.ui.workspaceFlowPanY,
+    }),
+    getZoom: () => state.ui.workspaceFlowZoom,
+    persistZoom: (value) => saveStoredValue(STORAGE_KEYS.workspaceFlowZoom, value),
+    requestAnimationFrame: (callback) => requestAnimationFrame(callback),
+    setPan: (pan) => {
+      state.ui.workspaceFlowPanX = Number(pan?.x || 0) || 0;
+      state.ui.workspaceFlowPanY = Number(pan?.y || 0) || 0;
+    },
+    setZoomValue: (zoom) => {
+      state.ui.workspaceFlowZoom = zoom;
+    },
+  };
+}
+
+function fallbackWorkspaceFlowZoomLevel() {
   const zoom = Number(state.ui.workspaceFlowZoom || 1);
   if (!Number.isFinite(zoom)) return 1;
   return Math.max(WORKSPACE_FLOW_CANVAS.zoomMin, Math.min(WORKSPACE_FLOW_CANVAS.zoomMax, zoom));
 }
 
+function workspaceFlowZoomLevel() {
+  return workspaceFlowCanvasControlsApi()?.zoomLevel?.(workspaceFlowCanvasControlDeps())
+    ?? fallbackWorkspaceFlowZoomLevel();
+}
+
 function setWorkspaceFlowZoom(nextZoom, options = {}) {
-  const zoom = Math.max(
-    WORKSPACE_FLOW_CANVAS.zoomMin,
-    Math.min(WORKSPACE_FLOW_CANVAS.zoomMax, Number(nextZoom || 1)),
-  );
+  const api = workspaceFlowCanvasControlsApi();
+  if (api?.setZoom) {
+    api.setZoom(workspaceFlowCanvasControlDeps(), nextZoom, options);
+    return;
+  }
+  const zoom = Math.max(WORKSPACE_FLOW_CANVAS.zoomMin, Math.min(WORKSPACE_FLOW_CANVAS.zoomMax, Number(nextZoom || 1)));
   state.ui.workspaceFlowZoom = zoom;
   if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceFlowZoom, String(zoom));
   applyWorkspaceFlowCanvasTransform($("workspaceExecutionBoard"));
 }
 
 function centerWorkspaceFlowCanvas(root = $("workspaceExecutionBoard")) {
-  const viewport = root?.querySelector(".workspace-execution-flow-viewport");
-  const track = root?.querySelector(".workspace-flow-track");
-  if (!viewport || !track) return;
-  requestAnimationFrame(() => {
-    const zoom = workspaceFlowZoomLevel();
-    const scaledWidth = track.offsetWidth * zoom;
-    const scaledHeight = track.offsetHeight * zoom;
-    state.ui.workspaceFlowPanX = Math.round((viewport.clientWidth - scaledWidth) / 2);
-    state.ui.workspaceFlowPanY = Math.round((viewport.clientHeight - scaledHeight) / 2);
-    applyWorkspaceFlowCanvasTransform(root);
-  });
+  const api = workspaceFlowCanvasControlsApi();
+  if (api?.center) api.center(workspaceFlowCanvasControlDeps(), root);
 }
 
 function resetWorkspaceFlowCanvasView(options = {}) {
-  state.ui.workspaceFlowZoom = 1;
-  state.ui.workspaceFlowPanX = 0;
-  state.ui.workspaceFlowPanY = 0;
-  if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceFlowZoom, "1");
-  applyWorkspaceFlowCanvasTransform($("workspaceExecutionBoard"));
-  if (options.center !== false) centerWorkspaceFlowCanvas($("workspaceExecutionBoard"));
+  const api = workspaceFlowCanvasControlsApi();
+  if (api?.reset) api.reset(workspaceFlowCanvasControlDeps(), options);
 }
 
 function workspaceFlowNodeContext(node = {}, index = 0, options = {}) {
@@ -721,24 +740,8 @@ function renderWorkspaceExecutionInspector(nodes = null, options = {}) {
 }
 
 function applyWorkspaceFlowCanvasTransform(root = $("workspaceExecutionBoard")) {
-  const canvas = root?.querySelector(".workspace-execution-canvas");
-  if (!canvas) return;
-  const zoom = workspaceFlowZoomLevel();
-  const panX = Number(state.ui.workspaceFlowPanX || 0) || 0;
-  const panY = Number(state.ui.workspaceFlowPanY || 0) || 0;
-  const panLayer = canvas.querySelector(".workspace-flow-pan-layer");
-  const label = canvas.querySelector("[data-flow-zoom-label]");
-  if (panLayer) {
-    panLayer.style.transform = `translate(${panX}px, ${panY}px)`;
-    panLayer.dataset.panX = String(panX);
-    panLayer.dataset.panY = String(panY);
-  }
-  const zoomLayer = canvas.querySelector(".workspace-flow-zoom-layer");
-  if (zoomLayer) {
-    zoomLayer.style.zoom = String(zoom);
-    zoomLayer.dataset.zoom = String(zoom);
-  }
-  if (label) label.textContent = `${Math.round(zoom * 100)}%`;
+  const api = workspaceFlowCanvasControlsApi();
+  if (api?.applyTransform) api.applyTransform(workspaceFlowCanvasControlDeps(), root);
 }
 
 function refreshWorkspaceExecutionFlowCanvas(root = $("workspaceExecutionBoard")) {
@@ -4769,63 +4772,9 @@ function workspaceExecutionLaneRailMarkup(workspace = selectedWorkspace(), nodes
   });
 }
 
-function handleWorkspaceFlowViewportWheel(event) {
-  const viewport = event.target.closest(".workspace-execution-flow-viewport");
-  if (!viewport || !viewport.closest("#workspaceExecutionBoard")) return;
-  const step = WORKSPACE_FLOW_CANVAS.zoomStep;
-  const nextZoom = workspaceFlowZoomLevel() + (event.deltaY > 0 ? -step : step);
-  setWorkspaceFlowZoom(nextZoom);
-  event.preventDefault();
-  event.stopPropagation();
-}
-
-function handleWorkspaceFlowCanvasPointerDown(event) {
-  const viewport = event.target.closest(".workspace-execution-flow-viewport");
-  if (!viewport || !viewport.closest("#workspaceExecutionBoard")) return;
-  if (event.button !== 0) return;
-  if (event.target.closest("[data-action]")) return;
-  workspaceFlowCanvasPanState = {
-    viewport,
-    pointerId: event.pointerId,
-    startClientX: event.clientX,
-    startClientY: event.clientY,
-    originPanX: Number(state.ui.workspaceFlowPanX || 0) || 0,
-    originPanY: Number(state.ui.workspaceFlowPanY || 0) || 0,
-    moved: false,
-  };
-  viewport.classList.add("panning");
-  viewport.setPointerCapture?.(event.pointerId);
-}
-
-function handleWorkspaceFlowCanvasPointerMove(event) {
-  const pan = workspaceFlowCanvasPanState;
-  if (!pan || pan.pointerId !== event.pointerId) return;
-  const dx = event.clientX - pan.startClientX;
-  const dy = event.clientY - pan.startClientY;
-  if (!pan.moved && Math.hypot(dx, dy) < 4) return;
-  pan.moved = true;
-  state.ui.workspaceFlowPanX = pan.originPanX + dx;
-  state.ui.workspaceFlowPanY = pan.originPanY + dy;
-  applyWorkspaceFlowCanvasTransform($("workspaceExecutionBoard"));
-}
-
-function handleWorkspaceFlowCanvasPointerUp(event) {
-  const pan = workspaceFlowCanvasPanState;
-  if (!pan || pan.pointerId !== event.pointerId) return;
-  pan.viewport?.classList.remove("panning");
-  pan.viewport?.releasePointerCapture?.(event.pointerId);
-  workspaceFlowCanvasPanState = null;
-}
-
 function bindWorkspaceExecutionFlowCanvas() {
   const board = $("workspaceExecutionBoard");
-  if (!board || board.dataset.flowCanvasBound === "1") return;
-  board.dataset.flowCanvasBound = "1";
-  board.addEventListener("wheel", handleWorkspaceFlowViewportWheel, { passive: false, capture: true });
-  board.addEventListener("pointerdown", handleWorkspaceFlowCanvasPointerDown);
-  window.addEventListener("pointermove", handleWorkspaceFlowCanvasPointerMove);
-  window.addEventListener("pointerup", handleWorkspaceFlowCanvasPointerUp);
-  window.addEventListener("pointercancel", handleWorkspaceFlowCanvasPointerUp);
+  workspaceFlowCanvasControlsApi()?.bind?.(workspaceFlowCanvasControlDeps(), board);
 }
 
 function workspaceExecutionChainSourceNodes(workspace = selectedWorkspace(), template = selectedWorkflowTemplate()) {
