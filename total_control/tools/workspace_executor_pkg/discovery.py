@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .helpers import safe_workspace_path, scan_directory, split_values
+from .helpers import safe_workspace_path, scan_directory, sensitive_path_block_reason, split_values
 
 
 def execute_dataset_find(context: Any, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -52,11 +52,15 @@ def execute_dataset_find(context: Any, arguments: dict[str, Any]) -> dict[str, A
         if not text or text in seen_roots:
             continue
         seen_roots.add(text)
+        if sensitive_path_block_reason(text):
+            continue
         root_path = Path(text).expanduser()
         if not root_path.is_absolute() and workspace_dir:
             resolved = safe_workspace_path(workspace_dir, text)
             root_path = resolved or (Path(workspace_dir).expanduser() / text.lstrip("/"))
         root_path = root_path.resolve()
+        if sensitive_path_block_reason(root_path):
+            continue
         if not root_path.exists() or not root_path.is_dir():
             continue
         scanned_roots.append(str(root_path))
@@ -80,6 +84,9 @@ def execute_dataset_find(context: Any, arguments: dict[str, Any]) -> dict[str, A
                     roots.append(candidate)
 
     if workspace_dir:
+        if sensitive_path_block_reason(workspace_dir):
+            workspace_dir = ""
+    if workspace_dir:
         for readme_name in ("README.md", "README.rst", "readme.md", "README"):
             readme_path = safe_workspace_path(workspace_dir, readme_name)
             if not readme_path or not readme_path.is_file():
@@ -98,7 +105,8 @@ def execute_dataset_find(context: Any, arguments: dict[str, Any]) -> dict[str, A
                         readme_hints.append(normalized[:200])
             break
 
-    merged_hints = hints + readme_hints
+    roots = [value for value in roots if not sensitive_path_block_reason(value)]
+    merged_hints = [value for value in [*hints, *readme_hints] if not sensitive_path_block_reason(value)]
     status = "found" if roots or merged_hints else "draft"
     return {
         "status": status,
@@ -122,11 +130,17 @@ def execute_dir_scan(context: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     scan_root = str(arguments.get("path") or arguments.get("root") or workspace_dir or "").strip()
     if not scan_root:
         return {"status": "draft", "message": "等待 workspace_dir 或 path。", "entries": []}
+    block_reason = sensitive_path_block_reason(workspace_dir, scan_root)
+    if block_reason:
+        return {"status": "blocked", "root": scan_root, "message": block_reason, "entries": []}
     root_path = Path(scan_root).expanduser()
     if not root_path.is_absolute() and workspace_dir:
         resolved = safe_workspace_path(workspace_dir, scan_root)
         root_path = resolved or (Path(workspace_dir).expanduser() / scan_root.lstrip("/"))
     root_path = root_path.resolve()
+    block_reason = sensitive_path_block_reason(root_path)
+    if block_reason:
+        return {"status": "blocked", "root": str(root_path), "message": block_reason, "entries": []}
     if not root_path.exists():
         return {"status": "missing", "root": str(root_path), "message": "目录不存在。", "entries": []}
     if not root_path.is_dir():

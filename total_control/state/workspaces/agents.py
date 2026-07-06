@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from total_control.path_safety import sensitive_path_block_reason
+
 from ._deps import *  # noqa: F403
 
 RUNTIME_INPUT_REF_PREFIXES = ("$input.", "$context.", "$prev.output", "$node.config.")
@@ -218,18 +220,8 @@ class AgentsMixin:
                 return ""
             return "host.exec 的解释器命令只允许版本探测；脚本执行请走配置化 job.run。"
 
-        sensitive_pattern = re.compile(
-            r"(^|/)(\.ssh|\.gnupg|\.aws|\.azure|\.config/gcloud)(/|$)|"
-            r"(^|/)(\.kube|\.docker)(/|$)|"
-            r"(^|/)(id_rsa|id_ed25519|known_hosts|authorized_keys|\.master_key)(\s|$)|"
-            r"(^|/)\.netrc(\s|$)|"
-            r"(^|/run/secrets)(/|$)|"
-            r"(^|/proc/[^/\s]+/(environ|cmdline))(\s|$)|"
-            r"(api[_-]?key|access[_-]?token|secret|password)",
-            re.IGNORECASE,
-        )
         for arg in parts:
-            if sensitive_pattern.search(str(arg or "")):
+            if sensitive_path_block_reason(arg):
                 return "host.exec 诊断命令不允许读取或枚举密钥、令牌、SSH 配置等敏感路径。"
 
         allowed_simple = {

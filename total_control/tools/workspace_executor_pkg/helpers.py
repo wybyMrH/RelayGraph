@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ...path_safety import sensitive_path_block_reason, sensitive_path_block_reason_for_path
+
 
 def split_values(value: Any) -> list[str]:
     if isinstance(value, (list, tuple, set)):
@@ -35,6 +37,8 @@ def safe_workspace_path(workspace_dir: str, path: str) -> Path | None:
     try:
         target.relative_to(root)
     except ValueError:
+        return None
+    if sensitive_path_block_reason(target_text, str(target)):
         return None
     return target if target.exists() else None
 
@@ -88,6 +92,14 @@ def scan_directory(
             continue
         dirnames.sort()
         filenames.sort()
+        dirnames[:] = [
+            name for name in dirnames
+            if not sensitive_path_block_reason_for_path(current / name)
+        ]
+        filenames = [
+            name for name in filenames
+            if not sensitive_path_block_reason_for_path(current / name)
+        ]
         if include_dirs:
             for name in dirnames:
                 if len(entries) >= max_entries:

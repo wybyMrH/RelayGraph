@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .helpers import safe_workspace_path, scan_directory, split_values
+from .helpers import safe_workspace_path, scan_directory, sensitive_path_block_reason, split_values
 
 
 def _workspace_dir(context: Any, arguments: dict[str, Any]) -> str:
@@ -40,11 +40,17 @@ def execute_file_read(context: Any, arguments: dict[str, Any]) -> dict[str, Any]
         return {"status": "blocked", "message": "workspace_dir is required"}
     if not path_text:
         return {"status": "blocked", "message": "path is required"}
+    block_reason = sensitive_path_block_reason(workspace_dir, path_text)
+    if block_reason:
+        return {"status": "blocked", "workspace_dir": workspace_dir, "path": path_text, "message": block_reason}
     try:
         limit = max(1000, min(int(float(arguments.get("limit") or arguments.get("max_chars") or 8000)), 24000))
     except (TypeError, ValueError):
         limit = 8000
     resolved = safe_workspace_path(workspace_dir, path_text)
+    block_reason = sensitive_path_block_reason(resolved)
+    if block_reason:
+        return {"status": "blocked", "workspace_dir": workspace_dir, "path": path_text, "message": block_reason}
     if not resolved:
         return {
             "status": "missing",
@@ -71,6 +77,9 @@ def execute_repo_read(context: Any, arguments: dict[str, Any]) -> dict[str, Any]
     workspace_dir = _workspace_dir(context, arguments)
     if not workspace_dir:
         return {"status": "blocked", "message": "workspace_dir is required"}
+    block_reason = sensitive_path_block_reason(workspace_dir)
+    if block_reason:
+        return {"status": "blocked", "workspace_dir": workspace_dir, "message": block_reason}
     path_text = str(arguments.get("path") or arguments.get("file") or "").strip()
     if path_text:
         return execute_file_read(context, arguments)
@@ -89,6 +98,8 @@ def execute_repo_read(context: Any, arguments: dict[str, Any]) -> dict[str, Any]
     ]
     files: list[dict[str, Any]] = []
     for candidate in candidates:
+        if sensitive_path_block_reason(candidate):
+            continue
         resolved = safe_workspace_path(str(root), candidate)
         if not resolved or not resolved.is_file():
             continue
@@ -108,6 +119,9 @@ def execute_repo_inspect(context: Any, arguments: dict[str, Any]) -> dict[str, A
     workspace_dir = _workspace_dir(context, arguments)
     if not workspace_dir:
         return {"status": "blocked", "message": "workspace_dir is required"}
+    block_reason = sensitive_path_block_reason(workspace_dir)
+    if block_reason:
+        return {"status": "blocked", "workspace_dir": workspace_dir, "message": block_reason}
     root = Path(workspace_dir).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         return {"status": "missing", "workspace_dir": workspace_dir, "message": "workspace_dir 不存在或不是目录。"}
@@ -167,10 +181,36 @@ def execute_path_resolve(context: Any, arguments: dict[str, Any]) -> dict[str, A
         if not text or text in seen:
             continue
         seen.add(text)
+        block_reason = sensitive_path_block_reason(text)
+        if block_reason:
+            resolved.append(
+                {
+                    "input": text,
+                    "status": "blocked",
+                    "exists": False,
+                    "is_dir": False,
+                    "is_file": False,
+                    "message": block_reason,
+                }
+            )
+            continue
         path = Path(text).expanduser()
         if not path.is_absolute() and root:
             path = root / text
         path = path.resolve()
+        block_reason = sensitive_path_block_reason(path)
+        if block_reason:
+            resolved.append(
+                {
+                    "input": text,
+                    "status": "blocked",
+                    "exists": False,
+                    "is_dir": False,
+                    "is_file": False,
+                    "message": block_reason,
+                }
+            )
+            continue
         exists = path.exists()
         resolved.append(
             {
@@ -198,6 +238,10 @@ def execute_artifact_collect(context: Any, arguments: dict[str, Any]) -> dict[st
     collected: list[dict[str, Any]] = []
     for label, values in (("artifact", artifact_paths), ("metric", metric_paths)):
         for value in values:
+            block_reason = sensitive_path_block_reason(value)
+            if block_reason:
+                collected.append({"label": label, "input": value, "status": "blocked", "message": block_reason})
+                continue
             resolved = safe_workspace_path(workspace_dir, value) if workspace_dir else None
             if not resolved:
                 collected.append({"label": label, "input": value, "status": "missing"})
