@@ -3163,7 +3163,7 @@ function normalizeWorkflowTemplateDraft(template = {}) {
 }
 
 function normalizeGlobalAgentDefinitionDraft(agent = {}, index = 0) {
-  const base = normalizeWorkspaceAgentDraft(agent, index, state.toolDefinitions.map((item) => item.id));
+  const base = normalizeWorkspaceAgentDraft(agent, index);
   return {
     ...base,
     description: String(agent.description || ""),
@@ -21219,6 +21219,46 @@ function providerRouteHealthMarkup() {
   `;
 }
 
+function configCenterAgentHealthApi() {
+  return window.ConfigCenterAgentHealth || {};
+}
+
+function globalAgentHealth(agent, options = {}) {
+  const api = configCenterAgentHealthApi();
+  if (typeof api.agentHealth !== "function") return { status: agent?.enabled === false ? "blocked" : "ready", label: agent?.enabled === false ? "停用" : "就绪", issues: [] };
+  return api.agentHealth(agent || {}, {
+    toolDefinitions: state.toolDefinitions,
+    providerProfiles: state.providerProfiles,
+    providerProfileKind,
+    providerProfileIsValid,
+    rawToolIds: options.rawToolIds,
+  });
+}
+
+function globalAgentHealthBadgeMarkup(health) {
+  const api = configCenterAgentHealthApi();
+  if (typeof api.agentHealthBadgeMarkup === "function") {
+    return api.agentHealthBadgeMarkup(health, { escapeHtml });
+  }
+  const status = String(health?.status || "ready");
+  const styleStatus = status === "warning" ? "blocked" : status;
+  return `<span class="state ${escapeHtml(styleStatus)}">${escapeHtml(health?.label || "就绪")}</span>`;
+}
+
+function globalAgentHealthWarningMarkup(health) {
+  const api = configCenterAgentHealthApi();
+  if (typeof api.agentHealthWarningMarkup === "function") {
+    return api.agentHealthWarningMarkup(health, { escapeHtml });
+  }
+  const issues = Array.isArray(health?.issues) ? health.issues : [];
+  if (!issues.length) return "";
+  return `
+    <div class="workspace-agent-debug-warning-list">
+      ${issues.slice(0, 5).map((issue) => `<div class="workspace-agent-debug-warning">${escapeHtml(issue.message || issue.code || "Agent 能力配置需要检查")}</div>`).join("")}
+    </div>
+  `;
+}
+
 function renderManageAgentModule() {
   const list = $("manageAgentList");
   const editor = $("manageAgentEditor");
@@ -21233,11 +21273,12 @@ function renderManageAgentModule() {
     list.innerHTML = state.agentDefinitions.length
       ? state.agentDefinitions.map((agent) => {
           const active = agent.id === state.selectedGlobalAgentId ? " active" : "";
+          const health = globalAgentHealth(agent);
           return `
             <button class="workspace-template-item${active}" type="button" data-action="select-global-agent" data-agent-id="${escapeHtml(agent.id)}" title="选择这个全局 Agent 定义，编辑后会影响引用它的新模板快照">
               <div class="workspace-template-item-head">
                 <strong>${escapeHtml(agent.name || agent.id)}</strong>
-                <span class="state ${agent.enabled === false ? "blocked" : "ready"}">${agent.enabled === false ? "停用" : "启用"}</span>
+                ${globalAgentHealthBadgeMarkup(health)}
               </div>
               <div class="workspace-template-item-meta">${escapeHtml(agent.role || agent.id)} · ${escapeHtml((agent.tools || []).length)} 个工具</div>
               <div class="workspace-template-item-desc">${escapeHtml(agent.description || agent.prompt || "未填写描述")}</div>
@@ -21254,6 +21295,7 @@ function renderManageAgentModule() {
     editor.innerHTML = '<div class="empty">选择一个 Agent 后在这里编辑。</div>';
     return;
   }
+  const health = globalAgentHealth(agent, { rawToolIds: state.agentDefinitionDraft?.tools || agent.tools || [] });
   editor.innerHTML = `
     <div class="workspace-node-editor-card workspace-manage-editor-stack">
       <div class="workspace-node-editor-head">
@@ -21262,10 +21304,12 @@ function renderManageAgentModule() {
           <p class="muted">全局角色库。模板节点通过 handler.agent_id 引用这里的定义。</p>
         </div>
         <div class="workspace-node-editor-actions">
+          ${globalAgentHealthBadgeMarkup(health)}
           <button class="secondary mini" type="button" data-action="save-global-agent" title="保存当前全局 Agent 定义，供模板节点引用">保存 Agent</button>
           <button class="secondary mini danger" type="button" data-action="delete-global-agent" title="删除当前全局 Agent 定义；已创建实例的快照不会被直接删除">删除 Agent</button>
         </div>
       </div>
+      ${globalAgentHealthWarningMarkup(health)}
       <section class="workspace-manage-group">
         <div class="workspace-manage-group-head">
           <strong>基础信息</strong>
