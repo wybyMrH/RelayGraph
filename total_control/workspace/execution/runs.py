@@ -1195,19 +1195,23 @@ def filter_workspace_execution_runs(
         ]
     job_id_filter = str(job_id or "").strip()
     if job_id_filter:
+        job_id_filter_lower = job_id_filter.lower()
         filtered = [
             run for run in filtered
             if any(
-                isinstance(step, dict) and job_id_filter in workspace_run_step_job_ids(step)
+                isinstance(step, dict)
+                and any(job_id_filter_lower in item.lower() for item in workspace_run_step_job_ids(step))
                 for step in (run.get("steps") if isinstance(run.get("steps"), list) else [])
             )
         ]
     agent_filter = str(agent_execution_id or "").strip()
     if agent_filter:
+        agent_filter_lower = agent_filter.lower()
         filtered = [
             run for run in filtered
             if any(
-                isinstance(step, dict) and str(step.get("agent_execution_id") or "").strip() == agent_filter
+                isinstance(step, dict)
+                and any(agent_filter_lower in item.lower() for item in workspace_run_step_agent_execution_ids(step))
                 for step in (run.get("steps") if isinstance(run.get("steps"), list) else [])
             )
         ]
@@ -1220,6 +1224,15 @@ def workspace_run_step_job_ids(step: dict[str, Any]) -> list[str]:
     if direct:
         ids.append(direct)
     ids.extend(_unique_run_ref_list(step.get("child_job_ids") if isinstance(step.get("child_job_ids"), list) else []))
+    return _unique_run_ref_list(ids)
+
+
+def workspace_run_step_agent_execution_ids(step: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    direct = str(step.get("agent_execution_id") or "").strip()
+    if direct:
+        ids.append(direct)
+    ids.extend(_unique_run_ref_list(step.get("agent_execution_ids") if isinstance(step.get("agent_execution_ids"), list) else []))
     return _unique_run_ref_list(ids)
 
 
