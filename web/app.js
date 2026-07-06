@@ -27819,93 +27819,19 @@ function bindEvents() {
       revealWorkflowTemplateSelection(button.dataset.nodeId, { editor: true });
     }
   });
-  const handleTemplateNodeField = (event) => {
-    const target = event.target;
-    if (target.matches("[data-manage-node-field]")) {
-      const key = target.dataset.manageNodeField;
-      updateSelectedWorkflowTemplateNode((node) => ({ ...node, [key]: target.value }));
-      return;
-    }
-    if (target.matches("[data-manage-handler-field]")) {
-      const key = target.dataset.manageHandlerField;
-      if (key === "agent_id") {
-        const agent = globalAgentById(target.value || "");
-        updateSelectedWorkflowTemplateNode((node) => ({
-          ...node,
-          handler: { ...(node.handler || {}), agent_id: target.value || "", name: agent?.name || node.handler?.name || "" },
-        }));
-        return;
-      }
-      updateSelectedWorkflowTemplateNode((node) => ({
-        ...node,
-        handler: { ...(node.handler || {}), [key]: target.value || "" },
-      }));
-      return;
-    }
-    if (target.matches("[data-manage-input-mapping]")) {
-      const mapping = workspaceInputMappingFromText(target.value || "");
-      updateSelectedWorkflowTemplateNode((node) => {
-        const next = { ...node };
-        if (Object.keys(mapping).length) next.input_mapping = mapping;
-        else delete next.input_mapping;
-        return next;
-      });
-      return;
-    }
-	    if (target.matches("[data-manage-input-mapping-name], [data-manage-input-mapping-source]")) {
-	      const editor = target.closest(".workflow-template-mapping-editor");
-	      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
-	      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
-	      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
-	      refreshWorkflowTemplateMappingEditorHealth(editor);
-	      return;
-	    }
-	    if (target.matches("[data-manage-input-mapping-source-select]")) {
-	      const row = target.closest(".workflow-template-mapping-row");
-	      const sourceInput = row?.querySelector("[data-manage-input-mapping-source]");
-      if (sourceInput) sourceInput.value = target.value || "";
-      const editor = target.closest(".workflow-template-mapping-editor");
-	      const entries = workflowTemplateInputMappingEntriesFromEditor(editor);
-	      syncWorkflowTemplateMappingAdvancedText(editor, workspaceInputMappingFromEntries(entries));
-	      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: false });
-	      refreshWorkflowTemplateMappingEditorHealth(editor);
-	      return;
-	    }
-    if (target.matches("[data-config-key]")) {
-      const key = target.dataset.configKey;
-      updateSelectedWorkflowTemplateNode((node) => ({
-        ...node,
-        config: { ...(node.config || {}), [key]: target.value || "" },
-      }));
-    }
-  };
-  $("workflowTemplateNodeEditor")?.addEventListener("input", handleTemplateNodeField);
-  $("workflowTemplateNodeEditor")?.addEventListener("change", handleTemplateNodeField);
-  $("workflowTemplateNodeEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    const node = selectedWorkflowTemplateNode();
-    const editor = button.closest(".workflow-template-mapping-editor");
-    const entries = editor
-      ? workflowTemplateInputMappingEntriesFromEditor(editor)
-      : workspaceInputMappingEntries(node?.input_mapping || {});
-    if (button.dataset.action === "fill-template-input-mapping") {
-      fillSelectedWorkflowTemplateMissingInputMapping({ render: true });
-      return;
-    }
-    if (button.dataset.action === "add-template-input-mapping") {
-      if (fillSelectedWorkflowTemplateMissingInputMapping({ render: true })) {
-        return;
-      }
-      entries.push({ name: `input_${entries.length + 1}`, source: workflowTemplateNodeIndex(node) === 0 ? "$input" : "$prev.output" });
-      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: true });
-      return;
-    }
-    if (button.dataset.action === "remove-template-input-mapping") {
-      const removeIndex = Number(button.dataset.index || -1);
-      const nextEntries = entries.filter((_, index) => index !== removeIndex);
-      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(nextEntries), { render: true });
-    }
+  window.WorkflowTemplateNodeEditorActions?.bind?.($("workflowTemplateNodeEditor"), {
+    fillSelectedMissingMapping: fillSelectedWorkflowTemplateMissingInputMapping,
+    globalAgentById,
+    inputMappingEntries: workspaceInputMappingEntries,
+    inputMappingEntriesFromEditor: workflowTemplateInputMappingEntriesFromEditor,
+    inputMappingFromEntries: workspaceInputMappingFromEntries,
+    inputMappingFromText: workspaceInputMappingFromText,
+    nodeIndex: workflowTemplateNodeIndex,
+    refreshMappingEditorHealth: refreshWorkflowTemplateMappingEditorHealth,
+    selectedNode: selectedWorkflowTemplateNode,
+    setSelectedInputMapping: setSelectedWorkflowTemplateInputMapping,
+    syncMappingAdvancedText: syncWorkflowTemplateMappingAdvancedText,
+    updateNode: updateSelectedWorkflowTemplateNode,
   });
   $("workspaceNewAgentBtn")?.addEventListener("click", newGlobalAgentDraft);
   $("manageAgentList")?.addEventListener("click", (event) => {
