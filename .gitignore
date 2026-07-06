@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
 
 # OS
 .DS_Store
@@ -32,7 +33,6 @@ data/runtime_storage_settings.json
 # Local/private planning docs and scratch space
 docs/
 temp/
-tests/
 test-results/
 
 # Environment
