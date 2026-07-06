@@ -15845,10 +15845,11 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 
 .workspace-execution-run-item-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  min-width: max-content;
+  min-width: 0;
 }
 
 .workspace-execution-run-item-head span,
@@ -15863,6 +15864,16 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   color: #162132;
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .workspace-execution-run-item-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-execution-run-item-actions {
+    justify-content: flex-start;
+  }
 }
 
 .workspace-execution-run-steps {
@@ -16083,6 +16094,173 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   border-left-color: #d94c4c;
 }
 
+.workspace-run-replay-preview {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-left: 3px solid #5f6f8f;
+  background: #f8fafc;
+}
+
+.workspace-run-replay-preview.status-done,
+.workspace-run-replay-preview.status-ready {
+  border-left-color: #1f9d55;
+}
+
+.workspace-run-replay-preview.status-running,
+.workspace-run-replay-preview.status-starting,
+.workspace-run-replay-preview.status-queued {
+  border-left-color: #2d5bff;
+}
+
+.workspace-run-replay-preview.status-failed,
+.workspace-run-replay-preview.status-stopped,
+.workspace-run-replay-preview.status-blocked {
+  border-left-color: #d94c4c;
+}
+
+.workspace-run-replay-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.workspace-run-replay-head > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workspace-run-replay-head strong {
+  color: #162132;
+  font-size: 12px;
+}
+
+.workspace-run-replay-head span,
+.workspace-run-replay-head em {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.workspace-run-replay-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.workspace-run-replay-stats span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  background: #fff;
+}
+
+.workspace-run-replay-stats strong {
+  color: #162132;
+  font-size: 11px;
+}
+
+.workspace-run-replay-steps {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workspace-run-replay-steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  min-width: 0;
+  padding-left: 7px;
+  border-left: 2px solid #b8c5d6;
+}
+
+.workspace-run-replay-steps li.status-done,
+.workspace-run-replay-steps li.status-ready {
+  border-left-color: #1f9d55;
+}
+
+.workspace-run-replay-steps li.status-running,
+.workspace-run-replay-steps li.status-starting,
+.workspace-run-replay-steps li.status-queued {
+  border-left-color: #2d5bff;
+}
+
+.workspace-run-replay-steps li.status-failed,
+.workspace-run-replay-steps li.status-stopped,
+.workspace-run-replay-steps li.status-blocked {
+  border-left-color: #d94c4c;
+}
+
+.workspace-run-replay-steps strong,
+.workspace-run-replay-steps span,
+.workspace-run-replay-steps em,
+.workspace-run-replay-steps p {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  font-style: normal;
+}
+
+.workspace-run-replay-steps strong {
+  color: #162132;
+  overflow-wrap: anywhere;
+}
+
+.workspace-run-replay-steps span,
+.workspace-run-replay-steps em,
+.workspace-run-replay-steps p {
+  color: var(--muted);
+}
+
+.workspace-run-replay-steps em,
+.workspace-run-replay-steps p {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-run-replay-steps p {
+  color: #b42318;
+}
+
+.workspace-run-replay-events {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspace-run-replay-events span,
+.workspace-run-replay-empty {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 680px) {
   .workspace-run-event {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -16094,6 +16272,17 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   }
 
   .workspace-run-event p {
+    white-space: normal;
+  }
+
+  .workspace-run-replay-head,
+  .workspace-run-replay-steps li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-run-replay-steps em,
+  .workspace-run-replay-steps p,
+  .workspace-run-replay-events span {
     white-space: normal;
   }
 }

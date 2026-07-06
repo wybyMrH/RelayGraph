@@ -202,6 +202,10 @@ const state = {
     workspaceAgentEvents: {},
     workspaceRunCompareBaseId: "",
     workspaceRunCompareBaseByWorkspace: {},
+    workspaceRunReplayOpenByWorkspace: {},
+    workspaceRunReplayCache: {},
+    workspaceRunReplayErrors: {},
+    workspaceRunReplayBusyKey: "",
     workspaceRunFilterStatus: "",
     workspaceRunFilterNodeKind: "",
     workspaceRunFilterJobId: "",
@@ -13209,6 +13213,220 @@ function setWorkspaceRunCompareBaseId(runId = "", workspaceId = state.selectedWo
   state.ui.workspaceRunCompareBaseId = id;
 }
 
+function workspaceRunReplayCacheKey(workspaceId = state.selectedWorkspaceId, runId = "") {
+  const workspaceKey = String(workspaceId || "").trim();
+  const id = String(runId || "").trim();
+  return workspaceKey && id ? `${workspaceKey}::${id}` : "";
+}
+
+function workspaceRunReplayOpenStore() {
+  if (!state.ui.workspaceRunReplayOpenByWorkspace || typeof state.ui.workspaceRunReplayOpenByWorkspace !== "object") {
+    state.ui.workspaceRunReplayOpenByWorkspace = {};
+  }
+  return state.ui.workspaceRunReplayOpenByWorkspace;
+}
+
+function workspaceRunReplayCacheStore() {
+  if (!state.ui.workspaceRunReplayCache || typeof state.ui.workspaceRunReplayCache !== "object") {
+    state.ui.workspaceRunReplayCache = {};
+  }
+  return state.ui.workspaceRunReplayCache;
+}
+
+function workspaceRunReplayErrorStore() {
+  if (!state.ui.workspaceRunReplayErrors || typeof state.ui.workspaceRunReplayErrors !== "object") {
+    state.ui.workspaceRunReplayErrors = {};
+  }
+  return state.ui.workspaceRunReplayErrors;
+}
+
+function workspaceRunReplayOpenRunId(workspaceId = state.selectedWorkspaceId) {
+  const key = String(workspaceId || "").trim();
+  return key ? String(workspaceRunReplayOpenStore()[key] || "").trim() : "";
+}
+
+function setWorkspaceRunReplayOpenRunId(runId = "", workspaceId = state.selectedWorkspaceId) {
+  const key = String(workspaceId || "").trim();
+  const id = String(runId || "").trim();
+  if (!key) return;
+  const store = workspaceRunReplayOpenStore();
+  if (id) store[key] = id;
+  else delete store[key];
+}
+
+function workspaceRunReplayState(runId = "", workspaceId = state.selectedWorkspaceId) {
+  const key = workspaceRunReplayCacheKey(workspaceId, runId);
+  return {
+    key,
+    open: Boolean(key && workspaceRunReplayOpenRunId(workspaceId) === String(runId || "").trim()),
+    busy: Boolean(key && state.ui.workspaceRunReplayBusyKey === key),
+    replay: key ? workspaceRunReplayCacheStore()[key] || null : null,
+    error: key ? String(workspaceRunReplayErrorStore()[key] || "").trim() : "",
+  };
+}
+
+function workspaceRunReplayTimeline(replay = {}) {
+  const rootRun = replay.run && typeof replay.run === "object" ? replay.run : {};
+  const rootRunId = String(rootRun.id || "").trim();
+  const rootItems = (Array.isArray(replay.timeline) ? replay.timeline : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({ ...item, replay_run_id: String(item.run_id || rootRunId).trim(), linked: false }));
+  const linkedItems = (Array.isArray(replay.linked_runs) ? replay.linked_runs : [])
+    .filter((item) => item && typeof item === "object")
+    .flatMap((item) => {
+      const linkedRun = item.run && typeof item.run === "object" ? item.run : {};
+      const linkedRunId = String(linkedRun.id || "").trim();
+      return (Array.isArray(item.timeline) ? item.timeline : [])
+        .filter((step) => step && typeof step === "object")
+        .map((step) => ({ ...step, replay_run_id: String(step.run_id || linkedRunId).trim(), linked: true }));
+    });
+  return [...rootItems, ...linkedItems];
+}
+
+function workspaceRunReplayCountSummary(replay = {}) {
+  const rootRun = replay.run && typeof replay.run === "object" ? replay.run : {};
+  const timeline = workspaceRunReplayTimeline(replay);
+  const linkedRuns = Array.isArray(replay.linked_runs) ? replay.linked_runs.filter((item) => item && typeof item === "object") : [];
+  const linkedJobs = Array.isArray(replay.linked_jobs) ? replay.linked_jobs.filter((item) => item && typeof item === "object") : [];
+  const events = Array.isArray(replay.event_timeline) ? replay.event_timeline.filter((item) => item && typeof item === "object") : [];
+  const delta = replay.delta_evidence && typeof replay.delta_evidence === "object" ? replay.delta_evidence : {};
+  return {
+    stepCount: timeline.length,
+    linkedRunCount: linkedRuns.length,
+    linkedJobCount: linkedJobs.length,
+    eventCount: Number(rootRun.event_count || events.length || 0),
+    deltaCount: Number(rootRun.delta_evidence_count || delta.total_events || 0),
+  };
+}
+
+function workspaceRunReplayStepLine(step = {}) {
+  const title = String(step.node_title || step.node_kind || "步骤").trim();
+  const bits = [
+    step.linked ? `子运行 ${String(step.replay_run_id || step.run_id || "").trim()}` : "",
+    String(step.executor || "").trim(),
+    String(step.job_id || "").trim() ? `job ${step.job_id}` : "",
+    String(step.agent_execution_id || "").trim() ? `agent ${step.agent_execution_id}` : "",
+    String(step.output_key || "").trim(),
+  ].filter(Boolean);
+  const error = String(step.error || "").trim();
+  return {
+    title: `${Number(step.index || 0) + 1}. ${title}`,
+    meta: compactText(bits.join(" · "), 150),
+    status: String(step.status || "pending").trim(),
+    error: compactText(error, 180),
+  };
+}
+
+function workspaceRunReplayPreviewMarkup(run = {}) {
+  const runId = String(run.id || "").trim();
+  const replayState = workspaceRunReplayState(runId);
+  if (!replayState.open) return "";
+  if (replayState.busy && !replayState.replay) {
+    return `
+      <div class="workspace-run-replay-preview loading">
+        <div class="workspace-run-replay-head">
+          <strong>回放预览</strong>
+          <span>正在读取结构化回放...</span>
+        </div>
+      </div>
+    `;
+  }
+  if (replayState.error && !replayState.replay) {
+    return `
+      <div class="workspace-run-replay-preview status-failed">
+        <div class="workspace-run-replay-head">
+          <strong>回放预览</strong>
+          <span>${escapeHtml(replayState.error)}</span>
+        </div>
+      </div>
+    `;
+  }
+  const replay = replayState.replay && typeof replayState.replay === "object" ? replayState.replay : null;
+  if (!replay) {
+    return `
+      <div class="workspace-run-replay-preview">
+        <div class="workspace-run-replay-head">
+          <strong>回放预览</strong>
+          <span>等待加载</span>
+        </div>
+      </div>
+    `;
+  }
+  const summary = workspaceRunReplayCountSummary(replay);
+  const rootRun = replay.run && typeof replay.run === "object" ? replay.run : {};
+  const delivery = replay.delivery_closure && typeof replay.delivery_closure === "object" ? replay.delivery_closure : {};
+  const closure = replay.linked_run_closure && typeof replay.linked_run_closure === "object" ? replay.linked_run_closure : {};
+  const timeline = workspaceRunReplayTimeline(replay);
+  const highlightedSteps = timeline.filter((step) => {
+    const stepStatus = String(step.status || "").trim();
+    return step.linked
+      || ["failed", "blocked", "stopped"].includes(stepStatus)
+      || Number(step.child_job_ref_count || 0) > 0
+      || Number(step.child_run_ref_count || 0) > 0;
+  });
+  const visibleSteps = highlightedSteps.slice(0, 4).map((step) => workspaceRunReplayStepLine(step));
+  const linkedJobs = (Array.isArray(replay.linked_jobs) ? replay.linked_jobs : [])
+    .filter((item) => item && typeof item === "object")
+    .slice(0, 4);
+  const visibleEvents = (Array.isArray(replay.event_timeline) ? replay.event_timeline : [])
+    .filter((item) => item && typeof item === "object")
+    .slice(-3)
+    .reverse();
+  const deliveryStatus = String(delivery.status || "").trim();
+  const packageId = String(rootRun.package_id || "").trim();
+  const closureIssue = closure.truncated
+    ? `子运行截断 ${Number(closure.included_count || 0)}/${Number(closure.included_count || 0) + Number(closure.pending_count || 0) + Number(closure.missing_count || 0)}`
+    : "";
+  return `
+    <div class="workspace-run-replay-preview status-${escapeHtml(rootRun.status || run.status || "pending")}">
+      <div class="workspace-run-replay-head">
+        <div>
+          <strong>回放预览</strong>
+          <span>${escapeHtml([replay.schema || "relaygraph.run.replay.v1", fmtDate(replay.exported_at || "")].filter(Boolean).join(" · "))}</span>
+        </div>
+        <em>${escapeHtml([packageId ? `pkg ${packageId}` : "", deliveryStatus ? `交付 ${workspaceStatusLabel(deliveryStatus)}` : "", closureIssue].filter(Boolean).join(" · ") || "结构化执行证据")}</em>
+      </div>
+      <div class="workspace-run-replay-stats">
+        <span><strong>${summary.stepCount}</strong>步骤</span>
+        <span><strong>${summary.eventCount}</strong>事件</span>
+        <span><strong>${summary.linkedJobCount}</strong>Job</span>
+        <span><strong>${summary.linkedRunCount}</strong>子运行</span>
+        <span><strong>${summary.deltaCount}</strong>实时增量</span>
+      </div>
+      ${visibleSteps.length ? `
+        <ol class="workspace-run-replay-steps">
+          ${visibleSteps.map((item) => `
+            <li class="status-${escapeHtml(item.status || "pending")}">
+              <strong>${escapeHtml(item.title)}</strong>
+              ${item.status ? `<span>${escapeHtml(zhStatus(item.status))}</span>` : ""}
+              ${item.meta ? `<em title="${escapeHtml(item.meta)}">${escapeHtml(item.meta)}</em>` : ""}
+              ${item.error ? `<p title="${escapeHtml(item.error)}">${escapeHtml(item.error)}</p>` : ""}
+            </li>
+          `).join("")}
+        </ol>
+      ` : ""}
+      ${linkedJobs.length ? `
+        <div class="workspace-run-replay-events">
+          ${linkedJobs.map((job) => {
+            const statusText = job.status ? zhStatus(job.status) : "未知状态";
+            const serverText = job.server_id ? ` · ${job.server_id}` : "";
+            return `<span title="${escapeHtml(job.command || job.error || job.id || "")}">${escapeHtml(`Job ${job.id || "-"} · ${statusText}${serverText}`)}</span>`;
+          }).join("")}
+        </div>
+      ` : ""}
+      ${visibleEvents.length ? `
+        <div class="workspace-run-replay-events">
+          ${visibleEvents.map((event) => {
+            const label = workspaceRunEventLabel(event.type || "");
+            const detail = workspaceRunEventDetail(event);
+            return `<span title="${escapeHtml(detail || label)}">${escapeHtml(label)}${detail ? ` · ${compactText(detail, 70)}` : ""}</span>`;
+          }).join("")}
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
 function workspaceRunEvidenceNoticeMarkup(run = {}) {
   const steps = Array.isArray(run.steps) ? run.steps.filter((step) => step && typeof step === "object") : [];
   if (!steps.length) return "";
@@ -13248,6 +13466,8 @@ function workspaceExecutionRunItemMarkup(run = {}) {
     ? `<button class="secondary mini" type="button" data-action="compare-workspace-run" data-run-id="${escapeHtml(runId)}" title="用已设置的基准运行与这次运行生成结构化对比 JSON">对比</button>`
     : `<button class="secondary mini" type="button" data-action="set-workspace-run-compare-base" data-run-id="${escapeHtml(runId)}" title="把这次运行设为后续对比的基准">设基准</button>`;
   const exportAction = `<button class="secondary mini" type="button" data-action="download-workspace-run-export" data-run-id="${escapeHtml(runId)}" title="下载这次运行的结构化导出 JSON，包含回放、日志、产物和报告">导出</button>`;
+  const replayState = workspaceRunReplayState(runId);
+  const replayAction = `<button class="secondary mini" type="button" data-action="toggle-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="${replayState.open ? "收起这次运行的回放预览" : "按需读取并展开这次运行的结构化回放预览"}">${replayState.open ? "收起" : "预览回放"}</button>`;
   return `
     <article class="workspace-execution-run-item status-${escapeHtml(status)}" role="button" tabindex="0" data-run-id="${escapeHtml(runId)}" title="刷新这条执行记录的详情；若有关联任务则打开第一条任务日志">
       <div class="workspace-execution-run-item-head">
@@ -13258,6 +13478,7 @@ function workspaceExecutionRunItemMarkup(run = {}) {
         </div>
         <div class="workspace-execution-run-item-actions">
           ${compareAction}
+          ${replayAction}
           ${exportAction}
           <button class="secondary mini" type="button" data-action="copy-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="复制这次运行的结构化回放 JSON，包含步骤、任务、执行包和交付闭环">复制回放</button>
           <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
@@ -13267,6 +13488,7 @@ function workspaceExecutionRunItemMarkup(run = {}) {
       ${workspaceRunEvidenceNoticeMarkup(run)}
       ${deliveryMarkup}
       ${workspaceRunEventTimelineMarkup(run)}
+      ${workspaceRunReplayPreviewMarkup(run)}
       <div class="workspace-execution-run-steps">
         ${displaySteps.map((step) => workspaceRunStepItemMarkup(step, run)).join("")}
       </div>
@@ -16274,6 +16496,11 @@ function renderWorkspaceRuns() {
       </article>
     `;
   }).join("");
+}
+
+function renderWorkspaceRunSurfaces() {
+  renderWorkspaceRuns();
+  renderWorkspaceHome();
 }
 
 function renderWorkspacePanels() {
@@ -24545,7 +24772,7 @@ async function refreshWorkspaceRunDetail(runId, options = {}) {
   try {
     const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/runs/${encodeURIComponent(id)}`);
     const run = mergeWorkspaceRunDetailPayload(workspace.id, payload);
-    if (run && options.render !== false) renderWorkspaceRuns();
+    if (run && options.render !== false) renderWorkspaceRunSurfaces();
     return run;
   } catch (error) {
     if (!options.quiet) setWorkspaceMessage(error.message, true);
@@ -24579,6 +24806,55 @@ async function copyWorkspaceRunReplay(runId) {
     setWorkspaceMessage("运行回放 JSON 已复制，可用于复盘、对比或导出。");
   } catch (error) {
     setWorkspaceMessage(error.message || "复制运行回放失败。", true);
+  }
+}
+
+async function loadWorkspaceRunReplay(runId, options = {}) {
+  const workspace = selectedWorkspace();
+  const id = String(runId || "").trim();
+  const key = workspaceRunReplayCacheKey(workspace?.id || "", id);
+  if (!workspace?.id || !id || !key) return null;
+  const cache = workspaceRunReplayCacheStore();
+  if (!options.force && cache[key]) return cache[key];
+  const errors = workspaceRunReplayErrorStore();
+  delete errors[key];
+  state.ui.workspaceRunReplayBusyKey = key;
+  if (options.render !== false) renderWorkspaceRunSurfaces();
+  try {
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/runs/${encodeURIComponent(id)}/replay`);
+    const replay = payload.replay && typeof payload.replay === "object" ? payload.replay : payload;
+    cache[key] = replay;
+    delete errors[key];
+    return replay;
+  } catch (error) {
+    errors[key] = error.message || "读取运行回放失败。";
+    setWorkspaceMessage(errors[key], true);
+    return null;
+  } finally {
+    if (state.ui.workspaceRunReplayBusyKey === key) state.ui.workspaceRunReplayBusyKey = "";
+    if (options.render !== false) renderWorkspaceRunSurfaces();
+  }
+}
+
+async function toggleWorkspaceRunReplay(runId) {
+  const workspace = selectedWorkspace();
+  const id = String(runId || "").trim();
+  if (!workspace?.id || !id) {
+    setWorkspaceMessage("还没有可预览的运行回放。", true);
+    return;
+  }
+  const current = workspaceRunReplayOpenRunId(workspace.id);
+  if (current === id) {
+    setWorkspaceRunReplayOpenRunId("", workspace.id);
+    renderWorkspaceRunSurfaces();
+    return;
+  }
+  setWorkspaceRunReplayOpenRunId(id, workspace.id);
+  renderWorkspaceRunSurfaces();
+  const replay = await loadWorkspaceRunReplay(id);
+  if (replay) {
+    const summary = workspaceRunReplayCountSummary(replay);
+    setWorkspaceMessage(`回放预览已加载：${summary.stepCount} 步 · ${summary.eventCount} 事件 · ${summary.linkedJobCount} 个关联 Job。`);
   }
 }
 
@@ -24616,7 +24892,7 @@ function setWorkspaceRunCompareBase(runId) {
     return;
   }
   setWorkspaceRunCompareBaseId(id, workspace.id);
-  renderWorkspaceRuns();
+  renderWorkspaceRunSurfaces();
   setWorkspaceMessage("已设置运行对比基准。再点另一条运行记录的“对比”即可复制差异 JSON。");
 }
 
@@ -24648,6 +24924,88 @@ async function compareWorkspaceRunToBase(runId) {
   } catch (error) {
     setWorkspaceMessage(error.message || "运行对比失败。", true);
   }
+}
+
+function handleWorkspaceRunSurfaceClick(event) {
+  const button = event.target.closest("[data-action]");
+  if (button?.dataset.action === "reset-workspace-run-filters") {
+    consumeClick(event);
+    resetWorkspaceRunFilters();
+    return true;
+  }
+  if (button?.dataset.action === "cancel-agent-step" && button.dataset.agentExecutionId) {
+    consumeClick(event);
+    void cancelAgentExecution(button.dataset.agentExecutionId);
+    return true;
+  }
+  if (button?.dataset.action === "retry-agent-step" && button.dataset.nodeId) {
+    consumeClick(event);
+    void runWorkspaceNode(button.dataset.nodeId, { prefer: "agent" });
+    return true;
+  }
+  if (button?.dataset.action === "copy-workspace-run-replay" && button.dataset.runId) {
+    consumeClick(event);
+    void copyWorkspaceRunReplay(button.dataset.runId);
+    return true;
+  }
+  if (button?.dataset.action === "toggle-workspace-run-replay" && button.dataset.runId) {
+    consumeClick(event);
+    void toggleWorkspaceRunReplay(button.dataset.runId);
+    return true;
+  }
+  if (button?.dataset.action === "download-workspace-run-export" && button.dataset.runId) {
+    consumeClick(event);
+    void downloadWorkspaceRunExport(button.dataset.runId);
+    return true;
+  }
+  if (button?.dataset.action === "set-workspace-run-compare-base" && button.dataset.runId) {
+    consumeClick(event);
+    setWorkspaceRunCompareBase(button.dataset.runId);
+    return true;
+  }
+  if (button?.dataset.action === "compare-workspace-run" && button.dataset.runId) {
+    consumeClick(event);
+    void compareWorkspaceRunToBase(button.dataset.runId);
+    return true;
+  }
+  if (button?.dataset.action === "open-workspace-run" && button.dataset.runId) {
+    consumeClick(event);
+    void openWorkspaceRunDetail(button.dataset.runId);
+    return true;
+  }
+  if (button?.dataset.jobId) {
+    const actionEvent = actionProxyEvent(event, button);
+    if (button.dataset.action === "open-workspace-run") {
+      consumeClick(actionEvent);
+      void showLog(button.dataset.jobId);
+    } else if (button.dataset.action === "stop-workspace-run") {
+      void stopJob(actionEvent, button.dataset.jobId);
+    } else if (button.dataset.action === "retry-workspace-run") {
+      void retryJob(actionEvent, button.dataset.jobId);
+    } else if (button.dataset.action === "copy-workspace-run") {
+      void copyJob(actionEvent, button.dataset.jobId);
+    } else if (button.dataset.action === "copy-workspace-run-script") {
+      consumeClick(actionEvent);
+      const job = state.jobs.find((item) => String(item?.id || "") === String(button.dataset.jobId || ""));
+      const bundle = workspaceJobExecutionBundle(job || {});
+      const scriptText = String(bundle.command_script?.text || "");
+      void copyTextToClipboard(scriptText)
+        .then(() => setWorkspaceMessage("运行记录里的执行包脚本已复制。"))
+        .catch((error) => setWorkspaceMessage(error.message || "复制脚本失败。", true));
+    }
+    return true;
+  }
+  const item = event.target.closest(".workspace-run-item[data-job-id]");
+  if (item?.dataset.jobId) {
+    void showLog(item.dataset.jobId);
+    return true;
+  }
+  const runItem = event.target.closest(".workspace-execution-run-item[data-run-id]");
+  if (runItem?.dataset.runId) {
+    void openWorkspaceRunDetail(runItem.dataset.runId);
+    return true;
+  }
+  return false;
 }
 
 function resetWorkspaceAgentDebug(agent = selectedWorkspaceAgent(), options = {}) {
@@ -28716,73 +29074,10 @@ function bindEvents() {
     }
   });
   $("workspaceRunList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (button?.dataset.action === "reset-workspace-run-filters") {
-      consumeClick(event);
-      resetWorkspaceRunFilters();
-      return;
-    }
-    if (button?.dataset.action === "cancel-agent-step" && button.dataset.agentExecutionId) {
-      consumeClick(event);
-      void cancelAgentExecution(button.dataset.agentExecutionId);
-      return;
-    }
-    if (button?.dataset.action === "retry-agent-step" && button.dataset.nodeId) {
-      consumeClick(event);
-      void runWorkspaceNode(button.dataset.nodeId, { prefer: "agent" });
-      return;
-    }
-    if (button?.dataset.action === "copy-workspace-run-replay" && button.dataset.runId) {
-      consumeClick(event);
-      void copyWorkspaceRunReplay(button.dataset.runId);
-      return;
-    }
-    if (button?.dataset.action === "download-workspace-run-export" && button.dataset.runId) {
-      consumeClick(event);
-      void downloadWorkspaceRunExport(button.dataset.runId);
-      return;
-    }
-    if (button?.dataset.action === "set-workspace-run-compare-base" && button.dataset.runId) {
-      consumeClick(event);
-      setWorkspaceRunCompareBase(button.dataset.runId);
-      return;
-    }
-    if (button?.dataset.action === "compare-workspace-run" && button.dataset.runId) {
-      consumeClick(event);
-      void compareWorkspaceRunToBase(button.dataset.runId);
-      return;
-    }
-    if (button?.dataset.action === "open-workspace-run" && button.dataset.runId) {
-      consumeClick(event);
-      void openWorkspaceRunDetail(button.dataset.runId);
-      return;
-    }
-    if (button?.dataset.jobId) {
-      const actionEvent = actionProxyEvent(event, button);
-      if (button.dataset.action === "open-workspace-run") {
-        consumeClick(actionEvent);
-        void showLog(button.dataset.jobId);
-      } else if (button.dataset.action === "stop-workspace-run") {
-        void stopJob(actionEvent, button.dataset.jobId);
-      } else if (button.dataset.action === "retry-workspace-run") {
-        void retryJob(actionEvent, button.dataset.jobId);
-      } else if (button.dataset.action === "copy-workspace-run") {
-        void copyJob(actionEvent, button.dataset.jobId);
-      } else if (button.dataset.action === "copy-workspace-run-script") {
-        consumeClick(actionEvent);
-        const job = state.jobs.find((item) => String(item?.id || "") === String(button.dataset.jobId || ""));
-        const bundle = workspaceJobExecutionBundle(job || {});
-        const scriptText = String(bundle.command_script?.text || "");
-        void copyTextToClipboard(scriptText)
-          .then(() => setWorkspaceMessage("运行记录里的执行包脚本已复制。"))
-          .catch((error) => setWorkspaceMessage(error.message || "复制脚本失败。", true));
-      }
-      return;
-    }
-    const item = event.target.closest(".workspace-run-item[data-job-id]");
-    if (item?.dataset.jobId) void showLog(item.dataset.jobId);
-    const runItem = event.target.closest(".workspace-execution-run-item[data-run-id]");
-    if (runItem?.dataset.runId) void openWorkspaceRunDetail(runItem.dataset.runId);
+    handleWorkspaceRunSurfaceClick(event);
+  });
+  $("workspaceHomeRuns")?.addEventListener("click", (event) => {
+    handleWorkspaceRunSurfaceClick(event);
   });
   $("workspaceRunList")?.addEventListener("input", (event) => {
     const target = event.target;
