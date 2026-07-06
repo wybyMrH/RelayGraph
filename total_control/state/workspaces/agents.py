@@ -1024,7 +1024,7 @@ class AgentsMixin:
                 "error": "Provider profile not found",
                 "final_answer": "",
             }
-        from ..registry import provider_profile_health
+        from ..registry_pkg.provider_profiles import provider_profile_health
 
         health = provider_profile_health(profile)
         if not health.get("ready"):

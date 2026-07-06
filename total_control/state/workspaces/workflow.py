@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
-from ..registry import provider_profile_health
+from ..registry_pkg.provider_profiles import provider_profile_health
 
 
 def _workspace_env_prepare_failure_checks(execution: dict[str, Any]) -> list[dict[str, Any]]:

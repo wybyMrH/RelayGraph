@@ -311,7 +311,7 @@ class ChatMixin:
 
             if effective_profile_id and agent:
                 profile = self.provider_profile_by_id(effective_profile_id)
-                from ..registry import provider_profile_health
+                from ..registry_pkg.provider_profiles import provider_profile_health
 
                 if profile and provider_profile_health(profile).get("ready"):
                     # Get allowed tools
@@ -666,7 +666,7 @@ class ChatMixin:
                 effective_profile_id = agent_profile_id
             if effective_profile_id and agent:
                 profile = self.provider_profile_by_id(effective_profile_id)
-                from ..registry import provider_profile_health
+                from ..registry_pkg.provider_profiles import provider_profile_health
 
                 if profile and provider_profile_health(profile).get("ready"):
                     tool_map = {t.get("id"): t for t in tools if isinstance(t, dict) and t.get("id")}
