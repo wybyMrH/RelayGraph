@@ -28314,34 +28314,23 @@ function bindEvents() {
     renderGpuRows();
     if (state.selectedGpu !== "auto") scrollGpuSelectionIntoView();
   });
-  $("logRefreshBtn")?.addEventListener("click", () => refreshActiveOutput({ forceBottom: true }));
-  $("logFollow")?.addEventListener("change", updateLogFollowHint);
-  $("logView")?.addEventListener("scroll", updateLogFollowHint, { passive: true });
+  window.OutputTerminalActions?.bind?.({
+    element: $,
+    activateOutputTab,
+    closeActiveOutputTab,
+    closeAllOutputTabs,
+    closeCurrentTerminal,
+    closeOutputTab,
+    collapseLogPane,
+    downloadActiveOutput,
+    moveLogSearch,
+    refreshActiveOutput,
+    sendTerminalSignal,
+    setLogSearchQuery,
+    submitTerminalInput,
+    updateLogFollowHint,
+  });
   updateLogFollowHint();
-  $("logSearchInput")?.addEventListener("input", (event) => {
-    setLogSearchQuery(event.target.value, { focusMatch: Boolean(event.target.value) });
-  });
-  $("logSearchPrevBtn")?.addEventListener("click", () => moveLogSearch(-1));
-  $("logSearchNextBtn")?.addEventListener("click", () => moveLogSearch(1));
-  $("logDownloadBtn")?.addEventListener("click", downloadActiveOutput);
-  $("logClearBtn")?.addEventListener("click", collapseLogPane);
-  $("outputCloseActiveBtn")?.addEventListener("click", closeActiveOutputTab);
-  $("outputCloseAllBtn")?.addEventListener("click", closeAllOutputTabs);
-  $("terminalInputForm").addEventListener("submit", submitTerminalInput);
-  $("terminalCtrlCBtn").addEventListener("click", () => sendTerminalSignal(2));
-  $("terminalCloseBtn").addEventListener("click", () => closeCurrentTerminal());
-  $("terminalSessionList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    const key = button.dataset.outputKey || "";
-    if (button.dataset.action === "activate-output-tab" && key) {
-      activateOutputTab(key);
-      return;
-    }
-    if (button.dataset.action === "close-output-tab" && key) {
-      closeOutputTab(event, key);
-    }
-  });
   $("processSearch")?.addEventListener("input", (event) => {
     state.processFilters.query = event.target.value;
     renderProcesses();
