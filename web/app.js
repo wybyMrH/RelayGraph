@@ -11978,6 +11978,10 @@ function allProcesses() {
 }
 
 function processFilterKey(item) {
+  const api = window.MonitoringProcessFilters;
+  if (api && typeof api.processFilterKey === "function") {
+    return api.processFilterKey(item);
+  }
   const serverName = item.server?.name || "";
   const process = item.process || {};
   return [
@@ -11994,6 +11998,10 @@ function processFilterKey(item) {
 }
 
 function processSortValue(item, key) {
+  const api = window.MonitoringProcessFilters;
+  if (api && typeof api.processSortValue === "function") {
+    return api.processSortValue(item, key);
+  }
   const process = item.process || {};
   if (key === "server") return item.server?.name || item.server?.id || "";
   if (key === "gpu") return Number(process.gpu_index ?? -1);
@@ -12005,6 +12013,10 @@ function processSortValue(item, key) {
 }
 
 function filteredProcesses(items) {
+  const api = window.MonitoringProcessFilters;
+  if (api && typeof api.filteredProcesses === "function") {
+    return api.filteredProcesses(items, state.processFilters);
+  }
   const query = state.processFilters.query.trim().toLowerCase();
   const selectedServerId = state.processFilters.server;
   const user = state.processFilters.user;
@@ -12034,6 +12046,10 @@ function filteredProcesses(items) {
 }
 
 function processMatchesGpuFocus(server, process) {
+  const api = window.MonitoringProcessFilters;
+  if (api && typeof api.processMatchesGpuFocus === "function") {
+    return api.processMatchesGpuFocus(server, process, state.processFocus || {});
+  }
   const focus = state.processFocus || {};
   if (!focus.serverId || focus.gpuIndex === "") return false;
   return String(server?.id || "") === String(focus.serverId) &&
