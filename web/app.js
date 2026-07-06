@@ -27318,6 +27318,48 @@ function bindEvents() {
       if (event?.relatedTarget && item?.contains(event.relatedTarget)) return;
       showServerResourcePopover(serverId, item);
     },
+    startServerDrag: (serverId, event, item) => {
+      if ((state.ui.serverSort || "default") !== "manual") {
+        event?.preventDefault?.();
+        return;
+      }
+      if (!serverId || !item) return;
+      state.serverDnd.draggingId = serverId;
+      if (event?.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", serverId);
+      }
+      item.classList.add("dragging");
+    },
+    overServerDrag: (serverId, position, event, item) => {
+      if ((state.ui.serverSort || "default") !== "manual" || !state.serverDnd.draggingId) return;
+      if (!serverId || serverId === state.serverDnd.draggingId || !item) return;
+      event?.preventDefault?.();
+      state.serverDnd.overId = serverId;
+      state.serverDnd.position = position || "after";
+      document.querySelectorAll("#serverList .server-item").forEach((node) => {
+        node.classList.remove("drop-before", "drop-after");
+      });
+      item.classList.add(position === "before" ? "drop-before" : "drop-after");
+    },
+    dropServerDrag: (serverId, event) => {
+      if ((state.ui.serverSort || "default") !== "manual") return;
+      if (!serverId || !state.serverDnd.draggingId) return;
+      event?.preventDefault?.();
+      moveServerInManualOrder(state.serverDnd.draggingId, serverId, state.serverDnd.position || "after");
+      state.serverDnd.draggingId = "";
+      state.serverDnd.overId = "";
+      state.serverDnd.position = "";
+      renderServers();
+    },
+    endServerDrag: () => {
+      state.serverDnd.draggingId = "";
+      state.serverDnd.overId = "";
+      state.serverDnd.position = "";
+      document.querySelectorAll("#serverList .server-item").forEach((node) => {
+        node.classList.remove("dragging", "drop-before", "drop-after");
+      });
+    },
   });
   window.addEventListener("resize", () => {
     syncLogPaneMetrics();
@@ -27352,51 +27394,6 @@ function bindEvents() {
   });
   window.addEventListener("scroll", () => positionWorkspaceHelpPopover(), true);
   window.addEventListener("beforeunload", closeWorkspaceEventStream);
-  $("serverList")?.addEventListener("dragstart", (event) => {
-    if ((state.ui.serverSort || "default") !== "manual") {
-      event.preventDefault();
-      return;
-    }
-    const item = event.target.closest(".server-item[data-id]");
-    if (!item?.dataset.id) return;
-    state.serverDnd.draggingId = item.dataset.id;
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", item.dataset.id);
-    item.classList.add("dragging");
-  });
-  $("serverList")?.addEventListener("dragover", (event) => {
-    if ((state.ui.serverSort || "default") !== "manual" || !state.serverDnd.draggingId) return;
-    const item = event.target.closest(".server-item[data-id]");
-    if (!item?.dataset.id || item.dataset.id === state.serverDnd.draggingId) return;
-    event.preventDefault();
-    const rect = item.getBoundingClientRect();
-    const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-    state.serverDnd.overId = item.dataset.id;
-    state.serverDnd.position = position;
-    document.querySelectorAll("#serverList .server-item").forEach((node) => {
-      node.classList.remove("drop-before", "drop-after");
-    });
-    item.classList.add(position === "before" ? "drop-before" : "drop-after");
-  });
-  $("serverList")?.addEventListener("drop", (event) => {
-    if ((state.ui.serverSort || "default") !== "manual") return;
-    const item = event.target.closest(".server-item[data-id]");
-    if (!item?.dataset.id || !state.serverDnd.draggingId) return;
-    event.preventDefault();
-    moveServerInManualOrder(state.serverDnd.draggingId, item.dataset.id, state.serverDnd.position || "after");
-    state.serverDnd.draggingId = "";
-    state.serverDnd.overId = "";
-    state.serverDnd.position = "";
-    renderServers();
-  });
-  $("serverList")?.addEventListener("dragend", () => {
-    state.serverDnd.draggingId = "";
-    state.serverDnd.overId = "";
-    state.serverDnd.position = "";
-    document.querySelectorAll("#serverList .server-item").forEach((node) => {
-      node.classList.remove("dragging", "drop-before", "drop-after");
-    });
-  });
   window.AppNavigationActions?.bind?.({
     element: $,
     query: (selector) => document.querySelector(selector),

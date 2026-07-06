@@ -63,6 +63,31 @@
     call(callbacks, "hideServerResource", item?.dataset?.id || "", item, event);
   }
 
+  function dragPosition(event, item) {
+    const rect = item?.getBoundingClientRect?.();
+    if (!rect) return "after";
+    return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+  }
+
+  function handleServerListDragStart(event, callbacks = {}, list = null) {
+    const item = serverItemFromEvent(event, list);
+    call(callbacks, "startServerDrag", item?.dataset?.id || "", event, item);
+  }
+
+  function handleServerListDragOver(event, callbacks = {}, list = null) {
+    const item = serverItemFromEvent(event, list);
+    if (item) call(callbacks, "overServerDrag", item.dataset.id, dragPosition(event, item), event, item);
+  }
+
+  function handleServerListDrop(event, callbacks = {}, list = null) {
+    const item = serverItemFromEvent(event, list);
+    if (item) call(callbacks, "dropServerDrag", item.dataset.id, event, item);
+  }
+
+  function handleServerListDragEnd(event, callbacks = {}) {
+    call(callbacks, "endServerDrag", event);
+  }
+
   function bind(callbacks = {}) {
     const list = element(callbacks, "serverList");
     element(callbacks, "serverSortSelect")?.addEventListener("change", (event) => {
@@ -86,10 +111,27 @@
     list?.addEventListener("scroll", (event) => {
       call(callbacks, "positionServerResource", event);
     }, { passive: true });
+    list?.addEventListener("dragstart", (event) => {
+      handleServerListDragStart(event, callbacks, list);
+    });
+    list?.addEventListener("dragover", (event) => {
+      handleServerListDragOver(event, callbacks, list);
+    });
+    list?.addEventListener("drop", (event) => {
+      handleServerListDrop(event, callbacks, list);
+    });
+    list?.addEventListener("dragend", (event) => {
+      handleServerListDragEnd(event, callbacks);
+    });
   }
 
   window.ServerListActions = {
     bind,
+    dragPosition,
+    handleServerListDragEnd,
+    handleServerListDragOver,
+    handleServerListDragStart,
+    handleServerListDrop,
     handleServerListClick,
     handleServerListFocusIn,
     handleServerListFocusOut,
