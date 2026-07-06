@@ -1330,7 +1330,13 @@ const SOURCE_AGENT_ROLE_IDS = {
   idea: ["planner", "researcher", "repo_scout", "gpu_scout", "env_builder", "runner", "evaluator", "reporter"],
 };
 
-const PROVIDER_VENDOR_OPTIONS = [
+function configCenterProviderProfilesApi() {
+  return window.ConfigCenterProviderProfiles && typeof window.ConfigCenterProviderProfiles === "object"
+    ? window.ConfigCenterProviderProfiles
+    : null;
+}
+
+const PROVIDER_VENDOR_OPTIONS = configCenterProviderProfilesApi()?.providerVendorOptions || [
   // === 国际主流提供商 ===
   { value: "openai", label: "OpenAI", base_url: "https://api.openai.com/v1" },
   { value: "anthropic", label: "Anthropic (Claude)", base_url: "https://api.anthropic.com/v1" },
@@ -1355,7 +1361,7 @@ const PROVIDER_VENDOR_OPTIONS = [
   { value: "custom", label: "Custom (自定义)", base_url: "" },
 ];
 
-const SEARCH_PROVIDER_OPTIONS = [
+const SEARCH_PROVIDER_OPTIONS = configCenterProviderProfilesApi()?.searchProviderOptions || [
   { value: "", label: "未选择", base_url: "", key_required: true, endpoint_required: false },
   { value: "firecrawl", label: "Firecrawl", base_url: "https://api.firecrawl.dev", key_required: true, endpoint_required: false },
   { value: "serper", label: "Serper", base_url: "https://google.serper.dev/search", key_required: true, endpoint_required: false },
@@ -1364,15 +1370,23 @@ const SEARCH_PROVIDER_OPTIONS = [
 ];
 
 function vendorDefaultBaseUrl(vendor = "") {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.vendorDefaultBaseUrl === "function") return api.vendorDefaultBaseUrl(vendor);
   const entry = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === String(vendor || "").trim());
   return entry?.base_url || "";
 }
 
 function searchProviderOption(provider = "") {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.searchProviderOption === "function") return api.searchProviderOption(provider);
   return SEARCH_PROVIDER_OPTIONS.find((item) => item.value === String(provider || "").trim()) || SEARCH_PROVIDER_OPTIONS[0];
 }
 
 function searchProviderOptionsMarkup(selectedValue = "") {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.searchProviderOptionsMarkup === "function") {
+    return api.searchProviderOptionsMarkup(selectedValue, { escapeHtml });
+  }
   const selected = String(selectedValue || "").trim();
   return SEARCH_PROVIDER_OPTIONS.map((option) => (
     `<option value="${escapeHtml(option.value)}" ${option.value === selected ? "selected" : ""}>${escapeHtml(option.label)}</option>`
@@ -1380,6 +1394,8 @@ function searchProviderOptionsMarkup(selectedValue = "") {
 }
 
 function providerVendorRequiresApiKey(vendor = "") {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerVendorRequiresApiKey === "function") return api.providerVendorRequiresApiKey(vendor);
   const entry = PROVIDER_VENDOR_OPTIONS.find((item) => item.value === String(vendor || "").trim());
   return entry?.key_required !== false;
 }
@@ -1387,12 +1403,16 @@ function providerVendorRequiresApiKey(vendor = "") {
 // A base_url counts as "this vendor's default" if it's empty or matches any
 // known vendor preset — so switching vendor can safely overwrite it.
 function baseUrlIsVendorDefault(url = "") {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.baseUrlIsVendorDefault === "function") return api.baseUrlIsVendorDefault(url);
   const value = String(url || "").trim();
   if (!value) return true;
   return PROVIDER_VENDOR_OPTIONS.some((item) => item.base_url && item.base_url === value);
 }
 
 function providerProfileIsValid(profile = {}) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerProfileIsValid === "function") return api.providerProfileIsValid(profile);
   if (providerProfileKind(profile) === "search") {
     const provider = String(profile.vendor || "").trim();
     const option = searchProviderOption(provider);
@@ -1416,11 +1436,15 @@ function providerProfileIsValid(profile = {}) {
 }
 
 function providerProfileKind(profile = {}) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerProfileKind === "function") return api.providerProfileKind(profile);
   const value = String(profile?.kind || profile?.profile_type || "").trim().toLowerCase();
   return value === "search" || value === "web_search" || value === "web-search" ? "search" : "llm";
 }
 
 function providerProfileRequiresApiKey(profile = {}) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerProfileRequiresApiKey === "function") return api.providerProfileRequiresApiKey(profile);
   if (profile && profile.key_required === false) return false;
   if (providerProfileKind(profile) === "search") {
     return searchProviderOption(profile.vendor).key_required !== false;
@@ -1433,6 +1457,10 @@ function providerProfileRequiresApiKey(profile = {}) {
 }
 
 function providerVendorOptionsMarkup(selectedValue = "") {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerVendorOptionsMarkup === "function") {
+    return api.providerVendorOptionsMarkup(selectedValue, { escapeHtml });
+  }
   const selected = String(selectedValue || "").trim();
   return [
     `<option value="" ${selected ? "" : "selected"}>未选择</option>`,
