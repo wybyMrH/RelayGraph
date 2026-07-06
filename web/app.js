@@ -27451,53 +27451,27 @@ function bindEvents() {
       }
     },
   });
-  $("workflowTemplateStudioOverview")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "copy-template-version-history") {
-      consumeClick(event);
-      void copyWorkflowTemplateVersionHistory().catch((error) => {
-        setWorkspaceManageMessage(error.message || "复制模板版本历史失败。", true);
-      });
-      return;
-    }
-    if (button.dataset.action === "apply-template-repair") {
-      consumeClick(event);
-      void applyWorkflowTemplateRepairAction(button.dataset.repairId || "", button.dataset.nodeId || "").catch((error) => {
-        setWorkspaceManageMessage(error.message || "应用模板修复失败。", true);
-      });
-      return;
-    }
-    if (button.dataset.action === "apply-template-repair-all") {
-      consumeClick(event);
-      void applyAllWorkflowTemplateRepairActions().catch((error) => {
-        setWorkspaceManageMessage(error.message || "批量应用模板修复失败。", true);
-      });
-    }
-  });
-  $("workspaceManageTemplateDiff")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "copy-template-migration-plan") {
-      consumeClick(event);
-      void copyWorkspaceTemplateMigrationPlan().catch((error) => {
-        setWorkspaceManageMessage(error.message || "复制模板迁移计划失败。", true);
-      });
-      return;
-    }
-    if (button.dataset.action === "apply-template-migration") {
-      consumeClick(event);
-      void applyWorkspaceTemplateMigration().catch((error) => {
-        setWorkspaceManageMessage(error.message || "应用模板迁移失败。", true);
-      });
-      return;
-    }
-    if (button.dataset.action === "create-template-migration-draft") {
-      consumeClick(event);
-      void createWorkspaceTemplateMigrationDraft().catch((error) => {
-        setWorkspaceManageMessage(error.message || "创建迁移草稿失败。", true);
-      });
-    }
+  window.TemplateReviewActions?.bind?.({
+    applyAllTemplateRepairs: () => applyAllWorkflowTemplateRepairActions().catch((error) => {
+      setWorkspaceManageMessage(error.message || "批量应用模板修复失败。", true);
+    }),
+    applyTemplateMigration: () => applyWorkspaceTemplateMigration().catch((error) => {
+      setWorkspaceManageMessage(error.message || "应用模板迁移失败。", true);
+    }),
+    applyTemplateRepair: (repairId, nodeId) => applyWorkflowTemplateRepairAction(repairId, nodeId).catch((error) => {
+      setWorkspaceManageMessage(error.message || "应用模板修复失败。", true);
+    }),
+    consumeEvent: consumeClick,
+    copyTemplateMigrationPlan: () => copyWorkspaceTemplateMigrationPlan().catch((error) => {
+      setWorkspaceManageMessage(error.message || "复制模板迁移计划失败。", true);
+    }),
+    copyTemplateVersionHistory: () => copyWorkflowTemplateVersionHistory().catch((error) => {
+      setWorkspaceManageMessage(error.message || "复制模板版本历史失败。", true);
+    }),
+    createTemplateMigrationDraft: () => createWorkspaceTemplateMigrationDraft().catch((error) => {
+      setWorkspaceManageMessage(error.message || "创建迁移草稿失败。", true);
+    }),
+    element: $,
   });
   window.WorkspaceLauncherActions?.bind?.({
     element: $,
