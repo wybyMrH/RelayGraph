@@ -18705,6 +18705,11 @@ function restoreFilePickerScrollAfterRender() {
 }
 
 function resetFilePickerNavigation() {
+  const api = window.FilePickerNavigation;
+  if (api && typeof api.resetNavigationState === "function") {
+    state.filePicker = api.resetNavigationState(state.filePicker);
+    return;
+  }
   state.filePicker.navStack = [];
   state.filePicker.forwardStack = [];
   state.filePicker.selectedPath = "";
@@ -18712,6 +18717,14 @@ function resetFilePickerNavigation() {
 }
 
 function rememberFilePickerForwardPath(path) {
+  const api = window.FilePickerNavigation;
+  if (api && typeof api.rememberForwardPath === "function") {
+    state.filePicker.forwardStack = api.rememberForwardPath(state.filePicker.forwardStack, path, {
+      normalizePathForCompare,
+      limit: 8,
+    });
+    return;
+  }
   const value = String(path || "").trim();
   if (!value) return;
   const normalized = normalizePathForCompare(value);
@@ -18725,8 +18738,15 @@ function rememberFilePickerForwardPath(path) {
 function updateFilePickerNavigationButtons() {
   const upBtn = $("filePickerUpBtn");
   const forwardBtn = $("filePickerForwardBtn");
-  if (upBtn) upBtn.hidden = !state.filePicker.parent;
-  if (forwardBtn) forwardBtn.hidden = !(Array.isArray(state.filePicker.forwardStack) && state.filePicker.forwardStack.length);
+  const api = window.FilePickerNavigation;
+  const buttonState = api && typeof api.navigationButtonState === "function"
+    ? api.navigationButtonState(state.filePicker)
+    : {
+        canGoUp: Boolean(state.filePicker.parent),
+        canGoForward: Boolean(Array.isArray(state.filePicker.forwardStack) && state.filePicker.forwardStack.length),
+      };
+  if (upBtn) upBtn.hidden = !buttonState.canGoUp;
+  if (forwardBtn) forwardBtn.hidden = !buttonState.canGoForward;
 }
 
 function renderRuntimeStoragePanel(payload = {}) {
@@ -28436,15 +28456,26 @@ function bindEvents() {
     void loadFilePicker(state.filePicker.parent);
   });
   $("filePickerForwardBtn")?.addEventListener("click", () => {
-    const stack = Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [];
-    const nextPath = stack.shift();
+    const api = window.FilePickerNavigation;
+    const forwardState = api && typeof api.forwardNavigationState === "function"
+      ? api.forwardNavigationState(state.filePicker)
+      : null;
+    const stack = forwardState
+      ? forwardState.forwardStack
+      : Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [];
+    const nextPath = forwardState ? forwardState.nextPath : stack.shift();
     state.filePicker.forwardStack = stack;
     if (!nextPath) {
       updateFilePickerNavigationButtons();
       return;
     }
-    if (state.filePicker.path) state.filePicker.navStack.push(nextPath);
-    state.filePicker.selectedPath = nextPath;
+    if (forwardState) {
+      state.filePicker.navStack = forwardState.navStack;
+      state.filePicker.selectedPath = forwardState.selectedPath;
+    } else {
+      if (state.filePicker.path) state.filePicker.navStack.push(nextPath);
+      state.filePicker.selectedPath = nextPath;
+    }
     void loadFilePicker(nextPath);
   });
   $("filePickerChooseDirBtn")?.addEventListener("click", () => {
