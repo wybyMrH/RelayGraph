@@ -27717,80 +27717,61 @@ function bindEvents() {
     const item = event.target.closest("[data-action='select-workspace']");
     if (item?.dataset.workspaceId) selectWorkspace(item.dataset.workspaceId);
   });
-  $("workflowTemplateList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-workflow-template']");
-    if (button?.dataset.templateId) selectWorkflowTemplate(button.dataset.templateId);
+  const updateTemplateTextField = (id, value) => {
+    const fieldHandlers = {
+      templateNameInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, name: value })),
+      templateStatusSelect: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, status: value || "ready" })),
+      templateTagsInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, tags: parseTagList(value || "") })),
+      templateDescriptionInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, description: value || "" })),
+      templateBriefInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, brief: value || "" })),
+      templateRepoUrlInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), repo_url: value || "" } })),
+      templateRepoRefInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), repo_ref: value || "" } })),
+      templatePaperUrlInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), paper_url: value || "" } })),
+      templateWorkspaceDirInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, workspace_dir: value || "" })),
+      templateIdeaInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), idea_text: value || "" } })),
+      templateEnvNameInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), name: value || "" } })),
+      templatePythonVersionInput: () => updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), python: value || "" } })),
+    };
+    fieldHandlers[id]?.();
+  };
+  window.WorkflowTemplateCatalogActions?.bind?.({
+    deleteTemplate: deleteSelectedWorkflowTemplate,
+    element: $,
+    insertNode: insertWorkflowTemplateNode,
+    moveNode: moveWorkflowTemplateNode,
+    newTemplate: newWorkflowTemplateDraft,
+    previewTemplate: previewWorkflowTemplate,
+    queryAll: (selector) => document.querySelectorAll(selector),
+    rebuildNodes: rebuildWorkflowTemplateNodes,
+    removeNode: removeWorkflowTemplateNode,
+    saveTemplate: saveWorkflowTemplate,
+    selectTemplate: selectWorkflowTemplate,
+    selectedNodeKind: () => $("workflowTemplateNodeKindSelect")?.value || "custom.step",
+    setMessage: setWorkspaceManageMessage,
+    updateTextField: updateTemplateTextField,
+    updateSourceType: (sourceType) => {
+      updateWorkflowTemplateDraft((draft) => ({
+        ...draft,
+        source: { ...(draft.source || {}), type: sourceType },
+        nodes: buildWorkspaceStarterNodes({
+          source_type: workspaceChainSourceType(sourceType),
+          repo_url: draft.source?.repo_url || "",
+          repo_ref: draft.source?.repo_ref || "",
+          paper_url: draft.source?.paper_url || "",
+          idea_text: draft.source?.idea_text || draft.brief || "",
+          workspace_dir: draft.workspace_dir || "",
+          env_name: draft.env?.name || "",
+          env_manager: draft.env?.manager || "",
+          python_version: draft.env?.python || "",
+        }),
+      }));
+    },
+    updateEnvManager: (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), manager: value || "" } })),
+    updateProviderProfile: (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), provider_profile_id: value || "" } })),
+    updateRoutingMode: (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), routing_mode: value || "workspace_default" } })),
+    updateChatAgent: (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), chat_agent_id: value || "" } })),
+    validationSummary: workflowTemplateValidationSummary,
   });
-  $("workspaceNewTemplateBtn")?.addEventListener("click", () => newWorkflowTemplateDraft("repo"));
-  $("workspaceDeleteTemplateBtn")?.addEventListener("click", () => {
-    void deleteSelectedWorkflowTemplate();
-  });
-  $("workspaceSaveTemplateBtn")?.addEventListener("click", () => {
-    void saveWorkflowTemplate();
-  });
-  $("workspacePreviewTemplateBtn")?.addEventListener("click", async () => {
-    setWorkspaceManageMessage("正在校验模板...");
-    try {
-      const result = await previewWorkflowTemplate();
-      setWorkspaceManageMessage(`模板校验：${workflowTemplateValidationSummary(result?.validation)}`, result?.validation?.status === "blocked");
-    } catch (error) {
-      setWorkspaceManageMessage(error.message || "模板校验失败。", true);
-    }
-  });
-  document.querySelectorAll(".workspace-template-seeds [data-seed]").forEach((button) => {
-    button.addEventListener("click", () => newWorkflowTemplateDraft(button.dataset.seed || "repo"));
-  });
-  [
-    ["templateNameInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, name: value }))],
-    ["templateStatusSelect", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, status: value || "ready" }))],
-    ["templateTagsInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, tags: parseTagList(value || "") }))],
-    ["templateDescriptionInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, description: value || "" }))],
-    ["templateBriefInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, brief: value || "" }))],
-    ["templateRepoUrlInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), repo_url: value || "" } }))],
-    ["templateRepoRefInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), repo_ref: value || "" } }))],
-    ["templatePaperUrlInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), paper_url: value || "" } }))],
-    ["templateWorkspaceDirInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, workspace_dir: value || "" }))],
-    ["templateIdeaInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, source: { ...(draft.source || {}), idea_text: value || "" } }))],
-    ["templateEnvNameInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), name: value || "" } }))],
-    ["templatePythonVersionInput", (value) => updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), python: value || "" } }))],
-  ].forEach(([id, handler]) => {
-    $(id)?.addEventListener("input", (event) => handler(event.target.value || ""));
-  });
-  $("templateSourceTypeSelect")?.addEventListener("change", (event) => {
-    const sourceType = event.target.value || "repo";
-    updateWorkflowTemplateDraft((draft) => ({
-      ...draft,
-      source: { ...(draft.source || {}), type: sourceType },
-      nodes: buildWorkspaceStarterNodes({
-        source_type: workspaceChainSourceType(sourceType),
-        repo_url: draft.source?.repo_url || "",
-        repo_ref: draft.source?.repo_ref || "",
-        paper_url: draft.source?.paper_url || "",
-        idea_text: draft.source?.idea_text || draft.brief || "",
-        workspace_dir: draft.workspace_dir || "",
-        env_name: draft.env?.name || "",
-        env_manager: draft.env?.manager || "",
-        python_version: draft.env?.python || "",
-      }),
-    }));
-  });
-  $("templateEnvManagerSelect")?.addEventListener("change", (event) => {
-    updateWorkflowTemplateDraft((draft) => ({ ...draft, env: { ...(draft.env || {}), manager: event.target.value || "" } }));
-  });
-  $("templateProviderProfileSelect")?.addEventListener("change", (event) => {
-    updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), provider_profile_id: event.target.value || "" } }));
-  });
-  $("templateRoutingModeSelect")?.addEventListener("change", (event) => {
-    updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), routing_mode: event.target.value || "workspace_default" } }));
-  });
-  $("templateChatAgentSelect")?.addEventListener("change", (event) => {
-    updateWorkflowTemplateDraft((draft) => ({ ...draft, model: { ...(draft.model || {}), chat_agent_id: event.target.value || "" } }));
-  });
-  $("workflowTemplateAddNodeBtn")?.addEventListener("click", () => insertWorkflowTemplateNode($("workflowTemplateNodeKindSelect")?.value || "custom.step"));
-  $("workflowTemplateMoveUpBtn")?.addEventListener("click", () => moveWorkflowTemplateNode("up"));
-  $("workflowTemplateMoveDownBtn")?.addEventListener("click", () => moveWorkflowTemplateNode("down"));
-  $("workflowTemplateDeleteNodeBtn")?.addEventListener("click", removeWorkflowTemplateNode);
-  $("workflowTemplateRebuildBtn")?.addEventListener("click", rebuildWorkflowTemplateNodes);
   window.WorkflowTemplateCanvasActions?.bind($("workflowTemplateCanvas"), {
     setSelectedNodeId: (nodeId) => {
       state.selectedTemplateNodeId = nodeId;
