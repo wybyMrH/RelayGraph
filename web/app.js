@@ -17325,21 +17325,30 @@ function openProcessStopConfirmModal(details = {}) {
   const subtitle = $("processStopConfirmSubtitle");
   const meta = $("processStopConfirmMeta");
   const command = $("processStopConfirmCommand");
-  const reason = String(details.reason || "").trim();
-  const ownerUnknown = reason === "owner_unknown" || reason === "owner_check_failed";
-  if (title) title.textContent = ownerUnknown ? "确认关闭归属未知进程" : "确认关闭非当前用户进程";
+  const api = window.MonitoringProcessStopConfirm;
+  const fallbackReason = String(details.reason || "").trim();
+  const fallbackOwnerUnknown = fallbackReason === "owner_unknown" || fallbackReason === "owner_check_failed";
+  const copy = api && typeof api.processStopConfirmCopy === "function"
+    ? api.processStopConfirmCopy(details)
+    : {
+        title: fallbackOwnerUnknown ? "确认关闭归属未知进程" : "确认关闭非当前用户进程",
+        subtitle: fallbackOwnerUnknown
+          ? "系统无法确认这个进程是否属于当前登录用户，确认后才会发送停止信号。"
+          : "这个进程不属于当前登录用户，确认后才会发送停止信号。",
+      };
+  if (title) title.textContent = copy.title;
   if (subtitle) {
-    subtitle.textContent = ownerUnknown
-      ? "系统无法确认这个进程是否属于当前登录用户，确认后才会发送停止信号。"
-      : "这个进程不属于当前登录用户，确认后才会发送停止信号。";
+    subtitle.textContent = copy.subtitle;
   }
-  const rows = [
-    ["服务器", details.serverName || "-"],
-    ["PID", details.pid || "-"],
-    ["进程用户", details.owner || "未知用户"],
-    ["当前用户", details.currentUser || "当前用户未知"],
-    ...(details.ownerUid || details.currentUid ? [["进程 UID", details.ownerUid || "-"], ["当前 UID", details.currentUid || "-"]] : []),
-  ];
+  const rows = api && typeof api.processStopConfirmRows === "function"
+    ? api.processStopConfirmRows(details)
+    : [
+        ["服务器", details.serverName || "-"],
+        ["PID", details.pid || "-"],
+        ["进程用户", details.owner || "未知用户"],
+        ["当前用户", details.currentUser || "当前用户未知"],
+        ...(details.ownerUid || details.currentUid ? [["进程 UID", details.ownerUid || "-"], ["当前 UID", details.currentUid || "-"]] : []),
+      ];
   if (meta) {
     meta.innerHTML = rows.map(([label, value]) => `
       <article>
@@ -17362,22 +17371,20 @@ function openProcessStopConfirmModal(details = {}) {
 
 async function confirmStopProcess(server, process, pid, context = {}) {
   if (!context.force && !processStopNeedsConfirmation(server, process)) return true;
-  const owner = context.owner || process?.user || "未知用户";
-  const ownerUid = context.owner_uid || process?.uid || "";
-  const currentUser = context.current_user || server?.current_user || server?.host_resources?.current_user || "当前用户未知";
-  const currentUid = context.current_uid || server?.current_uid || server?.host_resources?.current_uid || "";
-  const command = String(context.command || process?.command || process?.process_name || "").trim();
-  const reason = String(context.reason || "").trim();
-  return openProcessStopConfirmModal({
-    serverName: server?.name || server?.id || "-",
-    pid,
-    owner,
-    ownerUid,
-    currentUser,
-    currentUid,
-    command,
-    reason,
-  });
+  const api = window.MonitoringProcessStopConfirm;
+  const details = api && typeof api.processStopConfirmDetails === "function"
+    ? api.processStopConfirmDetails({ server, process, pid, context })
+    : {
+        serverName: server?.name || server?.id || "-",
+        pid,
+        owner: context.owner || process?.user || "未知用户",
+        ownerUid: context.owner_uid || process?.uid || "",
+        currentUser: context.current_user || server?.current_user || server?.host_resources?.current_user || "当前用户未知",
+        currentUid: context.current_uid || server?.current_uid || server?.host_resources?.current_uid || "",
+        command: String(context.command || process?.command || process?.process_name || "").trim(),
+        reason: String(context.reason || "").trim(),
+      };
+  return openProcessStopConfirmModal(details);
 }
 
 async function stopProcess(event, serverId, pid, options = {}) {
