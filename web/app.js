@@ -21569,7 +21569,15 @@ function renderManageAiModule() {
   `;
 }
 
+function workspaceExecutionOverviewModule() {
+  return window.WorkspaceExecutionOverview && typeof window.WorkspaceExecutionOverview === "object"
+    ? window.WorkspaceExecutionOverview
+    : null;
+}
+
 function executionOverviewStatusClass(status = "") {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.statusClass === "function") return module.statusClass(status);
   const value = String(status || "pending");
   if (["done", "ready", "completed"].includes(value)) return "ready";
   if (["running", "queued", "starting", "pending"].includes(value)) return "running";
@@ -21578,6 +21586,8 @@ function executionOverviewStatusClass(status = "") {
 }
 
 function executionOverviewStatusGroup(status = "") {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.statusGroup === "function") return module.statusGroup(status);
   const value = String(status || "pending").trim().toLowerCase();
   if (["done", "ready", "completed", "success", "succeeded"].includes(value)) return "done";
   if (["failed", "blocked", "stopped", "cancelled", "canceled"].includes(value)) return "failed";
@@ -21595,6 +21605,8 @@ function executionOverviewFilters() {
 }
 
 function executionOverviewRecordSearchText(record = {}, type = "") {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.recordSearchText === "function") return module.recordSearchText(record, type);
   const progress = record.progress && typeof record.progress === "object" ? record.progress : {};
   return [
     type,
@@ -21619,12 +21631,16 @@ function executionOverviewRecordSearchText(record = {}, type = "") {
 }
 
 function executionOverviewRecordMatches(record = {}, type = "run", filters = executionOverviewFilters()) {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.recordMatches === "function") return module.recordMatches(record, type, filters);
   if (filters.status && executionOverviewStatusGroup(record.status) !== filters.status) return false;
   if (filters.query && !executionOverviewRecordSearchText(record, type).includes(filters.query)) return false;
   return true;
 }
 
 function filteredExecutionOverviewItems(runs = [], jobs = [], filters = executionOverviewFilters()) {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.filteredItems === "function") return module.filteredItems(runs, jobs, filters);
   const showRuns = filters.kind !== "jobs";
   const showJobs = filters.kind !== "runs";
   return {
@@ -21686,6 +21702,15 @@ function openWorkspaceFromExecutionOverview(workspaceId, options = {}) {
 }
 
 function manageRunOverviewItemMarkup(run = {}) {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.runItemMarkup === "function") {
+    return module.runItemMarkup(run, {
+      escapeHtml,
+      fmtDate,
+      statusLabel: workspaceStatusLabel,
+      runKindLabel: workspaceRunKindLabel,
+    });
+  }
   const progress = run.progress && typeof run.progress === "object" ? run.progress : {};
   const status = executionOverviewStatusClass(run.status);
   return `
@@ -21701,6 +21726,14 @@ function manageRunOverviewItemMarkup(run = {}) {
 }
 
 function manageJobOverviewItemMarkup(job = {}) {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.jobItemMarkup === "function") {
+    return module.jobItemMarkup(job, {
+      escapeHtml,
+      fmtDate,
+      zhStatus,
+    });
+  }
   const status = executionOverviewStatusClass(job.status);
   return `
     <button class="workspace-execution-run-item workspace-template-item status-${escapeHtml(status)}" type="button" data-action="open-overview-workspace" data-workspace-id="${escapeHtml(job.workspace_id || "")}" title="打开所属实例驾驶舱">
@@ -21739,17 +21772,20 @@ function renderManageRunsModule() {
     if (overview.error) {
       summaryRoot.innerHTML = `<article class="workspace-agent-coverage-card status-failed"><strong>加载失败</strong><span>${escapeHtml(overview.error)}</span></article>`;
     } else {
-      summaryRoot.innerHTML = [
-        { label: "Runs", value: Number(summary.run_count || runs.length), status: summary.active_run_count ? "running" : "ready" },
-        { label: "Jobs", value: Number(summary.job_count || jobs.length), status: summary.active_job_count ? "running" : "ready" },
-        { label: "活跃任务", value: Number(summary.active_job_count || 0), status: summary.active_job_count ? "running" : "ready" },
-        { label: "失败/停止", value: Number(summary.failed_run_count || 0) + Number(summary.failed_job_count || 0), status: (summary.failed_run_count || summary.failed_job_count) ? "blocked" : "ready" },
-      ].map((item) => `
-        <article class="workspace-agent-coverage-card status-${escapeHtml(item.status)}">
-          <span>${escapeHtml(item.label)}</span>
-          <strong>${escapeHtml(String(item.value))}</strong>
-        </article>
-      `).join("");
+      const module = workspaceExecutionOverviewModule();
+      summaryRoot.innerHTML = typeof module?.summaryCardsMarkup === "function"
+        ? module.summaryCardsMarkup({ summary, runs, jobs, escapeHtml })
+        : [
+          { label: "Runs", value: Number(summary.run_count || runs.length), status: summary.active_run_count ? "running" : "ready" },
+          { label: "Jobs", value: Number(summary.job_count || jobs.length), status: summary.active_job_count ? "running" : "ready" },
+          { label: "活跃任务", value: Number(summary.active_job_count || 0), status: summary.active_job_count ? "running" : "ready" },
+          { label: "失败/停止", value: Number(summary.failed_run_count || 0) + Number(summary.failed_job_count || 0), status: (summary.failed_run_count || summary.failed_job_count) ? "blocked" : "ready" },
+        ].map((item) => `
+          <article class="workspace-agent-coverage-card status-${escapeHtml(item.status)}">
+            <span>${escapeHtml(item.label)}</span>
+            <strong>${escapeHtml(String(item.value))}</strong>
+          </article>
+        `).join("");
     }
   }
   if (runList) {
