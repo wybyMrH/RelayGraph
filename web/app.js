@@ -20869,6 +20869,11 @@ function refreshWorkflowTemplateCanvasSearchDecorations() {
   const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
   const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
   const search = workflowTemplateCanvasSearchState(nodes, ioStates);
+  const api = workflowTemplateCanvasSearchApi();
+  if (typeof api?.applySearchDecorations === "function") {
+    api.applySearchDecorations({ root, nodes, search });
+    return;
+  }
   const input = root.querySelector("[data-template-node-search]");
   if (input && input.value !== search.query) input.value = search.query;
   const count = root.querySelector("[data-template-node-search-count]");
@@ -20913,15 +20918,20 @@ function selectWorkflowTemplateSearchMatch(direction = 1) {
   const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
   const search = workflowTemplateCanvasSearchState(nodes, ioStates);
   if (!search.query || !search.matches.length) return;
-  const currentIndex = search.selectedMatchIndex >= 0 ? search.selectedMatchIndex : (direction > 0 ? -1 : 0);
-  const nextIndex = (currentIndex + direction + search.matches.length) % search.matches.length;
-  const nextNode = search.matches[nextIndex]?.node;
-  if (!nextNode?.id) return;
-  state.selectedTemplateNodeId = nextNode.id;
+  const api = workflowTemplateCanvasSearchApi();
+  const nextNodeId = typeof api?.nextMatchNodeId === "function"
+    ? api.nextMatchNodeId({ search, direction })
+    : (() => {
+        const currentIndex = search.selectedMatchIndex >= 0 ? search.selectedMatchIndex : (direction > 0 ? -1 : 0);
+        const nextIndex = (currentIndex + direction + search.matches.length) % search.matches.length;
+        return search.matches[nextIndex]?.node?.id || "";
+      })();
+  if (!nextNodeId) return;
+  state.selectedTemplateNodeId = nextNodeId;
   renderWorkflowTemplateCanvas();
   renderWorkflowTemplateNodeList();
   renderWorkflowTemplateNodeEditor();
-  revealWorkflowTemplateSelection(nextNode.id, { editor: false });
+  revealWorkflowTemplateSelection(nextNodeId, { editor: false });
 }
 
 function renderWorkflowTemplateNodeEditor() {

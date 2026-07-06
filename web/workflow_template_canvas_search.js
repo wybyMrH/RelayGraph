@@ -77,7 +77,67 @@
     };
   }
 
+  function matchIndexSet(search = {}) {
+    if (search.matchIndexes instanceof Set) return search.matchIndexes;
+    if (Array.isArray(search.matchIndexes)) return new Set(search.matchIndexes);
+    const matches = Array.isArray(search.matches) ? search.matches : [];
+    return new Set(matches.map((item) => item.index));
+  }
+
+  function nodeIndexById(nodes = [], nodeId = "") {
+    const normalized = String(nodeId || "").trim();
+    return (Array.isArray(nodes) ? nodes : []).findIndex((node) => String(node?.id || "") === normalized);
+  }
+
+  function applySearchDecorations(options = {}) {
+    const root = options.root;
+    if (!root) return;
+    const nodes = Array.isArray(options.nodes) ? options.nodes : [];
+    const search = options.search && typeof options.search === "object" ? options.search : {};
+    const query = String(search.query || "");
+    const matches = Array.isArray(search.matches) ? search.matches : [];
+    const indexes = matchIndexSet(search);
+    const input = root.querySelector("[data-template-node-search]");
+    if (input && input.value !== query) input.value = query;
+    const count = root.querySelector("[data-template-node-search-count]");
+    if (count) count.textContent = search.label || (query ? `${matches.length}/${matches.length}` : "未筛选");
+    root.querySelectorAll("[data-action='template-search-prev'], [data-action='template-search-next']").forEach((button) => {
+      button.disabled = !(query && matches.length);
+    });
+    root.querySelectorAll("[data-action='template-search-clear']").forEach((button) => {
+      button.disabled = !query;
+    });
+    root.querySelectorAll(".workflow-template-flow-node").forEach((nodeEl) => {
+      const index = Number(nodeEl.dataset.index || -1);
+      const matched = !query || indexes.has(index);
+      nodeEl.classList.toggle("search-match", Boolean(query && matched));
+      nodeEl.classList.toggle("search-dim", Boolean(query && !matched));
+    });
+    root.querySelectorAll(".workflow-template-phase-node, .workflow-template-layout-node").forEach((nodeEl) => {
+      const index = nodeIndexById(nodes, nodeEl.dataset.nodeId || "");
+      const matched = !query || indexes.has(index);
+      nodeEl.classList.toggle("search-match", Boolean(query && matched));
+      nodeEl.classList.toggle("search-dim", Boolean(query && !matched));
+    });
+  }
+
+  function nextMatchNodeId(options = {}) {
+    const search = options.search && typeof options.search === "object" ? options.search : {};
+    const matches = Array.isArray(search.matches) ? search.matches : [];
+    if (!String(search.query || "").trim() || !matches.length) return "";
+    const direction = Number(options.direction || 1);
+    const currentIndex = Number(search.selectedMatchIndex) >= 0
+      ? Number(search.selectedMatchIndex)
+      : direction > 0
+        ? -1
+        : 0;
+    const nextIndex = (currentIndex + direction + matches.length) % matches.length;
+    return String(matches[nextIndex]?.node?.id || "").trim();
+  }
+
   window.WorkflowTemplateCanvasSearch = {
+    applySearchDecorations,
+    nextMatchNodeId,
     nodeMatchesSearch,
     nodeSearchText,
     searchState,
