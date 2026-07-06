@@ -383,7 +383,10 @@ def test_provider_route_health_and_execution_overview(monkeypatch, tmp_path):
 
         filtered = state.execution_overview({"limit": 5, "query": "needle", "status": "failed"})
         assert filtered["summary"]["run_count"] > 5
-        assert filtered["filters"] == {"query": "needle", "status": "failed", "kind": "all", "limit": 5}
+        assert filtered["filters"]["query"] == "needle"
+        assert filtered["filters"]["status"] == "failed"
+        assert filtered["filters"]["kind"] == "all"
+        assert filtered["filters"]["limit"] == 5
         assert filtered["result"]["run_count"] == 1
         assert filtered["result"]["job_count"] == 1
         assert filtered["runs"][0]["id"] == "run-needle"
@@ -395,6 +398,181 @@ def test_provider_route_health_and_execution_overview(monkeypatch, tmp_path):
         assert jobs_only["runs"] == []
         assert jobs_only["result"]["run_count"] == 0
         assert jobs_only["result"]["job_count"] == 1
+    finally:
+        state.stop_event.set()
+        state.thread.join(timeout=1)
+
+
+def test_execution_overview_filters_by_time_and_explicit_refs_before_limit(monkeypatch, tmp_path):
+    state = _state(monkeypatch, tmp_path)
+    try:
+        workspace = state.create_workspace({"name": "Overview Filter", "brief": "Run filters", "source_type": "idea"})
+        target_run = normalize_workspace_execution_run(
+            {
+                "id": "run-target-filter",
+                "workspace_id": workspace["id"],
+                "kind": "reproduction",
+                "status": "done",
+                "summary": "target filter run",
+                "created_at": "2026-06-20T10:00:00",
+                "updated_at": "2026-06-20T10:00:00",
+                "steps": [
+                    {
+                        "index": 0,
+                        "node_id": "report-target",
+                        "node_kind": "eval.report",
+                        "status": "done",
+                        "job_id": "job-target-filter",
+                        "agent_execution_id": "aex-target-filter",
+                    }
+                ],
+            }
+        )
+        recent_noise = normalize_workspace_execution_run(
+            {
+                "id": "run-recent-filter",
+                "workspace_id": workspace["id"],
+                "kind": "advance",
+                "status": "done",
+                "summary": "recent noise",
+                "created_at": "2026-06-25T10:00:00",
+                "updated_at": "2026-06-25T10:00:00",
+                "steps": [
+                    {
+                        "index": 0,
+                        "node_id": "run-noise",
+                        "node_kind": "run.command",
+                        "status": "done",
+                        "job_id": "job-recent-filter",
+                        "agent_execution_id": "aex-recent-filter",
+                    }
+                ],
+            }
+        )
+        state.workspaces[0]["runs"] = [recent_noise, target_run]
+        state.jobs = [
+            {
+                "id": "job-recent-filter",
+                "status": "done",
+                "created_at": "2026-06-25T10:00:00",
+                "updated_at": "2026-06-25T10:00:01",
+                "metadata": {
+                    "workspace_id": workspace["id"],
+                    "execution_run_id": recent_noise["id"],
+                    "node_kind": "run.command",
+                    "agent_execution_id": "aex-recent-filter",
+                },
+            },
+            {
+                "id": "job-target-filter",
+                "status": "done",
+                "created_at": "2026-06-20T10:00:00",
+                "updated_at": "2026-06-20T10:00:01",
+                "metadata": {
+                    "workspace_id": workspace["id"],
+                    "execution_run_id": target_run["id"],
+                    "node_kind": "eval.report",
+                    "agent_execution_id": "aex-target-filter",
+                },
+            },
+        ]
+
+        filtered = state.execution_overview(
+            {
+                "limit": 1,
+                "node_kind": "eval.report",
+                "job_id": "job-target",
+                "agent_execution_id": "aex-target",
+                "created_after": "2026-06-20T10:00:00",
+                "created_before": "2026-06-20T10:00:00",
+            }
+        )
+
+        assert filtered["filters"]["node_kind"] == "eval.report"
+        assert filtered["filters"]["job_id"] == "job-target"
+        assert filtered["filters"]["agent_execution_id"] == "aex-target"
+        assert filtered["filters"]["created_after"] == "2026-06-20T10:00:00"
+        assert filtered["filters"]["created_before"] == "2026-06-20T10:00:00"
+        assert filtered["result"]["run_count"] == 1
+        assert filtered["result"]["job_count"] == 1
+        assert filtered["runs"][0]["id"] == "run-target-filter"
+        assert filtered["jobs"][0]["id"] == "job-target-filter"
+    finally:
+        state.stop_event.set()
+        state.thread.join(timeout=1)
+
+
+def test_execution_overview_filters_runs_beyond_display_truncation(monkeypatch, tmp_path):
+    state = _state(monkeypatch, tmp_path)
+    try:
+        workspace = state.create_workspace({"name": "Overview Long Run", "brief": "Long refs", "source_type": "idea"})
+        steps = [
+            {
+                "index": index,
+                "node_id": f"node-{index}",
+                "node_kind": f"kind.{index}",
+                "status": "done",
+                "job_id": f"job-long-{index}",
+                "agent_execution_id": f"aex-long-{index}",
+            }
+            for index in range(14)
+        ]
+        long_run = normalize_workspace_execution_run(
+            {
+                "id": "run-long-refs",
+                "workspace_id": workspace["id"],
+                "kind": "reproduction",
+                "status": "done",
+                "summary": "long refs",
+                "created_at": "2026-06-22T10:00:00",
+                "updated_at": "2026-06-22T10:00:00",
+                "steps": steps,
+            }
+        )
+        state.workspaces[0]["runs"] = [long_run]
+        state.jobs = [
+            {
+                "id": f"job-long-{index}",
+                "status": "done",
+                "created_at": "2026-06-22T10:00:00",
+                "updated_at": "2026-06-22T10:00:01",
+                "metadata": {
+                    "workspace_id": workspace["id"],
+                    "execution_run_id": long_run["id"],
+                    "node_kind": f"kind.{index}",
+                    "agent_execution_id": f"aex-long-{index}",
+                },
+            }
+            for index in range(14)
+        ]
+
+        by_job = state.execution_overview({"kind": "runs", "job_id": "job-long-13"})
+        by_agent = state.execution_overview({"kind": "runs", "agent_execution_id": "aex-long-13"})
+        by_node = state.execution_overview({"kind": "runs", "node_kind": "kind.13"})
+        query_job = state.execution_overview({"kind": "runs", "query": "job-long-13"})
+        query_agent = state.execution_overview({"kind": "runs", "query": "aex-long-13"})
+        query_node_id = state.execution_overview({"kind": "runs", "query": "node-13"})
+        query_node_kind = state.execution_overview({"kind": "runs", "query": "kind.13"})
+        query_all_agent = state.execution_overview({"kind": "all", "query": "aex-long-13"})
+
+        assert by_job["result"]["run_count"] == 1
+        assert by_agent["result"]["run_count"] == 1
+        assert by_node["result"]["run_count"] == 1
+        assert query_job["result"]["run_count"] == 1
+        assert query_agent["result"]["run_count"] == 1
+        assert query_node_id["result"]["run_count"] == 1
+        assert query_node_kind["result"]["run_count"] == 1
+        assert query_all_agent["result"]["run_count"] == 1
+        assert query_all_agent["result"]["job_count"] == 1
+        assert by_job["runs"][0]["id"] == "run-long-refs"
+        assert query_job["runs"][0]["id"] == "run-long-refs"
+        assert query_agent["runs"][0]["id"] == "run-long-refs"
+        assert query_node_id["runs"][0]["id"] == "run-long-refs"
+        assert query_node_kind["runs"][0]["id"] == "run-long-refs"
+        assert query_all_agent["jobs"][0]["id"] == "job-long-13"
+        assert by_job["runs"][0]["job_ids"] == [f"job-long-{index}" for index in range(8)]
+        for payload in (by_job, by_agent, by_node, query_job, query_agent, query_node_id, query_node_kind):
+            assert not any(key.startswith("_filter_") for key in payload["runs"][0])
     finally:
         state.stop_event.set()
         state.thread.join(timeout=1)

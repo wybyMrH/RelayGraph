@@ -115,15 +115,70 @@ def _execution_overview_search_text(record: dict[str, Any], record_type: str) ->
         record.get("server_id"),
         record.get("node_id"),
         record.get("agent_id"),
+        record.get("agent_execution_id"),
         progress.get("done"),
         progress.get("total"),
         progress.get("percent"),
     ]
-    for key in ("job_ids", "agent_execution_ids", "node_ids", "node_kinds", "server_ids"):
+    for key in (
+        "job_ids",
+        "agent_execution_ids",
+        "node_ids",
+        "node_kinds",
+        "server_ids",
+        "_filter_job_ids",
+        "_filter_agent_execution_ids",
+        "_filter_node_ids",
+        "_filter_node_kinds",
+    ):
         value = record.get(key)
         if isinstance(value, list):
             fields.append(" ".join(str(item or "") for item in value))
     return " ".join(str(item or "").strip().lower() for item in fields if str(item or "").strip())
+
+
+def _execution_overview_text_values(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item or "").strip() for item in value if str(item or "").strip()]
+    text = str(value or "").strip()
+    return [text] if text else []
+
+
+def _execution_overview_contains(value: Any, needle: str) -> bool:
+    needle = str(needle or "").strip().lower()
+    if not needle:
+        return True
+    return any(needle in item.lower() for item in _execution_overview_text_values(value))
+
+
+def _execution_overview_node_kind_matches(record: dict[str, Any], record_type: str, node_kind: str) -> bool:
+    node_kind = str(node_kind or "").strip().lower()
+    if not node_kind:
+        return True
+    values: list[str] = []
+    if record_type == "run":
+        values.extend(_execution_overview_text_values(record.get("_filter_node_kinds")))
+        values.extend(_execution_overview_text_values(record.get("node_kinds")))
+    values.extend(_execution_overview_text_values(record.get("kind")))
+    return any(item.lower() == node_kind for item in values)
+
+
+def _execution_overview_record_timestamp(record: dict[str, Any]) -> float:
+    return (
+        parse_iso_timestamp(record.get("created_at"))
+        or parse_iso_timestamp(record.get("started_at"))
+        or parse_iso_timestamp(record.get("updated_at"))
+        or parse_iso_timestamp(record.get("completed_at"))
+        or parse_iso_timestamp(record.get("finished_at"))
+    )
+
+
+def _execution_overview_public_record(record: dict[str, Any]) -> dict[str, Any]:
+    public = copy.deepcopy(record)
+    for key in list(public):
+        if str(key).startswith("_filter_"):
+            public.pop(key, None)
+    return public
 
 
 def _execution_overview_record_matches(
@@ -132,11 +187,40 @@ def _execution_overview_record_matches(
     *,
     query: str = "",
     status: str = "",
+    node_kind: str = "",
+    job_id: str = "",
+    agent_execution_id: str = "",
+    created_after_ts: float = 0.0,
+    created_before_ts: float = 0.0,
 ) -> bool:
     if status and _execution_overview_status_group(record.get("status")) != status:
         return False
     if query and query not in _execution_overview_search_text(record, record_type):
         return False
+    if not _execution_overview_node_kind_matches(record, record_type, node_kind):
+        return False
+    if job_id:
+        job_values: list[str] = []
+        if record_type == "run":
+            job_values.extend(_execution_overview_text_values(record.get("_filter_job_ids")))
+            job_values.extend(_execution_overview_text_values(record.get("job_ids")))
+        job_values.extend(_execution_overview_text_values(record.get("id" if record_type == "job" else "job_id")))
+        if not _execution_overview_contains(job_values, job_id):
+            return False
+    if agent_execution_id:
+        agent_values = _execution_overview_text_values(record.get("_filter_agent_execution_ids"))
+        agent_values.extend(_execution_overview_text_values(record.get("agent_execution_ids")))
+        agent_values.extend(_execution_overview_text_values(record.get("agent_execution_id")))
+        if not _execution_overview_contains(agent_values, agent_execution_id):
+            return False
+    if created_after_ts or created_before_ts:
+        record_ts = _execution_overview_record_timestamp(record)
+        if not record_ts:
+            return False
+        if created_after_ts and record_ts < created_after_ts:
+            return False
+        if created_before_ts and record_ts > created_before_ts:
+            return False
     return True
 
 
@@ -409,6 +493,13 @@ class RegistryMixin:
         kind_filter = str(requested.get("kind") or "all").strip().lower()
         if kind_filter not in {"all", "runs", "jobs"}:
             kind_filter = "all"
+        node_kind_filter = str(requested.get("node_kind") or "").strip()
+        job_id_filter = str(requested.get("job_id") or "").strip()
+        agent_execution_id_filter = str(requested.get("agent_execution_id") or "").strip()
+        created_after_filter = str(requested.get("created_after") or requested.get("created_after_iso") or "").strip()
+        created_before_filter = str(requested.get("created_before") or requested.get("created_before_iso") or "").strip()
+        created_after_ts = parse_iso_timestamp(created_after_filter)
+        created_before_ts = parse_iso_timestamp(created_before_filter)
         self.sync_workspace_execution_runs_from_jobs()
         with self.lock:
             workspaces = copy.deepcopy(getattr(self, "workspaces", []))
@@ -446,6 +537,21 @@ class RegistryMixin:
                     if str(child_id or "").strip()
                 ]
                 linked_job_ids = [*job_ids, *child_job_ids]
+                agent_execution_ids = [
+                    str(step.get("agent_execution_id") or "").strip()
+                    for step in steps
+                    if isinstance(step, dict) and str(step.get("agent_execution_id") or "").strip()
+                ]
+                node_ids = [
+                    str(step.get("node_id") or "").strip()
+                    for step in steps
+                    if isinstance(step, dict) and str(step.get("node_id") or "").strip()
+                ]
+                node_kinds = [
+                    str(step.get("node_kind") or "").strip()
+                    for step in steps
+                    if isinstance(step, dict) and str(step.get("node_kind") or "").strip()
+                ]
                 server_ids = sorted(
                     {
                         str((jobs_by_id.get(job_id) or {}).get("server_id") or "").strip()
@@ -464,22 +570,14 @@ class RegistryMixin:
                         "progress": copy.deepcopy(run.get("progress") if isinstance(run.get("progress"), dict) else {}),
                         "step_count": len(steps),
                         "job_ids": linked_job_ids[:8],
-                        "agent_execution_ids": [
-                            str(step.get("agent_execution_id") or "").strip()
-                            for step in steps
-                            if isinstance(step, dict) and str(step.get("agent_execution_id") or "").strip()
-                        ][:8],
-                        "node_ids": [
-                            str(step.get("node_id") or "").strip()
-                            for step in steps
-                            if isinstance(step, dict) and str(step.get("node_id") or "").strip()
-                        ][:12],
-                        "node_kinds": [
-                            str(step.get("node_kind") or "").strip()
-                            for step in steps
-                            if isinstance(step, dict) and str(step.get("node_kind") or "").strip()
-                        ][:12],
+                        "agent_execution_ids": agent_execution_ids[:8],
+                        "node_ids": node_ids[:12],
+                        "node_kinds": node_kinds[:12],
                         "server_ids": server_ids[:8],
+                        "_filter_job_ids": linked_job_ids,
+                        "_filter_agent_execution_ids": agent_execution_ids,
+                        "_filter_node_ids": node_ids,
+                        "_filter_node_kinds": node_kinds,
                         "created_at": str(run.get("created_at") or "").strip(),
                         "updated_at": str(run.get("updated_at") or "").strip(),
                     }
@@ -502,6 +600,7 @@ class RegistryMixin:
                     "server_id": str(job.get("server_id") or metadata.get("server_id") or "").strip(),
                     "summary": str(job.get("summary") or metadata.get("node_title") or "").strip(),
                     "execution_run_id": str(metadata.get("execution_run_id") or "").strip(),
+                    "agent_execution_id": str(metadata.get("agent_execution_id") or "").strip(),
                     "created_at": str(job.get("created_at") or "").strip(),
                     "updated_at": str(job.get("updated_at") or job.get("finished_at") or job.get("created_at") or "").strip(),
                 }
@@ -510,20 +609,45 @@ class RegistryMixin:
         matched_runs = [
             run for run in runs
             if kind_filter != "jobs"
-            and _execution_overview_record_matches(run, "run", query=query_text, status=status_filter)
+            and _execution_overview_record_matches(
+                run,
+                "run",
+                query=query_text,
+                status=status_filter,
+                node_kind=node_kind_filter,
+                job_id=job_id_filter,
+                agent_execution_id=agent_execution_id_filter,
+                created_after_ts=created_after_ts,
+                created_before_ts=created_before_ts,
+            )
         ]
         matched_jobs = [
             job for job in job_items
             if kind_filter != "runs"
-            and _execution_overview_record_matches(job, "job", query=query_text, status=status_filter)
+            and _execution_overview_record_matches(
+                job,
+                "job",
+                query=query_text,
+                status=status_filter,
+                node_kind=node_kind_filter,
+                job_id=job_id_filter,
+                agent_execution_id=agent_execution_id_filter,
+                created_after_ts=created_after_ts,
+                created_before_ts=created_before_ts,
+            )
         ]
         return {
-            "runs": matched_runs[:limit],
-            "jobs": matched_jobs[:limit],
+            "runs": [_execution_overview_public_record(item) for item in matched_runs[:limit]],
+            "jobs": [_execution_overview_public_record(item) for item in matched_jobs[:limit]],
             "filters": {
                 "query": query_text,
                 "status": status_filter,
                 "kind": kind_filter,
+                "node_kind": node_kind_filter,
+                "job_id": job_id_filter,
+                "agent_execution_id": agent_execution_id_filter,
+                "created_after": created_after_filter,
+                "created_before": created_before_filter,
                 "limit": limit,
             },
             "result": {

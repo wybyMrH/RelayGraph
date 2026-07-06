@@ -98,6 +98,7 @@ def test_filter_workspace_execution_runs():
         {
             "id": "run-1",
             "status": "done",
+            "created_at": "2026-06-20T10:00:00",
             "steps": [
                 {"node_kind": "repo.inspect", "executor": "agent", "agent_execution_id": "agent-1"},
             ],
@@ -105,15 +106,37 @@ def test_filter_workspace_execution_runs():
         {
             "id": "run-2",
             "status": "failed",
+            "created_at": "2026-06-24T10:00:00",
             "steps": [
                 {"node_kind": "run.command", "executor": "job", "job_id": "job-9"},
             ],
         },
+        {
+            "id": "run-3",
+            "status": "done",
+            "created_at": "2026-06-25T10:00:00",
+            "steps": [
+                {"node_kind": "eval.report", "executor": "agent", "agent_execution_id": "agent-3"},
+            ],
+        },
     ]
-    assert len(filter_workspace_execution_runs(runs, status="done")) == 1
+    assert len(filter_workspace_execution_runs(runs, status="done")) == 2
     assert filter_workspace_execution_runs(runs, node_kind="run.command")[0]["id"] == "run-2"
     assert filter_workspace_execution_runs(runs, job_id="job-9")[0]["id"] == "run-2"
     assert filter_workspace_execution_runs(runs, agent_execution_id="agent-1")[0]["id"] == "run-1"
+    assert [item["id"] for item in filter_workspace_execution_runs(runs, created_after="2026-06-24T10:00:00")] == [
+        "run-2",
+        "run-3",
+    ]
+    assert [item["id"] for item in filter_workspace_execution_runs(runs, created_before="2026-06-24T10:00:00")] == [
+        "run-1",
+        "run-2",
+    ]
+    assert [item["id"] for item in filter_workspace_execution_runs(
+        runs,
+        created_after="2026-06-20T10:00:00",
+        created_before="2026-06-24T10:00:00",
+    )] == ["run-1", "run-2"]
 
 
 def test_workspace_agent_run_step_promotes_controlled_runtime_refs():

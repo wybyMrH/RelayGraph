@@ -186,6 +186,11 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
                     "query": (query.get("query") or query.get("q") or [""])[0],
                     "status": (query.get("status") or [""])[0],
                     "kind": (query.get("kind") or ["all"])[0],
+                    "node_kind": (query.get("node_kind") or [""])[0],
+                    "job_id": (query.get("job_id") or [""])[0],
+                    "agent_execution_id": (query.get("agent_execution_id") or [""])[0],
+                    "created_after": (query.get("created_after") or query.get("created_after_iso") or [""])[0],
+                    "created_before": (query.get("created_before") or query.get("created_before_iso") or [""])[0],
                 },
             )
         )
