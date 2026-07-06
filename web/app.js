@@ -4948,61 +4948,14 @@ function workspaceExecutionCanvasMarkup(nodes = [], options = {}) {
 }
 
 function workspaceExecutionLaneRailMarkup(workspace = selectedWorkspace(), nodes = [], options = {}) {
-  if (options.preview || !workspace?.id) return "";
-  const contract = workspace?.automation?.orchestration_contract && typeof workspace.automation.orchestration_contract === "object"
-    ? workspace.automation.orchestration_contract
-    : null;
-  const lanes = Array.isArray(contract?.lanes) ? contract.lanes.filter((lane) => lane && typeof lane === "object") : [];
-  if (!lanes.length) return "";
-  const nodeIds = new Set((Array.isArray(nodes) ? nodes : []).map((node) => String(node?.id || "").trim()).filter(Boolean));
-  return `
-    <div class="workspace-execution-lane-rail status-${escapeHtml(contract.status || "draft")}" aria-label="编排阶段泳道">
-      <div class="workspace-execution-lane-rail-head">
-        <span>阶段泳道</span>
-        <strong>${escapeHtml(contract.summary || `${lanes.length} 个阶段`)}</strong>
-      </div>
-      <div class="workspace-execution-lane-strip">
-        ${lanes.map((lane) => {
-          const laneNodes = (Array.isArray(lane.nodes) ? lane.nodes : []).filter((node) => {
-            const nodeId = String(node?.id || "").trim();
-            return nodeId && (!nodeIds.size || nodeIds.has(nodeId));
-          });
-          const gaps = Array.isArray(lane.gaps) ? lane.gaps : [];
-          const blockedCount = Number(lane.blocked_count || laneNodes.filter((node) => ["blocked", "failed"].includes(String(node?.status || ""))).length || 0);
-          const readyCount = Number(lane.ready_count || laneNodes.filter((node) => ["ready", "done"].includes(String(node?.status || ""))).length || 0);
-          const label = String(lane.label || lane.id || "阶段").trim();
-          return `
-            <section class="workspace-execution-lane status-${escapeHtml(lane.status || "draft")}" title="${escapeHtml(lane.summary || label)}">
-              <div class="workspace-execution-lane-head">
-                <span>${escapeHtml(label)}</span>
-                <strong>${escapeHtml(`${readyCount}/${laneNodes.length || Number(lane.node_count || 0)} 闭环`)}</strong>
-                <em>${escapeHtml(blockedCount ? `${blockedCount} 阻塞` : gaps.length ? `${gaps.length} 缺口` : "可推进")}</em>
-              </div>
-              <div class="workspace-execution-lane-nodes">
-                ${laneNodes.slice(0, 8).map((node) => {
-                  const nodeId = String(node.id || "").trim();
-                  const active = nodeId && nodeId === String(state.selectedWorkspaceExecutionNodeId || "").trim() ? " active" : "";
-                  const status = String(node.status || "draft").trim() || "draft";
-                  const gapCount = Number(node.input_gap_count || (Array.isArray(node.gaps) ? node.gaps.length : 0) || 0);
-                  return `
-                    <button
-                      class="workspace-execution-lane-node status-${escapeHtml(status)}${active}${gapCount ? " has-gap" : ""}"
-                      type="button"
-                      data-action="select-flow-node"
-                      data-node-id="${escapeHtml(nodeId)}"
-                      title="${escapeHtml(`${node.title || node.kind || "节点"} · ${gapCount ? `${gapCount} 个缺口` : node.output_key || "闭环"}`)}"
-                    >
-                      <span>${escapeHtml(String(node.index || ""))}</span>
-                    </button>
-                  `;
-                }).join("") || '<span class="workspace-execution-lane-empty">等待节点</span>'}
-              </div>
-            </section>
-          `;
-        }).join("")}
-      </div>
-    </div>
-  `;
+  if (!window.WorkspaceExecutionLaneRail?.markup) return "";
+  return window.WorkspaceExecutionLaneRail.markup({
+    workspace,
+    nodes,
+    preview: Boolean(options.preview),
+    selectedNodeId: state.selectedWorkspaceExecutionNodeId,
+    escapeHtml,
+  });
 }
 
 function handleWorkspaceFlowViewportWheel(event) {
