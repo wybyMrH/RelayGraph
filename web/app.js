@@ -27990,100 +27990,53 @@ function bindEvents() {
       fillJobFormFromNode(state.workspaceNodesDraft.find((node) => node.id === button.dataset.nodeId));
     }
   });
-  $("workspaceAgentList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-workspace-agent']");
-    if (button?.dataset.agentId) selectWorkspaceAgent(button.dataset.agentId);
-  });
-  $("workspaceAgentPresetList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='apply-agent-template']");
-    if (button?.dataset.role) applyAgentTemplate(button.dataset.role);
-  });
-  $("workspaceAgentEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "remove-workspace-agent" && button.dataset.agentId) {
-      removeWorkspaceAgent(button.dataset.agentId);
-      return;
-    }
-    if (button.dataset.action === "prefill-workspace-agent-debug") {
-      prefillWorkspaceAgentDebug();
-      return;
-    }
-    if (button.dataset.action === "run-workspace-agent-debug" && button.dataset.agentId) {
-      void debugWorkspaceAgent(button.dataset.agentId);
-    }
-    if (button.dataset.action === "copy-agent-debug-transcript") {
-      void copyAgentDebugTranscript(button.dataset.debugScope || "workspace")
-        .then(() => setWorkspaceMessage("Agent 调试结果已复制。"))
-        .catch((error) => setWorkspaceMessage(error.message || "复制 Agent 调试结果失败。", true));
-    }
-  });
-  $("workspaceToolList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='select-workspace-tool']");
-    if (button?.dataset.toolId) selectWorkspaceTool(button.dataset.toolId);
-  });
-  $("workspaceToolEditor")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    if (button.dataset.action === "add-workspace-tool") {
-      addWorkspaceTool();
-      return;
-    }
-    if (button.dataset.action === "remove-workspace-tool" && button.dataset.toolId) {
-      removeWorkspaceTool(button.dataset.toolId);
-    }
-  });
-  const handleWorkspaceAgentField = (event) => {
-    const target = event.target;
-    if (target.matches("[data-agent-field]")) {
-      const key = target.dataset.agentField;
+  window.WorkspaceAgentToolActions?.bind?.({
+    element: $,
+    addTool: addWorkspaceTool,
+    applyAgentTemplate,
+    copyAgentDebug: (scope) => copyAgentDebugTranscript(scope)
+      .then(() => setWorkspaceMessage("Agent 调试结果已复制。"))
+      .catch((error) => setWorkspaceMessage(error.message || "复制 Agent 调试结果失败。", true)),
+    prefillAgentDebug: prefillWorkspaceAgentDebug,
+    removeAgent: removeWorkspaceAgent,
+    removeTool: removeWorkspaceTool,
+    runAgentDebug: debugWorkspaceAgent,
+    selectAgent: selectWorkspaceAgent,
+    selectTool: selectWorkspaceTool,
+    setAgentDebugExecuteLlm: (checked) => {
+      state.workspaceAgentDebug.executeLlm = Boolean(checked);
+      state.workspaceAgentDebug.result = null;
+      state.workspaceAgentDebug.error = "";
+    },
+    setAgentDebugInput: (value) => {
+      state.workspaceAgentDebug.input = value;
+      state.workspaceAgentDebug.error = "";
+    },
+    updateAgentCheckbox: (key, checked) => {
       updateSelectedWorkspaceAgent((agent) => ({
         ...agent,
-        [key]: key === "tools" ? parseTagList(target.value) : target.value,
+        [key]: Boolean(checked),
       }));
-      return;
-    }
-	    if (target.matches("[data-agent-debug-input]")) {
-	      state.workspaceAgentDebug.input = target.value;
-	      state.workspaceAgentDebug.error = "";
-	      return;
-	    }
-	    if (target.matches("[data-agent-debug-execute-llm]")) {
-	      state.workspaceAgentDebug.executeLlm = Boolean(target.checked);
-	      state.workspaceAgentDebug.result = null;
-	      state.workspaceAgentDebug.error = "";
-	      return;
-	    }
-	    if (target.matches("[data-agent-checkbox]")) {
-	      const key = target.dataset.agentCheckbox;
+    },
+    updateAgentField: (key, value) => {
       updateSelectedWorkspaceAgent((agent) => ({
         ...agent,
-        [key]: Boolean(target.checked),
+        [key]: key === "tools" ? parseTagList(value) : value,
       }));
-    }
-  };
-  $("workspaceAgentEditor")?.addEventListener("input", handleWorkspaceAgentField);
-  $("workspaceAgentEditor")?.addEventListener("change", handleWorkspaceAgentField);
-  const handleWorkspaceToolField = (event) => {
-    const target = event.target;
-    if (target.matches("[data-tool-field]")) {
-      const key = target.dataset.toolField;
+    },
+    updateToolCheckbox: (key, checked) => {
       updateSelectedWorkspaceTool((tool) => ({
         ...tool,
-        [key]: target.value,
+        [key]: Boolean(checked),
       }));
-      return;
-    }
-    if (target.matches("[data-tool-checkbox]")) {
-      const key = target.dataset.toolCheckbox;
+    },
+    updateToolField: (key, value) => {
       updateSelectedWorkspaceTool((tool) => ({
         ...tool,
-        [key]: Boolean(target.checked),
+        [key]: value,
       }));
-    }
-  };
-  $("workspaceToolEditor")?.addEventListener("input", handleWorkspaceToolField);
-  $("workspaceToolEditor")?.addEventListener("change", handleWorkspaceToolField);
+    },
+  });
   $("workspaceList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='delete-workspace']");
     if (button?.dataset.workspaceId) {
