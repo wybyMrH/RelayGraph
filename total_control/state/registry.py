@@ -17,6 +17,7 @@ from .registry_pkg.provider_route_health import (
 from .registry_pkg.tool_testing import (
     run_tool_definition_safe_test as _run_tool_definition_safe_test,
 )
+from .registry_pkg.tool_definitions import rewrite_agent_tool_reference
 from .registry_pkg.workflow_templates import (
     build_workflow_template_preview_payload as _build_workflow_template_preview_payload,
     build_workflow_template_validation_payload as _build_workflow_template_validation_payload,
@@ -155,8 +156,7 @@ class RegistryMixin:
             self.tool_definitions[index] = updated
             if updated["id"] != previous_id:
                 for agent in self.agent_definitions:
-                    tools = parse_tag_list(agent.get("tools", []))
-                    agent["tools"] = [updated["id"] if item == previous_id else item for item in tools]
+                    rewrite_agent_tool_reference(agent, previous_tool_id=previous_id, next_tool_id=updated["id"])
                 self.agent_definitions = normalize_global_agent_definitions(
                     self.agent_definitions,
                     existing=self.agent_definitions,
@@ -175,7 +175,7 @@ class RegistryMixin:
                 raise ValueError("tool definition not found")
             del self.tool_definitions[index]
             for agent in self.agent_definitions:
-                agent["tools"] = [item for item in parse_tag_list(agent.get("tools", [])) if item != tool_id]
+                rewrite_agent_tool_reference(agent, previous_tool_id=tool_id)
         self.save_tool_definitions()
         self.save_agent_definitions()
 
