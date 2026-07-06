@@ -28122,274 +28122,173 @@ function bindEvents() {
     else void openWorkspaceRunDetail(item.dataset.runId);
   });
   $("jobForm").addEventListener("submit", submitJob);
-  $("transferForm")?.addEventListener("submit", submitTransfer);
-  $("transferConflictCloseBtn")?.addEventListener("click", () => {
-    hideTransferConflictModal({ message: "已取消本次文件传输。" });
-  });
-  $("transferConflictOverwriteAllBtn")?.addEventListener("click", () => {
-    const pending = transferConflictState.pending;
-    if (!pending) return;
-    void resolveTransferConflicts("overwrite_all", [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
-  });
-  $("transferConflictSkipAllBtn")?.addEventListener("click", () => {
-    const pending = transferConflictState.pending;
-    if (!pending) return;
-    void resolveTransferConflicts("skip_all", pending.conflicts || [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
-  });
-  $("transferConflictPromptEachBtn")?.addEventListener("click", () => {
-    const pending = transferConflictState.pending;
-    if (!pending) return;
-    void resolveTransferConflicts("prompt_each", pending.conflicts || [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
-  });
-  $("transferForm")?.addEventListener("click", (event) => {
-    const openBtn = event.target.closest("[data-action='open-transfer-favorite']");
-    if (openBtn?.dataset.path) {
-      void openTransferPathFavorite(openBtn.dataset.mode || "source", openBtn.dataset.path);
-      return;
-    }
-    const removeBtn = event.target.closest("[data-action='remove-transfer-favorite']");
-    if (removeBtn?.dataset.path) {
-      const mode = removeBtn.dataset.mode || "source";
-      const serverId = mode === "target" ? transferTargetServerId() : transferSourceServerId();
-      removeTransferPathFavorite(serverId, removeBtn.dataset.path);
-      renderTransferPathFavoriteBars();
-      if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
-    }
-  });
-  $("sourceFavoritePathBtn")?.addEventListener("click", () => {
-    const path = transferSourceValue();
-    if (!path) return;
-    toggleTransferPathFavorite(transferSourceServerId(), path);
-    renderTransferPathFavoriteBars();
-    if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
-  });
-  $("targetFavoritePathBtn")?.addEventListener("click", () => {
-    const path = transferTargetValue();
-    if (!path) return;
-    toggleTransferPathFavorite(transferTargetServerId(), path);
-    renderTransferPathFavoriteBars();
-    if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
-  });
-  $("transferSourceTreeUpBtn")?.addEventListener("click", () => {
-    void navigateTransferSourceParent();
-  });
-  $("transferSourceTreeForwardBtn")?.addEventListener("click", () => {
-    void navigateTransferSourceForward();
-  });
-  $("transferTargetTreeUpBtn")?.addEventListener("click", () => {
-    void navigateTransferTargetParent();
-  });
-  $("transferTargetTreeForwardBtn")?.addEventListener("click", () => {
-    void navigateTransferTargetForward();
-  });
-  $("sourceBrowseBtn")?.addEventListener("click", () => openFilePicker("source"));
-  $("sourceInspectBtn")?.addEventListener("click", () => loadTransferSourceTree());
-  $("sourcePreviewBtn")?.addEventListener("click", () => {
-    void previewTransferSourceInput();
-  });
-  $("transferSourceInput")?.addEventListener("blur", () => {
-    syncTransferSourceServerFromInput();
-    rememberTransferPath("source");
-    updateTransferPathFavoriteButtons();
-  });
-  $("transferSourceInput")?.addEventListener("input", updateTransferPathFavoriteButtons);
-  $("transferSourceServerSelect")?.addEventListener("change", handleTransferSourceServerChange);
-  $("targetBrowseBtn")?.addEventListener("click", () => openFilePicker("target"));
-  $("targetInspectBtn")?.addEventListener("click", () => loadTransferTargetTree());
-  $("transferTargetInput")?.addEventListener("blur", () => {
-    syncTransferTargetServerFromInput();
-    rememberTransferPath("target");
-    updateTransferPathFavoriteButtons();
-  });
-  $("transferTargetInput")?.addEventListener("input", updateTransferPathFavoriteButtons);
-  $("transferTargetServerSelect")?.addEventListener("change", handleTransferTargetServerChange);
-  $("transferExcludeInput")?.addEventListener("change", syncIgnoreStateFromInput);
-  $("ignoreChips")?.addEventListener("click", (event) => {
-    const button = event.target.closest(".chip-remove");
-    if (!button) return;
-    removeTransferIgnore(button.dataset.ignore || "");
-  });
-  $("selectedSourceList")?.addEventListener("click", (event) => {
-    const clearButton = event.target.closest("[data-action='clear-transfer-sources']");
-    if (clearButton) {
-      clearTransferSources();
-      return;
-    }
-    const previewButton = event.target.closest("[data-action='preview-selected-source']");
-    if (previewButton?.dataset.sourceKey) {
-      const item = state.transfer.sources.find((source) => source.key === previewButton.dataset.sourceKey);
-      if (item && !item.isDir) void previewFileInTransfer(item.path);
-      return;
-    }
-    const removeButton = event.target.closest("[data-source-key]");
-    if (!removeButton) return;
-    removeTransferSource(removeButton.dataset.sourceKey || "");
-  });
-  $("transferTree")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    const row = event.target.closest(".file-tree-row");
-    if (!row) return;
-    const rowPath = row.dataset.path || "";
-    const rowIsDir = row.dataset.dir === "1";
-    if (!button) {
-      if (rowIsDir && event.target.closest(".file-name")) {
-        void toggleTransferNode(rowPath, true);
+  window.TransferSurfaceActions?.bind?.({
+    element: $,
+    activateFilePickerRow: (path, isDir) => {
+      state.filePicker.selectedPath = path;
+      if (isDir) {
+        state.filePicker.forwardStack = [];
+        state.filePicker.navStack.push(path);
+        void loadFilePicker(path);
         return;
       }
-      if (!rowIsDir && event.target.closest(".file-name")) void previewFileInTransfer(rowPath);
-      return;
-    }
-    const path = button.dataset.path || rowPath;
-    const isDir = button.dataset.dir === "1" || rowIsDir;
-    if (button.dataset.action === "toggle-transfer-node") {
-      void toggleTransferNode(path, isDir);
-    } else if (button.dataset.action === "preview-transfer-node") {
-      void previewFileInTransfer(path);
-    } else if (button.dataset.action === "add-transfer-source") {
-      addTransferSource(path, isDir);
-    } else if (button.dataset.action === "remove-transfer-source") {
-      removeTransferSource(button.dataset.sourceKey || selectedTransferSourceKey(path, isDir));
-    } else if (button.dataset.action === "ignore-transfer-node") {
-      addTransferIgnore(path, isDir);
-    }
-  });
-  $("targetTree")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    const row = event.target.closest(".file-tree-row");
-    if (!row) return;
-    const rowPath = row.dataset.path || "";
-    const rowIsDir = row.dataset.dir === "1";
-    if (!button) {
-      if (rowIsDir && event.target.closest(".file-name")) chooseTransferTargetDirectory(rowPath);
-      return;
-    }
-    const path = button.dataset.path || rowPath;
-    const isDir = button.dataset.dir === "1" || rowIsDir;
-    if (button.dataset.action === "toggle-target-node") {
-      void toggleTransferTargetNode(path, isDir);
-    }
-  });
-  $("closeFilePickerBtn")?.addEventListener("click", closeFilePicker);
-  $("filePickerModal")?.addEventListener("click", (event) => {
-    if (event.target.id === "filePickerModal") closeFilePicker();
-  });
-  $("filePickerOpenBtn")?.addEventListener("click", () => {
-    resetFilePickerNavigation();
-    void loadFilePicker($("filePickerPathInput").value);
-  });
-  $("filePickerFavoriteBtn")?.addEventListener("click", () => {
-    if (!state.filePicker.path) return;
-    toggleTransferPathFavorite(state.filePicker.serverId, state.filePicker.path);
-    renderFilePicker(state.filePicker);
-    renderTransferPathFavoriteBars();
-  });
-  $("filePickerPathInput")?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      resetFilePickerNavigation();
-      void loadFilePicker(event.currentTarget.value);
-    }
-  });
-  $("filePickerPathInput")?.addEventListener("input", () => {
-    state.filePicker.requestId = (state.filePicker.requestId || 0) + 1;
-  });
-  $("filePickerUpBtn")?.addEventListener("click", () => {
-    if (!state.filePicker.parent) return;
-    rememberFilePickerForwardPath(state.filePicker.path);
-    const anchor = state.filePicker.navStack.pop();
-    if (anchor) {
-      state.filePicker.scrollAnchorPath = anchor;
-      state.filePicker.selectedPath = anchor;
-    }
-    void loadFilePicker(state.filePicker.parent);
-  });
-  $("filePickerForwardBtn")?.addEventListener("click", () => {
-    const api = window.FilePickerNavigation;
-    const forwardState = api && typeof api.forwardNavigationState === "function"
-      ? api.forwardNavigationState(state.filePicker)
-      : null;
-    const stack = forwardState
-      ? forwardState.forwardStack
-      : Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [];
-    const nextPath = forwardState ? forwardState.nextPath : stack.shift();
-    state.filePicker.forwardStack = stack;
-    if (!nextPath) {
-      updateFilePickerNavigationButtons();
-      return;
-    }
-    if (forwardState) {
-      state.filePicker.navStack = forwardState.navStack;
-      state.filePicker.selectedPath = forwardState.selectedPath;
-    } else {
-      if (state.filePicker.path) state.filePicker.navStack.push(nextPath);
-      state.filePicker.selectedPath = nextPath;
-    }
-    void loadFilePicker(nextPath);
-  });
-  $("filePickerChooseDirBtn")?.addEventListener("click", () => {
-    if (state.filePicker.path) void chooseFilePickerPath(state.filePicker.path, true);
-  });
-  $("filePreviewOpenBtn")?.addEventListener("click", openCurrentFilePreview);
-  $("filePreviewDownloadBtn")?.addEventListener("click", downloadCurrentFilePreview);
-  $("transferSourceTreeClearBtn")?.addEventListener("click", clearTransferSourceTree);
-  $("transferTargetTreeClearBtn")?.addEventListener("click", clearTransferTargetTree);
-  $("transferPreviewClearBtn")?.addEventListener("click", clearTransferPreview);
-  $("transferTreeClearPreviewBtn")?.addEventListener("click", clearTransferPreview);
-  $("transferPreviewOpenBtn")?.addEventListener("click", openCurrentFilePreview);
-  $("transferPreviewDownloadBtn")?.addEventListener("click", downloadCurrentFilePreview);
-  $("filePickerRoots")?.addEventListener("click", (event) => {
-    const removeBtn = event.target.closest("[data-action='remove-favorite-path']");
-    if (removeBtn?.dataset.path) {
-      removeTransferPathFavorite(state.filePicker.serverId, removeBtn.dataset.path);
-      renderFilePicker(state.filePicker);
-      renderTransferPathFavoriteBars();
-      return;
-    }
-    const openFavorite = event.target.closest("[data-action='open-favorite-path']");
-    if (openFavorite?.dataset.path) {
-      resetFilePickerNavigation();
-      void loadFilePicker(openFavorite.dataset.path);
-      return;
-    }
-    const button = event.target.closest(".root-button");
-    if (button?.dataset.path) {
-      resetFilePickerNavigation();
-      void loadFilePicker(button.dataset.path);
-    }
-  });
-  $("filePickerList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    const row = event.target.closest(".file-picker-row");
-    if (!row) return;
-    const path = row.dataset.path || "";
-    const isDir = row.dataset.dir === "1";
-    if (!button) {
-      if (event.target.closest(".file-picker-row-main")) {
-        state.filePicker.selectedPath = path;
-        if (isDir) {
-          state.filePicker.forwardStack = [];
-          state.filePicker.navStack.push(path);
-          void loadFilePicker(path);
-        } else {
-          void previewFileInPicker(path);
-        }
+      void previewFileInPicker(path);
+    },
+    addTransferIgnore,
+    addTransferSource,
+    cancelTransferConflict: () => {
+      hideTransferConflictModal({ message: "已取消本次文件传输。" });
+    },
+    chooseCurrentFilePickerDirectory: () => {
+      if (state.filePicker.path) void chooseFilePickerPath(state.filePicker.path, true);
+    },
+    choosePicker: (path, isDir) => {
+      void chooseFilePickerPath(path, isDir);
+    },
+    chooseTransferTargetDirectory,
+    clearPreview: clearTransferPreview,
+    clearSourceTree: clearTransferSourceTree,
+    clearSources: clearTransferSources,
+    clearTargetTree: clearTransferTargetTree,
+    closeFilePicker,
+    downloadCurrentPreview: downloadCurrentFilePreview,
+    filePickerForward: () => {
+      const api = window.FilePickerNavigation;
+      const forwardState = api && typeof api.forwardNavigationState === "function"
+        ? api.forwardNavigationState(state.filePicker)
+        : null;
+      const stack = forwardState
+        ? forwardState.forwardStack
+        : Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [];
+      const nextPath = forwardState ? forwardState.nextPath : stack.shift();
+      state.filePicker.forwardStack = stack;
+      if (!nextPath) {
+        updateFilePickerNavigationButtons();
+        return;
       }
-      return;
-    }
-    if (button.dataset.action === "preview-picker") {
+      if (forwardState) {
+        state.filePicker.navStack = forwardState.navStack;
+        state.filePicker.selectedPath = forwardState.selectedPath;
+      } else {
+        if (state.filePicker.path) state.filePicker.navStack.push(nextPath);
+        state.filePicker.selectedPath = nextPath;
+      }
+      void loadFilePicker(nextPath);
+    },
+    filePickerPathInputChanged: () => {
+      state.filePicker.requestId = (state.filePicker.requestId || 0) + 1;
+    },
+    filePickerUp: () => {
+      if (!state.filePicker.parent) return;
+      rememberFilePickerForwardPath(state.filePicker.path);
+      const anchor = state.filePicker.navStack.pop();
+      if (anchor) {
+        state.filePicker.scrollAnchorPath = anchor;
+        state.filePicker.selectedPath = anchor;
+      }
+      void loadFilePicker(state.filePicker.parent);
+    },
+    inspectSource: () => loadTransferSourceTree(),
+    inspectTarget: () => loadTransferTargetTree(),
+    navigateSourceForward: navigateTransferSourceForward,
+    navigateSourceParent: navigateTransferSourceParent,
+    navigateTargetForward: navigateTransferTargetForward,
+    navigateTargetParent: navigateTransferTargetParent,
+    openCurrentPreview: openCurrentFilePreview,
+    openFavorite: openTransferPathFavorite,
+    openFilePicker,
+    openFilePickerPath: (path) => {
+      resetFilePickerNavigation();
+      void loadFilePicker(path);
+    },
+    openFilePickerRoot: (path) => {
+      resetFilePickerNavigation();
+      void loadFilePicker(path);
+    },
+    openTransferTreeName: (path, isDir) => {
+      if (isDir) {
+        void toggleTransferNode(path, true);
+        return;
+      }
+      void previewFileInTransfer(path);
+    },
+    previewPicker: (path) => {
       state.filePicker.selectedPath = path;
       void previewFileInPicker(path);
-    } else if (button.dataset.action === "choose-picker") {
-      void chooseFilePickerPath(path, isDir);
-    } else if (button.dataset.action === "remove-picker-source") {
-      removeTransferSource(button.dataset.sourceKey || selectedTransferSourceKey(path, isDir, state.filePicker.serverId));
+    },
+    previewSelectedSource: (sourceKey) => {
+      const item = state.transfer.sources.find((source) => source.key === sourceKey);
+      if (item && !item.isDir) void previewFileInTransfer(item.path);
+    },
+    previewSourceInput: previewTransferSourceInput,
+    previewTransferNode: previewFileInTransfer,
+    removeFavorite: (mode, path) => {
+      const serverId = mode === "target" ? transferTargetServerId() : transferSourceServerId();
+      removeTransferPathFavorite(serverId, path);
+      renderTransferPathFavoriteBars();
+      if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
+    },
+    removeFilePickerFavorite: (path) => {
+      removeTransferPathFavorite(state.filePicker.serverId, path);
+      renderFilePicker(state.filePicker);
+      renderTransferPathFavoriteBars();
+    },
+    removeIgnore: removeTransferIgnore,
+    removePickerSource: (sourceKey, path, isDir) => {
+      removeTransferSource(sourceKey || selectedTransferSourceKey(path, isDir, state.filePicker.serverId));
       const message = $("filePickerMessage");
       if (message) {
         message.textContent = `已取消待传源项：${pathBaseName(path)}`;
         message.classList.remove("error");
       }
       renderFilePicker(state.filePicker);
-    }
+    },
+    removeSelectedSource: removeTransferSource,
+    removeTransferSourceFromTree: (sourceKey, path, isDir) => {
+      removeTransferSource(sourceKey || selectedTransferSourceKey(path, isDir));
+    },
+    resolveTransferConflict: (mode) => {
+      const pending = transferConflictState.pending;
+      if (!pending) return;
+      if (mode === "overwrite_all") {
+        void resolveTransferConflicts("overwrite_all", [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
+      } else if (mode === "skip_all") {
+        void resolveTransferConflicts("skip_all", pending.conflicts || [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
+      } else {
+        void resolveTransferConflicts("prompt_each", pending.conflicts || [], pending.sourceItems, pending.target, pending.excludes, pending.options, pending.form);
+      }
+    },
+    sourceServerChange: handleTransferSourceServerChange,
+    submitTransfer,
+    syncIgnoreState: syncIgnoreStateFromInput,
+    targetServerChange: handleTransferTargetServerChange,
+    toggleFavorite: (mode) => {
+      const isTarget = mode === "target";
+      const path = isTarget ? transferTargetValue() : transferSourceValue();
+      if (!path) return;
+      toggleTransferPathFavorite(isTarget ? transferTargetServerId() : transferSourceServerId(), path);
+      renderTransferPathFavoriteBars();
+      if (!$("filePickerModal").hidden) renderFilePicker(state.filePicker);
+    },
+    toggleFilePickerFavorite: () => {
+      if (!state.filePicker.path) return;
+      toggleTransferPathFavorite(state.filePicker.serverId, state.filePicker.path);
+      renderFilePicker(state.filePicker);
+      renderTransferPathFavoriteBars();
+    },
+    toggleTransferNode,
+    toggleTransferTargetNode,
+    transferInputBlur: (mode) => {
+      if (mode === "target") {
+        syncTransferTargetServerFromInput();
+        rememberTransferPath("target");
+      } else {
+        syncTransferSourceServerFromInput();
+        rememberTransferPath("source");
+      }
+      updateTransferPathFavoriteButtons();
+    },
+    updateFavoriteButtons: updateTransferPathFavoriteButtons,
   });
   $("taskPlanForm")?.addEventListener("submit", scheduleTaskPlan);
   $("taskPlanPreviewBtn")?.addEventListener("click", previewTaskPlan);
