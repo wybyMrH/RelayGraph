@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
+from .files_pkg.remote_runtime_logs import build_remote_runtime_log_status_error_payload
 from .files_pkg.runtime_log_snapshots import build_log_tail_snapshot_payload, build_remote_log_tail_payload
 from .files_pkg.runtime_logs import build_runtime_log_path_payload, merge_runtime_log_path_payloads
 from .files_pkg.runtime_state_requests import parse_runtime_state_cleanup_request
@@ -527,24 +528,20 @@ class FilesMixin:
             cached = statuses_by_id.get(server.id) or {}
             if not cached:
                 results.append(
-                    {
-                        "server_id": server.id,
-                        "server_name": server.name,
-                        "log_dir": "$HOME/.total_control/logs",
-                        "error": "等待监控快照，未读取远程日志",
-                        "skipped": True,
-                    }
+                    build_remote_runtime_log_status_error_payload(
+                        server,
+                        "等待监控快照，未读取远程日志",
+                        skipped=True,
+                    )
                 )
                 continue
             if cached and not cached.get("reachable") and not cached.get("online"):
                 results.append(
-                    {
-                        "server_id": server.id,
-                        "server_name": server.name,
-                        "log_dir": "$HOME/.total_control/logs",
-                        "error": runtime_storage_error_summary(cached.get("error") or "server unreachable"),
-                        "skipped": True,
-                    }
+                    build_remote_runtime_log_status_error_payload(
+                        server,
+                        runtime_storage_error_summary(cached.get("error") or "server unreachable"),
+                        skipped=True,
+                    )
                 )
                 continue
             try:
@@ -563,12 +560,10 @@ class FilesMixin:
                 )
             except Exception as exc:  # noqa: BLE001 - one remote host should not block maintenance UI.
                 results.append(
-                    {
-                        "server_id": server.id,
-                        "server_name": server.name,
-                        "log_dir": "$HOME/.total_control/logs",
-                        "error": runtime_storage_error_summary(exc),
-                    }
+                    build_remote_runtime_log_status_error_payload(
+                        server,
+                        runtime_storage_error_summary(exc),
+                    )
                 )
         return results
 
