@@ -5,9 +5,10 @@ from .registry_pkg.execution_overview import (
     build_execution_overview_payload as _build_execution_overview_payload,
 )
 from .registry_pkg.provider_profiles import (
-    provider_profile_health,
     provider_profile_key_required as _provider_profile_key_required,
     provider_profile_kind as _provider_profile_kind,
+    provider_profile_public_payload,
+    provider_profiles_public_payload,
 )
 from .registry_pkg.provider_route_health import (
     build_provider_route_health as _build_provider_route_health,
@@ -343,20 +344,7 @@ class RegistryMixin:
     def list_provider_profiles(self) -> dict[str, Any]:
         """List all provider profiles (API keys masked)."""
         with self.lock:
-            items = []
-            for profile in self.provider_profiles:
-                public_profile = dict(profile)
-                health = provider_profile_health(profile)
-                # Mask API key for security
-                api_key = str(public_profile.get("api_key") or "")
-                if api_key:
-                    public_profile["api_key_masked"] = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
-                    del public_profile["api_key"]
-                public_profile["has_api_key"] = bool(api_key) or not bool(health.get("key_required", True))
-                public_profile["key_required"] = bool(health.get("key_required", True))
-                public_profile["status"] = str(health.get("status") or "warning")
-                public_profile["missing_fields"] = list(health.get("missing_fields") or [])
-                items.append(public_profile)
+            items = provider_profiles_public_payload(self.provider_profiles)
         return {"provider_profiles": items}
 
 
@@ -468,17 +456,7 @@ class RegistryMixin:
             self.provider_profiles = updated_profiles
         self.save_provider_profiles()
 
-        # Return masked version
-        result = dict(profile)
-        health = provider_profile_health(profile)
-        if result.get("api_key"):
-            result["api_key_masked"] = result["api_key"][:8] + "..." + result["api_key"][-4:] if len(result["api_key"]) > 12 else "***"
-            del result["api_key"]
-        result["has_api_key"] = bool(profile.get("api_key")) or not bool(health.get("key_required", True))
-        result["key_required"] = bool(health.get("key_required", True))
-        result["status"] = str(health.get("status") or "warning")
-        result["missing_fields"] = list(health.get("missing_fields") or [])
-        return result
+        return provider_profile_public_payload(profile)
 
 
     def test_provider_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -660,17 +638,7 @@ class RegistryMixin:
 
         self.save_provider_profiles()
 
-        # Return masked version
-        result = dict(profile)
-        health = provider_profile_health(profile)
-        if result.get("api_key"):
-            result["api_key_masked"] = result["api_key"][:8] + "..." + result["api_key"][-4:] if len(result["api_key"]) > 12 else "***"
-            del result["api_key"]
-        result["has_api_key"] = bool(profile.get("api_key")) or not bool(health.get("key_required", True))
-        result["key_required"] = bool(health.get("key_required", True))
-        result["status"] = str(health.get("status") or "warning")
-        result["missing_fields"] = list(health.get("missing_fields") or [])
-        return result
+        return provider_profile_public_payload(profile)
 
 
     def delete_provider_profile(self, profile_id: str) -> None:

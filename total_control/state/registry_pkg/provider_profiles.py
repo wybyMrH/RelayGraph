@@ -90,3 +90,24 @@ def provider_profile_health(profile: dict[str, Any]) -> dict[str, Any]:
         "model_count": len(models),
         "missing_fields": missing_fields,
     }
+
+
+def provider_profile_public_payload(profile: dict[str, Any]) -> dict[str, Any]:
+    public_profile = dict(profile if isinstance(profile, dict) else {})
+    health = provider_profile_health(public_profile)
+    api_key = str(public_profile.get("api_key") or "")
+    if api_key:
+        public_profile["api_key_masked"] = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+        del public_profile["api_key"]
+    public_profile["has_api_key"] = bool(api_key) or not bool(health.get("key_required", True))
+    public_profile["key_required"] = bool(health.get("key_required", True))
+    public_profile["status"] = str(health.get("status") or "warning")
+    public_profile["missing_fields"] = list(health.get("missing_fields") or [])
+    return public_profile
+
+
+def provider_profiles_public_payload(profiles: list[Any]) -> list[dict[str, Any]]:
+    return [
+        provider_profile_public_payload(profile)
+        for profile in profiles
+    ]
