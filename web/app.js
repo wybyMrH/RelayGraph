@@ -27366,33 +27366,14 @@ function bindEvents() {
     positionServerResourcePopover();
   });
   window.addEventListener("scroll", () => positionServerResourcePopover(), true);
-  document.addEventListener("pointerover", (event) => {
-    const target = event.target?.closest?.("[data-workspace-help]");
-    if (!target) return;
-    if (event.relatedTarget && target.contains(event.relatedTarget)) return;
-    showWorkspaceHelpPopover(target);
+  window.WorkspaceHelpPopoverActions?.bind?.({
+    hideWorkspaceHelp: () => scheduleHideWorkspaceHelpPopover(),
+    positionWorkspaceHelp: (event) => {
+      if (event?.type === "resize") syncLogPaneMetrics();
+      positionWorkspaceHelpPopover();
+    },
+    showWorkspaceHelp: (target) => showWorkspaceHelpPopover(target),
   });
-  document.addEventListener("pointerout", (event) => {
-    const target = event.target?.closest?.("[data-workspace-help]");
-    if (!target) return;
-    if (event.relatedTarget && target.contains(event.relatedTarget)) return;
-    scheduleHideWorkspaceHelpPopover();
-  });
-  document.addEventListener("focusin", (event) => {
-    const target = event.target?.closest?.("[data-workspace-help]");
-    if (target) showWorkspaceHelpPopover(target);
-  });
-  document.addEventListener("focusout", (event) => {
-    const target = event.target?.closest?.("[data-workspace-help]");
-    if (!target) return;
-    if (event.relatedTarget && target.contains(event.relatedTarget)) return;
-    scheduleHideWorkspaceHelpPopover();
-  });
-  window.addEventListener("resize", () => {
-    syncLogPaneMetrics();
-    positionWorkspaceHelpPopover();
-  });
-  window.addEventListener("scroll", () => positionWorkspaceHelpPopover(), true);
   window.addEventListener("beforeunload", closeWorkspaceEventStream);
   window.AppNavigationActions?.bind?.({
     element: $,
