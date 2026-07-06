@@ -11632,8 +11632,10 @@ function serverResourceOverlayNode() {
     node.id = "serverResourceOverlay";
     node.className = "server-resource-overlay";
     node.hidden = true;
-    node.addEventListener("mouseenter", clearServerResourceHideTimer);
-    node.addEventListener("mouseleave", () => scheduleHideServerResourcePopover());
+    window.ServerListActions?.bindServerResourceOverlay?.(node, {
+      clearServerResourceOverlayHide: () => clearServerResourceHideTimer(),
+      hideServerResourceOverlay: () => scheduleHideServerResourcePopover(),
+    });
     document.body.appendChild(node);
   }
   return node;

@@ -94,6 +94,17 @@
     });
   }
 
+  function bindServerResourceOverlay(node, callbacks = {}) {
+    if (!node || typeof node.addEventListener !== "function") return null;
+    node.addEventListener("mouseenter", (event) => {
+      call(callbacks, "clearServerResourceOverlayHide", event);
+    });
+    node.addEventListener("mouseleave", (event) => {
+      call(callbacks, "hideServerResourceOverlay", event);
+    });
+    return node;
+  }
+
   function bind(callbacks = {}) {
     const list = element(callbacks, "serverList");
     element(callbacks, "serverSortSelect")?.addEventListener("change", (event) => {
@@ -134,6 +145,7 @@
   window.ServerListActions = {
     bind,
     bindOfflineServerGroup,
+    bindServerResourceOverlay,
     dragPosition,
     handleServerListDragEnd,
     handleServerListDragOver,
