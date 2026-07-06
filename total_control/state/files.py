@@ -5,6 +5,12 @@ from .files_pkg.remote_runtime_logs import build_remote_runtime_log_status_error
 from .files_pkg.runtime_log_snapshots import build_log_tail_snapshot_payload, build_remote_log_tail_payload
 from .files_pkg.runtime_logs import build_runtime_log_path_payload, merge_runtime_log_path_payloads
 from .files_pkg.runtime_state_requests import parse_runtime_state_cleanup_request
+from .files_pkg.runtime_storage_cleanup import (
+    build_runtime_storage_cleanup_limits,
+    runtime_storage_auto_cleanup_interval_seconds,
+    runtime_storage_cleanup_limits_enabled,
+    runtime_storage_log_cleanup_enabled,
+)
 from .files_pkg.runtime_storage_requests import parse_runtime_storage_cleanup_request
 from .files_pkg.runtime_state import build_runtime_state_status_payload
 
@@ -578,7 +584,9 @@ class FilesMixin:
         remove_local_paths = parsed_request["remove_local_paths"]
         remove_remote_paths_by_server = parsed_request["remove_remote_paths_by_server"]
         settings = normalize_runtime_storage_settings({**load_runtime_storage_settings(), **data})
-        log_file_mib = int(settings.get("log_max_file_mib") or 0)
+        limits = build_runtime_storage_cleanup_limits(settings, remove_all=remove_all)
+        preview_limits = limits["preview"]
+        log_limits = limits["logs"]
         protected = self.protected_runtime_log_paths()
         result: dict[str, Any] = {
             "preview_cache": None,
@@ -588,17 +596,17 @@ class FilesMixin:
         }
         if include_preview:
             result["preview_cache"] = cleanup_preview_cache(
-                max_age_hours=0 if remove_all else int(settings.get("preview_max_age_hours") or 0),
-                max_size_mib=0 if remove_all else int(settings.get("preview_max_size_mib") or 0),
+                max_age_hours=preview_limits["max_age_hours"],
+                max_size_mib=preview_limits["max_size_mib"],
                 remove_all=remove_all,
             )
             self.prune_preview_cache_index()
         if include_logs:
             result["log_tail_snapshots"] = self.snapshot_retained_run_job_log_tails()
             result["local_logs"] = cleanup_runtime_logs(
-                max_age_hours=0 if remove_all else int(settings.get("log_max_age_hours") or 0),
-                max_file_mib=0 if remove_all else log_file_mib,
-                max_size_mib=0 if remove_all else int(settings.get("log_max_size_mib") or 0),
+                max_age_hours=log_limits["max_age_hours"],
+                max_file_mib=log_limits["max_file_mib"],
+                max_size_mib=log_limits["max_size_mib"],
                 remove_all=remove_all,
                 preserve_paths=protected.get("local") if isinstance(protected, dict) else [],
                 remove_paths=remove_local_paths,
@@ -606,9 +614,9 @@ class FilesMixin:
             if include_remote:
                 result["remote_logs"] = self.remote_runtime_log_statuses(
                     cleanup=True,
-                    max_age_hours=0 if remove_all else int(settings.get("log_max_age_hours") or 0),
-                    max_file_mib=0 if remove_all else log_file_mib,
-                    max_size_mib=0 if remove_all else int(settings.get("log_max_size_mib") or 0),
+                    max_age_hours=log_limits["max_age_hours"],
+                    max_file_mib=log_limits["max_file_mib"],
+                    max_size_mib=log_limits["max_size_mib"],
                     remove_all=remove_all,
                     preserve_paths_by_server=(
                         protected.get("remote_by_server") if isinstance(protected, dict) else {}
@@ -621,15 +629,13 @@ class FilesMixin:
 
     def maybe_auto_cleanup_runtime_storage(self, *, force: bool = False) -> dict[str, Any] | None:
         settings = load_runtime_storage_settings()
-        preview_age = int(settings.get("preview_max_age_hours") or 0)
-        preview_size = int(settings.get("preview_max_size_mib") or 0)
-        log_age = int(settings.get("log_max_age_hours") or 0)
-        log_file_size = int(settings.get("log_max_file_mib") or 0)
-        log_size = int(settings.get("log_max_size_mib") or 0)
-        if preview_age <= 0 and preview_size <= 0 and log_age <= 0 and log_file_size <= 0 and log_size <= 0:
+        limits = build_runtime_storage_cleanup_limits(settings)
+        preview_limits = limits["preview"]
+        log_limits = limits["logs"]
+        if not runtime_storage_cleanup_limits_enabled(limits):
             return None
         now = time.time()
-        interval = max(300, int(settings.get("auto_cleanup_interval_minutes") or 60) * 60)
+        interval = runtime_storage_auto_cleanup_interval_seconds(settings)
         if not force and now - float(getattr(self, "last_runtime_storage_cleanup", 0.0) or 0.0) < interval:
             return None
         self.last_runtime_storage_cleanup = now
@@ -637,25 +643,25 @@ class FilesMixin:
         log_tail_snapshots = self.snapshot_retained_run_job_log_tails()
         result: dict[str, Any] = {
             "preview_cache": cleanup_preview_cache(
-                max_age_hours=preview_age,
-                max_size_mib=preview_size,
+                max_age_hours=preview_limits["max_age_hours"],
+                max_size_mib=preview_limits["max_size_mib"],
             ),
             "local_logs": cleanup_runtime_logs(
-                max_age_hours=log_age,
-                max_file_mib=log_file_size,
-                max_size_mib=log_size,
+                max_age_hours=log_limits["max_age_hours"],
+                max_file_mib=log_limits["max_file_mib"],
+                max_size_mib=log_limits["max_size_mib"],
                 preserve_paths=protected.get("local") if isinstance(protected, dict) else [],
             ),
             "remote_logs": [],
             "log_tail_snapshots": log_tail_snapshots,
         }
         self.prune_preview_cache_index()
-        if settings.get("remote_log_cleanup_enabled") and (log_age > 0 or log_file_size > 0 or log_size > 0):
+        if settings.get("remote_log_cleanup_enabled") and runtime_storage_log_cleanup_enabled(limits):
             result["remote_logs"] = self.remote_runtime_log_statuses(
                 cleanup=True,
-                max_age_hours=log_age,
-                max_file_mib=log_file_size,
-                max_size_mib=log_size,
+                max_age_hours=log_limits["max_age_hours"],
+                max_file_mib=log_limits["max_file_mib"],
+                max_size_mib=log_limits["max_size_mib"],
                 preserve_paths_by_server=(
                     protected.get("remote_by_server") if isinstance(protected, dict) else {}
                 ),
