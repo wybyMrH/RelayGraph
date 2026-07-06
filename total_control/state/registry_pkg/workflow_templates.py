@@ -17,6 +17,46 @@ from ...workspace.schema import (
 )
 
 
+def rewrite_workflow_template_agent_reference(
+    template: dict[str, Any],
+    *,
+    previous_id: str,
+    next_id: str = "",
+    next_name: str = "",
+) -> None:
+    previous_id = str(previous_id or "").strip()
+    next_id = str(next_id or "").strip()
+    next_name = str(next_name or "").strip()
+    if not previous_id or not isinstance(template, dict):
+        return
+
+    if next_id:
+        agent_ids = [
+            str(item or "").strip()
+            for item in template.get("agent_ids", [])
+            if str(item or "").strip()
+        ]
+        if previous_id in agent_ids:
+            template["agent_ids"] = [next_id if item == previous_id else item for item in agent_ids]
+
+    nodes = template.get("nodes") if isinstance(template.get("nodes"), list) else []
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
+        if str(handler.get("agent_id") or "").strip() != previous_id:
+            continue
+        handler["agent_id"] = next_id
+        if next_id:
+            handler["name"] = next_name
+        node["handler"] = handler
+
+    model = template.get("model") if isinstance(template.get("model"), dict) else {}
+    if str(model.get("chat_agent_id") or "").strip() == previous_id:
+        model["chat_agent_id"] = next_id
+        template["model"] = model
+
+
 def build_workflow_template_validation_payload(
     template: dict[str, Any],
     raw_payload: dict[str, Any],

@@ -19,6 +19,7 @@ from .registry_pkg.tool_testing import (
 from .registry_pkg.workflow_templates import (
     build_workflow_template_preview_payload as _build_workflow_template_preview_payload,
     build_workflow_template_validation_payload as _build_workflow_template_validation_payload,
+    rewrite_workflow_template_agent_reference,
 )
 
 
@@ -227,23 +228,12 @@ class RegistryMixin:
                 self.agent_definitions[index] = updated
             if updated["id"] != previous_id:
                 for template in self.workflow_templates:
-                    agent_ids = [str(item or "").strip() for item in template.get("agent_ids", []) if str(item or "").strip()]
-                    if previous_id in agent_ids:
-                        template["agent_ids"] = [updated["id"] if item == previous_id else item for item in agent_ids]
-                    nodes = template.get("nodes") if isinstance(template.get("nodes"), list) else []
-                    for node in nodes:
-                        if not isinstance(node, dict):
-                            continue
-                        handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
-                        if str(handler.get("agent_id") or "").strip() != previous_id:
-                            continue
-                        handler["agent_id"] = updated["id"]
-                        handler["name"] = updated["name"]
-                        node["handler"] = handler
-                    model = template.get("model") if isinstance(template.get("model"), dict) else {}
-                    if str(model.get("chat_agent_id") or "").strip() == previous_id:
-                        model["chat_agent_id"] = updated["id"]
-                        template["model"] = model
+                    rewrite_workflow_template_agent_reference(
+                        template,
+                        previous_id=previous_id,
+                        next_id=updated["id"],
+                        next_name=updated["name"],
+                    )
         self.save_agent_definitions()
         self.save_workflow_templates()
         return updated
@@ -257,19 +247,7 @@ class RegistryMixin:
                 raise ValueError("agent definition not found")
             del self.agent_definitions[index]
             for template in self.workflow_templates:
-                nodes = template.get("nodes") if isinstance(template.get("nodes"), list) else []
-                for node in nodes:
-                    if not isinstance(node, dict):
-                        continue
-                    handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
-                    if str(handler.get("agent_id") or "").strip() != agent_id:
-                        continue
-                    handler["agent_id"] = ""
-                    node["handler"] = handler
-                model = template.get("model") if isinstance(template.get("model"), dict) else {}
-                if str(model.get("chat_agent_id") or "").strip() == agent_id:
-                    model["chat_agent_id"] = ""
-                    template["model"] = model
+                rewrite_workflow_template_agent_reference(template, previous_id=agent_id)
         self.save_agent_definitions()
         self.save_workflow_templates()
 
