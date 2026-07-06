@@ -27558,114 +27558,25 @@ function bindEvents() {
   $("workflowTemplateMoveDownBtn")?.addEventListener("click", () => moveWorkflowTemplateNode("down"));
   $("workflowTemplateDeleteNodeBtn")?.addEventListener("click", removeWorkflowTemplateNode);
   $("workflowTemplateRebuildBtn")?.addEventListener("click", rebuildWorkflowTemplateNodes);
-  $("workflowTemplateCanvas")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (!button) return;
-    const nodeId = String(button.dataset.nodeId || "").trim();
-    if (nodeId) state.selectedTemplateNodeId = nodeId;
-    if (button.dataset.action === "select-template-node" || button.dataset.action === "select-template-edge") {
-      const revealEditor = button.dataset.action === "select-template-node" && Boolean(button.closest(".workflow-template-phase-map"));
-      renderWorkspaceWorkbench();
-      if (nodeId) revealWorkflowTemplateSelection(nodeId, { editor: revealEditor });
-      return;
-    }
-    if (button.dataset.action === "move-template-node") {
-      moveWorkflowTemplateNode(button.dataset.direction || "down");
-      return;
-    }
-    if (button.dataset.action === "insert-template-node-after") {
-      insertWorkflowTemplateNode($("workflowTemplateNodeKindSelect")?.value || "custom.step");
-      return;
-    }
-    if (button.dataset.action === "fill-template-all-missing-mapping") {
-      fillAllWorkflowTemplateMissingInputMappings();
-      return;
-    }
-    if (button.dataset.action === "template-search-prev") {
-      selectWorkflowTemplateSearchMatch(-1);
-      return;
-    }
-    if (button.dataset.action === "template-search-next") {
-      selectWorkflowTemplateSearchMatch(1);
-      return;
-    }
-    if (button.dataset.action === "template-search-clear") {
-      setWorkflowTemplateNodeSearch("");
-      return;
-    }
-    if (button.dataset.action === "delete-template-node") {
-      removeWorkflowTemplateNode();
-      return;
-    }
-    if (button.dataset.action === "map-template-edge-previous") {
-      setSelectedWorkflowTemplateInputMapping(
-        workspaceInputMappingFromEntries(workflowTemplateDefaultEdgeEntries("previous")),
-        { render: "canvas" },
-      );
-      return;
-    }
-    if (button.dataset.action === "map-template-edge-context") {
-      setSelectedWorkflowTemplateInputMapping(
-        workspaceInputMappingFromEntries(workflowTemplateDefaultEdgeEntries("context")),
-        { render: "canvas" },
-      );
-      return;
-    }
-    if (button.dataset.action === "fill-template-edge-mapping") {
-      fillSelectedWorkflowTemplateMissingInputMapping({ render: "canvas" });
-      return;
-    }
-    if (button.dataset.action === "add-template-edge-mapping") {
-      const editor = button.closest(".workflow-template-edge-inspector");
-      const entries = workflowTemplateEdgeMappingEntriesFromEditor(editor);
-      const defaults = workflowTemplateDefaultEdgeEntries("previous");
-      entries.push(defaults.find((item) => !entries.some((entry) => entry.name === item.name)) || { name: `input_${entries.length + 1}`, source: defaults[0]?.source || "$prev.output" });
-      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: "canvas" });
-      return;
-    }
-    if (button.dataset.action === "remove-template-edge-mapping") {
-      const editor = button.closest(".workflow-template-edge-inspector");
-      const removeIndex = Number(button.dataset.index || -1);
-      const entries = workflowTemplateEdgeMappingEntriesFromEditor(editor).filter((_, index) => index !== removeIndex);
-      setSelectedWorkflowTemplateInputMapping(workspaceInputMappingFromEntries(entries), { render: "canvas" });
-      return;
-    }
-    if (button.dataset.action === "clear-template-edge-mapping") {
-      setSelectedWorkflowTemplateInputMapping({}, { render: "canvas" });
-    }
-  });
-  $("workflowTemplateCanvas")?.addEventListener("input", (event) => {
-    const target = event.target;
-    if (target.matches("[data-template-node-search]")) {
-      setWorkflowTemplateNodeSearch(target.value || "");
-      return;
-    }
-    if (!target.matches("[data-edge-input-mapping-name], [data-edge-input-mapping-source]")) return;
-    const editor = target.closest(".workflow-template-edge-inspector");
-    setSelectedWorkflowTemplateInputMapping(
-      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
-      { render: false, renderParts: true },
-    );
-    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
-  });
-  $("workflowTemplateCanvas")?.addEventListener("keydown", (event) => {
-    const target = event.target;
-    if (!target.matches("[data-template-node-search]") || event.key !== "Enter") return;
-    event.preventDefault();
-    selectWorkflowTemplateSearchMatch(event.shiftKey ? -1 : 1);
-  });
-  $("workflowTemplateCanvas")?.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!target.matches("[data-edge-input-mapping-source-select]")) return;
-    const row = target.closest(".workflow-template-mapping-row");
-    const sourceInput = row?.querySelector("[data-edge-input-mapping-source]");
-    if (sourceInput) sourceInput.value = target.value || "";
-    const editor = target.closest(".workflow-template-edge-inspector");
-    setSelectedWorkflowTemplateInputMapping(
-      workspaceInputMappingFromEntries(workflowTemplateEdgeMappingEntriesFromEditor(editor)),
-      { render: false, renderParts: true },
-    );
-    refreshWorkflowTemplateMappingEditorHealth(editor, { edge: true });
+  window.WorkflowTemplateCanvasActions?.bind($("workflowTemplateCanvas"), {
+    setSelectedNodeId: (nodeId) => {
+      state.selectedTemplateNodeId = nodeId;
+    },
+    renderWorkbench: renderWorkspaceWorkbench,
+    revealSelection: revealWorkflowTemplateSelection,
+    moveNode: moveWorkflowTemplateNode,
+    insertNode: insertWorkflowTemplateNode,
+    removeNode: removeWorkflowTemplateNode,
+    fillAllMissingMappings: fillAllWorkflowTemplateMissingInputMappings,
+    selectSearchMatch: selectWorkflowTemplateSearchMatch,
+    setNodeSearch: setWorkflowTemplateNodeSearch,
+    selectedNodeKind: () => $("workflowTemplateNodeKindSelect")?.value || "custom.step",
+    defaultEdgeEntries: workflowTemplateDefaultEdgeEntries,
+    edgeEntriesFromEditor: workflowTemplateEdgeMappingEntriesFromEditor,
+    fillSelectedMissingMapping: fillSelectedWorkflowTemplateMissingInputMapping,
+    mappingFromEntries: workspaceInputMappingFromEntries,
+    refreshMappingEditorHealth: refreshWorkflowTemplateMappingEditorHealth,
+    setSelectedInputMapping: setSelectedWorkflowTemplateInputMapping,
   });
   $("workflowTemplateNodeList")?.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action='select-template-node']");

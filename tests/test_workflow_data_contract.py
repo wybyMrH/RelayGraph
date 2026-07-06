@@ -27,6 +27,37 @@ def test_context_output_missing_returns_none():
     assert resolved["repo_profile"] is None
 
 
+def test_node_config_refs_resolve_full_config_and_nested_values():
+    node_config = {
+        "workspace_dir": "/tmp/relaygraph",
+        "runtime": {"command": "python train.py", "gpu": {"index": "0"}},
+    }
+    resolved = resolve_mapped_inputs(
+        {
+            "config": "$node.config",
+            "workspace_dir": "$node.config.workspace_dir",
+            "command": "$node.config.runtime.command",
+            "gpu_index": "$node.config.runtime.gpu.index",
+        },
+        input_data={},
+        node_config=node_config,
+    )
+    assert resolved["config"] == node_config
+    assert resolved["config"] is not node_config
+    assert resolved["workspace_dir"] == "/tmp/relaygraph"
+    assert resolved["command"] == "python train.py"
+    assert resolved["gpu_index"] == "0"
+
+
+def test_missing_node_config_field_resolves_to_none_for_runtime_gate():
+    resolved = resolve_mapped_inputs(
+        {"run_command": "$node.config.run_command"},
+        input_data={},
+        node_config={"workspace_dir": "/tmp/relaygraph"},
+    )
+    assert resolved["run_command"] is None
+
+
 def test_prev_output_resolves_and_blocks_on_first_node():
     # first node (index 0) referencing $prev.output → blocked
     resolved = resolve_mapped_inputs(

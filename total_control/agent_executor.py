@@ -36,6 +36,15 @@ def _tool_side_effect(tool_id: str) -> str:
     return side.value if isinstance(side, ToolSideEffect) else str(side or "")
 
 
+def _metadata_value(payload: dict[str, Any], *path: str) -> str:
+    current: Any = payload
+    for key in path:
+        if not isinstance(current, dict):
+            return ""
+        current = current.get(key)
+    return str(current or "").strip()
+
+
 def _tool_runtime_metadata(observation: str) -> dict[str, str]:
     try:
         payload = json.loads(str(observation or "").strip() or "{}")
@@ -44,14 +53,14 @@ def _tool_runtime_metadata(observation: str) -> dict[str, str]:
     if not isinstance(payload, dict):
         return {}
     result: dict[str, str] = {}
-    for source_key, target_key in (
-        ("job_id", "job_id"),
-        ("run_id", "run_id"),
-        ("runtime_control", "runtime_control"),
-        ("runtime_side_effect", "runtime_side_effect"),
-        ("status", "runtime_status"),
+    for source_key, target_key, fallback_path in (
+        ("job_id", "job_id", ("job", "id")),
+        ("run_id", "run_id", ("run", "id")),
+        ("runtime_control", "runtime_control", ("runtime", "control")),
+        ("runtime_side_effect", "runtime_side_effect", ("runtime", "side_effect")),
+        ("status", "runtime_status", ("runtime", "status")),
     ):
-        value = str(payload.get(source_key) or "").strip()
+        value = _metadata_value(payload, source_key) or _metadata_value(payload, *fallback_path)
         if value:
             result[target_key] = value
     return result

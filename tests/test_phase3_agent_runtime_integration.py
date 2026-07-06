@@ -202,6 +202,74 @@ def test_agent_node_input_mapping_blocker_stops_before_llm(monkeypatch, tmp_path
         state.thread.join(timeout=1)
 
 
+def test_agent_node_missing_node_config_mapping_blocks_before_llm(monkeypatch, tmp_path):
+    state = _isolated_state(monkeypatch, tmp_path)
+    calls = {"chat": 0}
+
+    def fake_chat_stream(self, messages, model=None, on_delta=None, **kwargs):
+        calls["chat"] += 1
+        return LLMResponse(content="should not run", model="fake-model", provider=self.provider)
+
+    monkeypatch.setattr("total_control.llm_client.LLMClient.chat_stream", fake_chat_stream)
+    monkeypatch.setattr("total_control.llm_client.LLMClient.chat", fake_chat_stream)
+
+    workspace = normalize_workspace_payload(
+        {
+            "name": "Blocked Node Config Mapping",
+            "brief": "Do not call the LLM when required node config is missing.",
+            "workspace_dir": str(tmp_path),
+            "inputs": {"goal_text": "prepare a run command"},
+            "agents": [
+                {
+                    "id": "agent-run",
+                    "name": "Run Agent",
+                    "role": "engineer",
+                    "prompt": "Prepare execution.",
+                    "tools": ["workflow.edit"],
+                }
+            ],
+            "nodes": [
+                {
+                    "id": "run-agent",
+                    "kind": "env.infer",
+                    "title": "Prepare Run",
+                    "config": {"workspace_dir": str(tmp_path)},
+                    "handler": {
+                        "mode": "agent",
+                        "agent_id": "agent-run",
+                        "output_key": "env_requirements",
+                        "output_format": "json",
+                    },
+                    "input_mapping": {
+                        "workspace_dir": "$node.config.workspace_dir",
+                        "run_command": "$node.config.run_command",
+                    },
+                }
+            ],
+        }
+    )
+    state.workspaces = [workspace]
+    state.save_workspaces()
+    try:
+        node = state.workspace_by_id(workspace["id"])["nodes"][0]
+        result = state.execute_workspace_agent_node(workspace["id"], node)
+
+        assert result.status == "blocked"
+        assert result.reason == "input_mapping_blocked"
+        assert result.validation["code"] == "input_mapping_blocked"
+        assert "run_command" in result.detail
+        refs = {item["name"]: item for item in result.validation["input_refs"]}
+        assert refs["workspace_dir"]["status"] == "ready"
+        assert refs["run_command"]["status"] == "blocked"
+        assert refs["run_command"]["code"] == "unresolved_runtime_input"
+        assert "节点配置" in refs["run_command"]["detail"]
+        assert calls["chat"] == 0
+        assert state.jobs == []
+    finally:
+        state.stop_event.set()
+        state.thread.join(timeout=1)
+
+
 def test_execute_workspace_agent_node_submits_controlled_runtime_job(monkeypatch, tmp_path):
     calls = {"count": 0}
 
