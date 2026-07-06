@@ -17049,9 +17049,12 @@ function moveServerInManualOrder(draggingId, targetId, position = "after") {
 
 function renderServers() {
   const list = $("serverList");
+  const api = window.ServerListMarkup;
   hideServerResourcePopover();
   if (!state.servers.length) {
-    list.innerHTML = '<div class="empty">暂无服务器配置。</div>';
+    list.innerHTML = api && typeof api.serverListEmptyMarkup === "function"
+      ? api.serverListEmptyMarkup()
+      : '<div class="empty">暂无服务器配置。</div>';
     return;
   }
   list.classList.toggle("manual", (state.ui.serverSort || "default") === "manual");
@@ -17086,12 +17089,39 @@ function renderServers() {
     const processSeries = history.map((item) => item.processes);
     const busyMax = Math.max(1, ...busySeries, gpuCount);
     const processMax = Math.max(1, ...processSeries, processCount);
-    const rankText = serverPinned(server.id) ? "置顶" : `#${index + 1}`;
+    const pinned = serverPinned(server.id);
+    const rankText = pinned ? "置顶" : `#${index + 1}`;
     const connectivityText = server.mode === "local" ? "本机可用" : "SSH 已连接";
     const refreshing = Boolean(state.ui.serverRefreshBusy[server.id]);
     const hostSummary = serverHostResourceSummary(server);
     const hostBadgeClass = hostSummary.state === "warning" ? " warning" : hostSummary.state === "muted" ? " subtle" : " host";
     const hostBadge = `<span class="server-badge${hostBadgeClass}" title="${escapeHtml(hostSummary.title)}">${escapeHtml(hostSummary.badge)}</span>`;
+    if (api && typeof api.serverCardMarkup === "function") {
+      return api.serverCardMarkup(server, {
+        activeClass: active,
+        busyGpuCount,
+        busyMax,
+        busySeries,
+        compact,
+        connectivityText,
+        dotState,
+        errorText,
+        gpuCount,
+        hostBadge: hostSummary.badge,
+        hostBadgeClass,
+        hostBadgeTitle: hostSummary.title,
+        idleCount,
+        manual,
+        monitorBlocked,
+        pinned,
+        processCount,
+        processMax,
+        processSeries,
+        rankText,
+        refreshing,
+        target,
+      }, { escapeHtml });
+    }
     const health = compact
       ? `
           <div class="server-health">
@@ -17152,9 +17182,9 @@ function renderServers() {
               ${refreshing ? "disabled" : ""}
             >${refreshing ? "…" : "↻"}</button>
             <button
-              class="server-pin${serverPinned(server.id) ? " active" : ""}"
+              class="server-pin${pinned ? " active" : ""}"
               type="button"
-              title="${serverPinned(server.id) ? "取消置顶" : "置顶"}"
+              title="${pinned ? "取消置顶" : "置顶"}"
               data-action="pin-server"
               data-id="${escapeHtml(server.id)}"
             >★</button>
@@ -17171,20 +17201,26 @@ function renderServers() {
   };
   const onlineHtml = onlineItems.length
     ? onlineItems.map((server, index) => renderCard(server, index)).join("")
-    : '<div class="empty">暂无已连接服务器。</div>';
+    : api && typeof api.serverOnlineEmptyMarkup === "function"
+      ? api.serverOnlineEmptyMarkup()
+      : '<div class="empty">暂无已连接服务器。</div>';
+  const offlineCardsHtml = offlineItems.map((server, index) => renderCard(server, onlineItems.length + index, true)).join("");
+  const offlineOpen = state.ui.offlineServersOpen || selectedOffline;
   const offlineHtml = offlineItems.length
-    ? `
+    ? api && typeof api.offlineServerGroupMarkup === "function"
+      ? api.offlineServerGroupMarkup(offlineCardsHtml, offlineItems.length, offlineOpen, { escapeHtml })
+      : `
         <details
           id="offlineServerGroup"
           class="offline-group"
-          ${state.ui.offlineServersOpen || selectedOffline ? "open" : ""}
+          ${offlineOpen ? "open" : ""}
         >
           <summary>
             <span>连接失败</span>
             <strong>${offlineItems.length}</strong>
           </summary>
           <div class="offline-list">
-            ${offlineItems.map((server, index) => renderCard(server, onlineItems.length + index, true)).join("")}
+            ${offlineCardsHtml}
           </div>
         </details>
       `
