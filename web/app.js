@@ -27292,26 +27292,22 @@ function handleWorkspaceAutomationAction(button) {
 function bindEvents() {
   document.addEventListener("wheel", handleMainWheelFallback, { passive: false });
   $("logPane")?.addEventListener("wheel", handleLogPaneWheel, { passive: false });
-  $("serverSortSelect")?.addEventListener("change", (event) => {
-    state.ui.serverSort = event.target.value || "default";
-    saveStoredValue(STORAGE_KEYS.serverSort, state.ui.serverSort);
-    renderServers();
-  });
-  $("serverList")?.addEventListener("click", (event) => {
-    const refreshButton = event.target.closest("[data-action='refresh-server']");
-    if (refreshButton?.dataset.id) {
-      event.stopPropagation();
-      void refreshServerStatus(refreshButton.dataset.id);
-      return;
-    }
-    const pinButton = event.target.closest("[data-action='pin-server']");
-    if (pinButton?.dataset.id) {
-      event.stopPropagation();
-      toggleServerPin(pinButton.dataset.id);
-      return;
-    }
-    const item = event.target.closest(".server-item[data-id]");
-    if (item?.dataset.id) selectServer(item.dataset.id);
+  window.ServerListActions?.bind?.({
+    element: $,
+    pinServer: (serverId, event) => {
+      event?.stopPropagation?.();
+      toggleServerPin(serverId);
+    },
+    refreshServer: (serverId, event) => {
+      event?.stopPropagation?.();
+      void refreshServerStatus(serverId);
+    },
+    selectServer,
+    setServerSort: (value) => {
+      state.ui.serverSort = value || "default";
+      saveStoredValue(STORAGE_KEYS.serverSort, state.ui.serverSort);
+      renderServers();
+    },
   });
   $("serverList")?.addEventListener("pointerover", (event) => {
     const item = event.target.closest(".server-item[data-id]");
