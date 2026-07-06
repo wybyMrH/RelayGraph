@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 from .registry_pkg.execution_overview import (
-    execution_overview_public_record as _execution_overview_public_record,
-    execution_overview_record_matches as _execution_overview_record_matches,
+    build_execution_overview_payload as _build_execution_overview_payload,
 )
 from .registry_pkg.provider_profiles import (
     provider_profile_health,
@@ -92,187 +91,11 @@ class RegistryMixin:
 
     def execution_overview(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         requested = payload if isinstance(payload, dict) else {}
-        limit = max(1, min(safe_int(requested.get("limit"), 50), 200))
-        query_text = str(requested.get("query") or requested.get("q") or "").strip().lower()
-        status_filter = str(requested.get("status") or "").strip().lower()
-        if status_filter not in {"", "active", "done", "failed"}:
-            status_filter = ""
-        kind_filter = str(requested.get("kind") or "all").strip().lower()
-        if kind_filter not in {"all", "runs", "jobs"}:
-            kind_filter = "all"
-        node_kind_filter = str(requested.get("node_kind") or "").strip()
-        job_id_filter = str(requested.get("job_id") or "").strip()
-        agent_execution_id_filter = str(requested.get("agent_execution_id") or "").strip()
-        created_after_filter = str(requested.get("created_after") or requested.get("created_after_iso") or "").strip()
-        created_before_filter = str(requested.get("created_before") or requested.get("created_before_iso") or "").strip()
-        created_after_ts = parse_iso_timestamp(created_after_filter)
-        created_before_ts = parse_iso_timestamp(created_before_filter)
         self.sync_workspace_execution_runs_from_jobs()
         with self.lock:
             workspaces = copy.deepcopy(getattr(self, "workspaces", []))
             jobs = copy.deepcopy(getattr(self, "jobs", []))
-        workspace_names = {
-            str(workspace.get("id") or "").strip(): str(workspace.get("name") or workspace.get("brief") or workspace.get("id") or "").strip()
-            for workspace in workspaces
-            if isinstance(workspace, dict) and str(workspace.get("id") or "").strip()
-        }
-        jobs_by_id = {
-            str(job.get("id") or "").strip(): job
-            for job in jobs
-            if isinstance(job, dict) and str(job.get("id") or "").strip()
-        }
-        runs: list[dict[str, Any]] = []
-        for workspace in workspaces:
-            if not isinstance(workspace, dict):
-                continue
-            workspace_id = str(workspace.get("id") or "").strip()
-            workspace_name = workspace_names.get(workspace_id, workspace_id)
-            for run in workspace_execution_runs_public(workspace.get("runs"), jobs):
-                if not isinstance(run, dict):
-                    continue
-                steps = run.get("steps") if isinstance(run.get("steps"), list) else []
-                job_ids = [
-                    str(step.get("job_id") or "").strip()
-                    for step in steps
-                    if isinstance(step, dict) and str(step.get("job_id") or "").strip()
-                ]
-                child_job_ids = [
-                    str(child_id or "").strip()
-                    for step in steps
-                    if isinstance(step, dict) and isinstance(step.get("child_job_ids"), list)
-                    for child_id in step.get("child_job_ids")
-                    if str(child_id or "").strip()
-                ]
-                linked_job_ids = [*job_ids, *child_job_ids]
-                agent_execution_ids = [
-                    str(step.get("agent_execution_id") or "").strip()
-                    for step in steps
-                    if isinstance(step, dict) and str(step.get("agent_execution_id") or "").strip()
-                ]
-                node_ids = [
-                    str(step.get("node_id") or "").strip()
-                    for step in steps
-                    if isinstance(step, dict) and str(step.get("node_id") or "").strip()
-                ]
-                node_kinds = [
-                    str(step.get("node_kind") or "").strip()
-                    for step in steps
-                    if isinstance(step, dict) and str(step.get("node_kind") or "").strip()
-                ]
-                server_ids = sorted(
-                    {
-                        str((jobs_by_id.get(job_id) or {}).get("server_id") or "").strip()
-                        for job_id in linked_job_ids
-                        if str((jobs_by_id.get(job_id) or {}).get("server_id") or "").strip()
-                    }
-                )
-                runs.append(
-                    {
-                        "id": str(run.get("id") or "").strip(),
-                        "workspace_id": workspace_id,
-                        "workspace_name": workspace_name,
-                        "kind": str(run.get("kind") or "").strip(),
-                        "status": str(run.get("status") or "").strip(),
-                        "summary": str(run.get("summary") or "").strip(),
-                        "progress": copy.deepcopy(run.get("progress") if isinstance(run.get("progress"), dict) else {}),
-                        "step_count": len(steps),
-                        "job_ids": linked_job_ids[:8],
-                        "agent_execution_ids": agent_execution_ids[:8],
-                        "node_ids": node_ids[:12],
-                        "node_kinds": node_kinds[:12],
-                        "server_ids": server_ids[:8],
-                        "_filter_job_ids": linked_job_ids,
-                        "_filter_agent_execution_ids": agent_execution_ids,
-                        "_filter_node_ids": node_ids,
-                        "_filter_node_kinds": node_kinds,
-                        "created_at": str(run.get("created_at") or "").strip(),
-                        "updated_at": str(run.get("updated_at") or "").strip(),
-                    }
-                )
-        runs.sort(key=lambda item: (str(item.get("updated_at") or ""), str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
-
-        job_items: list[dict[str, Any]] = []
-        for job in jobs:
-            if not isinstance(job, dict):
-                continue
-            metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
-            workspace_id = str(metadata.get("workspace_id") or job.get("workspace_id") or "").strip()
-            job_items.append(
-                {
-                    "id": str(job.get("id") or "").strip(),
-                    "workspace_id": workspace_id,
-                    "workspace_name": workspace_names.get(workspace_id, workspace_id or "未绑定 workspace"),
-                    "status": str(job.get("status") or "").strip(),
-                    "kind": str(metadata.get("node_kind") or job.get("kind") or "").strip(),
-                    "server_id": str(job.get("server_id") or metadata.get("server_id") or "").strip(),
-                    "summary": str(job.get("summary") or metadata.get("node_title") or "").strip(),
-                    "execution_run_id": str(metadata.get("execution_run_id") or "").strip(),
-                    "agent_execution_id": str(metadata.get("agent_execution_id") or "").strip(),
-                    "created_at": str(job.get("created_at") or "").strip(),
-                    "updated_at": str(job.get("updated_at") or job.get("finished_at") or job.get("created_at") or "").strip(),
-                }
-            )
-        job_items.sort(key=lambda item: (str(item.get("updated_at") or ""), str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
-        matched_runs = [
-            run for run in runs
-            if kind_filter != "jobs"
-            and _execution_overview_record_matches(
-                run,
-                "run",
-                query=query_text,
-                status=status_filter,
-                node_kind=node_kind_filter,
-                job_id=job_id_filter,
-                agent_execution_id=agent_execution_id_filter,
-                created_after_ts=created_after_ts,
-                created_before_ts=created_before_ts,
-            )
-        ]
-        matched_jobs = [
-            job for job in job_items
-            if kind_filter != "runs"
-            and _execution_overview_record_matches(
-                job,
-                "job",
-                query=query_text,
-                status=status_filter,
-                node_kind=node_kind_filter,
-                job_id=job_id_filter,
-                agent_execution_id=agent_execution_id_filter,
-                created_after_ts=created_after_ts,
-                created_before_ts=created_before_ts,
-            )
-        ]
-        return {
-            "runs": [_execution_overview_public_record(item) for item in matched_runs[:limit]],
-            "jobs": [_execution_overview_public_record(item) for item in matched_jobs[:limit]],
-            "filters": {
-                "query": query_text,
-                "status": status_filter,
-                "kind": kind_filter,
-                "node_kind": node_kind_filter,
-                "job_id": job_id_filter,
-                "agent_execution_id": agent_execution_id_filter,
-                "created_after": created_after_filter,
-                "created_before": created_before_filter,
-                "limit": limit,
-            },
-            "result": {
-                "run_count": len(matched_runs),
-                "job_count": len(matched_jobs),
-                "returned_run_count": min(len(matched_runs), limit),
-                "returned_job_count": min(len(matched_jobs), limit),
-                "limited": len(matched_runs) > limit or len(matched_jobs) > limit,
-            },
-            "summary": {
-                "run_count": len(runs),
-                "job_count": len(job_items),
-                "active_run_count": sum(1 for item in runs if str(item.get("status") or "") in {"queued", "running", "pending"}),
-                "active_job_count": sum(1 for item in job_items if str(item.get("status") or "") in {"queued", "blocked", "starting", "running"}),
-                "failed_run_count": sum(1 for item in runs if str(item.get("status") or "") in {"failed", "blocked", "stopped"}),
-                "failed_job_count": sum(1 for item in job_items if str(item.get("status") or "") in {"failed", "stopped"}),
-            },
-        }
+        return _build_execution_overview_payload(requested, workspaces, jobs)
 
     def validate_workflow_template(self, payload: dict[str, Any], template_id: str = "") -> dict[str, Any]:
         body = payload if isinstance(payload, dict) else {}
