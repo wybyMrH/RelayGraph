@@ -27552,21 +27552,17 @@ function bindEvents() {
     void runWorkspaceWorkflow();
   });
   $("workspaceFillJobBtn")?.addEventListener("click", fillJobFormFromWorkspace);
-  $("workspaceChatSendBtn")?.addEventListener("click", () => {
-    void submitWorkspaceChat();
-  });
-  $("workspaceChatList")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action]");
-    if (button) handleWorkspaceAutomationAction(button);
-  });
-  $("workspaceChatInput")?.addEventListener("keydown", (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      event.preventDefault();
-      void submitWorkspaceChat();
-    }
-  });
-  $("workspaceChatAgentSelect")?.addEventListener("change", (event) => {
-    updateWorkspaceModelDraft({ chat_agent_id: event.target.value || "" });
+  window.WorkspaceChatActions?.bind?.({
+    element: $,
+    handleAutomationAction: handleWorkspaceAutomationAction,
+    setWorkspaceChatAgentId: (value) => {
+      updateWorkspaceModelDraft({ chat_agent_id: value || "" });
+    },
+    setWorkspaceUseChatAgentId: (value) => {
+      state.ui.workspaceInspectorChatAgentId = String(value || "").trim();
+      renderWorkspaceUseChat();
+    },
+    submitWorkspaceChat,
   });
   $("workspaceFillRolesBtn")?.addEventListener("click", () => {
     mergeRecommendedWorkspaceAgents();
@@ -27625,10 +27621,6 @@ function bindEvents() {
     element: $,
     handleAutomationAction: handleWorkspaceAutomationAction,
     query: (selector) => document.querySelector(selector),
-  });
-  $("workspaceUseChatAgentSelect")?.addEventListener("change", (event) => {
-    state.ui.workspaceInspectorChatAgentId = String(event.target.value || "").trim();
-    renderWorkspaceUseChat();
   });
   ["workspaceHomeResources"].forEach((id) => {
     $(id)?.addEventListener("change", (event) => {
