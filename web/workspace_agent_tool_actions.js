@@ -123,7 +123,26 @@
     return editor;
   }
 
+  function bindToolbars(callbacks = {}) {
+    element(callbacks, "workspaceFillRolesBtn")?.addEventListener("click", () => {
+      fn(callbacks, "mergeRecommendedWorkspaceAgents", () => {})();
+    });
+    element(callbacks, "workspaceRestoreToolsBtn")?.addEventListener("click", () => {
+      fn(callbacks, "mergeRecommendedWorkspaceTools", () => {})();
+    });
+    element(callbacks, "workspaceAssignRolesBtn")?.addEventListener("click", () => {
+      fn(callbacks, "applyRecommendedNodeAssignments", () => {})();
+    });
+    element(callbacks, "workspaceAddAgentBtn")?.addEventListener("click", () => {
+      fn(callbacks, "addAgent", () => {})();
+    });
+    element(callbacks, "workspaceAddToolBtn")?.addEventListener("click", () => {
+      fn(callbacks, "addTool", () => {})();
+    });
+  }
+
   function bind(callbacks = {}) {
+    bindToolbars(callbacks);
     bindAgentList(callbacks);
     bindAgentPresets(callbacks);
     bindAgentEditor(callbacks);
@@ -138,6 +157,7 @@
     bindAgentPresets,
     bindToolEditor,
     bindToolList,
+    bindToolbars,
     handleAgentClick,
     handleAgentField,
     handleToolClick,

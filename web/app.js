@@ -27564,17 +27564,6 @@ function bindEvents() {
     },
     submitWorkspaceChat,
   });
-  $("workspaceFillRolesBtn")?.addEventListener("click", () => {
-    mergeRecommendedWorkspaceAgents();
-  });
-  $("workspaceRestoreToolsBtn")?.addEventListener("click", () => {
-    mergeRecommendedWorkspaceTools();
-  });
-  $("workspaceAssignRolesBtn")?.addEventListener("click", () => {
-    applyRecommendedNodeAssignments();
-  });
-  $("workspaceAddAgentBtn")?.addEventListener("click", addWorkspaceAgent);
-  $("workspaceAddToolBtn")?.addEventListener("click", addWorkspaceTool);
   window.WorkspaceModelProviderActions?.bind?.({
     element: $,
     addProvider: addProviderProfile,
@@ -27937,11 +27926,15 @@ function bindEvents() {
   });
   window.WorkspaceAgentToolActions?.bind?.({
     element: $,
+    addAgent: addWorkspaceAgent,
     addTool: addWorkspaceTool,
+    applyRecommendedNodeAssignments,
     applyAgentTemplate,
     copyAgentDebug: (scope) => copyAgentDebugTranscript(scope)
       .then(() => setWorkspaceMessage("Agent 调试结果已复制。"))
       .catch((error) => setWorkspaceMessage(error.message || "复制 Agent 调试结果失败。", true)),
+    mergeRecommendedWorkspaceAgents,
+    mergeRecommendedWorkspaceTools,
     prefillAgentDebug: prefillWorkspaceAgentDebug,
     removeAgent: removeWorkspaceAgent,
     removeTool: removeWorkspaceTool,
