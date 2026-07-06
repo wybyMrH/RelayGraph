@@ -35,6 +35,26 @@ class PersistenceMixin:
 
     def save_agent_definitions(self) -> None:
         with self.lock:
+            tool_ids = [str(item.get("id") or "").strip() for item in self.tool_definitions]
+            seen: set[str] = set()
+            deduped: list[dict[str, Any]] = []
+            for index, item in enumerate(self.agent_definitions):
+                if not isinstance(item, dict):
+                    continue
+                agent = normalize_global_agent_definition(
+                    item,
+                    index=index,
+                    existing=item,
+                    tool_ids=tool_ids,
+                    touch_updated_at=False,
+                )
+                agent_id = str(agent.get("id") or "").strip()
+                if agent_id and agent_id in seen:
+                    continue
+                if agent_id:
+                    seen.add(agent_id)
+                deduped.append(agent)
+            self.agent_definitions = deduped
             write_json(AGENT_DEFINITIONS_PATH, self.agent_definitions)
 
 

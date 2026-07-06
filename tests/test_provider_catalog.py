@@ -40,6 +40,7 @@ def test_create_from_catalog_materializes_full_profile():
     result = state.create_provider_profile_from_catalog("deepseek", api_key="sk-test-1234567890")
     # Returned shape is masked (api_key removed, masked shown)
     assert "api_key" not in result
+    assert result["kind"] == "llm"
     assert result["provider"] == "openai"
     assert result["base_url"] == "https://api.deepseek.com"
     assert result["models"] == ["deepseek-v4-pro", "deepseek-v4-flash"]
@@ -115,6 +116,31 @@ def test_is_default_unsets_others():
     defaults = [p for p in state.provider_profiles if p["is_default"]]
     assert len(defaults) == 1
     assert defaults[0]["provider"] == "openai"
+
+
+def test_search_provider_profile_does_not_require_models_and_default_is_per_kind():
+    state = _FakeState()
+    state.create_provider_profile_from_catalog("openai", api_key="sk-llm-1234567890", is_default=True)
+    result = state.create_provider_profile(
+        {
+            "id": "search-ddg",
+            "kind": "search",
+            "name": "Duck Search",
+            "provider": "duckduckgo",
+            "api_key": "",
+            "models": [],
+            "is_default": True,
+            "key_required": False,
+        }
+    )
+
+    assert result["kind"] == "search"
+    assert result["status"] == "ready"
+    assert result["key_required"] is False
+    llm_defaults = [p for p in state.provider_profiles if p.get("kind", "llm") == "llm" and p.get("is_default")]
+    search_defaults = [p for p in state.provider_profiles if p.get("kind") == "search" and p.get("is_default")]
+    assert len(llm_defaults) == 1
+    assert len(search_defaults) == 1
 
 
 def test_models_override_and_custom_name():

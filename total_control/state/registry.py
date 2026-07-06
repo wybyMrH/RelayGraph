@@ -1054,7 +1054,21 @@ class RegistryMixin:
         tool_ids = [str(item.get("id") or "").strip() for item in self.tool_definitions]
         agent = normalize_global_agent_definition(payload, index=len(self.agent_definitions), tool_ids=tool_ids)
         with self.lock:
-            self.agent_definitions.insert(0, agent)
+            existing_index = next(
+                (idx for idx, item in enumerate(self.agent_definitions) if str(item.get("id") or "").strip() == agent["id"]),
+                -1,
+            )
+            if existing_index >= 0:
+                current = self.agent_definitions[existing_index]
+                agent = normalize_global_agent_definition(
+                    {**current, **payload, "id": agent["id"]},
+                    index=existing_index,
+                    existing=current,
+                    tool_ids=tool_ids,
+                )
+                self.agent_definitions[existing_index] = agent
+            else:
+                self.agent_definitions.insert(0, agent)
         self.save_agent_definitions()
         return agent
 
@@ -1071,9 +1085,23 @@ class RegistryMixin:
             if index < 0:
                 raise ValueError("agent definition not found")
             previous_id = str(current.get("id") or "").strip()
-            self.agent_definitions[index] = updated
+            duplicate_index = next(
+                (
+                    idx
+                    for idx, item in enumerate(self.agent_definitions)
+                    if idx != index and str(item.get("id") or "").strip() == updated["id"]
+                ),
+                -1,
+            )
+            if duplicate_index >= 0:
+                raise ValueError("agent definition id already exists")
+            else:
+                self.agent_definitions[index] = updated
             if updated["id"] != previous_id:
                 for template in self.workflow_templates:
+                    agent_ids = [str(item or "").strip() for item in template.get("agent_ids", []) if str(item or "").strip()]
+                    if previous_id in agent_ids:
+                        template["agent_ids"] = [updated["id"] if item == previous_id else item for item in agent_ids]
                     nodes = template.get("nodes") if isinstance(template.get("nodes"), list) else []
                     for node in nodes:
                         if not isinstance(node, dict):

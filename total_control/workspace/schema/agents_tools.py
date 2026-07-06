@@ -240,16 +240,18 @@ def normalize_global_agent_definition(
     index: int = 0,
     existing: dict[str, Any] | None = None,
     tool_ids: list[str] | None = None,
+    touch_updated_at: bool = True,
 ) -> dict[str, Any]:
     agent = normalize_workspace_agent(value, index=index, existing=existing, tool_ids=tool_ids)
     current = value if isinstance(value, dict) else {}
     previous = existing if isinstance(existing, dict) else {}
     created_at = str(previous.get("created_at") or current.get("created_at") or now_iso()).strip() or now_iso()
+    updated_at = now_iso() if touch_updated_at else str(current.get("updated_at") or previous.get("updated_at") or created_at).strip() or created_at
     return {
         **agent,
         "description": str(current.get("description") or previous.get("description") or "").strip(),
         "created_at": created_at,
-        "updated_at": now_iso(),
+        "updated_at": updated_at,
     }
 
 def normalize_global_agent_definitions(
@@ -257,6 +259,7 @@ def normalize_global_agent_definitions(
     *,
     existing: Any = None,
     tool_ids: list[str] | None = None,
+    touch_updated_at: bool = True,
 ) -> list[dict[str, Any]]:
     previous_list = existing if isinstance(existing, list) else []
     previous_by_id = {
@@ -276,13 +279,14 @@ def normalize_global_agent_definitions(
             index=index,
             existing=existing_item,
             tool_ids=tool_ids,
+            touch_updated_at=touch_updated_at,
         )
         if agent["id"] in seen:
             continue
         seen.add(agent["id"])
         items.append(agent)
     return items or [
-        normalize_global_agent_definition(item, index=index, tool_ids=tool_ids)
+        normalize_global_agent_definition(item, index=index, tool_ids=tool_ids, touch_updated_at=touch_updated_at)
         for index, item in enumerate(workspace_default_agents())
     ]
 

@@ -39,6 +39,22 @@ def _dedupe_provider_profiles(profiles: list[Any]) -> tuple[list[dict[str, Any]]
     return deduped, changed
 
 
+def _agent_definitions_need_writeback(raw_agents: Any) -> bool:
+    if not isinstance(raw_agents, list):
+        return True
+    seen: set[str] = set()
+    for item in raw_agents:
+        if not isinstance(item, dict):
+            return True
+        agent_id = str(item.get("id") or "").strip()
+        if not agent_id:
+            continue
+        if agent_id in seen:
+            return True
+        seen.add(agent_id)
+    return False
+
+
 class BaseMixin:
     def __init__(self, config_path: Path):
         self.config_path = config_path
@@ -57,9 +73,11 @@ class BaseMixin:
             global_definitions=True,
         )
         raw_agent_definitions = read_json(AGENT_DEFINITIONS_PATH, [])
+        agent_definitions_cleaned = _agent_definitions_need_writeback(raw_agent_definitions)
         self.agent_definitions: list[dict[str, Any]] = normalize_global_agent_definitions(
             raw_agent_definitions,
             tool_ids=[str(item.get("id") or "").strip() for item in self.tool_definitions],
+            touch_updated_at=False,
         )
         self.agent_definitions, default_agent_tools_applied = backfill_default_agent_tools(
             self.agent_definitions,
@@ -100,7 +118,7 @@ class BaseMixin:
             write_json(JOBS_PATH, self.jobs)
         if (not isinstance(raw_tool_definitions, list) or not raw_tool_definitions) or default_tools_applied:
             write_json(TOOL_DEFINITIONS_PATH, self.tool_definitions)
-        if (not isinstance(raw_agent_definitions, list) or not raw_agent_definitions) or default_agent_tools_applied:
+        if (not isinstance(raw_agent_definitions, list) or not raw_agent_definitions) or default_agent_tools_applied or agent_definitions_cleaned:
             write_json(AGENT_DEFINITIONS_PATH, self.agent_definitions)
         if not isinstance(raw_workflow_templates, list) or not raw_workflow_templates:
             write_json(WORKFLOW_TEMPLATES_PATH, self.workflow_templates)
