@@ -17201,9 +17201,12 @@ function renderGpuRows() {
   const scrollContainer = tableScrollContainerForRows(rows);
   const previousScrollTop = scrollContainer?.scrollTop || 0;
   const items = allGpus();
+  const api = window.MonitoringTableMarkup;
   $("gpuCount").textContent = `${items.length} 张卡`;
   if (!items.length) {
-    rows.innerHTML = '<tr><td colspan="6" class="empty">暂无 GPU 数据。</td></tr>';
+    rows.innerHTML = api && typeof api.gpuRowsEmptyMarkup === "function"
+      ? api.gpuRowsEmptyMarkup()
+      : '<tr><td colspan="6" class="empty">暂无 GPU 数据。</td></tr>';
     restoreScrollTop(scrollContainer, previousScrollTop);
     return;
   }
@@ -17225,6 +17228,19 @@ function renderGpuRows() {
           : "";
       const serverSelected = server.id === state.selectedServer ? " server-selected" : "";
       const busy = gpu.state === "busy" ? " busy" : "";
+      if (api && typeof api.gpuRowMarkup === "function") {
+        return api.gpuRowMarkup(server, gpu, {
+          busyClass: busy,
+          memoryText: `${fmtMiB(gpu.memory_used_mib)} / ${fmtMiB(gpu.memory_total_mib)}`,
+          pct,
+          selectedClass: selected,
+          serverSelectedClass: serverSelected,
+          stateTitle,
+          temperatureText: `${gpu.temperature ?? 0}°C`,
+          utilText: `${util}%`,
+          utilTitle,
+        }, { escapeHtml });
+      }
       return `
         <tr class="gpu-row${serverSelected}${selected}" data-server-id="${escapeHtml(server.id)}" data-gpu-index="${escapeHtml(gpu.index)}" onclick="selectGpu('${escapeHtml(server.id)}', '${escapeHtml(gpu.index)}')" title="点击后在右侧高亮这张 GPU 上的进程">
           <td>${escapeHtml(server.name)}</td>
@@ -17248,6 +17264,7 @@ function renderProcesses() {
   const scrollContainer = tableScrollContainerForRows(rows);
   const previousScrollTop = scrollContainer?.scrollTop || 0;
   const allItems = allProcesses();
+  const api = window.MonitoringTableMarkup;
   renderProcessFilters(allItems);
   renderProcessSortIndicators();
   const items = filteredProcesses(allItems);
@@ -17255,18 +17272,33 @@ function renderProcesses() {
     ? `${allItems.length} 个运行中`
     : `${items.length}/${allItems.length} 个运行中`;
   if (!allItems.length) {
-    rows.innerHTML = '<tr><td colspan="7" class="empty">当前在线服务器未报告 CUDA 计算进程。</td></tr>';
+    rows.innerHTML = api && typeof api.processRowsEmptyMarkup === "function"
+      ? api.processRowsEmptyMarkup("noProcesses")
+      : '<tr><td colspan="7" class="empty">当前在线服务器未报告 CUDA 计算进程。</td></tr>';
     restoreScrollTop(scrollContainer, previousScrollTop);
     return;
   }
   if (!items.length) {
-    rows.innerHTML = '<tr><td colspan="7" class="empty">没有匹配的进程。</td></tr>';
+    rows.innerHTML = api && typeof api.processRowsEmptyMarkup === "function"
+      ? api.processRowsEmptyMarkup("noMatches")
+      : '<tr><td colspan="7" class="empty">没有匹配的进程。</td></tr>';
     restoreScrollTop(scrollContainer, previousScrollTop);
     return;
   }
   rows.innerHTML = items
     .map(({ server, process }) => {
       const focusClass = processMatchesGpuFocus(server, process) ? " process-focus" : "";
+      if (api && typeof api.processRowMarkup === "function") {
+        return api.processRowMarkup(server, process, {
+          commandText: process.command || process.process_name,
+          focusClass,
+          gpuText: process.gpu_index ?? "-",
+          memoryText: fmtMiB(process.used_memory_mib),
+          pidText: process.pid,
+          serverTitle: server.name || server.id,
+          userText: process.user || "-",
+        }, { escapeHtml });
+      }
       return `
       <tr class="process-row${focusClass}" data-server-id="${escapeHtml(server.id)}" data-gpu-index="${escapeHtml(process.gpu_index ?? "")}" data-pid="${escapeHtml(process.pid)}" onclick="showProcessCommand('${escapeHtml(server.id)}', '${escapeHtml(process.pid)}')">
         <td class="process-action-cell">
