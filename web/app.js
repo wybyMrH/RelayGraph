@@ -28331,46 +28331,18 @@ function bindEvents() {
     updateLogFollowHint,
   });
   updateLogFollowHint();
-  $("processSearch")?.addEventListener("input", (event) => {
-    state.processFilters.query = event.target.value;
-    renderProcesses();
-  });
-  $("processServerFilter")?.addEventListener("change", (event) => {
-    state.processFilters.server = event.target.value;
-    renderProcesses();
-  });
-  $("processUserFilter")?.addEventListener("change", (event) => {
-    state.processFilters.user = event.target.value;
-    renderProcesses();
-  });
-  $("processGpuFilter")?.addEventListener("change", (event) => {
-    state.processFilters.gpu = event.target.value;
-    renderProcesses();
-  });
-  $("jobSearch")?.addEventListener("input", (event) => {
-    state.jobFilters.query = event.target.value;
-    renderJobs();
-  });
-  $("jobStatusFilter")?.addEventListener("change", (event) => {
-    state.jobFilters.status = event.target.value;
-    renderJobs();
-  });
-  $("jobTypeFilter")?.addEventListener("change", (event) => {
-    state.jobFilters.kind = event.target.value;
-    renderJobs();
-  });
-  $("jobServerFilter")?.addEventListener("change", (event) => {
-    state.jobFilters.server = event.target.value;
-    renderJobs();
-  });
-  $("jobSortSelect")?.addEventListener("change", (event) => {
-    state.jobFilters.sort = event.target.value;
-    renderJobs();
-  });
-  document.querySelectorAll("#processTable th[data-sort]").forEach((th) => {
-    th.addEventListener("click", (event) => {
-      if (event.target.closest(".col-resizer")) return;
-      const key = th.dataset.sort;
+  window.MonitoringFilterActions?.bind?.({
+    element: $,
+    queryAll: (selector) => document.querySelectorAll(selector),
+    setJobFilter: (key, value) => {
+      state.jobFilters[key] = value;
+      renderJobs();
+    },
+    setProcessFilter: (key, value) => {
+      state.processFilters[key] = value;
+      renderProcesses();
+    },
+    sortProcessTable: (key) => {
       if (state.processFilters.sort === key) {
         state.processFilters.dir = state.processFilters.dir === "asc" ? "desc" : "asc";
       } else {
@@ -28378,7 +28350,7 @@ function bindEvents() {
         state.processFilters.dir = ["pid", "vram", "gpu"].includes(key) ? "desc" : "asc";
       }
       renderProcesses();
-    });
+    },
   });
   $("manageServersBtn").addEventListener("click", openServerModal);
   $("runtimeStorageSaveBtn")?.addEventListener("click", () => void saveRuntimeStorageSettings());
