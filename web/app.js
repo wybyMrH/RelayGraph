@@ -1987,22 +1987,56 @@ function currentWorkspaceSourceType() {
   return String(workspaceFormPayload().source_type || selectedWorkspace()?.source?.type || "repo");
 }
 
+function workspaceDefaultsApi() {
+  return window.WorkspaceDefaults && typeof window.WorkspaceDefaults === "object"
+    ? window.WorkspaceDefaults
+    : null;
+}
+
 function recommendedAgentTemplateByRole(role) {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.recommendedAgentTemplateByRole === "function") {
+    return api.recommendedAgentTemplateByRole(role, {
+      agentCatalog: DEFAULT_WORKSPACE_AGENTS,
+    });
+  }
   return DEFAULT_WORKSPACE_AGENTS.find((agent) => agent.role === role || agent.id === role) || null;
 }
 
 function recommendedAgentRoleIds(sourceType = currentWorkspaceSourceType()) {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.recommendedAgentRoleIds === "function") {
+    return api.recommendedAgentRoleIds(sourceType, {
+      sourceAgentRoleIds: SOURCE_AGENT_ROLE_IDS,
+    });
+  }
   const fallback = SOURCE_AGENT_ROLE_IDS.repo;
   return SOURCE_AGENT_ROLE_IDS[String(sourceType || "repo")] || fallback;
 }
 
 function recommendedAgentTemplatesForSource(sourceType = currentWorkspaceSourceType()) {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.recommendedAgentTemplatesForSource === "function") {
+    return api.recommendedAgentTemplatesForSource(sourceType, {
+      deepClone,
+      recommendedAgentRoleIds,
+      recommendedAgentTemplateByRole,
+    });
+  }
   return recommendedAgentRoleIds(sourceType)
     .map((role) => deepClone(recommendedAgentTemplateByRole(role), null))
     .filter(Boolean);
 }
 
 function workspaceAgentLibraryTemplates(sourceType = currentWorkspaceSourceType()) {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.workspaceAgentLibraryTemplates === "function") {
+    return api.workspaceAgentLibraryTemplates(sourceType, {
+      agentCatalog: DEFAULT_WORKSPACE_AGENTS,
+      deepClone,
+      recommendedAgentTemplatesForSource,
+    });
+  }
   const primary = recommendedAgentTemplatesForSource(sourceType);
   const seen = new Set(primary.map((agent) => agent.role));
   DEFAULT_WORKSPACE_AGENTS.forEach((agent) => {
@@ -2013,14 +2047,29 @@ function workspaceAgentLibraryTemplates(sourceType = currentWorkspaceSourceType(
 }
 
 function defaultWorkspaceTools() {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.defaultWorkspaceTools === "function") {
+    return api.defaultWorkspaceTools({
+      deepClone,
+      toolCatalog: WORKSPACE_TOOL_CATALOG,
+    });
+  }
   return deepClone(WORKSPACE_TOOL_CATALOG, []);
 }
 
 function defaultWorkspaceAgents(sourceType = currentWorkspaceSourceType()) {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.defaultWorkspaceAgents === "function") {
+    return api.defaultWorkspaceAgents(sourceType, {
+      recommendedAgentTemplatesForSource,
+    });
+  }
   return recommendedAgentTemplatesForSource(sourceType);
 }
 
 function defaultWorkspaceModel() {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.defaultWorkspaceModel === "function") return api.defaultWorkspaceModel();
   return {
     provider_profile_id: "",
     routing_mode: "workspace_default",
@@ -2030,6 +2079,13 @@ function defaultWorkspaceModel() {
 }
 
 function defaultWorkspaceNodes(sourceType = "repo") {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.defaultWorkspaceNodes === "function") {
+    return api.defaultWorkspaceNodes(sourceType, {
+      makeClientId,
+      workspaceNodeDefaultConfig,
+    });
+  }
   const nodeTemplates = {
     repo: [
       { kind: "source.repo", title: "仓库输入" },
@@ -2086,6 +2142,15 @@ function defaultWorkspaceNodes(sourceType = "repo") {
 }
 
 function defaultWorkspaceForm(sourceType = "repo") {
+  const api = workspaceDefaultsApi();
+  if (api && typeof api.defaultWorkspaceForm === "function") {
+    return api.defaultWorkspaceForm(sourceType, {
+      defaultWorkspaceAgents,
+      defaultWorkspaceModel,
+      defaultWorkspaceNodes,
+      defaultWorkspaceTools,
+    });
+  }
   const baseDefaults = {
     name: "",
     brief: "",
