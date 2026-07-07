@@ -18385,9 +18385,13 @@ function rememberFilePickerForwardPath(path) {
 }
 
 function updateFilePickerNavigationButtons() {
+  const api = filePickerNavigationApi();
+  if (api && typeof api.updateNavigationButtons === "function") {
+    api.updateNavigationButtons(filePickerNavigationDeps());
+    return;
+  }
   const upBtn = $("filePickerUpBtn");
   const forwardBtn = $("filePickerForwardBtn");
-  const api = window.FilePickerNavigation;
   const buttonState = api && typeof api.navigationButtonState === "function"
     ? api.navigationButtonState(state.filePicker)
     : {
@@ -18406,6 +18410,7 @@ function filePickerNavigationApi() {
 
 function filePickerNavigationDeps() {
   return {
+    getElement: $,
     state,
     loadFilePicker,
     previewFileInPicker,

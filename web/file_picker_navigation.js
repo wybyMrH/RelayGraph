@@ -37,6 +37,17 @@
     };
   }
 
+  function updateNavigationButtons(deps = {}) {
+    const state = deps.state && typeof deps.state === "object" ? deps.state : {};
+    const filePicker = state.filePicker && typeof state.filePicker === "object" ? state.filePicker : {};
+    const getElement = typeof deps.getElement === "function" ? deps.getElement : () => null;
+    const upBtn = getElement("filePickerUpBtn");
+    const forwardBtn = getElement("filePickerForwardBtn");
+    const buttonState = navigationButtonState(filePicker);
+    if (upBtn) upBtn.hidden = !buttonState.canGoUp;
+    if (forwardBtn) forwardBtn.hidden = !buttonState.canGoForward;
+  }
+
   function forwardNavigationState(filePicker = {}) {
     const forwardStack = Array.isArray(filePicker?.forwardStack) ? filePicker.forwardStack.slice() : [];
     const nextPath = forwardStack.shift() || "";
@@ -136,5 +147,6 @@
     previewPath,
     rememberForwardPath,
     resetNavigationState,
+    updateNavigationButtons,
   };
 })();
