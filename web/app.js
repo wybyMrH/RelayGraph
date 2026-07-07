@@ -10928,17 +10928,29 @@ function hydrateWorkspaceUseInputsFromWorkspace(workspace) {
   setWorkspaceLauncherInputs(inputs);
 }
 
+function transferPathUtilsApi() {
+  return window.TransferPathUtils && typeof window.TransferPathUtils === "object"
+    ? window.TransferPathUtils
+    : null;
+}
+
 function ensureDirectorySlash(path) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.ensureDirectorySlash === "function") return api.ensureDirectorySlash(path);
   const text = String(path || "").trim();
   if (!text) return "";
   return text.endsWith("/") ? text : `${text}/`;
 }
 
 function normalizePathForCompare(path) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.normalizePathForCompare === "function") return api.normalizePathForCompare(path);
   return String(path || "").replace(/\/+$/, "");
 }
 
 function parentDirectoryPath(path) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.parentDirectoryPath === "function") return api.parentDirectoryPath(path);
   const text = String(path || "").trim().replace(/\/+$/, "");
   if (!text || text === "/") return "";
   const index = text.lastIndexOf("/");
@@ -10947,6 +10959,8 @@ function parentDirectoryPath(path) {
 }
 
 function transferPathOnly(value) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.transferPathOnly === "function") return api.transferPathOnly(value);
   return parseRsyncTargetPath(value) || String(value || "").trim();
 }
 
@@ -10982,6 +10996,8 @@ function transferTargetServerId() {
 }
 
 function parseRsyncTargetPath(value) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.parseRsyncTargetPath === "function") return api.parseRsyncTargetPath(value);
   const text = String(value || "").trim();
   const match = text.match(/^[^:]+:(\/.*)$/);
   if (match) return match[1];
@@ -10989,12 +11005,16 @@ function parseRsyncTargetPath(value) {
 }
 
 function parseRsyncTargetPrefix(value) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.parseRsyncTargetPrefix === "function") return api.parseRsyncTargetPrefix(value);
   const text = String(value || "").trim();
   const match = text.match(/^([^:]+):\/.*$/);
   return match ? match[1] : "";
 }
 
 function transferTargetPrefix(server) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.transferTargetPrefix === "function") return api.transferTargetPrefix(server);
   if (!server || server.mode === "local") return "";
   return `${server.target || server.ssh_alias || server.host_name || server.id}:`;
 }
@@ -11022,6 +11042,8 @@ function rsyncTransferSourceValue(item = {}) {
 }
 
 function parseIgnoreText(text) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.parseIgnoreText === "function") return api.parseIgnoreText(text);
   return Array.from(
     new Set(
       String(text || "")
