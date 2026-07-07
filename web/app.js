@@ -12320,6 +12320,8 @@ function workspaceLatestRunStepForNode(workspace = selectedWorkspace(), nodeId =
 }
 
 function workspaceMappedInputsCompactLine(mappedInputs = [], limit = 3) {
+  const api = workspaceRunSummaryApi();
+  if (typeof api.mappedInputsCompactLine === "function") return api.mappedInputsCompactLine(mappedInputs, limit);
   const items = (Array.isArray(mappedInputs) ? mappedInputs : []).filter((item) => item && typeof item === "object");
   if (!items.length) return "";
   return items.slice(0, limit).map((item) => {
@@ -12331,6 +12333,8 @@ function workspaceMappedInputsCompactLine(mappedInputs = [], limit = 3) {
 }
 
 function workspaceAgentRunCompactMarkup(bundle) {
+  const api = workspaceRunSummaryApi();
+  if (typeof api.agentRunCompactMarkup === "function") return api.agentRunCompactMarkup(bundle, workspaceRunSummaryDeps());
   const step = bundle?.step;
   if (!step || String(step.executor || "") !== "agent") return "";
   const mappedLine = workspaceMappedInputsCompactLine(step.mapped_inputs || []);

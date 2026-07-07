@@ -62,6 +62,41 @@
   `;
   }
 
+  function mappedInputsCompactLine(mappedInputs = [], limit = 3) {
+    const items = (Array.isArray(mappedInputs) ? mappedInputs : []).filter((item) => item && typeof item === "object");
+    if (!items.length) return "";
+    return items.slice(0, limit).map((item) => {
+      const name = String(item.name || "input").trim();
+      const preview = String(item.preview || "—").trim();
+      const missing = String(item.present || "") === "false";
+      return `${name}: ${preview}${missing ? " (缺)" : ""}`;
+    }).join(" · ");
+  }
+
+  function agentRunCompactMarkup(bundle, deps = {}) {
+    const step = bundle?.step;
+    if (!step || String(step.executor || "") !== "agent") return "";
+    const mappedLine = mappedInputsCompactLine(step.mapped_inputs || []);
+    const outputKey = String(step.output_key || "").trim();
+    const artifactCount = Number(step.artifact_count) || 0;
+    const childJobIds = (Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+    const childRunIds = (Array.isArray(step.child_run_ids) ? step.child_run_ids : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+    const runtimeStatus = String(step.runtime_status || "").trim();
+    const parts = [];
+    if (mappedLine) parts.push(`解析输入 ${mappedLine}`);
+    if (outputKey) parts.push(`写出 ${outputKey}${artifactCount ? ` (${artifactCount} 产物)` : ""}`);
+    if (childJobIds.length) parts.push(`子任务 ${childJobIds[0].slice(0, 8)}${childJobIds.length > 1 ? ` +${childJobIds.length - 1}` : ""}`);
+    if (childRunIds.length) parts.push(`子运行 ${childRunIds[0].slice(0, 8)}${childRunIds.length > 1 ? ` +${childRunIds.length - 1}` : ""}`);
+    if (runtimeStatus) parts.push(`runtime ${statusFor(deps, runtimeStatus)}`);
+    if (!parts.length) return "";
+    const text = parts.join(" · ");
+    return `<p class="workspace-agent-run-compact muted" title="${escapeFor(deps, text)}">${escapeFor(deps, text)}</p>`;
+  }
+
   function eventLabel(type = "") {
     const map = {
       "run.created": "运行创建",
@@ -211,6 +246,7 @@
   }
 
   window.WorkspaceRunSummary = {
+    agentRunCompactMarkup,
     deliveryClosureMarkup,
     eventDetail,
     eventLabel,
@@ -218,6 +254,7 @@
     eventTimelineMarkup,
     evidenceNoticeMarkup,
     kindLabel,
+    mappedInputsCompactLine,
     progressMarkup,
   };
 })();
