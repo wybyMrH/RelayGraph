@@ -411,7 +411,17 @@ function workspaceFlowNodeContext(node = {}, index = 0, options = {}) {
   return { workspace, template, preview, sourceNode, io, facts, tools };
 }
 
+function workspaceFlowToolStateApi() {
+  return window.WorkspaceFlowToolState && typeof window.WorkspaceFlowToolState === "object"
+    ? window.WorkspaceFlowToolState
+    : null;
+}
+
 function workspaceFlowNodeToolStatuses(node = {}, tools = [], preview = false) {
+  const api = workspaceFlowToolStateApi();
+  if (api && typeof api.workspaceFlowNodeToolStatuses === "function") {
+    return api.workspaceFlowNodeToolStatuses(node, tools, preview);
+  }
   const nodeStatus = String(node?.status || (preview ? "preview" : "pending"));
   if (nodeStatus === "done") return tools.map(() => "done");
   if (["failed", "stopped", "blocked"].includes(nodeStatus)) {
@@ -429,6 +439,10 @@ function workspaceFlowNodeToolStatuses(node = {}, tools = [], preview = false) {
 }
 
 function workspaceFlowToolStatusLabel(status = "pending") {
+  const api = workspaceFlowToolStateApi();
+  if (api && typeof api.workspaceFlowToolStatusLabel === "function") {
+    return api.workspaceFlowToolStatusLabel(status);
+  }
   const map = {
     done: "完成",
     running: "进行中",
@@ -441,6 +455,10 @@ function workspaceFlowToolStatusLabel(status = "pending") {
 }
 
 function workspaceFlowToolHealthStatus(tool = {}, runtimeStatus = "pending") {
+  const api = workspaceFlowToolStateApi();
+  if (api && typeof api.workspaceFlowToolHealthStatus === "function") {
+    return api.workspaceFlowToolHealthStatus(tool, runtimeStatus);
+  }
   if (tool?.enabled === false) return "fault";
   const status = String(runtimeStatus || "pending");
   if (["failed", "blocked"].includes(status)) return "fault";
@@ -451,6 +469,10 @@ function workspaceFlowToolHealthStatus(tool = {}, runtimeStatus = "pending") {
 }
 
 function workspaceFlowToolHealthLabel(health = "available") {
+  const api = workspaceFlowToolStateApi();
+  if (api && typeof api.workspaceFlowToolHealthLabel === "function") {
+    return api.workspaceFlowToolHealthLabel(health);
+  }
   const map = {
     available: "可用",
     running: "运行中",
@@ -468,12 +490,20 @@ function workspaceFlowToolStatusLightMarkup(health = "available", title = "") {
 }
 
 function workspaceFlowToolSelectionKey(nodeId = "", toolId = "") {
+  const api = workspaceFlowToolStateApi();
+  if (api && typeof api.workspaceFlowToolSelectionKey === "function") {
+    return api.workspaceFlowToolSelectionKey(nodeId, toolId);
+  }
   const node = String(nodeId || "").trim();
   const tool = String(toolId || "").trim();
   return node && tool ? `${node}::${tool}` : "";
 }
 
 function parseWorkspaceFlowToolSelectionKey(key = "") {
+  const api = workspaceFlowToolStateApi();
+  if (api && typeof api.parseWorkspaceFlowToolSelectionKey === "function") {
+    return api.parseWorkspaceFlowToolSelectionKey(key);
+  }
   const text = String(key || "").trim();
   if (!text.includes("::")) return { nodeId: "", toolId: "" };
   const [nodeId, toolId] = text.split("::");
