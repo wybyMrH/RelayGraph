@@ -3045,6 +3045,15 @@ function createWorkspaceNode(kind, overrides = {}, index = 0, formData = {}) {
 }
 
 function normalizeWorkspaceDraftNode(node, index = 0, formData = {}) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.normalizeWorkspaceDraftNode === "function") {
+    return api.normalizeWorkspaceDraftNode(node, index, formData, {
+      makeClientId,
+      workspaceConfigValue,
+      workspaceNodeDefaultConfig,
+      workspaceNodeLabel,
+    });
+  }
   const kind = String(node?.kind || "custom.step");
   const defaults = workspaceNodeDefaultConfig(kind, formData);
   const rawConfig = {

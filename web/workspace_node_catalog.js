@@ -146,6 +146,79 @@
     return base;
   }
 
+  function normalizeWorkspaceDraftNode(node, index = 0, formData = {}, deps = {}) {
+    const defaultConfig = typeof deps.workspaceNodeDefaultConfig === "function"
+      ? deps.workspaceNodeDefaultConfig
+      : workspaceNodeDefaultConfig;
+    const configValue = typeof deps.workspaceConfigValue === "function"
+      ? deps.workspaceConfigValue
+      : (_kind, _key, value) => value;
+    const makeId = typeof deps.makeClientId === "function"
+      ? deps.makeClientId
+      : (prefix = "node") => `${prefix}-${Date.now()}`;
+    const nodeLabel = typeof deps.workspaceNodeLabel === "function"
+      ? deps.workspaceNodeLabel
+      : (_kind) => _kind || "节点";
+    const kind = String(node?.kind || "custom.step");
+    const defaults = defaultConfig(kind, formData);
+    const rawConfig = {
+      ...defaults,
+      ...(node?.config && typeof node.config === "object" ? node.config : {}),
+    };
+    const config = Object.fromEntries(
+      Object.entries(rawConfig).map(([key, value]) => [key, configValue(kind, key, value)]),
+    );
+    const normalized = {
+      id: String(node?.id || makeId("node")),
+      kind,
+      title: String(node?.title || nodeLabel(kind)),
+      status: String(node?.status || "draft"),
+      handler: {
+        mode: String(node?.handler?.mode || "human"),
+        agent_id: String(node?.handler?.agent_id || ""),
+        name: String(node?.handler?.name || ""),
+        handoff: String(node?.handler?.handoff || ""),
+        output_key: String(node?.handler?.output_key || ""),
+      },
+      notes: String(node?.notes || ""),
+      runtime: node?.runtime && typeof node.runtime === "object" ? {
+        run_count: Number(node.runtime.run_count || 0),
+        last_job_id: String(node.runtime.last_job_id || ""),
+        last_job_name: String(node.runtime.last_job_name || ""),
+        last_job_kind: String(node.runtime.last_job_kind || ""),
+        last_job_status: String(node.runtime.last_job_status || ""),
+        last_run_at: String(node.runtime.last_run_at || ""),
+        last_finished_at: String(node.runtime.last_finished_at || ""),
+        last_error: String(node.runtime.last_error || ""),
+      } : {
+        run_count: 0,
+        last_job_id: "",
+        last_job_name: "",
+        last_job_kind: "",
+        last_job_status: "",
+        last_run_at: "",
+        last_finished_at: "",
+        last_error: "",
+      },
+      config,
+      position: {
+        x: Number(node?.position?.x ?? index * 240),
+        y: Number(node?.position?.y ?? 0),
+      },
+    };
+    const inputMapping = node?.input_mapping && typeof node.input_mapping === "object" ? node.input_mapping : {};
+    if (Object.keys(inputMapping).length) {
+      normalized.input_mapping = Object.entries(inputMapping).reduce((acc, [key, value]) => {
+        const name = String(key || "").trim();
+        if (name) acc[name] = String(value || "").trim();
+        return acc;
+      }, {});
+    }
+    const outputKey = String(node?.output_key || "").trim();
+    if (outputKey) normalized.output_key = outputKey;
+    return normalized;
+  }
+
   function workspaceRecipeCommandValueFromNodes(nodes = [], key = "") {
     const items = Array.isArray(nodes) ? nodes : [];
     const findConfig = (kind) => {
@@ -203,6 +276,7 @@
   }
 
   window.WorkspaceNodeCatalog = {
+    normalizeWorkspaceDraftNode,
     workspaceChainSourceType,
     workspaceLinksFromNodes,
     workspaceNodeDefaultConfig,
