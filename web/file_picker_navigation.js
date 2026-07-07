@@ -119,9 +119,16 @@
     await fn(deps, "previewFileInPicker", async () => {})(path);
   }
 
+  function markPathInputChanged(deps = {}) {
+    const state = deps.state && typeof deps.state === "object" ? deps.state : {};
+    const filePicker = state.filePicker || {};
+    filePicker.requestId = (filePicker.requestId || 0) + 1;
+  }
+
   window.FilePickerNavigation = {
     activateRow,
     forwardNavigationState,
+    markPathInputChanged,
     navigateForward,
     navigateUp,
     navigationButtonState,

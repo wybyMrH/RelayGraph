@@ -18438,6 +18438,10 @@ async function previewFilePickerPath(path = "") {
   return await filePickerNavigationApi()?.previewPath?.(path, filePickerNavigationDeps());
 }
 
+function markFilePickerPathInputChanged() {
+  return filePickerNavigationApi()?.markPathInputChanged?.(filePickerNavigationDeps());
+}
+
 function renderRuntimeStoragePanel(payload = {}) {
   const stats = $("runtimeStorageStats");
   const previewAgeInput = $("runtimePreviewMaxAgeHours");
@@ -25915,9 +25919,7 @@ function bindEvents() {
     closeFilePicker,
     downloadCurrentPreview: downloadCurrentFilePreview,
     filePickerForward: navigateFilePickerForward,
-    filePickerPathInputChanged: () => {
-      state.filePicker.requestId = (state.filePicker.requestId || 0) + 1;
-    },
+    filePickerPathInputChanged: markFilePickerPathInputChanged,
     filePickerUp: navigateFilePickerUp,
     inspectSource: () => loadTransferSourceTree(),
     inspectTarget: () => loadTransferTargetTree(),
