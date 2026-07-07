@@ -32,10 +32,26 @@
     return text.length > max ? `${text.slice(0, max - 1)}...` : text;
   }
 
+  function stripAnsi(value) {
+    return String(value || "")
+      .replace(/\uFFFD\[[0-?]*[ -/]*[@-~]/g, "")
+      .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+      .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+      .replace(/\x1b[()#%*+\-.\/][0-9A-Za-z]/g, "")
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  }
+
+  function fmtDate(value) {
+    if (!value) return "";
+    return String(value).replace("T", " ").slice(0, 16);
+  }
+
   window.DisplayFormatters = {
     compactText,
+    fmtDate,
     fmtMiB,
     formatBytes,
     formatPercent,
+    stripAnsi,
   };
 })();

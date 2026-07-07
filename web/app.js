@@ -1874,6 +1874,8 @@ function escapeHtml(value) {
 }
 
 function stripAnsi(value) {
+  const api = displayFormattersApi();
+  if (api && typeof api.stripAnsi === "function") return api.stripAnsi(value);
   return String(value || "")
     .replace(/\uFFFD\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
@@ -1883,6 +1885,8 @@ function stripAnsi(value) {
 }
 
 function fmtDate(value) {
+  const api = displayFormattersApi();
+  if (api && typeof api.fmtDate === "function") return api.fmtDate(value);
   if (!value) return "";
   return String(value).replace("T", " ").slice(0, 16);
 }
