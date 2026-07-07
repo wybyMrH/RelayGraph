@@ -111,6 +111,37 @@
     );
   }
 
+  function normalizeProviderProfile(profile = {}, index = 0, deps = {}) {
+    void index;
+    const makeClientId = typeof deps.makeClientId === "function"
+      ? deps.makeClientId
+      : () => `provider-${Date.now().toString(36)}`;
+    const getProfileKind = typeof deps.providerProfileKind === "function"
+      ? deps.providerProfileKind
+      : providerProfileKind;
+    const requiresApiKey = typeof deps.providerProfileRequiresApiKey === "function"
+      ? deps.providerProfileRequiresApiKey
+      : providerProfileRequiresApiKey;
+    // Required fields stay empty when absent so the UI can mark them as waiting
+    // for user input instead of silently inventing Provider defaults.
+    return {
+      id: String(profile.id || makeClientId("provider")),
+      kind: getProfileKind(profile),
+      label: String(profile.label || "").trim(),
+      vendor: String(profile.vendor || profile.provider || "").trim(),
+      base_url: String(profile.base_url || "").trim(),
+      model: String(profile.model || (Array.isArray(profile.models) ? profile.models[0] || "" : "")).trim(),
+      api_key: String(profile.api_key || ""),
+      api_key_masked: String(profile.api_key_masked || ""),
+      has_api_key: Boolean(profile.has_api_key || profile.api_key || profile.api_key_masked),
+      key_required: profile.key_required === false ? false : requiresApiKey(profile),
+      status: String(profile.status || "").trim(),
+      missing_fields: Array.isArray(profile.missing_fields) ? profile.missing_fields.map((item) => String(item || "").trim()).filter(Boolean) : [],
+      is_default: Boolean(profile.is_default),
+      is_new: Boolean(profile.is_new),
+    };
+  }
+
   function providerVendorOptionsMarkup(selectedValue = "", options = {}) {
     const selected = String(selectedValue || "").trim();
     return [
@@ -187,6 +218,7 @@
     baseUrlIsVendorDefault,
     configuredProviderProfiles,
     configuredSearchProviderProfiles,
+    normalizeProviderProfile,
     providerProfileIsValid,
     providerProfileKind,
     providerProfileLabel,

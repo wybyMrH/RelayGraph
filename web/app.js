@@ -2667,6 +2667,14 @@ function workspaceChatStatusText(status = "") {
 }
 
 function normalizeProviderProfile(profile = {}, index = 0) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.normalizeProviderProfile === "function") {
+    return api.normalizeProviderProfile(profile, index, {
+      makeClientId,
+      providerProfileKind,
+      providerProfileRequiresApiKey,
+    });
+  }
   // Required fields are kept empty when not provided so the UI can mark them
   // red and block save, instead of silently inventing defaults.
   return {
