@@ -17975,7 +17975,15 @@ function chooseTransferTargetDirectory(path) {
   renderTargetTree();
 }
 
+function transferProgressStateApi() {
+  return window.TransferProgressState && typeof window.TransferProgressState === "object"
+    ? window.TransferProgressState
+    : null;
+}
+
 function parseTransferProgress(job, log) {
+  const api = transferProgressStateApi();
+  if (api && typeof api.parseTransferProgress === "function") return api.parseTransferProgress(job, log);
   if (job.status === "done") return 100;
   const matches = Array.from(String(log || "").matchAll(/(?:^|\s)(\d{1,3})%\s/g));
   const last = matches.length ? Number(matches[matches.length - 1][1]) : 0;
@@ -17983,6 +17991,8 @@ function parseTransferProgress(job, log) {
 }
 
 function lastTransferLine(log) {
+  const api = transferProgressStateApi();
+  if (api && typeof api.lastTransferLine === "function") return api.lastTransferLine(log);
   const lines = String(log || "")
     .split(/\r?\n/)
     .map((line) => line.trim())
