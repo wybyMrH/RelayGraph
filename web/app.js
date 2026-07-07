@@ -10894,70 +10894,33 @@ function renderWorkspaceManageOverview() {
 }
 
 function renderWorkflowTemplateStudioOverview() {
-  const root = $("workflowTemplateStudioOverview");
-  if (!root) return;
-  const draft = state.workflowTemplateDraft && Object.keys(state.workflowTemplateDraft).length
-    ? normalizeWorkflowTemplateDraft(state.workflowTemplateDraft)
-    : selectedWorkflowTemplate()
-      ? normalizeWorkflowTemplateDraft(selectedWorkflowTemplate())
-      : defaultWorkflowTemplateDraft("repo");
-  const nodes = Array.isArray(draft.nodes) ? draft.nodes : [];
-  const automatedNodes = nodes.filter((node) => String(node.handler?.mode || "human") !== "human");
-  const assignedNodes = automatedNodes.filter((node) => String(node.handler?.agent_id || "").trim()).length;
-  const profiles = Array.isArray(state.providerProfiles) ? state.providerProfiles : [];
-  const configuredProfiles = configuredProviderProfiles(profiles);
-  const selectedProfile = selectedProviderProfile();
-  const profile = providerProfileById(draft.model?.provider_profile_id || "") || selectedProfile;
-  const chatAgent = globalAgentById(draft.model?.chat_agent_id || "");
-  const sourceBits = [
-    draft.source?.repo_url ? "repo" : "",
-    draft.source?.paper_url ? "paper" : "",
-    draft.source?.idea_text ? "idea" : "",
-    draft.workspace_dir ? "workdir" : "",
-  ].filter(Boolean);
-  const envBits = [
-    draft.env?.manager || "",
-    draft.env?.name || "",
-    draft.env?.python ? `Python ${draft.env.python}` : "",
-  ].filter(Boolean);
-  const cards = [
-    {
-      label: "入口类型",
-      title: workspaceSourceTypeLabel(draft.source?.type || "idea"),
-      detail: sourceBits.length ? sourceBits.join(" · ") : "等待实例输入覆盖默认来源",
-      state: sourceBits.length || draft.source?.type === "idea" ? "ready" : "draft",
-    },
-    {
-      label: "节点链",
-      title: `${nodes.length} 个节点`,
-      detail: `${assignedNodes}/${automatedNodes.length || 0} 自动节点已绑定 Agent · ${nodes[0]?.title || workspaceNodeLabel(nodes[0]?.kind) || "未设置起点"}`,
-      state: nodes.length && assignedNodes === automatedNodes.length ? "ready" : nodes.length ? "blocked" : "draft",
-    },
-    {
-      label: "默认环境",
-      title: draft.workspace_dir || draft.env?.name || "实例创建时推断",
-      detail: envBits.join(" · ") || "后续由 env.infer / path.resolve 补齐",
-      state: draft.workspace_dir || draft.env?.name ? "ready" : "draft",
-    },
-    {
-      label: "AI 路由",
-      title: profile
-        ? providerProfileLabel(profile)
-        : configuredProfiles.length
-          ? `${configuredProfiles.length} 个 Profile`
-          : draft.model?.routing_mode || "未配置",
-      detail: chatAgent
-        ? `聊天 Agent ${chatAgent.name || chatAgent.id}`
-        : configuredProfiles.length
-          ? "Profile 已就绪，可在 AI 路由页设模板默认"
-          : "先新增 Provider Profile 并填写模型",
-      state: configuredProfiles.length ? "ready" : profiles.length ? "blocked" : "draft",
-    },
-  ];
-  root.innerHTML = (window.WorkflowTemplateStudioOverview?.studioCardsMarkup?.({
-    cards,
+  return workflowTemplateStudioOverviewRendererApi().renderStudioOverview?.(workflowTemplateStudioOverviewRendererDeps());
+}
+
+function workflowTemplateStudioOverviewRendererApi() {
+  return window.WorkflowTemplateStudioOverviewRenderer || {};
+}
+
+function workflowTemplateStudioOverviewRendererDeps() {
+  return {
+    configuredProviderProfiles,
+    defaultWorkflowTemplateDraft,
+    element: $,
     escapeHtml,
-  }) || "") + workflowTemplateValidationMarkup() + workflowTemplateVersionHistoryMarkup(draft);
+    globalAgentById,
+    normalizeWorkflowTemplateDraft,
+    overviewApi: () => window.WorkflowTemplateStudioOverview,
+    providerProfileById,
+    providerProfileLabel,
+    providerProfiles: () => state.providerProfiles,
+    selectedProviderProfile,
+    selectedWorkflowTemplate,
+    validationMarkup: workflowTemplateValidationMarkup,
+    versionHistoryMarkup: workflowTemplateVersionHistoryMarkup,
+    workflowTemplateDraft: () => state.workflowTemplateDraft,
+    workspaceNodeLabel,
+    workspaceSourceTypeLabel,
+  };
 }
 
 function hydrateWorkspaceUseInputsFromWorkspace(workspace) {
