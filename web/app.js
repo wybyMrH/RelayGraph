@@ -3041,6 +3041,13 @@ function workspaceNodeDefaultConfig(kind, formData = {}) {
 }
 
 function createWorkspaceNode(kind, overrides = {}, index = 0, formData = {}) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.createWorkspaceNode === "function") {
+    return api.createWorkspaceNode(kind, overrides, index, formData, {
+      deepClone,
+      normalizeWorkspaceDraftNode,
+    });
+  }
   return normalizeWorkspaceDraftNode({ kind, ...deepClone(overrides, {}) }, index, formData);
 }
 

@@ -219,6 +219,22 @@
     return normalized;
   }
 
+  function createWorkspaceNode(kind, overrides = {}, index = 0, formData = {}, deps = {}) {
+    const deepClone = typeof deps.deepClone === "function"
+      ? deps.deepClone
+      : (value, fallback) => {
+          try {
+            return JSON.parse(JSON.stringify(value));
+          } catch {
+            return fallback;
+          }
+        };
+    const normalizeNode = typeof deps.normalizeWorkspaceDraftNode === "function"
+      ? deps.normalizeWorkspaceDraftNode
+      : normalizeWorkspaceDraftNode;
+    return normalizeNode({ kind, ...deepClone(overrides, {}) }, index, formData);
+  }
+
   function buildWorkspaceStarterNodes(formData = {}, deps = {}) {
     const kindsForSource = typeof deps.workspaceNodeKindsForSource === "function"
       ? deps.workspaceNodeKindsForSource
@@ -287,6 +303,7 @@
   }
 
   window.WorkspaceNodeCatalog = {
+    createWorkspaceNode,
     buildWorkspaceStarterNodes,
     normalizeWorkspaceDraftNode,
     workspaceChainSourceType,
