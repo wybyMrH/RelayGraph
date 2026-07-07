@@ -219,6 +219,17 @@
     return normalized;
   }
 
+  function buildWorkspaceStarterNodes(formData = {}, deps = {}) {
+    const kindsForSource = typeof deps.workspaceNodeKindsForSource === "function"
+      ? deps.workspaceNodeKindsForSource
+      : workspaceNodeKindsForSource;
+    const normalizeNode = typeof deps.normalizeWorkspaceDraftNode === "function"
+      ? deps.normalizeWorkspaceDraftNode
+      : normalizeWorkspaceDraftNode;
+    return kindsForSource(String(formData.source_type || "repo")).map((kind, index) =>
+      normalizeNode({ kind }, index, formData));
+  }
+
   function workspaceRecipeCommandValueFromNodes(nodes = [], key = "") {
     const items = Array.isArray(nodes) ? nodes : [];
     const findConfig = (kind) => {
@@ -276,6 +287,7 @@
   }
 
   window.WorkspaceNodeCatalog = {
+    buildWorkspaceStarterNodes,
     normalizeWorkspaceDraftNode,
     workspaceChainSourceType,
     workspaceLinksFromNodes,

@@ -3115,6 +3115,13 @@ function normalizeWorkspaceDraftNode(node, index = 0, formData = {}) {
 }
 
 function buildWorkspaceStarterNodes(formData = {}) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.buildWorkspaceStarterNodes === "function") {
+    return api.buildWorkspaceStarterNodes(formData, {
+      normalizeWorkspaceDraftNode,
+      workspaceNodeKindsForSource,
+    });
+  }
   return workspaceNodeKindsForSource(String(formData.source_type || "repo")).map((kind, index) =>
     normalizeWorkspaceDraftNode({ kind }, index, formData));
 }
