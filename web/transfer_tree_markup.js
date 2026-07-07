@@ -43,6 +43,28 @@
   `;
   }
 
+  function sourceTreeNodeMarkup(entry = {}, options = {}, deps = {}) {
+    const level = Number(options.level || 0);
+    const tree = options.tree && typeof options.tree === "object" ? options.tree : {};
+    const node = tree[entry.path];
+    const open = Boolean(node?.open);
+    const children = node?.entries || [];
+    const icon = entry.is_dir ? (open ? "▾" : "▸") : "·";
+    const previewingClass = typeof options.previewingClassFor === "function"
+      ? options.previewingClassFor(entry)
+      : "";
+    const selectedSource = typeof options.selectedSourceFor === "function"
+      ? options.selectedSourceFor(entry)
+      : null;
+    const selectedClass = selectedSource ? " transfer-source-selected" : "";
+    const row = sourceTreeNodeRowMarkup(entry, { level, icon, previewingClass, selectedClass, selectedSource }, deps);
+    if (!entry.is_dir || !open) return row;
+    const childRows = children
+      .map((child) => sourceTreeNodeMarkup(child, { ...options, level: level + 1 }, deps))
+      .join("");
+    return row + childRows;
+  }
+
   function targetTreeNodeRowMarkup(entry = {}, options = {}, deps = {}) {
     const level = Number(options.level || 0);
     const icon = options.icon || "·";
@@ -57,8 +79,25 @@
   `;
   }
 
+  function targetTreeNodeMarkup(entry = {}, options = {}, deps = {}) {
+    const level = Number(options.level || 0);
+    const tree = options.tree && typeof options.tree === "object" ? options.tree : {};
+    const node = tree[entry.path];
+    const open = Boolean(node?.open);
+    const children = node?.entries || [];
+    const icon = entry.is_dir ? (open ? "▾" : "▸") : "·";
+    const selectedClass = typeof options.selectedClassFor === "function"
+      ? options.selectedClassFor(entry)
+      : "";
+    const row = targetTreeNodeRowMarkup(entry, { level, icon, selectedClass }, deps);
+    if (!entry.is_dir || !open) return row;
+    return row + children.map((child) => targetTreeNodeMarkup(child, { ...options, level: level + 1 }, deps)).join("");
+  }
+
   window.TransferTreeMarkup = {
+    sourceTreeNodeMarkup,
     sourceTreeNodeRowMarkup,
+    targetTreeNodeMarkup,
     targetTreeNodeRowMarkup,
   };
 })();

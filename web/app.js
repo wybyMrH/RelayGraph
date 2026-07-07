@@ -17395,6 +17395,15 @@ function renderSelectedSources() {
 }
 
 function renderTransferTreeNode(entry, level = 0) {
+  const api = window.TransferTreeMarkup;
+  if (api && typeof api.sourceTreeNodeMarkup === "function") {
+    return api.sourceTreeNodeMarkup(entry, {
+      level,
+      tree: state.transfer.tree,
+      previewingClassFor: (item) => previewPathMatchesState(item.path, transferSourceServerId()) ? " previewing" : "",
+      selectedSourceFor: (item) => transferSourceItemByPath(item.path, item.is_dir),
+    }, { escapeHtml });
+  }
   const node = state.transfer.tree[entry.path];
   const open = Boolean(node?.open);
   const children = node?.entries || [];
@@ -17402,7 +17411,6 @@ function renderTransferTreeNode(entry, level = 0) {
   const previewing = previewPathMatchesState(entry.path, transferSourceServerId()) ? " previewing" : "";
   const selectedSource = transferSourceItemByPath(entry.path, entry.is_dir);
   const selectedClass = selectedSource ? " transfer-source-selected" : "";
-  const api = window.TransferTreeMarkup;
   const row = api && typeof api.sourceTreeNodeRowMarkup === "function"
     ? api.sourceTreeNodeRowMarkup(entry, { level, icon, previewingClass: previewing, selectedClass, selectedSource }, { escapeHtml })
     : (() => {
@@ -17533,6 +17541,16 @@ function renderTransferTree() {
 }
 
 function renderTargetTreeNode(entry, level = 0) {
+  const api = window.TransferTreeMarkup;
+  if (api && typeof api.targetTreeNodeMarkup === "function") {
+    return api.targetTreeNodeMarkup(entry, {
+      level,
+      tree: state.transfer.targetTree,
+      selectedClassFor: (item) => normalizePathForCompare(item.path) === normalizePathForCompare(state.transfer.target?.path || "")
+        ? " selected"
+        : "",
+    }, { escapeHtml });
+  }
   const node = state.transfer.targetTree[entry.path];
   const open = Boolean(node?.open);
   const children = node?.entries || [];
@@ -17540,7 +17558,6 @@ function renderTargetTreeNode(entry, level = 0) {
   const selected = normalizePathForCompare(entry.path) === normalizePathForCompare(state.transfer.target?.path || "")
     ? " selected"
     : "";
-  const api = window.TransferTreeMarkup;
   const row = api && typeof api.targetTreeNodeRowMarkup === "function"
     ? api.targetTreeNodeRowMarkup(entry, { level, icon, selectedClass: selected }, { escapeHtml })
     : `
