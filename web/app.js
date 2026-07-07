@@ -20039,6 +20039,10 @@ function workflowTemplateCatalogApi() {
   return window.WorkflowTemplateCatalog || {};
 }
 
+function workflowTemplateCatalogRenderersApi() {
+  return window.WorkflowTemplateCatalogRenderers || {};
+}
+
 function workflowTemplateCatalogDeps() {
   return {
     escapeHtml,
@@ -20048,6 +20052,20 @@ function workflowTemplateCatalogDeps() {
     providerProfileById,
     providerProfileLabel,
     statusLabel: workspaceStatusLabel,
+  };
+}
+
+function workflowTemplateCatalogRendererDeps() {
+  return {
+    catalogApi: workflowTemplateCatalogApi,
+    catalogDeps: workflowTemplateCatalogDeps,
+    element: $,
+    nodes: () => Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [],
+    nodeTypes: () => WORKSPACE_NODE_TYPES,
+    renderNodeKindOptions: renderWorkflowTemplateNodeKindOptions,
+    selectedNodeId: () => state.selectedTemplateNodeId,
+    selectedTemplateId: () => state.selectedWorkflowTemplateId,
+    templates: () => state.workflowTemplates,
   };
 }
 
@@ -20566,36 +20584,15 @@ function renderWorkspaceModeSwitch() {
 }
 
 function renderManageTemplateList() {
-  const list = $("workflowTemplateList");
-  if (!list) return;
-  list.innerHTML = workflowTemplateCatalogApi().templateListMarkup?.({
-    templates: state.workflowTemplates,
-    selectedTemplateId: state.selectedWorkflowTemplateId,
-    ...workflowTemplateCatalogDeps(),
-  }) || '<div class="empty">还没有工作流模板。</div>';
+  return workflowTemplateCatalogRenderersApi().renderTemplateList?.(workflowTemplateCatalogRendererDeps());
 }
 
 function renderWorkflowTemplateNodeKindOptions() {
-  const select = $("workflowTemplateNodeKindSelect");
-  if (!select) return;
-  const current = select.value;
-  select.innerHTML = workflowTemplateCatalogApi().nodeKindOptionsMarkup?.({
-    nodeTypes: WORKSPACE_NODE_TYPES,
-    ...workflowTemplateCatalogDeps(),
-  }) || "";
-  select.value = WORKSPACE_NODE_TYPES[current] ? current : "custom.step";
+  return workflowTemplateCatalogRenderersApi().renderNodeKindOptions?.(workflowTemplateCatalogRendererDeps());
 }
 
 function renderWorkflowTemplateNodeList() {
-  const list = $("workflowTemplateNodeList");
-  if (!list) return;
-  renderWorkflowTemplateNodeKindOptions();
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  list.innerHTML = workflowTemplateCatalogApi().nodeListMarkup?.({
-    nodes,
-    selectedNodeId: state.selectedTemplateNodeId,
-    ...workflowTemplateCatalogDeps(),
-  }) || '<div class="empty">模板里还没有节点。</div>';
+  return workflowTemplateCatalogRenderersApi().renderNodeList?.(workflowTemplateCatalogRendererDeps());
 }
 
 function workflowTemplateCanvasSearchApi() {
