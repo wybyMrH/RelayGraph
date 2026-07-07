@@ -3084,6 +3084,18 @@ function workflowTemplateDraftDeps() {
   };
 }
 
+function workflowTemplateStateApi() {
+  return window.WorkflowTemplateState || {};
+}
+
+function workflowTemplateStateDeps() {
+  return {
+    deepClone,
+    defaultWorkflowTemplateDraft,
+    normalizeWorkflowTemplateDraft,
+  };
+}
+
 function workflowTemplateNodeMutationsApi() {
   return window.WorkflowTemplateNodeMutations || {};
 }
@@ -3420,17 +3432,21 @@ async function previewWorkflowTemplate(options = {}) {
 }
 
 function selectWorkflowTemplate(templateId, options = {}) {
-  const template = workflowTemplateById(templateId);
-  if (!template) return;
-  const changed = state.selectedWorkflowTemplateId !== template.id;
-  state.selectedWorkflowTemplateId = template.id;
-  if (changed && options.persist !== false) markWorkspaceUiInteraction();
-  saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, template.id);
-  state.workflowTemplateDraft = normalizeWorkflowTemplateDraft(template);
-  state.workflowTemplateValidation = null;
-  state.selectedTemplateNodeId = String(options.selectedNodeId || state.workflowTemplateDraft.nodes?.[0]?.id || "").trim();
-  state.ui.workflowTemplateDirty = false;
-  if (changed) state.ui.workflowTemplateNodeSearch = "";
+  const result = workflowTemplateStateApi().selectTemplateState?.({
+    templates: state.workflowTemplates,
+    currentSelectedTemplateId: state.selectedWorkflowTemplateId,
+    templateId,
+    options,
+  }, workflowTemplateStateDeps());
+  if (!result?.ok) return;
+  state.selectedWorkflowTemplateId = result.selectedTemplateId || "";
+  if (result.changed && options.persist !== false) markWorkspaceUiInteraction();
+  saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId);
+  state.workflowTemplateDraft = result.workflowTemplateDraft || {};
+  state.workflowTemplateValidation = result.workflowTemplateValidation || null;
+  state.selectedTemplateNodeId = result.selectedTemplateNodeId || "";
+  state.ui.workflowTemplateDirty = Boolean(result.workflowTemplateDirty);
+  if (result.resetWorkflowTemplateNodeSearch) state.ui.workflowTemplateNodeSearch = "";
   renderWorkspaceWorkbench();
 }
 
@@ -3443,15 +3459,16 @@ function selectedWorkflowTemplateNode() {
 }
 
 function updateWorkflowTemplateDraft(updater) {
-  const current = normalizeWorkflowTemplateDraft(state.workflowTemplateDraft || {});
-  const next = typeof updater === "function" ? updater(deepClone(current, current)) : { ...current, ...updater };
-  const normalized = normalizeWorkflowTemplateDraft(next);
-  state.workflowTemplateDraft = normalized;
-  state.workflowTemplateValidation = null;
-  state.ui.workflowTemplateDirty = true;
-  if (!normalized.nodes.some((node) => node.id === state.selectedTemplateNodeId)) {
-    state.selectedTemplateNodeId = normalized.nodes[0]?.id || "";
-  }
+  const result = workflowTemplateStateApi().updateDraftState?.({
+    currentDraft: state.workflowTemplateDraft,
+    selectedNodeId: state.selectedTemplateNodeId,
+    updater,
+  }, workflowTemplateStateDeps());
+  if (!result) return;
+  state.workflowTemplateDraft = result.workflowTemplateDraft || {};
+  state.workflowTemplateValidation = result.workflowTemplateValidation || null;
+  state.ui.workflowTemplateDirty = Boolean(result.workflowTemplateDirty);
+  state.selectedTemplateNodeId = result.selectedTemplateNodeId || "";
   preserveActiveInput(() => renderWorkspaceWorkbench());
 }
 
@@ -22210,13 +22227,15 @@ async function dismissWorkspaceChatContextReflection(button) {
 }
 
 function newWorkflowTemplateDraft(sourceType = "repo") {
-  state.selectedWorkflowTemplateId = "";
+  const result = workflowTemplateStateApi().newDraftState?.(sourceType, workflowTemplateStateDeps());
+  if (!result) return;
+  state.selectedWorkflowTemplateId = result.selectedTemplateId || "";
   saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, "");
-  state.workflowTemplateDraft = normalizeWorkflowTemplateDraft(defaultWorkflowTemplateDraft(sourceType));
-  state.workflowTemplateValidation = null;
-  state.selectedTemplateNodeId = state.workflowTemplateDraft.nodes[0]?.id || "";
-  state.ui.workflowTemplateDirty = true;
-  state.ui.workflowTemplateNodeSearch = "";
+  state.workflowTemplateDraft = result.workflowTemplateDraft || {};
+  state.workflowTemplateValidation = result.workflowTemplateValidation || null;
+  state.selectedTemplateNodeId = result.selectedTemplateNodeId || "";
+  state.ui.workflowTemplateDirty = Boolean(result.workflowTemplateDirty);
+  state.ui.workflowTemplateNodeSearch = result.workflowTemplateNodeSearch || "";
   renderWorkspaceWorkbench();
 }
 
