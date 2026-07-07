@@ -20604,6 +20604,30 @@ function workflowTemplateCanvasSearchApi() {
     : null;
 }
 
+function workflowTemplateCanvasSearchActionsApi() {
+  return window.WorkflowTemplateCanvasSearchActions || {};
+}
+
+function workflowTemplateCanvasSearchActionDeps() {
+  return {
+    nodeIoState: workflowTemplateNodeIoState,
+    nodes: () => Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [],
+    refreshFlowSummary: refreshWorkflowTemplateCanvasFlowSummary,
+    renderCanvas: renderWorkflowTemplateCanvas,
+    renderNodeEditor: renderWorkflowTemplateNodeEditor,
+    renderNodeList: renderWorkflowTemplateNodeList,
+    revealSelection: revealWorkflowTemplateSelection,
+    searchApi: workflowTemplateCanvasSearchApi,
+    searchState: workflowTemplateCanvasSearchState,
+    setSearchQuery: (query) => {
+      state.ui.workflowTemplateNodeSearch = query;
+    },
+    setSelectedNodeId: (nodeId) => {
+      state.selectedTemplateNodeId = nodeId;
+    },
+  };
+}
+
 function workflowTemplateCanvasSearchDeps() {
   return {
     agentById: globalAgentById,
@@ -20977,31 +21001,11 @@ function refreshWorkflowTemplateCanvasSearchDecorations() {
 }
 
 function setWorkflowTemplateNodeSearch(query = "", options = {}) {
-  state.ui.workflowTemplateNodeSearch = String(query || "");
-  if (options.render === true) renderWorkflowTemplateCanvas();
-  else refreshWorkflowTemplateCanvasFlowSummary();
+  return workflowTemplateCanvasSearchActionsApi().setNodeSearch?.(workflowTemplateCanvasSearchActionDeps(), query, options);
 }
 
 function selectWorkflowTemplateSearchMatch(direction = 1) {
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  if (!nodes.length) return;
-  const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
-  const search = workflowTemplateCanvasSearchState(nodes, ioStates);
-  if (!search.query || !search.matches.length) return;
-  const api = workflowTemplateCanvasSearchApi();
-  const nextNodeId = typeof api?.nextMatchNodeId === "function"
-    ? api.nextMatchNodeId({ search, direction })
-    : (() => {
-        const currentIndex = search.selectedMatchIndex >= 0 ? search.selectedMatchIndex : (direction > 0 ? -1 : 0);
-        const nextIndex = (currentIndex + direction + search.matches.length) % search.matches.length;
-        return search.matches[nextIndex]?.node?.id || "";
-      })();
-  if (!nextNodeId) return;
-  state.selectedTemplateNodeId = nextNodeId;
-  renderWorkflowTemplateCanvas();
-  renderWorkflowTemplateNodeList();
-  renderWorkflowTemplateNodeEditor();
-  revealWorkflowTemplateSelection(nextNodeId, { editor: false });
+  return workflowTemplateCanvasSearchActionsApi().selectSearchMatch?.(workflowTemplateCanvasSearchActionDeps(), direction);
 }
 
 function renderWorkflowTemplateNodeEditor() {
