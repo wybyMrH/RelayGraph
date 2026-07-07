@@ -2116,14 +2116,26 @@ function defaultWorkspaceForm(sourceType = "repo") {
 }
 
 function workspaceToolById(toolId, list = state.workspaceToolsDraft) {
+  const api = workspaceToolCatalogApi();
+  if (api && typeof api.workspaceToolById === "function") return api.workspaceToolById(toolId, list);
   return list.find((item) => item.id === toolId) || null;
 }
 
 function workspaceToolLabel(toolId, list = state.workspaceToolsDraft) {
+  const api = workspaceToolCatalogApi();
+  if (api && typeof api.workspaceToolLabel === "function") return api.workspaceToolLabel(toolId, list);
   return workspaceToolById(toolId, list)?.label || toolId || "未命名工具";
 }
 
+function workspaceToolCatalogApi() {
+  return window.WorkspaceToolCatalog && typeof window.WorkspaceToolCatalog === "object"
+    ? window.WorkspaceToolCatalog
+    : null;
+}
+
 function workspaceToolCategoryLabel(category) {
+  const api = workspaceToolCatalogApi();
+  if (api && typeof api.workspaceToolCategoryLabel === "function") return api.workspaceToolCategoryLabel(category);
   const labels = {
     workflow: "工作流",
     research: "检索",
@@ -2145,6 +2157,8 @@ function workspaceToolCategoryLabel(category) {
 }
 
 function workspaceToolsByCategory(tools = state.workspaceToolsDraft) {
+  const api = workspaceToolCatalogApi();
+  if (api && typeof api.workspaceToolsByCategory === "function") return api.workspaceToolsByCategory(tools);
   const buckets = new Map();
   tools.forEach((tool) => {
     const key = String(tool.category || "general");
@@ -2159,6 +2173,8 @@ function workspaceToolsByCategory(tools = state.workspaceToolsDraft) {
 }
 
 function workspaceToolSummary(tool) {
+  const api = workspaceToolCatalogApi();
+  if (api && typeof api.workspaceToolSummary === "function") return api.workspaceToolSummary(tool);
   if (!tool) return "";
   const parts = [
     workspaceToolCategoryLabel(tool.category || "general"),
