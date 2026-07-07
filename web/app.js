@@ -21006,26 +21006,28 @@ function selectWorkflowTemplateSearchMatch(direction = 1) {
 }
 
 function renderWorkflowTemplateNodeEditor() {
-  const box = $("workflowTemplateNodeEditor");
-  if (!box) return;
-  const node = selectedWorkflowTemplateNode();
-  if (!node) {
-    box.innerHTML = '<div class="empty">选择一个节点后，在这里编辑配置。</div>';
-    return;
-  }
-  const nodeIndex = workflowTemplateNodeIndex(node);
-  box.innerHTML = window.WorkflowTemplateNodeEditor?.editorMarkup?.({
-    agentDefinitions: state.agentDefinitions,
+  return workflowTemplateNodeEditorRendererApi().renderNodeEditor?.(workflowTemplateNodeEditorRendererDeps());
+}
+
+function workflowTemplateNodeEditorRendererApi() {
+  return window.WorkflowTemplateNodeEditorRenderer || {};
+}
+
+function workflowTemplateNodeEditorRendererDeps() {
+  return {
+    agentDefinitions: () => state.agentDefinitions,
+    editorApi: () => window.WorkflowTemplateNodeEditor,
+    element: $,
     escapeHtml,
     inputMappingEditorMarkup: workflowTemplateInputMappingEditorMarkup,
-    node,
-    nodeIndex,
+    nodeIndex: workflowTemplateNodeIndex,
+    nodeIoContract: workspaceNodeIoContract,
     nodeLabel: workspaceNodeLabel,
     nodeMeta: workspaceNodeMeta,
-    outputPlaceholder: workspaceNodeIoContract(node.kind, 0).output || "step_output",
     renderNodeField: renderWorkspaceNodeField,
+    selectedNode: selectedWorkflowTemplateNode,
     statusLabel: workspaceStatusLabel,
-  }) || '<div class="empty">模板节点编辑器暂不可用。</div>';
+  };
 }
 
 function renderManageTemplateModule() {
