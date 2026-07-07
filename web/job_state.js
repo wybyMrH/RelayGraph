@@ -76,7 +76,60 @@
     return status === value;
   }
 
+  function waitingQueuePositions(jobs = [], deps = {}) {
+    const waiting = fn(deps, "isWaitingJob", isWaitingJob);
+    const rank = fn(deps, "jobQueueRank", jobQueueRank);
+    return new Map(
+      jobs
+        .filter((job) => waiting(job))
+        .slice()
+        .sort((left, right) => rank(left) - rank(right))
+        .map((job, index) => [job.id, index + 1]),
+    );
+  }
+
+  function filteredJobs(jobs = [], filters = {}, deps = {}) {
+    const searchKey = fn(deps, "jobSearchKey", jobSearchKey);
+    const statusFilter = fn(deps, "jobMatchesStatusFilter", matchesStatusFilter);
+    const kindFilter = fn(deps, "jobMatchesKindFilter", matchesKindFilter);
+    const durationMs = fn(deps, "jobDurationMs", jobDurationMs);
+    const parseMs = fn(deps, "parseDateMs", parseDateMs);
+    const waiting = fn(deps, "isWaitingJob", isWaitingJob);
+    const rank = fn(deps, "jobQueueRank", jobQueueRank);
+    const query = filters.query.trim().toLowerCase();
+    const serverId = filters.server;
+    const status = filters.status;
+    const kind = filters.kind;
+    const sort = filters.sort || "created_desc";
+    const items = jobs
+      .filter((job) => {
+        if (query && !searchKey(job).includes(query)) return false;
+        if (serverId && String(job.server_id || "") !== serverId && String(job.requested_server_id || "") !== serverId) return false;
+        if (!statusFilter(job, status)) return false;
+        if (!kindFilter(job, kind)) return false;
+        return true;
+      });
+    items.sort((left, right) => {
+      if (sort === "queue") {
+        const leftWaiting = waiting(left);
+        const rightWaiting = waiting(right);
+        if (leftWaiting && rightWaiting) return rank(left) - rank(right);
+        if (leftWaiting || rightWaiting) return leftWaiting ? -1 : 1;
+      }
+      if (sort === "duration_desc") {
+        const delta = durationMs(right) - durationMs(left);
+        if (delta !== 0) return delta;
+      }
+      const leftCreated = parseMs(left.created_at);
+      const rightCreated = parseMs(right.created_at);
+      if (sort === "created_asc") return leftCreated - rightCreated;
+      return rightCreated - leftCreated;
+    });
+    return items.slice(0, 100);
+  }
+
   window.JobState = {
+    filteredJobs,
     formatDurationMs,
     isWaitingJob,
     jobDurationMs,
@@ -86,5 +139,6 @@
     matchesKindFilter,
     matchesStatusFilter,
     parseDateMs,
+    waitingQueuePositions,
   };
 })();

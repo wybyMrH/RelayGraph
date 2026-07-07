@@ -19500,6 +19500,10 @@ function jobMatchesStatusFilter(job, value) {
 }
 
 function waitingQueuePositions() {
+  const api = jobStateApi();
+  if (api && typeof api.waitingQueuePositions === "function") {
+    return api.waitingQueuePositions(state.jobs, { isWaitingJob, jobQueueRank });
+  }
   return new Map(
     state.jobs
       .filter((job) => isWaitingJob(job))
@@ -19510,6 +19514,18 @@ function waitingQueuePositions() {
 }
 
 function filteredJobs() {
+  const api = jobStateApi();
+  if (api && typeof api.filteredJobs === "function") {
+    return api.filteredJobs(state.jobs, state.jobFilters, {
+      isWaitingJob,
+      jobDurationMs,
+      jobMatchesKindFilter,
+      jobMatchesStatusFilter,
+      jobQueueRank,
+      jobSearchKey,
+      parseDateMs,
+    });
+  }
   const query = state.jobFilters.query.trim().toLowerCase();
   const serverId = state.jobFilters.server;
   const status = state.jobFilters.status;
