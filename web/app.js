@@ -3066,131 +3066,30 @@ function workspaceChainSourceType(sourceType) {
   return String(sourceType || "idea") === "mixed" ? "idea" : String(sourceType || "idea");
 }
 
-function defaultWorkflowTemplateDraft(sourceType = "repo") {
-  const chainSourceType = workspaceChainSourceType(sourceType);
-  const defaults = defaultWorkspaceForm(chainSourceType);
-  const recipe = {
-    enabled: true,
-    setup_command: defaults.setup_command || "",
-    run_command: defaults.run_command || "",
-    report_command: defaults.report_command || "",
-    schedule: defaults.schedule || "",
-  };
+function workflowTemplateDraftApi() {
+  return window.WorkflowTemplateDraft || {};
+}
+
+function workflowTemplateDraftDeps() {
   return {
-    id: "",
-    name: sourceType === "paper"
-      ? "Paper 复现默认流"
-      : sourceType === "idea" || sourceType === "mixed"
-        ? "Idea 探索默认流"
-        : "Repo 复现默认流",
-    description: "",
-    status: "ready",
-    brief: "",
-    source: {
-      type: sourceType,
-      repo_url: "",
-      repo_ref: "",
-      paper_url: "",
-      idea_text: "",
-    },
-    workspace_dir: "",
-    env: {
-      name: defaults.env_name || "",
-      manager: defaults.env_manager || "",
-      python: defaults.python_version || "",
-    },
-    recipes: [recipe],
-    model: defaultWorkspaceModel(),
-    nodes: defaults.nodes || [],
-    links: workspaceLinksFromNodes(defaults.nodes || []),
-    tags: [],
-    notes: "",
-    version_history: [],
-    created_at: "",
-    updated_at: "",
+    buildWorkspaceStarterNodes,
+    deepClone,
+    defaultWorkspaceForm,
+    defaultWorkspaceModel,
+    normalizeWorkspaceDraftNode,
+    normalizeWorkspaceModelDraft,
+    parseTagList,
+    workspaceChainSourceType,
+    workspaceLinksFromNodes,
   };
 }
 
+function defaultWorkflowTemplateDraft(sourceType = "repo") {
+  return workflowTemplateDraftApi().defaultDraft?.(sourceType, workflowTemplateDraftDeps()) || {};
+}
+
 function normalizeWorkflowTemplateDraft(template = {}) {
-  const source = template.source && typeof template.source === "object" ? template.source : {};
-  const env = template.env && typeof template.env === "object" ? template.env : {};
-  const recipes = Array.isArray(template.recipes) ? template.recipes : [];
-  const recipe = recipes.find((item) => item && item.enabled !== false) || recipes[0] || {};
-  const sourceType = String(source.type || template.source_type || "repo");
-  const chainSourceType = workspaceChainSourceType(sourceType);
-  const base = defaultWorkflowTemplateDraft(sourceType);
-  const nodes = (Array.isArray(template.nodes) && template.nodes.length
-    ? template.nodes
-    : buildWorkspaceStarterNodes({ source_type: chainSourceType }))
-    .map((node, index) => normalizeWorkspaceDraftNode(node, index, {
-      source_type: chainSourceType,
-      repo_url: source.repo_url || "",
-      repo_ref: source.repo_ref || "",
-      paper_url: source.paper_url || "",
-      idea_text: source.idea_text || template.brief || "",
-      workspace_dir: template.workspace_dir || "",
-      env_name: env.name || "",
-      env_manager: env.manager || "",
-      python_version: env.python || "",
-      setup_command: recipe.setup_command || "",
-      run_command: recipe.run_command || "",
-      report_command: recipe.report_command || "",
-      schedule: recipe.schedule || "",
-      notes: template.notes || "",
-    }));
-  return {
-    ...base,
-    id: String(template.id || ""),
-    name: String(template.name || base.name),
-    description: String(template.description || ""),
-    status: String(template.status || base.status),
-    brief: String(template.brief || ""),
-    source: {
-      type: sourceType,
-      repo_url: String(source.repo_url || ""),
-      repo_ref: String(source.repo_ref || ""),
-      paper_url: String(source.paper_url || ""),
-      idea_text: String(source.idea_text || ""),
-    },
-    workspace_dir: String(template.workspace_dir || ""),
-    env: {
-      name: String(env.name || base.env.name || ""),
-      manager: String(env.manager || base.env.manager || ""),
-      python: String(env.python || base.env.python || ""),
-    },
-    recipes: [{
-      enabled: recipe.enabled !== false,
-      setup_command: String(recipe.setup_command || ""),
-      run_command: String(recipe.run_command || ""),
-      report_command: String(recipe.report_command || ""),
-      schedule: String(recipe.schedule || ""),
-    }],
-    model: normalizeWorkspaceModelDraft(template.model || base.model),
-    nodes,
-    links: workspaceLinksFromNodes(nodes),
-    tags: parseTagList(template.tags || []),
-    notes: String(template.notes || ""),
-    version_history: Array.isArray(template.version_history)
-      ? template.version_history.map((record) => ({
-          ...record,
-          id: String(record?.id || ""),
-          mode: String(record?.mode || "update"),
-          recorded_at: String(record?.recorded_at || ""),
-          template_id: String(record?.template_id || ""),
-          template_name: String(record?.template_name || ""),
-          from_updated_at: String(record?.from_updated_at || ""),
-          to_updated_at: String(record?.to_updated_at || ""),
-          summary: record?.summary && typeof record.summary === "object" ? { ...record.summary } : {},
-          changed_fields: Array.isArray(record?.changed_fields) ? record.changed_fields.map((item) => String(item || "")).filter(Boolean) : [],
-          added_nodes: Array.isArray(record?.added_nodes) ? record.added_nodes : [],
-          removed_nodes: Array.isArray(record?.removed_nodes) ? record.removed_nodes : [],
-          changed_nodes: Array.isArray(record?.changed_nodes) ? record.changed_nodes : [],
-          warnings: Array.isArray(record?.warnings) ? record.warnings.map((item) => String(item || "")).filter(Boolean) : [],
-        })).filter((record) => record.id || record.recorded_at).slice(0, 20)
-      : [],
-    created_at: String(template.created_at || ""),
-    updated_at: String(template.updated_at || ""),
-  };
+  return workflowTemplateDraftApi().normalizeDraft?.(template, workflowTemplateDraftDeps()) || {};
 }
 
 function normalizeGlobalAgentDefinitionDraft(agent = {}, index = 0) {
@@ -3213,33 +3112,7 @@ function normalizeGlobalToolDefinitionDraft(tool = {}, index = 0) {
 }
 
 function workflowTemplatePayloadForSave() {
-  const draft = normalizeWorkflowTemplateDraft(state.workflowTemplateDraft || {});
-  const recipe = Array.isArray(draft.recipes) ? draft.recipes[0] || {} : {};
-  return {
-    id: draft.id || undefined,
-    name: draft.name,
-    description: draft.description,
-    status: draft.status,
-    brief: draft.brief,
-    source_type: draft.source?.type || "repo",
-    repo_url: draft.source?.repo_url || "",
-    repo_ref: draft.source?.repo_ref || "",
-    paper_url: draft.source?.paper_url || "",
-    idea_text: draft.source?.idea_text || "",
-    workspace_dir: draft.workspace_dir || "",
-    env_name: draft.env?.name || "",
-    env_manager: draft.env?.manager || "",
-    python_version: draft.env?.python || "",
-    setup_command: recipe.setup_command || "",
-    run_command: recipe.run_command || "",
-    report_command: recipe.report_command || "",
-    schedule: recipe.schedule || "",
-    model: deepClone(draft.model || {}, {}),
-    nodes: deepClone(draft.nodes || [], []),
-    links: workspaceLinksFromNodes(draft.nodes || []),
-    tags: deepClone(draft.tags || [], []),
-    notes: draft.notes || "",
-  };
+  return workflowTemplateDraftApi().payloadForSave?.(state.workflowTemplateDraft || {}, workflowTemplateDraftDeps()) || {};
 }
 
 function setWorkspaceUseMessage(text = "", isError = false) {
