@@ -1795,7 +1795,13 @@ function formatPercent(value) {
   return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`;
 }
 
+function inputParsersApi() {
+  return window.InputParsers && typeof window.InputParsers === "object" ? window.InputParsers : null;
+}
+
 function positiveNumberOrBlank(value) {
+  const api = inputParsersApi();
+  if (api && typeof api.positiveNumberOrBlank === "function") return api.positiveNumberOrBlank(value);
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : "";
 }
@@ -1893,6 +1899,8 @@ function preserveActiveInput(renderFn) {
 
 
 function parseLineList(value) {
+  const api = inputParsersApi();
+  if (api && typeof api.parseLineList === "function") return api.parseLineList(value);
   if (Array.isArray(value)) {
     return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)));
   }
@@ -1900,6 +1908,8 @@ function parseLineList(value) {
 }
 
 function parseTagList(value) {
+  const api = inputParsersApi();
+  if (api && typeof api.parseTagList === "function") return api.parseTagList(value);
   if (Array.isArray(value)) {
     return Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)));
   }
