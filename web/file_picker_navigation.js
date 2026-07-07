@@ -95,11 +95,18 @@
     await fn(deps, "loadFilePicker", async () => {})(filePicker.parent);
   }
 
+  async function openPath(path = "", deps = {}) {
+    const state = deps.state && typeof deps.state === "object" ? deps.state : {};
+    state.filePicker = resetNavigationState(state.filePicker);
+    await fn(deps, "loadFilePicker", async () => {})(path);
+  }
+
   window.FilePickerNavigation = {
     forwardNavigationState,
     navigateForward,
     navigateUp,
     navigationButtonState,
+    openPath,
     rememberForwardPath,
     resetNavigationState,
   };

@@ -18421,6 +18421,14 @@ async function navigateFilePickerUp() {
   return await filePickerNavigationApi()?.navigateUp?.(filePickerNavigationDeps());
 }
 
+async function openFilePickerPathWithReset(path = "") {
+  return await filePickerNavigationApi()?.openPath?.(path, filePickerNavigationDeps());
+}
+
+async function openFilePickerRootWithReset(path = "") {
+  return await filePickerNavigationApi()?.openPath?.(path, filePickerNavigationDeps());
+}
+
 function renderRuntimeStoragePanel(payload = {}) {
   const stats = $("runtimeStorageStats");
   const previewAgeInput = $("runtimePreviewMaxAgeHours");
@@ -25920,14 +25928,8 @@ function bindEvents() {
     openCurrentPreview: openCurrentFilePreview,
     openFavorite: openTransferPathFavorite,
     openFilePicker,
-    openFilePickerPath: (path) => {
-      resetFilePickerNavigation();
-      void loadFilePicker(path);
-    },
-    openFilePickerRoot: (path) => {
-      resetFilePickerNavigation();
-      void loadFilePicker(path);
-    },
+    openFilePickerPath: openFilePickerPathWithReset,
+    openFilePickerRoot: openFilePickerRootWithReset,
     openTransferTreeName: (path, isDir) => {
       if (isDir) {
         void toggleTransferNode(path, true);
