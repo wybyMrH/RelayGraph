@@ -3152,6 +3152,8 @@ function workspaceRecipeCommandValues(nodes = []) {
 }
 
 function workspaceNodeSummary(node) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceNodeSummary === "function") return api.workspaceNodeSummary(node);
   if (!node) return "";
   const config = node.config || {};
   if (node.kind === "source.repo") return config.repo_url || "未填写仓库地址";
@@ -3173,6 +3175,10 @@ function workspaceNodeSummary(node) {
 }
 
 function workspaceNodeRuntimeSummary(node) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceNodeRuntimeSummary === "function") {
+    return api.workspaceNodeRuntimeSummary(node, { zhStatus });
+  }
   const runtime = node?.runtime || {};
   const runCount = Number(runtime.run_count || 0);
   const status = String(runtime.last_job_status || "").trim();
