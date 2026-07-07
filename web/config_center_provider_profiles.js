@@ -121,17 +121,87 @@
     ].join("");
   }
 
+  function configuredProviderProfiles(list = []) {
+    return (Array.isArray(list) ? list : []).filter((profile) => providerProfileKind(profile) === "llm" && providerProfileIsValid(profile));
+  }
+
+  function searchProviderProfiles(list = []) {
+    return (Array.isArray(list) ? list : []).filter((profile) => providerProfileKind(profile) === "search");
+  }
+
+  function configuredSearchProviderProfiles(list = []) {
+    return searchProviderProfiles(list).filter((profile) => providerProfileIsValid(profile));
+  }
+
+  function selectedSearchProviderProfileId(list = [], draftProfileId = "") {
+    const profiles = searchProviderProfiles(list);
+    const draftId = String(draftProfileId || "").trim();
+    if (draftId && profiles.some((profile) => profile.id === draftId)) return draftId;
+    const defaultProfile = profiles.find((profile) => profile.is_default) || profiles[0];
+    return defaultProfile?.id || "";
+  }
+
+  function providerRouteHealthStatus(health = {}, providerProfiles = []) {
+    const source = health && typeof health === "object"
+      ? health
+      : { status: "draft", issues: [], blocking_count: 0, warning_count: 0, configured_profile_count: 0, profile_count: 0 };
+    const configuredCount = Number(source.configured_profile_count || configuredProviderProfiles(providerProfiles).length || 0);
+    const blockingCount = configuredCount ? 0 : Number(source.blocking_count || 0);
+    return {
+      ...source,
+      effective_status: blockingCount ? "blocked" : configuredCount ? "ready" : source.status || "draft",
+      effective_blocking_count: blockingCount,
+    };
+  }
+
+  function providerHealthIssueLabel(issue = {}) {
+    const prefix = issue.severity === "blocking" ? "阻塞" : issue.severity === "warning" ? "警告" : "提示";
+    return `${prefix} · ${issue.message || issue.code || "Provider 路由待检查"}`;
+  }
+
+  function maskSecret(value) {
+    const text = String(value || "");
+    if (!text) return "未填写";
+    if (text.length <= 8) return `${text.slice(0, 2)}***${text.slice(-1)}`;
+    return `${text.slice(0, 4)}...${text.slice(-4)}`;
+  }
+
+  function providerProfileSecretLabel(profile = {}) {
+    if (profile.api_key) return maskSecret(profile.api_key);
+    if (profile.api_key_masked) return `已保存 ${profile.api_key_masked}`;
+    return profile.has_api_key ? "已保存 API key" : "未填写";
+  }
+
+  function providerProfileLabel(profile) {
+    if (!profile) return "未选择";
+    if (providerProfileKind(profile) === "search") {
+      const provider = searchProviderOption(profile.vendor).label || profile.vendor || "Search";
+      return `${profile.label || profile.id} · Search · ${provider}`;
+    }
+    const vendor = providerVendorOptions.find((item) => item.value === profile.vendor)?.label || profile.vendor || "Custom";
+    const model = String(profile.model || "").trim();
+    return model ? `${profile.label} · ${vendor} · ${model}` : `${profile.label} · ${vendor}`;
+  }
+
   window.ConfigCenterProviderProfiles = {
     baseUrlIsVendorDefault,
+    configuredProviderProfiles,
+    configuredSearchProviderProfiles,
     providerProfileIsValid,
     providerProfileKind,
+    providerProfileLabel,
     providerProfileRequiresApiKey,
+    providerProfileSecretLabel,
+    providerHealthIssueLabel,
+    providerRouteHealthStatus,
     providerVendorOptions,
     providerVendorOptionsMarkup,
     providerVendorRequiresApiKey,
     searchProviderOption,
     searchProviderOptions,
     searchProviderOptionsMarkup,
+    searchProviderProfiles,
+    selectedSearchProviderProfileId,
     vendorDefaultBaseUrl,
   };
 })();

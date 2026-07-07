@@ -1533,18 +1533,28 @@ function workspaceConfigValue(kind, key, value) {
 }
 
 function configuredProviderProfiles(list = state.providerProfiles) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.configuredProviderProfiles === "function") return api.configuredProviderProfiles(list);
   return (Array.isArray(list) ? list : []).filter((profile) => providerProfileKind(profile) === "llm" && providerProfileIsValid(profile));
 }
 
 function searchProviderProfiles(list = state.providerProfiles) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.searchProviderProfiles === "function") return api.searchProviderProfiles(list);
   return (Array.isArray(list) ? list : []).filter((profile) => providerProfileKind(profile) === "search");
 }
 
 function configuredSearchProviderProfiles(list = state.providerProfiles) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.configuredSearchProviderProfiles === "function") return api.configuredSearchProviderProfiles(list);
   return searchProviderProfiles(list).filter((profile) => providerProfileIsValid(profile));
 }
 
 function selectedSearchProviderProfileId() {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.selectedSearchProviderProfileId === "function") {
+    return api.selectedSearchProviderProfileId(state.providerProfiles, state.toolDefinitionDraft?.provider_profile_id);
+  }
   const draftId = String(state.toolDefinitionDraft?.provider_profile_id || "").trim();
   if (draftId && searchProviderProfiles().some((profile) => profile.id === draftId)) return draftId;
   const defaultProfile = searchProviderProfiles().find((profile) => profile.is_default) || searchProviderProfiles()[0];
@@ -1552,9 +1562,11 @@ function selectedSearchProviderProfileId() {
 }
 
 function providerRouteHealthStatus() {
+  const api = configCenterProviderProfilesApi();
   const health = state.providerRouteHealth && typeof state.providerRouteHealth === "object"
     ? state.providerRouteHealth
     : { status: "draft", issues: [], blocking_count: 0, warning_count: 0, configured_profile_count: 0, profile_count: 0 };
+  if (typeof api?.providerRouteHealthStatus === "function") return api.providerRouteHealthStatus(health, state.providerProfiles);
   const configuredCount = Number(health.configured_profile_count || configuredProviderProfiles().length || 0);
   const blockingCount = configuredCount ? 0 : Number(health.blocking_count || 0);
   return {
@@ -1565,6 +1577,8 @@ function providerRouteHealthStatus() {
 }
 
 function providerHealthIssueLabel(issue = {}) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerHealthIssueLabel === "function") return api.providerHealthIssueLabel(issue);
   const prefix = issue.severity === "blocking" ? "阻塞" : issue.severity === "warning" ? "警告" : "提示";
   return `${prefix} · ${issue.message || issue.code || "Provider 路由待检查"}`;
 }
@@ -2676,6 +2690,8 @@ function maskSecret(value) {
 }
 
 function providerProfileSecretLabel(profile = {}) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerProfileSecretLabel === "function") return api.providerProfileSecretLabel(profile);
   if (profile.api_key) return maskSecret(profile.api_key);
   if (profile.api_key_masked) return `已保存 ${profile.api_key_masked}`;
   return profile.has_api_key ? "已保存 API key" : "未填写";
@@ -2686,6 +2702,8 @@ function providerProfileById(profileId, list = state.providerProfiles) {
 }
 
 function providerProfileLabel(profile) {
+  const api = configCenterProviderProfilesApi();
+  if (typeof api?.providerProfileLabel === "function") return api.providerProfileLabel(profile);
   if (!profile) return "未选择";
   if (providerProfileKind(profile) === "search") {
     const provider = searchProviderOption(profile.vendor).label || profile.vendor || "Search";
