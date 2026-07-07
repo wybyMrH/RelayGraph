@@ -2969,6 +2969,10 @@ function workspaceSearchSeed(formData = {}) {
 }
 
 function workspaceNodeDefaultConfig(kind, formData = {}) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceNodeDefaultConfig === "function") {
+    return api.workspaceNodeDefaultConfig(kind, formData);
+  }
   const base = {};
   const type = String(formData.source_type || "repo");
   if (kind === "source.repo") {

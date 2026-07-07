@@ -61,6 +61,79 @@
     return [...IDEA_SOURCE_KINDS];
   }
 
+  function workspaceNodeDefaultConfig(kind, formData = {}) {
+    const base = {};
+    const type = String(formData.source_type || "repo");
+    if (kind === "source.repo") {
+      base.repo_url = String(formData.repo_url || "");
+      base.repo_ref = String(formData.repo_ref || "");
+    } else if (kind === "source.paper") {
+      base.paper_url = String(formData.paper_url || "");
+    } else if (kind === "source.idea") {
+      base.idea_text = String(formData.idea_text || formData.brief || "");
+    } else if (kind === "research.search") {
+      base.query = "";
+      base.goal = "";
+    } else if (kind === "repo.clone") {
+      base.repo_url = String(formData.repo_url || "");
+      base.repo_ref = String(formData.repo_ref || "");
+      base.workspace_dir = String(formData.workspace_dir || "");
+    } else if (kind === "path.resolve") {
+      base.workspace_dir = String(formData.workspace_dir || "");
+      base.data_roots = "";
+      base.output_roots = "";
+    } else if (kind === "repo.inspect") {
+      base.workspace_dir = String(formData.workspace_dir || "");
+      base.focus_paths = "";
+      base.questions = "";
+    } else if (kind === "dataset.find") {
+      base.query = "";
+      base.dataset_hints = String(formData.references || "");
+      base.data_roots = "";
+      base.expected_layout = "";
+    } else if (kind === "env.infer") {
+      base.workspace_dir = String(formData.workspace_dir || "");
+      base.manifest_paths = "";
+      base.env_name = String(formData.env_name || "");
+      base.python_version = String(formData.python_version || "");
+    } else if (kind === "env.prepare") {
+      base.workspace_dir = String(formData.workspace_dir || "");
+      base.env_name = String(formData.env_name || "");
+      base.env_manager = String(formData.env_manager || "");
+      base.python_version = String(formData.python_version || "");
+      base.setup_command = String(formData.setup_command || "");
+    } else if (kind === "gpu.allocate") {
+      base.server_id = "";
+      base.gpu_policy = "";
+      base.min_free_memory_gib = "";
+      base.notes = "";
+    } else if (kind === "run.command") {
+      base.workspace_dir = String(formData.workspace_dir || "");
+      base.env_name = String(formData.env_name || "");
+      base.server_id = "";
+      base.gpu_policy = "";
+      base.run_command = String(formData.run_command || "");
+      base.schedule = String(formData.schedule || "");
+    } else if (kind === "artifact.collect") {
+      base.workspace_dir = String(formData.workspace_dir || "");
+      base.artifact_paths = "";
+      base.metric_paths = "";
+      base.notes = String(formData.notes || "");
+    } else if (kind === "eval.report") {
+      base.report_command = String(formData.report_command || "");
+      base.metric_paths = "";
+      base.notes = String(formData.notes || "");
+    } else if (kind === "notify.user") {
+      base.channel = "ui";
+      base.message = "";
+    } else {
+      base.goal = "";
+      base.command = "";
+      base.output_expectation = "";
+    }
+    return base;
+  }
+
   function workspaceRecipeCommandValueFromNodes(nodes = [], key = "") {
     const items = Array.isArray(nodes) ? nodes : [];
     const findConfig = (kind) => {
@@ -118,6 +191,7 @@
   }
 
   window.WorkspaceNodeCatalog = {
+    workspaceNodeDefaultConfig,
     workspaceRecipeCommandValueFromNodes,
     workspaceRecipeCommandValues,
     workspaceNodeKindsForSource,
