@@ -835,7 +835,17 @@ const WORKSPACE_SHELL_DISCOVERY_KINDS = new Set([
   "artifact.collect",
 ]);
 
+function workspaceNodeRunStateApi() {
+  return window.WorkspaceNodeRunState && typeof window.WorkspaceNodeRunState === "object"
+    ? window.WorkspaceNodeRunState
+    : null;
+}
+
 function workspaceNodeSupportsAgentRun(node = null) {
+  const api = workspaceNodeRunStateApi();
+  if (api && typeof api.workspaceNodeSupportsAgentRun === "function") {
+    return api.workspaceNodeSupportsAgentRun(node);
+  }
   const kind = String(node?.kind || "").trim();
   if (!WORKSPACE_AGENT_EXECUTABLE_KINDS.has(kind)) return false;
   const handler = node?.handler && typeof node.handler === "object" ? node.handler : {};
@@ -843,6 +853,10 @@ function workspaceNodeSupportsAgentRun(node = null) {
 }
 
 function workspaceNodeSupportsJobRun(node = null) {
+  const api = workspaceNodeRunStateApi();
+  if (api && typeof api.workspaceNodeSupportsJobRun === "function") {
+    return api.workspaceNodeSupportsJobRun(node);
+  }
   const kind = String(node?.kind || "").trim();
   return WORKSPACE_JOB_EXECUTABLE_KINDS.has(kind) || WORKSPACE_SHELL_DISCOVERY_KINDS.has(kind);
 }
