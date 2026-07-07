@@ -11384,12 +11384,20 @@ async function fetchFilePreviewAsset(path = "", options = {}) {
   });
 }
 
+function jobStateApi() {
+  return window.JobState && typeof window.JobState === "object" ? window.JobState : null;
+}
+
 function parseDateMs(value) {
+  const api = jobStateApi();
+  if (api && typeof api.parseDateMs === "function") return api.parseDateMs(value);
   const ms = Date.parse(value || "");
   return Number.isFinite(ms) ? ms : 0;
 }
 
 function formatDurationMs(value) {
+  const api = jobStateApi();
+  if (api && typeof api.formatDurationMs === "function") return api.formatDurationMs(value);
   const totalSeconds = Math.max(0, Math.round(Number(value || 0) / 1000));
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -11400,6 +11408,10 @@ function formatDurationMs(value) {
 }
 
 function jobDurationMs(job) {
+  const api = jobStateApi();
+  if (api && typeof api.jobDurationMs === "function") {
+    return api.jobDurationMs(job, { now: () => Date.now(), parseDateMs });
+  }
   const start = parseDateMs(job.started_at || job.created_at);
   const end = parseDateMs(job.finished_at) || Date.now();
   if (!start || end < start) return 0;
@@ -11407,10 +11419,14 @@ function jobDurationMs(job) {
 }
 
 function isWaitingJob(job) {
+  const api = jobStateApi();
+  if (api && typeof api.isWaitingJob === "function") return api.isWaitingJob(job);
   return ["queued", "blocked"].includes(String(job?.status || ""));
 }
 
 function jobKindGroup(job) {
+  const api = jobStateApi();
+  if (api && typeof api.jobKindGroup === "function") return api.jobKindGroup(job);
   const kind = String(job?.kind || "");
   if (kind === "transfer") return "transfer";
   if (kind === "profile") return "profile";
@@ -11419,6 +11435,8 @@ function jobKindGroup(job) {
 }
 
 function jobQueueRank(job) {
+  const api = jobStateApi();
+  if (api && typeof api.jobQueueRank === "function") return api.jobQueueRank(job);
   const rank = Number(job?.queue_rank || 0);
   return Number.isFinite(rank) && rank > 0 ? rank : Number.MAX_SAFE_INTEGER;
 }
