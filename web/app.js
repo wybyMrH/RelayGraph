@@ -13134,6 +13134,8 @@ function workspaceNodeExecutionBundleMarkup(node = {}, jobs = workspaceJobs()) {
 }
 
 function workspaceRuntimeTrace(node = {}) {
+  const api = workspaceNodeRunStateApi();
+  if (api && typeof api.workspaceRuntimeTrace === "function") return api.workspaceRuntimeTrace(node);
   return Array.isArray(node?.trace)
     ? node.trace
     : Array.isArray(node?.runtime?.trace)
@@ -13142,6 +13144,8 @@ function workspaceRuntimeTrace(node = {}) {
 }
 
 function workspaceRuntimeArtifacts(node = {}) {
+  const api = workspaceNodeRunStateApi();
+  if (api && typeof api.workspaceRuntimeArtifacts === "function") return api.workspaceRuntimeArtifacts(node);
   return Array.isArray(node?.artifacts)
     ? node.artifacts
     : Array.isArray(node?.runtime?.artifacts)
@@ -13150,6 +13154,8 @@ function workspaceRuntimeArtifacts(node = {}) {
 }
 
 function workspaceRuntimeResources(node = {}) {
+  const api = workspaceNodeRunStateApi();
+  if (api && typeof api.workspaceRuntimeResources === "function") return api.workspaceRuntimeResources(node);
   if (node?.resources && typeof node.resources === "object") return node.resources;
   if (node?.runtime?.resources && typeof node.runtime.resources === "object") return node.runtime.resources;
   return {};

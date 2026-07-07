@@ -41,11 +41,36 @@
     return WORKSPACE_JOB_EXECUTABLE_KINDS.has(kind) || WORKSPACE_SHELL_DISCOVERY_KINDS.has(kind);
   }
 
+  function workspaceRuntimeTrace(node = {}) {
+    return Array.isArray(node?.trace)
+      ? node.trace
+      : Array.isArray(node?.runtime?.trace)
+        ? node.runtime.trace
+        : [];
+  }
+
+  function workspaceRuntimeArtifacts(node = {}) {
+    return Array.isArray(node?.artifacts)
+      ? node.artifacts
+      : Array.isArray(node?.runtime?.artifacts)
+        ? node.runtime.artifacts
+        : [];
+  }
+
+  function workspaceRuntimeResources(node = {}) {
+    if (node?.resources && typeof node.resources === "object") return node.resources;
+    if (node?.runtime?.resources && typeof node.runtime.resources === "object") return node.runtime.resources;
+    return {};
+  }
+
   window.WorkspaceNodeRunState = {
     agentExecutableKinds: Array.from(WORKSPACE_AGENT_EXECUTABLE_KINDS),
     jobExecutableKinds: Array.from(WORKSPACE_JOB_EXECUTABLE_KINDS),
     shellDiscoveryKinds: Array.from(WORKSPACE_SHELL_DISCOVERY_KINDS),
     workspaceNodeSupportsAgentRun,
     workspaceNodeSupportsJobRun,
+    workspaceRuntimeArtifacts,
+    workspaceRuntimeResources,
+    workspaceRuntimeTrace,
   };
 })();
