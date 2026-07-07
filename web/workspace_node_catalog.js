@@ -302,10 +302,112 @@
     return parts.join(" · ");
   }
 
+  function recommendedNodeAssignment(kind) {
+    const mapping = {
+      "source.repo": {
+        mode: "human",
+        role: "",
+        displayName: "你",
+        handoff: "确认仓库地址、目标分支、成功标准和运行约束。",
+      },
+      "source.paper": {
+        mode: "human",
+        role: "",
+        displayName: "你",
+        handoff: "补齐论文链接、任务目标和希望复现的指标。",
+      },
+      "source.idea": {
+        mode: "human",
+        role: "",
+        displayName: "你",
+        handoff: "把目标、限制条件和成功标准写清楚，再交给 Planner 和 Researcher。",
+      },
+      "research.search": {
+        mode: "agent",
+        role: "researcher",
+        displayName: "Researcher",
+        handoff: "输出候选仓库、关键依赖、相关文章和可信度说明。",
+      },
+      "repo.clone": {
+        mode: "system",
+        role: "repo_scout",
+        displayName: "Repo Scout",
+        handoff: "记录克隆目录、分支或提交，并确认代码已经落地。",
+      },
+      "path.resolve": {
+        mode: "agent",
+        role: "repo_scout",
+        displayName: "Repo Scout",
+        handoff: "输出工作目录、数据目录、日志目录和结果目录的候选路径。",
+      },
+      "repo.inspect": {
+        mode: "agent",
+        role: "repo_scout",
+        displayName: "Repo Scout",
+        handoff: "产出入口、依赖、默认命令、配置文件和结果目录。",
+      },
+      "dataset.find": {
+        mode: "agent",
+        role: "researcher",
+        displayName: "Researcher",
+        handoff: "输出数据集名称、来源、本地路径候选、下载方式和结构要求。",
+      },
+      "env.infer": {
+        mode: "agent",
+        role: "env_builder",
+        displayName: "Env Builder",
+        handoff: "输出 Python/CUDA/依赖文件判断和建议安装命令。",
+      },
+      "env.prepare": {
+        mode: "system",
+        role: "env_builder",
+        displayName: "Env Builder",
+        handoff: "记录环境名、安装结果、失败依赖和替代方案。",
+      },
+      "gpu.allocate": {
+        mode: "system",
+        role: "gpu_scout",
+        displayName: "GPU Scout",
+        handoff: "记录目标服务器、GPU 编号、空闲显存和调度约束。",
+      },
+      "run.command": {
+        mode: "system",
+        role: "runner",
+        displayName: "Runner",
+        handoff: "记录服务器、GPU、会话、日志路径和下一步评估入口。",
+      },
+      "artifact.collect": {
+        mode: "agent",
+        role: "evaluator",
+        displayName: "Evaluator",
+        handoff: "输出日志、指标、模型文件、运行命令和可复现产物路径。",
+      },
+      "eval.report": {
+        mode: "agent",
+        role: "evaluator",
+        displayName: "Evaluator",
+        handoff: "汇总核心指标、主要输出文件、异常和下一步建议。",
+      },
+      "notify.user": {
+        mode: "agent",
+        role: "reporter",
+        displayName: "Reporter",
+        handoff: "把关键结论、风险和待确认项反馈给用户。",
+      },
+    };
+    return mapping[String(kind || "")] || {
+      mode: "human",
+      role: "",
+      displayName: "你",
+      handoff: "补充这个节点的职责、输入输出和交接要求。",
+    };
+  }
+
   window.WorkspaceNodeCatalog = {
     createWorkspaceNode,
     buildWorkspaceStarterNodes,
     normalizeWorkspaceDraftNode,
+    recommendedNodeAssignment,
     workspaceChainSourceType,
     workspaceLinksFromNodes,
     workspaceNodeDefaultConfig,

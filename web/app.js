@@ -2344,6 +2344,8 @@ function recommendedRoleIdsForCurrentStarter() {
 }
 
 function recommendedNodeAssignment(kind) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.recommendedNodeAssignment === "function") return api.recommendedNodeAssignment(kind);
   const mapping = {
     "source.repo": {
       mode: "human",
