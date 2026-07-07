@@ -12471,6 +12471,8 @@ function workspaceDraftSourceSummary(formData = workspaceFormPayload(), workspac
 }
 
 function workspaceStatusLabel(value) {
+  const api = statusLabelsApi();
+  if (api && typeof api.workspaceStatusLabel === "function") return api.workspaceStatusLabel(value, { zhStatus });
   const text = String(value || "");
   if (text === "blocked") return "阻塞";
   return zhStatus(text);

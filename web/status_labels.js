@@ -35,9 +35,17 @@
     return kindText[value] || value || "任务";
   }
 
+  function workspaceStatusLabel(value, deps = {}) {
+    const labelStatus = typeof deps.zhStatus === "function" ? deps.zhStatus : zhStatus;
+    const text = String(value || "");
+    if (text === "blocked") return "阻塞";
+    return labelStatus(text);
+  }
+
   window.StatusLabels = {
     kindText,
     statusText,
+    workspaceStatusLabel,
     zhKind,
     zhStatus,
   };
