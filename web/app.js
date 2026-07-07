@@ -2469,6 +2469,12 @@ function mergeRecommendedWorkspaceTools(options = {}) {
 }
 
 function sortWorkspaceAgentsByRecommendation(list, sourceType = currentWorkspaceSourceType()) {
+  const api = workspaceAgentCatalogApi();
+  if (api && typeof api.sortWorkspaceAgentsByRecommendation === "function") {
+    return api.sortWorkspaceAgentsByRecommendation(list, sourceType, {
+      workspaceAgentLibraryTemplates,
+    });
+  }
   const order = workspaceAgentLibraryTemplates(sourceType).map((agent) => agent.role);
   const rank = new Map(order.map((role, index) => [role, index]));
   return list.slice().sort((left, right) => {

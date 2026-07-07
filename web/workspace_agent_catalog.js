@@ -22,7 +22,25 @@
     return tools.map((toolId) => toolLabel(toolId, list)).join(" · ");
   }
 
+  function sortWorkspaceAgentsByRecommendation(list, sourceType, deps = {}) {
+    const agentLibraryTemplates = typeof deps.workspaceAgentLibraryTemplates === "function"
+      ? deps.workspaceAgentLibraryTemplates
+      : () => [];
+    const order = agentLibraryTemplates(sourceType).map((agent) => agent.role);
+    const rank = new Map(order.map((role, index) => [role, index]));
+    return list.slice().sort((left, right) => {
+      const leftRank = rank.has(left.role) ? rank.get(left.role) : Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.has(right.role) ? rank.get(right.role) : Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return String(left.name || left.role).localeCompare(String(right.name || right.role), "zh-Hans-CN", {
+        numeric: true,
+        sensitivity: "base",
+      });
+    });
+  }
+
   window.WorkspaceAgentCatalog = {
+    sortWorkspaceAgentsByRecommendation,
     workspaceAgentById,
     workspaceAgentDisplayName,
     workspaceAgentToolsSummary,
