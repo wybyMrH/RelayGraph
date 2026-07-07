@@ -14,6 +14,83 @@
     return (typeof deps.escapeHtml === "function" ? deps.escapeHtml : fallbackEscapeHtml)(value);
   }
 
+  function fn(deps, name, fallback) {
+    return typeof deps[name] === "function" ? deps[name] : fallback;
+  }
+
+  function element(deps, id) {
+    return fn(deps, "element", () => null)(id);
+  }
+
+  function transferState(deps = {}) {
+    const state = deps.state && typeof deps.state === "object" ? deps.state : {};
+    if (!state.transfer || typeof state.transfer !== "object") state.transfer = {};
+    if (!Array.isArray(state.transfer.sources)) state.transfer.sources = [];
+    return state.transfer;
+  }
+
+  function sourceKey(serverId, path, isDir = false, deps = {}) {
+    const normalize = fn(deps, "normalizePathForCompare", (value) => String(value || "").trim().replace(/\/+$/, "").toLowerCase());
+    return `${serverId || "local"}|${normalize(path)}|${isDir ? "dir" : "file"}`;
+  }
+
+  function selectedSourceKey(path, isDir = false, serverId, deps = {}) {
+    const transferPathOnly = fn(deps, "transferPathOnly", (value) => String(value || "").trim());
+    const sourceServerId = fn(deps, "transferSourceServerId", () => "local");
+    const effectiveServerId = serverId === undefined ? sourceServerId() : serverId;
+    return sourceKey(effectiveServerId || "local", transferPathOnly(path), isDir, deps);
+  }
+
+  function sourceItemByPath(path, isDir = false, serverId, deps = {}) {
+    const transfer = transferState(deps);
+    const key = selectedSourceKey(path, isDir, serverId, deps);
+    return transfer.sources.find((item) => item.key === key) || null;
+  }
+
+  function addSource(path, isDir = false, options = {}, deps = {}) {
+    const transfer = transferState(deps);
+    const transferPathOnly = fn(deps, "transferPathOnly", (value) => String(value || "").trim());
+    const sourcePath = transferPathOnly(path);
+    if (!sourcePath) return;
+    const sourceServerId = fn(deps, "transferSourceServerId", () => "local");
+    const serverById = fn(deps, "serverById", () => null);
+    const server = options.server || serverById(sourceServerId());
+    const serverId = server?.id || sourceServerId() || "local";
+    const key = sourceKey(serverId, sourcePath, isDir, deps);
+    if (!transfer.sources.some((item) => item.key === key)) {
+      const rsyncValue = fn(deps, "rsyncTransferSourceValue", ({ path: value }) => value);
+      transfer.sources.push({
+        key,
+        serverId,
+        serverName: server?.name || serverId,
+        path: sourcePath,
+        isDir,
+        value: rsyncValue({ path: sourcePath, isDir, serverId }),
+      });
+    }
+    fn(deps, "renderSelectedSources", () => {})();
+    fn(deps, "renderTransferTree", () => {})();
+    const message = element(deps, "transferMessage");
+    if (message && options.silent !== true) {
+      message.textContent = `已加入待传源项：${fn(deps, "pathBaseName", (value) => value)(sourcePath)}`;
+      message.classList.remove("error");
+    }
+  }
+
+  function removeSource(key, deps = {}) {
+    const transfer = transferState(deps);
+    transfer.sources = transfer.sources.filter((item) => item.key !== key);
+    fn(deps, "renderSelectedSources", () => {})();
+    fn(deps, "renderTransferTree", () => {})();
+  }
+
+  function clearSources(deps = {}) {
+    const transfer = transferState(deps);
+    transfer.sources = [];
+    fn(deps, "renderSelectedSources", () => {})();
+    fn(deps, "renderTransferTree", () => {})();
+  }
+
   function transferPaneEmptyMarkup(title, hint = "", options = {}, deps = {}) {
     const compactClass = options.compact ? " transfer-pane-empty-compact" : "";
     const icon = options.icon || "·";
@@ -60,8 +137,14 @@
   }
 
   window.TransferSelectedSources = {
+    addSource,
+    clearSources,
+    removeSource,
+    selectedSourceKey,
     selectedSourceCountText,
     selectedSourceListMarkup,
+    sourceItemByPath,
+    sourceKey,
     transferPaneEmptyMarkup,
     transferPaneLoadingMarkup,
   };

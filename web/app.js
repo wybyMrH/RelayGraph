@@ -17290,54 +17290,49 @@ function removeTransferIgnore(pattern) {
   syncIgnoreInputFromState();
 }
 
+function transferSelectedSourcesApi() {
+  return window.TransferSelectedSources && typeof window.TransferSelectedSources === "object"
+    ? window.TransferSelectedSources
+    : null;
+}
+
+function transferSelectedSourceDeps() {
+  return {
+    element: $,
+    state,
+    normalizePathForCompare,
+    transferPathOnly,
+    transferSourceServerId,
+    serverById,
+    rsyncTransferSourceValue,
+    pathBaseName,
+    renderSelectedSources,
+    renderTransferTree,
+  };
+}
+
 function transferSourceKey(serverId, path, isDir = false) {
-  return `${serverId || "local"}|${normalizePathForCompare(path)}|${isDir ? "dir" : "file"}`;
+  return transferSelectedSourcesApi()?.sourceKey?.(serverId, path, isDir, transferSelectedSourceDeps()) || "";
 }
 
 function selectedTransferSourceKey(path, isDir = false, serverId = transferSourceServerId()) {
-  return transferSourceKey(serverId || "local", transferPathOnly(path), isDir);
+  return transferSelectedSourcesApi()?.selectedSourceKey?.(path, isDir, serverId, transferSelectedSourceDeps()) || "";
 }
 
 function transferSourceItemByPath(path, isDir = false, serverId = transferSourceServerId()) {
-  const key = selectedTransferSourceKey(path, isDir, serverId);
-  return state.transfer.sources.find((item) => item.key === key) || null;
+  return transferSelectedSourcesApi()?.sourceItemByPath?.(path, isDir, serverId, transferSelectedSourceDeps()) || null;
 }
 
 function addTransferSource(path, isDir = false, options = {}) {
-  const sourcePath = transferPathOnly(path);
-  if (!sourcePath) return;
-  const server = options.server || serverById(transferSourceServerId());
-  const serverId = server?.id || transferSourceServerId() || "local";
-  const key = transferSourceKey(serverId, sourcePath, isDir);
-  if (!state.transfer.sources.some((item) => item.key === key)) {
-    state.transfer.sources.push({
-      key,
-      serverId,
-      serverName: server?.name || serverId,
-      path: sourcePath,
-      isDir,
-      value: rsyncTransferSourceValue({ path: sourcePath, isDir, serverId }),
-    });
-  }
-  renderSelectedSources();
-  renderTransferTree();
-  const message = $("transferMessage");
-  if (message && options.silent !== true) {
-    message.textContent = `已加入待传源项：${pathBaseName(sourcePath)}`;
-    message.classList.remove("error");
-  }
+  return transferSelectedSourcesApi()?.addSource?.(path, isDir, options, transferSelectedSourceDeps());
 }
 
 function removeTransferSource(key) {
-  state.transfer.sources = state.transfer.sources.filter((item) => item.key !== key);
-  renderSelectedSources();
-  renderTransferTree();
+  return transferSelectedSourcesApi()?.removeSource?.(key, transferSelectedSourceDeps());
 }
 
 function clearTransferSources() {
-  state.transfer.sources = [];
-  renderSelectedSources();
-  renderTransferTree();
+  return transferSelectedSourcesApi()?.clearSources?.(transferSelectedSourceDeps());
 }
 
 function transferPaneEmptyMarkup(title, hint = "", options = {}) {
