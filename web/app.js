@@ -18434,6 +18434,10 @@ async function openFilePickerRootWithReset(path = "") {
   return await filePickerNavigationApi()?.openPath?.(path, filePickerNavigationDeps());
 }
 
+async function previewFilePickerPath(path = "") {
+  return await filePickerNavigationApi()?.previewPath?.(path, filePickerNavigationDeps());
+}
+
 function renderRuntimeStoragePanel(payload = {}) {
   const stats = $("runtimeStorageStats");
   const previewAgeInput = $("runtimePreviewMaxAgeHours");
@@ -25933,10 +25937,7 @@ function bindEvents() {
       }
       void previewFileInTransfer(path);
     },
-    previewPicker: (path) => {
-      state.filePicker.selectedPath = path;
-      void previewFileInPicker(path);
-    },
+    previewPicker: previewFilePickerPath,
     previewSelectedSource: (sourceKey) => {
       const item = state.transfer.sources.find((source) => source.key === sourceKey);
       if (item && !item.isDir) void previewFileInTransfer(item.path);

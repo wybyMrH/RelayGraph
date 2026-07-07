@@ -113,6 +113,12 @@
     await fn(deps, "previewFileInPicker", async () => {})(path);
   }
 
+  async function previewPath(path = "", deps = {}) {
+    const filePicker = filePickerState(deps);
+    filePicker.selectedPath = path;
+    await fn(deps, "previewFileInPicker", async () => {})(path);
+  }
+
   window.FilePickerNavigation = {
     activateRow,
     forwardNavigationState,
@@ -120,6 +126,7 @@
     navigateUp,
     navigationButtonState,
     openPath,
+    previewPath,
     rememberForwardPath,
     resetNavigationState,
   };
