@@ -17658,8 +17658,16 @@ function defaultTransferPathForServer(_serverId) {
   return "";
 }
 
+function transferPathMemoryStateApi() {
+  return window.TransferPathMemoryState && typeof window.TransferPathMemoryState === "object"
+    ? window.TransferPathMemoryState
+    : null;
+}
+
 function loadTransferPathByServer() {
   const stored = loadStoredJson(STORAGE_KEYS.transferPathByServer, { source: {}, target: {} });
+  const api = transferPathMemoryStateApi();
+  if (api && typeof api.normalizeStore === "function") return api.normalizeStore(stored);
   return {
     source: stored?.source && typeof stored.source === "object" ? stored.source : {},
     target: stored?.target && typeof stored.target === "object" ? stored.target : {},
@@ -17702,6 +17710,13 @@ function rememberTransferPath(mode) {
   const serverId = isTarget ? transferTargetServerId() : transferSourceServerId();
   const path = isTarget ? transferTargetValue() : transferSourceValue();
   if (!state.transfer.pathByServer) state.transfer.pathByServer = { source: {}, target: {} };
+  const api = transferPathMemoryStateApi();
+  if (api && typeof api.rememberPath === "function") {
+    const result = api.rememberPath(state.transfer.pathByServer, mode, serverId, path);
+    state.transfer.pathByServer = result.store;
+    if (result.changed) saveTransferPathByServer();
+    return;
+  }
   if (!serverId) return;
   state.transfer.pathByServer[isTarget ? "target" : "source"][serverId] = path;
   saveTransferPathByServer();
@@ -17709,6 +17724,12 @@ function rememberTransferPath(mode) {
 
 function resolveTransferPathForServer(mode, serverId) {
   if (!state.transfer.pathByServer) state.transfer.pathByServer = { source: {}, target: {} };
+  const api = transferPathMemoryStateApi();
+  if (api && typeof api.resolvePath === "function") {
+    const result = api.resolvePath(state.transfer.pathByServer, mode, serverId, defaultTransferPathForServer);
+    state.transfer.pathByServer = result.store;
+    return result.path;
+  }
   const bucket = state.transfer.pathByServer[mode] || {};
   if (Object.prototype.hasOwnProperty.call(bucket, serverId)) return bucket[serverId];
   return defaultTransferPathForServer(serverId);
