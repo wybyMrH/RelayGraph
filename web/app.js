@@ -21464,114 +21464,47 @@ function openWorkspaceFromExecutionOverview(workspaceId, options = {}) {
   });
 }
 
+function configCenterExecutionOverviewRendererApi() {
+  return window.ConfigCenterExecutionOverviewRenderer || {};
+}
+
+function configCenterExecutionOverviewRendererDeps() {
+  return {
+    backendFilteredExecutionOverviewItems,
+    element: $,
+    escapeHtml,
+    executionOverview: () => state.executionOverview,
+    executionOverviewFilters,
+    executionOverviewFiltersMatch,
+    executionOverviewStatusClass,
+    filteredExecutionOverviewItems,
+    fmtDate,
+    syncExecutionOverviewFilterControls,
+    workspaceExecutionOverviewModule,
+    workspaceRunKindLabel,
+    workspaceStatusLabel,
+    zhStatus,
+  };
+}
+
 function manageRunOverviewItemMarkup(run = {}) {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.runItemMarkup === "function") {
-    return module.runItemMarkup(run, {
-      escapeHtml,
-      fmtDate,
-      statusLabel: workspaceStatusLabel,
-      runKindLabel: workspaceRunKindLabel,
-    });
-  }
-  const progress = run.progress && typeof run.progress === "object" ? run.progress : {};
-  const status = executionOverviewStatusClass(run.status);
-  return `
-    <button class="workspace-execution-run-item workspace-template-item status-${escapeHtml(status)}" type="button" data-action="open-overview-workspace" data-workspace-id="${escapeHtml(run.workspace_id || "")}" title="打开所属实例驾驶舱">
-      <div class="workspace-template-item-head">
-        <strong>${escapeHtml(run.summary || workspaceRunKindLabel(run.kind) || run.id || "Run")}</strong>
-        <span class="state ${escapeHtml(status)}">${escapeHtml(workspaceStatusLabel(run.status || "pending"))}</span>
-      </div>
-      <div class="workspace-template-item-meta">${escapeHtml(run.workspace_name || run.workspace_id || "未绑定实例")} · ${escapeHtml(fmtDate(run.updated_at || run.created_at))}</div>
-      <div class="workspace-template-item-desc">${escapeHtml(`${Number(progress.done || 0)}/${Number(progress.total || run.step_count || 0)} 步 · ${Number(progress.percent || 0)}% · ${run.job_ids?.length || 0} job · ${run.agent_execution_ids?.length || 0} agent`)}</div>
-    </button>
-  `;
+  return configCenterExecutionOverviewRendererApi().manageRunOverviewItemMarkup?.(
+    run,
+    configCenterExecutionOverviewRendererDeps(),
+  );
 }
 
 function manageJobOverviewItemMarkup(job = {}) {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.jobItemMarkup === "function") {
-    return module.jobItemMarkup(job, {
-      escapeHtml,
-      fmtDate,
-      zhStatus,
-    });
-  }
-  const status = executionOverviewStatusClass(job.status);
-  return `
-    <button class="workspace-execution-run-item workspace-template-item status-${escapeHtml(status)}" type="button" data-action="open-overview-workspace" data-workspace-id="${escapeHtml(job.workspace_id || "")}" title="打开所属实例驾驶舱">
-      <div class="workspace-template-item-head">
-        <strong>${escapeHtml(job.summary || job.kind || job.id || "Job")}</strong>
-        <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(job.status || "pending"))}</span>
-      </div>
-      <div class="workspace-template-item-meta">${escapeHtml(job.workspace_name || job.workspace_id || "未绑定实例")} · ${escapeHtml(job.server_id || "server auto")} · ${escapeHtml(fmtDate(job.updated_at || job.created_at))}</div>
-      <div class="workspace-template-item-desc">${escapeHtml(job.execution_run_id ? `run ${job.execution_run_id}` : job.id || "")}</div>
-    </button>
-  `;
+  return configCenterExecutionOverviewRendererApi().manageJobOverviewItemMarkup?.(
+    job,
+    configCenterExecutionOverviewRendererDeps(),
+  );
 }
 
 function renderManageRunsModule() {
-  const summaryRoot = $("workspaceManageRunSummary");
-  const runList = $("workspaceManageRunList");
-  const jobList = $("workspaceManageJobList");
-  if (!summaryRoot && !runList && !jobList) return;
-  const overview = state.executionOverview && typeof state.executionOverview === "object" ? state.executionOverview : {};
-  const summary = overview.summary && typeof overview.summary === "object" ? overview.summary : {};
-  const result = overview.result && typeof overview.result === "object" ? overview.result : {};
-  const runs = Array.isArray(overview.runs) ? overview.runs : [];
-  const jobs = Array.isArray(overview.jobs) ? overview.jobs : [];
-  const filters = executionOverviewFilters();
-  const backendFilters = overview.filters && typeof overview.filters === "object" ? overview.filters : null;
-  const filtered = backendFilters && executionOverviewFiltersMatch(backendFilters, filters)
-    ? backendFilteredExecutionOverviewItems(runs, jobs, filters)
-    : filteredExecutionOverviewItems(runs, jobs, filters);
-  syncExecutionOverviewFilterControls(filters, {
-    totalRuns: Number(summary.run_count ?? runs.length),
-    totalJobs: Number(summary.job_count ?? jobs.length),
-    matchedRuns: Number(result.run_count ?? filtered.runs.length),
-    matchedJobs: Number(result.job_count ?? filtered.jobs.length),
-    visibleRuns: filtered.runs.length,
-    visibleJobs: filtered.jobs.length,
-    limited: Boolean(result.limited),
-  });
-  if (summaryRoot) {
-    if (overview.error) {
-      summaryRoot.innerHTML = `<article class="workspace-agent-coverage-card status-failed"><strong>加载失败</strong><span>${escapeHtml(overview.error)}</span></article>`;
-    } else {
-      const module = workspaceExecutionOverviewModule();
-      summaryRoot.innerHTML = typeof module?.summaryCardsMarkup === "function"
-        ? module.summaryCardsMarkup({ summary, runs, jobs, escapeHtml })
-        : [
-          { label: "Runs", value: Number(summary.run_count || runs.length), status: summary.active_run_count ? "running" : "ready" },
-          { label: "Jobs", value: Number(summary.job_count || jobs.length), status: summary.active_job_count ? "running" : "ready" },
-          { label: "活跃任务", value: Number(summary.active_job_count || 0), status: summary.active_job_count ? "running" : "ready" },
-          { label: "失败/停止", value: Number(summary.failed_run_count || 0) + Number(summary.failed_job_count || 0), status: (summary.failed_run_count || summary.failed_job_count) ? "blocked" : "ready" },
-        ].map((item) => `
-          <article class="workspace-agent-coverage-card status-${escapeHtml(item.status)}">
-            <span>${escapeHtml(item.label)}</span>
-            <strong>${escapeHtml(String(item.value))}</strong>
-          </article>
-        `).join("");
-    }
-  }
-  if (runList) {
-    runList.innerHTML = !filtered.showRuns
-      ? '<div class="empty">当前类型筛选只显示 Jobs。</div>'
-      : filtered.runs.length
-        ? filtered.runs.slice(0, 30).map((run) => manageRunOverviewItemMarkup(run)).join("")
-        : runs.length
-          ? '<div class="empty">没有匹配的 run 记录。</div>'
-          : '<div class="empty">还没有全局 run 记录。</div>';
-  }
-  if (jobList) {
-    jobList.innerHTML = !filtered.showJobs
-      ? '<div class="empty">当前类型筛选只显示 Runs。</div>'
-      : filtered.jobs.length
-        ? filtered.jobs.slice(0, 30).map((job) => manageJobOverviewItemMarkup(job)).join("")
-        : jobs.length
-          ? '<div class="empty">没有匹配的队列任务。</div>'
-          : '<div class="empty">还没有队列任务。</div>';
-  }
+  return configCenterExecutionOverviewRendererApi().renderManageRunsModule?.(
+    configCenterExecutionOverviewRendererDeps(),
+  );
 }
 
 function renderWorkspaceWorkbench() {
