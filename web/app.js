@@ -11065,16 +11065,40 @@ function saveTransferPathFavoritesStore(store) {
   saveStoredJson(STORAGE_KEYS.transferPathFavorites, store);
 }
 
+function transferPathFavoritesStateApi() {
+  return window.TransferPathFavoritesState && typeof window.TransferPathFavoritesState === "object"
+    ? window.TransferPathFavoritesState
+    : null;
+}
+
+function transferPathFavoritesStateDeps() {
+  return {
+    limit: TRANSFER_FAVORITE_LIMIT,
+    normalizePathForCompare,
+    pathBaseName,
+  };
+}
+
 function normalizeTransferFavoritePath(path) {
+  const api = transferPathFavoritesStateApi();
+  if (api && typeof api.normalizeFavoritePath === "function") return api.normalizeFavoritePath(path);
   return String(path || "").trim();
 }
 
 function transferPathFavoritesForServer(serverId) {
+  const api = transferPathFavoritesStateApi();
+  if (api && typeof api.favoritesForServer === "function") {
+    return api.favoritesForServer(transferPathFavoritesStore(), serverId);
+  }
   const items = transferPathFavoritesStore()[String(serverId || "local")];
   return Array.isArray(items) ? items : [];
 }
 
 function isTransferPathFavorite(serverId, path) {
+  const api = transferPathFavoritesStateApi();
+  if (api && typeof api.isFavorite === "function") {
+    return api.isFavorite(transferPathFavoritesStore(), serverId, path, transferPathFavoritesStateDeps());
+  }
   const normalized = normalizePathForCompare(normalizeTransferFavoritePath(path));
   return transferPathFavoritesForServer(serverId).some(
     (item) => normalizePathForCompare(item.path) === normalized,
@@ -11082,6 +11106,14 @@ function isTransferPathFavorite(serverId, path) {
 }
 
 function addTransferPathFavorite(serverId, path, label = "") {
+  const api = transferPathFavoritesStateApi();
+  if (api && typeof api.addFavorite === "function") {
+    const store = transferPathFavoritesStore();
+    const result = api.addFavorite(store, serverId, path, label, transferPathFavoritesStateDeps());
+    if (!result.added) return false;
+    saveTransferPathFavoritesStore(result.store);
+    return true;
+  }
   const normalizedPath = normalizeTransferFavoritePath(path);
   if (!normalizedPath) return false;
   const key = String(serverId || "local");
@@ -11102,6 +11134,12 @@ function addTransferPathFavorite(serverId, path, label = "") {
 }
 
 function removeTransferPathFavorite(serverId, path) {
+  const api = transferPathFavoritesStateApi();
+  if (api && typeof api.removeFavorite === "function") {
+    const result = api.removeFavorite(transferPathFavoritesStore(), serverId, path, transferPathFavoritesStateDeps());
+    saveTransferPathFavoritesStore(result.store);
+    return;
+  }
   const key = String(serverId || "local");
   const store = transferPathFavoritesStore();
   const normalized = normalizePathForCompare(normalizeTransferFavoritePath(path));
@@ -11114,6 +11152,12 @@ function removeTransferPathFavorite(serverId, path) {
 }
 
 function toggleTransferPathFavorite(serverId, path, label = "") {
+  const api = transferPathFavoritesStateApi();
+  if (api && typeof api.toggleFavorite === "function") {
+    const result = api.toggleFavorite(transferPathFavoritesStore(), serverId, path, label, transferPathFavoritesStateDeps());
+    if (result.changed) saveTransferPathFavoritesStore(result.store);
+    return result.active;
+  }
   if (isTransferPathFavorite(serverId, path)) {
     removeTransferPathFavorite(serverId, path);
     return false;
