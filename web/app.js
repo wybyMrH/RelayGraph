@@ -2587,7 +2587,19 @@ function normalizeWorkspaceModelDraft(model = {}) {
   };
 }
 
+function workspaceChatNormalizersApi() {
+  return window.WorkspaceChatNormalizers && typeof window.WorkspaceChatNormalizers === "object"
+    ? window.WorkspaceChatNormalizers
+    : null;
+}
+
 function normalizeWorkspaceContextReflection(reflection = null) {
+  const api = workspaceChatNormalizersApi();
+  if (api && typeof api.normalizeWorkspaceContextReflection === "function") {
+    return api.normalizeWorkspaceContextReflection(reflection, {
+      makeClientId,
+    });
+  }
   if (!reflection || typeof reflection !== "object") return null;
   const summary = String(reflection.summary || reflection.text || "").trim();
   if (!summary) return null;
@@ -2616,6 +2628,14 @@ function normalizeWorkspaceContextReflection(reflection = null) {
 }
 
 function normalizeWorkspaceChatMessage(message = {}, index = 0) {
+  const api = workspaceChatNormalizersApi();
+  if (api && typeof api.normalizeWorkspaceChatMessage === "function") {
+    return api.normalizeWorkspaceChatMessage(message, index, {
+      deepClone,
+      makeClientId,
+      normalizeWorkspaceContextReflection,
+    });
+  }
   const role = ["user", "assistant", "system"].includes(String(message.role || ""))
     ? String(message.role)
     : "user";
@@ -2638,6 +2658,8 @@ function normalizeWorkspaceChatMessage(message = {}, index = 0) {
 }
 
 function workspaceChatStatusText(status = "") {
+  const api = workspaceChatNormalizersApi();
+  if (api && typeof api.workspaceChatStatusText === "function") return api.workspaceChatStatusText(status);
   const value = String(status || "").trim();
   if (["pending", "streaming"].includes(value)) return "生成中";
   if (value === "failed") return "失败";
