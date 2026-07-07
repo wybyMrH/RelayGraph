@@ -2698,7 +2698,19 @@ function persistWorkspaceToolDrafts() {
   saveStoredValue(STORAGE_KEYS.selectedWorkspaceTool, state.selectedWorkspaceToolId);
 }
 
+function workspaceAgentCatalogApi() {
+  return window.WorkspaceAgentCatalog && typeof window.WorkspaceAgentCatalog === "object"
+    ? window.WorkspaceAgentCatalog
+    : null;
+}
+
 function workspaceAgentToolsSummary(agent, list = state.workspaceToolsDraft) {
+  const api = workspaceAgentCatalogApi();
+  if (api && typeof api.workspaceAgentToolsSummary === "function") {
+    return api.workspaceAgentToolsSummary(agent, list, {
+      workspaceToolLabel,
+    });
+  }
   const tools = Array.isArray(agent?.tools) ? agent.tools : [];
   if (!tools.length) return "未配置工具";
   return tools.map((toolId) => workspaceToolLabel(toolId, list)).join(" · ");
@@ -2804,10 +2816,18 @@ function providerProfileLabel(profile) {
 }
 
 function workspaceAgentById(agentId, list = state.workspaceAgentsDraft) {
+  const api = workspaceAgentCatalogApi();
+  if (api && typeof api.workspaceAgentById === "function") return api.workspaceAgentById(agentId, list);
   return list.find((item) => item.id === agentId) || null;
 }
 
 function workspaceAgentDisplayName(handler = {}) {
+  const api = workspaceAgentCatalogApi();
+  if (api && typeof api.workspaceAgentDisplayName === "function") {
+    return api.workspaceAgentDisplayName(handler, {
+      workspaceAgentById,
+    });
+  }
   const linked = workspaceAgentById(String(handler.agent_id || ""));
   return linked?.name || handler.name || "未指派";
 }
