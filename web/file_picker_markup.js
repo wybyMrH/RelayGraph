@@ -41,6 +41,18 @@
   `;
   }
 
+  function filePickerHeaderText(payload = {}, server = null) {
+    return {
+      title: payload.mode === "target" ? "选择目标目录" : "选择源文件或文件夹",
+      subtitle: payload.mode === "target"
+        ? `正在浏览 ${server?.name || "目标服务器"}，点目录进入，或用「选择」设为路径。`
+        : server && server.mode !== "local"
+          ? `正在浏览 ${server.name} 的文件系统，点目录进入、点文件快览。`
+          : "浏览 WSL 可访问路径，例如 /mnt/e、/mnt/f、Home 和项目目录；点目录进入、点文件快览。",
+      chooseDirText: payload.mode === "target" ? "选择当前目录" : "加入当前文件夹",
+    };
+  }
+
   function filePickerEntryRowMarkup(entry = {}, options = {}, deps = {}) {
     const mode = options.mode || "source";
     const selectedClass = options.selectedClass || "";
@@ -72,9 +84,42 @@
     return '<div class="empty compact-empty">目录为空。</div>';
   }
 
+  function filePickerEntriesMarkup(payload = {}, options = {}, deps = {}) {
+    const entries = payload.entries || [];
+    const rows = entries
+      .map((entry) => {
+        const selectedClass = normalizeFor(deps, entry.path) === normalizeFor(deps, payload.selectedPath || "")
+          ? " selected"
+          : "";
+        const previewActiveClass = typeof deps.previewPathMatchesState === "function" && deps.previewPathMatchesState(entry.path, payload.serverId || "")
+          ? " preview-active"
+          : "";
+        const selectedSource = payload.mode === "target" || typeof deps.transferSourceItemByPath !== "function"
+          ? null
+          : deps.transferSourceItemByPath(entry.path, entry.is_dir, payload.serverId);
+        const sourceSelectedClass = selectedSource ? " transfer-source-selected" : "";
+        const meta = [
+          entry.is_dir ? "文件夹" : (entry.size_text || "文件"),
+          typeof deps.fmtDate === "function" ? (deps.fmtDate(entry.mtime) || "") : "",
+        ].filter(Boolean).join(" · ");
+        return filePickerEntryRowMarkup(entry, {
+          meta,
+          mode: payload.mode,
+          previewActiveClass,
+          selectedClass,
+          selectedSource,
+          sourceSelectedClass,
+        }, deps);
+      })
+      .join("");
+    return rows || filePickerEmptyListMarkup();
+  }
+
   window.FilePickerMarkup = {
+    filePickerEntriesMarkup,
     filePickerEmptyListMarkup,
     filePickerEntryRowMarkup,
+    filePickerHeaderText,
     filePickerRootsMarkup,
   };
 })();
