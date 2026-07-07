@@ -25579,312 +25579,75 @@ function handleLogPaneWheel(event) {
   routeWheelToElement(event, $("logView"));
 }
 
+function workspaceAutomationActionsApi() {
+  return window.WorkspaceAutomationActions && typeof window.WorkspaceAutomationActions === "object"
+    ? window.WorkspaceAutomationActions
+    : null;
+}
+
+function workspaceAutomationActionDeps() {
+  return {
+    element: $,
+    state,
+    WORKSPACE_MANAGE_TABS,
+    WORKSPACE_FLOW_CANVAS,
+    STORAGE_KEYS,
+    saveStoredValue,
+    markWorkspaceUiInteraction,
+    focusWorkspaceExecutionNode,
+    switchWorkspaceTab,
+    revealWorkspacePanelTarget,
+    selectWorkspaceSchedulerCandidate,
+    applyWorkspaceSchedulerCandidate,
+    selectWorkspaceNode,
+    selectWorkspaceAgent,
+    switchWorkspaceMode,
+    focusWorkspaceBackfillTarget,
+    applyRecommendedNodeAssignments,
+    mergeRecommendedWorkspaceAgents,
+    addWorkspaceAgent,
+    mergeRecommendedWorkspaceTools,
+    openWorkspaceConfigDetail,
+    addWorkspaceTool,
+    addProviderProfile,
+    createWorkspaceTask,
+    openWorkspaceChainInspect,
+    openWorkflowTemplateStudio,
+    focusWorkspaceFlowCanvasNode,
+    selectWorkspaceFlowTool,
+    setWorkspaceFlowZoom,
+    workspaceFlowZoomLevel,
+    resetWorkspaceFlowCanvasView,
+    testWorkspaceStarterChain,
+    toggleCockpitMonitorMode,
+    renderWorkspaceWorkbench,
+    selectedWorkspace,
+    workspaceCockpitNextAction,
+    renderWorkspaceExecutionDetail,
+    advanceWorkspaceAutomation,
+    applyWorkspaceAutomationDefaults,
+    applyWorkspaceBackfillItem,
+    runWorkspaceDiscovery,
+    workspaceExecutionBundleReady,
+    setWorkspaceMessage,
+    runWorkspaceWorkflow,
+    runWorkspaceToNode,
+    runWorkspaceNode,
+    showLog,
+    openWorkspaceRunDetail,
+    setWorkspaceUseMessage,
+    acceptWorkspaceChatContextReflection,
+    dismissWorkspaceChatContextReflection,
+    fillJobFormFromWorkspace,
+    refreshWorkspaceResourceSnapshot,
+    copyTextToClipboard,
+    workspaceExecutionBundleScriptText,
+    workspaceExecutionBundlePackageText,
+  };
+}
+
 function handleWorkspaceAutomationAction(button) {
-  if (!button?.dataset?.action) return false;
-  const action = button.dataset.action;
-  if (action === "focus-scheduling-stage") {
-    const nodeId = String(button.dataset.nodeId || "").trim();
-    const targetId = button.dataset.targetId || "workspaceExecutionBoard";
-    const tab = button.dataset.tab || "home";
-    if (nodeId) focusWorkspaceExecutionNode(nodeId, { targetId, tab });
-    else {
-      switchWorkspaceTab(tab, { reveal: false });
-      revealWorkspacePanelTarget(targetId, { block: "center" });
-    }
-    return true;
-  }
-  if (action === "select-workspace-scheduler-candidate") {
-    selectWorkspaceSchedulerCandidate(button);
-    return true;
-  }
-  if (action === "apply-workspace-scheduler-candidate") {
-    void applyWorkspaceSchedulerCandidate(button);
-    return true;
-  }
-  if (action === "select-execution-node" && button.dataset.nodeId) {
-    focusWorkspaceExecutionNode(button.dataset.nodeId, {
-      targetId: button.dataset.targetId || "workspaceExecutionBoard",
-      tab: button.dataset.tab || "home",
-    });
-    return true;
-  }
-  if (action === "open-workspace-node" && button.dataset.nodeId) {
-    switchWorkspaceTab("workflow");
-    selectWorkspaceNode(button.dataset.nodeId);
-    return true;
-  }
-  if (action === "select-workspace-node" && button.dataset.nodeId) {
-    switchWorkspaceTab("workflow");
-    selectWorkspaceNode(button.dataset.nodeId);
-    return true;
-  }
-  if (action === "select-workspace-agent" && button.dataset.agentId) {
-    switchWorkspaceTab("agents");
-    selectWorkspaceAgent(button.dataset.agentId);
-    return true;
-  }
-  if (action === "focus-workspace-goal") {
-    switchWorkspaceMode("use");
-    const input = $("workspaceTaskGoalInput");
-    input?.focus();
-    input?.scrollIntoView({ block: "center", behavior: "smooth" });
-    return true;
-  }
-  if (action === "focus-workspace-node-kind") {
-    switchWorkspaceTab("workflow");
-    $("workspaceNodeKindSelect")?.focus();
-    return true;
-  }
-  if (action === "focus-workspace-backfill-target") {
-    focusWorkspaceBackfillTarget(button);
-    return true;
-  }
-  if (action === "apply-recommended-workspace-roles") {
-    applyRecommendedNodeAssignments();
-    return true;
-  }
-  if (action === "merge-recommended-workspace-agents") {
-    mergeRecommendedWorkspaceAgents();
-    return true;
-  }
-  if (action === "add-workspace-agent") {
-    addWorkspaceAgent();
-    return true;
-  }
-  if (action === "merge-recommended-workspace-tools") {
-    mergeRecommendedWorkspaceTools();
-    return true;
-  }
-  if (action === "add-workspace-tool") {
-    openWorkspaceConfigDetail("workspaceToolAdvancedDetails", { tab: "tools" });
-    addWorkspaceTool();
-    return true;
-  }
-  if (action === "add-provider-profile") {
-    openWorkspaceConfigDetail("workspaceModelAdvancedDetails", { tab: "model" });
-    addProviderProfile();
-    return true;
-  }
-  if (action === "open-workspace-details") {
-    const targetId = String(button.dataset.targetId || "").trim();
-    openWorkspaceConfigDetail(targetId || button.closest("details")?.id || "", { tab: button.dataset.tab || "" });
-    return true;
-  }
-  if (action === "submit-workspace-form") {
-    $("workspaceForm")?.requestSubmit();
-    return true;
-  }
-  if (action === "create-workspace") {
-    void createWorkspaceTask("create");
-    return true;
-  }
-  if (action === "create-workspace-discover") {
-    void createWorkspaceTask("discover");
-    return true;
-  }
-  if (action === "create-workspace-run") {
-    void createWorkspaceTask("run");
-    return true;
-  }
-  if (action === "switch-workspace-manage") {
-    const nextTab = WORKSPACE_MANAGE_TABS.includes(String(button.dataset.tab || "")) ? String(button.dataset.tab) : "";
-    if (nextTab && state.ui.workspaceManageTab !== nextTab) {
-      state.ui.workspaceManageTab = nextTab;
-      markWorkspaceUiInteraction();
-      saveStoredValue(STORAGE_KEYS.workspaceManageTab, nextTab);
-    }
-    switchWorkspaceMode("manage");
-    return true;
-  }
-  if (action === "open-workspace-chain-inspect") {
-    openWorkspaceChainInspect();
-    return true;
-  }
-  if (action === "open-workflow-template-studio") {
-    openWorkflowTemplateStudio();
-    return true;
-  }
-  if (action === "switch-workspace-tab") {
-    const nextTab = button.dataset.tab || "home";
-    if (button.dataset.mode) switchWorkspaceMode(button.dataset.mode);
-    else switchWorkspaceMode("use");
-    switchWorkspaceTab(nextTab);
-    return true;
-  }
-  if (action === "select-flow-node" && button.dataset.nodeId) {
-    focusWorkspaceFlowCanvasNode(button.dataset.nodeId);
-    return true;
-  }
-  if (action === "select-flow-tool" && button.dataset.nodeId) {
-    selectWorkspaceFlowTool(button.dataset.nodeId, button.dataset.toolId || "");
-    return true;
-  }
-  if (action === "workspace-flow-zoom-in") {
-    setWorkspaceFlowZoom(workspaceFlowZoomLevel() + WORKSPACE_FLOW_CANVAS.zoomStep);
-    return true;
-  }
-  if (action === "workspace-flow-zoom-out") {
-    setWorkspaceFlowZoom(workspaceFlowZoomLevel() - WORKSPACE_FLOW_CANVAS.zoomStep);
-    return true;
-  }
-  if (action === "workspace-flow-zoom-fit") {
-    resetWorkspaceFlowCanvasView({ center: true });
-    return true;
-  }
-  if (action === "test-workspace-chain") {
-    testWorkspaceStarterChain();
-    return true;
-  }
-  if (action === "toggle-cockpit-monitor-mode") {
-    toggleCockpitMonitorMode();
-    renderWorkspaceWorkbench();
-    return true;
-  }
-  if (action === "switch-workspace-mode") {
-    switchWorkspaceMode(button.dataset.mode || "use");
-    return true;
-  }
-  if (action === "focus-workspace-execution-board") {
-    const workspace = selectedWorkspace();
-    const nodeId = String(button.dataset.nodeId || workspaceCockpitNextAction(workspace)?.focus_node_id || "").trim();
-    switchWorkspaceMode("use");
-    switchWorkspaceTab("home", { reveal: false });
-    revealWorkspacePanelTarget("workspaceExecutionBoard", { block: "start" });
-    if (nodeId) {
-      state.selectedWorkspaceExecutionNodeId = nodeId;
-      saveStoredValue(STORAGE_KEYS.selectedWorkspaceExecutionNode, nodeId);
-      focusWorkspaceExecutionNode(nodeId, { targetId: "workspaceExecutionDetail", tab: "home", block: "center" });
-      renderWorkspaceExecutionDetail();
-    }
-    return true;
-  }
-  if (action === "advance-workspace-automation") {
-    void advanceWorkspaceAutomation();
-    return true;
-  }
-  if (action === "apply-workspace-automation") {
-    void applyWorkspaceAutomationDefaults();
-    return true;
-  }
-  if (action === "apply-workspace-backfill-item") {
-    void applyWorkspaceBackfillItem(button);
-    return true;
-  }
-  if (action === "run-workspace-discovery") {
-    void runWorkspaceDiscovery();
-    return true;
-  }
-  if (action === "run-selected-workspace") {
-    if (!workspaceExecutionBundleReady(selectedWorkspace())) {
-      setWorkspaceMessage("执行包未就绪，先自动推进补齐门禁。");
-      void advanceWorkspaceAutomation();
-      return true;
-    }
-    void runWorkspaceWorkflow();
-    return true;
-  }
-  if (action === "run-workspace-to-selected-node" && button.dataset.nodeId) {
-    void runWorkspaceToNode(button.dataset.nodeId);
-    return true;
-  }
-  if (action === "run-workspace-node-agent" && button.dataset.nodeId) {
-    void runWorkspaceNode(button.dataset.nodeId, { prefer: "agent" });
-    return true;
-  }
-  if (action === "run-workspace-node-job" && button.dataset.nodeId) {
-    void runWorkspaceNode(button.dataset.nodeId, { prefer: "job" });
-    return true;
-  }
-  if (action === "run-workspace-node" && button.dataset.nodeId) {
-    void runWorkspaceNode(button.dataset.nodeId);
-    return true;
-  }
-  if (action === "run-selected-node" && button.dataset.nodeId) {
-    void runWorkspaceNode(button.dataset.nodeId);
-    return true;
-  }
-  if (action === "open-selected-node-log" && button.dataset.jobId) {
-    void showLog(button.dataset.jobId);
-    return true;
-  }
-  if (action === "open-workspace-run" && button.dataset.jobId) {
-    void showLog(button.dataset.jobId);
-    return true;
-  }
-  if (action === "open-workspace-run" && button.dataset.runId) {
-    void openWorkspaceRunDetail(button.dataset.runId);
-    return true;
-  }
-  if (action === "open-last-workspace-log") {
-    const workspace = selectedWorkspace();
-    const jobId = String(button.dataset.jobId || workspace?.execution?.last_job_id || "").trim();
-    if (jobId) void showLog(jobId);
-    else setWorkspaceUseMessage("当前实例还没有最近任务输出。", true);
-    return true;
-  }
-  if (action === "accept-chat-context-reflection" && button.dataset.messageId) {
-    void acceptWorkspaceChatContextReflection(button);
-    return true;
-  }
-  if (action === "dismiss-chat-context-reflection" && button.dataset.messageId) {
-    void dismissWorkspaceChatContextReflection(button);
-    return true;
-  }
-  if (action === "fill-job-from-selected-workspace") {
-    fillJobFormFromWorkspace();
-    return true;
-  }
-  if (action === "refresh-workspace-resources") {
-    void refreshWorkspaceResourceSnapshot("");
-    return true;
-  }
-  if (action === "refresh-workspace-resource-server") {
-    void refreshWorkspaceResourceSnapshot(button.dataset.serverId || "");
-    return true;
-  }
-  if (action === "refresh-workspace-resource-selected-server") {
-    const picker = button
-      .closest(".workspace-cockpit-resource-actions")
-      ?.querySelector("[data-role='workspace-resource-server-select']");
-    void refreshWorkspaceResourceSnapshot(picker?.value || state.ui.workspaceResourceServerId || "");
-    return true;
-  }
-  if (action === "copy-execution-bundle-script") {
-    const scriptText = button
-      .closest(".workspace-execution-bundle")
-      ?.querySelector("[data-role='workspace-execution-bundle-script-text']")
-      ?.textContent || workspaceExecutionBundleScriptText(selectedWorkspace());
-    void copyTextToClipboard(scriptText)
-      .then(() => setWorkspaceMessage("执行包脚本已复制。"))
-      .catch((error) => setWorkspaceMessage(error.message || "复制脚本失败。", true));
-    return true;
-  }
-  if (action === "copy-execution-bundle-json") {
-    const workspace = selectedWorkspace();
-    const manifest = workspace?.automation?.reproduction_manifest && typeof workspace.automation.reproduction_manifest === "object"
-      ? workspace.automation.reproduction_manifest
-      : {};
-    const packageText = workspaceExecutionBundlePackageText(workspace, manifest);
-    if (!packageText) {
-      setWorkspaceMessage("还没有可复制的执行包 JSON。", true);
-      return true;
-    }
-    void copyTextToClipboard(packageText)
-      .then(() => setWorkspaceMessage("结构化执行包 JSON 已复制。"))
-      .catch((error) => setWorkspaceMessage(error.message || "复制执行包 JSON 失败。", true));
-    return true;
-  }
-  if (action === "copy-node-execution-bundle-script") {
-    const scriptText = button
-      .closest(".workspace-node-execution-bundle")
-      ?.querySelector("[data-role='workspace-node-execution-bundle-script']")
-      ?.textContent || "";
-    void copyTextToClipboard(scriptText)
-      .then(() => setWorkspaceMessage("当前节点归档脚本已复制。"))
-      .catch((error) => setWorkspaceMessage(error.message || "复制脚本失败。", true));
-    return true;
-  }
-  return false;
+  return workspaceAutomationActionsApi()?.handleAutomationAction?.(button, workspaceAutomationActionDeps()) || false;
 }
 
 function bindEvents() {
