@@ -22,6 +22,61 @@
     return '<div class="empty">暂无已连接服务器。</div>';
   }
 
+  function fallbackFormatPercent(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return "--";
+    return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`;
+  }
+
+  function formatPercentFor(deps, value) {
+    return (typeof deps.formatPercent === "function" ? deps.formatPercent : fallbackFormatPercent)(value);
+  }
+
+  function serverBusyGpuCount(server) {
+    return (server.gpus || []).filter((gpu) => gpu.state === "busy").length;
+  }
+
+  function serverIdleGpuCount(server, deps = {}) {
+    const countBusy = typeof deps.serverBusyGpuCount === "function"
+      ? deps.serverBusyGpuCount
+      : serverBusyGpuCount;
+    return Math.max((server.gpus || []).length - countBusy(server), 0);
+  }
+
+  function serverHostResources(server) {
+    const resources = server?.host_resources;
+    return resources && typeof resources === "object" ? resources : {};
+  }
+
+  function serverHostResourceSummary(server, deps = {}) {
+    const resources = typeof deps.serverHostResources === "function"
+      ? deps.serverHostResources(server)
+      : serverHostResources(server);
+    if (!Object.keys(resources).length) {
+      return {
+        badge: "主机待采集",
+        title: "等待主机 CPU、内存、磁盘和网络资源快照",
+        state: "muted",
+      };
+    }
+    if (resources.ok === false) {
+      return {
+        badge: "主机异常",
+        title: resources.error || "主机资源采集失败",
+        state: "warning",
+      };
+    }
+    const cpu = resources.cpu || {};
+    const memory = resources.memory || {};
+    const cpuText = formatPercentFor(deps, cpu.util_percent);
+    const memText = formatPercentFor(deps, memory.used_percent);
+    return {
+      badge: `主机 ${cpuText}/${memText}`,
+      title: `CPU ${cpuText} · 内存 ${memText} · 悬停查看磁盘和网络`,
+      state: "ok",
+    };
+  }
+
   function serverSparklineMarkup(series = [], maxValue = 1, variant = "", deps = {}) {
     return `
     <div class="server-sparkline${variant ? ` ${escapeFor(deps, variant)}` : ""}">
@@ -147,6 +202,10 @@
   window.ServerListMarkup = {
     offlineServerGroupMarkup,
     serverCardMarkup,
+    serverBusyGpuCount,
+    serverHostResources,
+    serverHostResourceSummary,
+    serverIdleGpuCount,
     serverListEmptyMarkup,
     serverOnlineEmptyMarkup,
     serverSparklineMarkup,

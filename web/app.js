@@ -11766,19 +11766,31 @@ function jobQueueRank(job) {
 }
 
 function serverBusyGpuCount(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverBusyGpuCount === "function") return api.serverBusyGpuCount(server);
   return (server.gpus || []).filter((gpu) => gpu.state === "busy").length;
 }
 
 function serverIdleGpuCount(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverIdleGpuCount === "function") {
+    return api.serverIdleGpuCount(server, { serverBusyGpuCount });
+  }
   return Math.max((server.gpus || []).length - serverBusyGpuCount(server), 0);
 }
 
 function serverHostResources(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverHostResources === "function") return api.serverHostResources(server);
   const resources = server?.host_resources;
   return resources && typeof resources === "object" ? resources : {};
 }
 
 function serverHostResourceSummary(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverHostResourceSummary === "function") {
+    return api.serverHostResourceSummary(server, { formatPercent, serverHostResources });
+  }
   const resources = serverHostResources(server);
   if (!Object.keys(resources).length) {
     return {
