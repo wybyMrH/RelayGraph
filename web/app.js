@@ -3084,6 +3084,22 @@ function workflowTemplateDraftDeps() {
   };
 }
 
+function workflowTemplateNodeMutationsApi() {
+  return window.WorkflowTemplateNodeMutations || {};
+}
+
+function workflowTemplateNodeMutationDeps() {
+  return {
+    buildWorkspaceStarterNodes,
+    createWorkspaceNode,
+    deepClone,
+    normalizeWorkspaceDraftNode,
+    workspaceChainSourceType,
+    workspaceInputMappingEntries,
+    workspaceInputMappingFromEntries,
+  };
+}
+
 function defaultWorkflowTemplateDraft(sourceType = "repo") {
   return workflowTemplateDraftApi().defaultDraft?.(sourceType, workflowTemplateDraftDeps()) || {};
 }
@@ -3420,7 +3436,10 @@ function selectWorkflowTemplate(templateId, options = {}) {
 
 function selectedWorkflowTemplateNode() {
   const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  return nodes.find((item) => item.id === state.selectedTemplateNodeId) || nodes[0] || null;
+  return workflowTemplateNodeMutationsApi().selectedNode?.(nodes, state.selectedTemplateNodeId)
+    || nodes.find((item) => item.id === state.selectedTemplateNodeId)
+    || nodes[0]
+    || null;
 }
 
 function updateWorkflowTemplateDraft(updater) {
@@ -3437,44 +3456,22 @@ function updateWorkflowTemplateDraft(updater) {
 }
 
 function updateSelectedWorkflowTemplateNode(updater) {
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
-  const index = nodes.findIndex((item) => item.id === state.selectedTemplateNodeId);
-  if (index < 0) return;
-  const current = nodes[index];
-  const next = typeof updater === "function" ? updater(deepClone(current, current)) : { ...current, ...updater };
-  nodes.splice(index, 1, normalizeWorkspaceDraftNode(next, index, {
-    source_type: workspaceChainSourceType(state.workflowTemplateDraft?.source?.type || "repo"),
-    repo_url: state.workflowTemplateDraft?.source?.repo_url || "",
-    repo_ref: state.workflowTemplateDraft?.source?.repo_ref || "",
-    paper_url: state.workflowTemplateDraft?.source?.paper_url || "",
-    idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
-    workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
-    env_name: state.workflowTemplateDraft?.env?.name || "",
-    env_manager: state.workflowTemplateDraft?.env?.manager || "",
-    python_version: state.workflowTemplateDraft?.env?.python || "",
-  }));
+  const result = workflowTemplateNodeMutationsApi().updateSelectedNode?.(
+    { draft: state.workflowTemplateDraft, selectedNodeId: state.selectedTemplateNodeId, updater },
+    workflowTemplateNodeMutationDeps(),
+  );
+  if (!result?.ok) return;
+  const nodes = result.nodes;
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
 }
 
 function setSelectedWorkflowTemplateInputMapping(mapping = {}, options = {}) {
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
-  const index = nodes.findIndex((item) => item.id === state.selectedTemplateNodeId);
-  if (index < 0) return;
-  const current = deepClone(nodes[index], nodes[index]);
-  const cleaned = workspaceInputMappingFromEntries(workspaceInputMappingEntries(mapping));
-  if (Object.keys(cleaned).length) current.input_mapping = cleaned;
-  else delete current.input_mapping;
-  nodes.splice(index, 1, normalizeWorkspaceDraftNode(current, index, {
-    source_type: workspaceChainSourceType(state.workflowTemplateDraft?.source?.type || "repo"),
-    repo_url: state.workflowTemplateDraft?.source?.repo_url || "",
-    repo_ref: state.workflowTemplateDraft?.source?.repo_ref || "",
-    paper_url: state.workflowTemplateDraft?.source?.paper_url || "",
-    idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
-    workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
-    env_name: state.workflowTemplateDraft?.env?.name || "",
-    env_manager: state.workflowTemplateDraft?.env?.manager || "",
-    python_version: state.workflowTemplateDraft?.env?.python || "",
-  }));
+  const result = workflowTemplateNodeMutationsApi().setSelectedInputMapping?.(
+    { draft: state.workflowTemplateDraft, selectedNodeId: state.selectedTemplateNodeId, mapping },
+    workflowTemplateNodeMutationDeps(),
+  );
+  if (!result?.ok) return;
+  const nodes = result.nodes;
   state.workflowTemplateDraft = normalizeWorkflowTemplateDraft({ ...state.workflowTemplateDraft, nodes });
   state.workflowTemplateValidation = null;
   state.ui.workflowTemplateDirty = true;
@@ -3494,71 +3491,53 @@ function setSelectedWorkflowTemplateInputMapping(mapping = {}, options = {}) {
 }
 
 function insertWorkflowTemplateNode(kind) {
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
-  const currentIndex = nodes.findIndex((node) => node.id === state.selectedTemplateNodeId);
-  const insertIndex = currentIndex >= 0 ? currentIndex + 1 : nodes.length;
-  const node = createWorkspaceNode(
-    String(kind || "custom.step"),
-    {},
-    insertIndex,
-    {
-      source_type: workspaceChainSourceType(state.workflowTemplateDraft?.source?.type || "repo"),
-      repo_url: state.workflowTemplateDraft?.source?.repo_url || "",
-      repo_ref: state.workflowTemplateDraft?.source?.repo_ref || "",
-      paper_url: state.workflowTemplateDraft?.source?.paper_url || "",
-      idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
-      workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
-      env_name: state.workflowTemplateDraft?.env?.name || "",
-      env_manager: state.workflowTemplateDraft?.env?.manager || "",
-      python_version: state.workflowTemplateDraft?.env?.python || "",
-    },
+  const result = workflowTemplateNodeMutationsApi().insertNode?.(
+    { draft: state.workflowTemplateDraft, selectedNodeId: state.selectedTemplateNodeId, kind },
+    workflowTemplateNodeMutationDeps(),
   );
-  nodes.splice(insertIndex, 0, node);
-  state.selectedTemplateNodeId = node.id;
+  if (!result?.ok) return;
+  const nodes = result.nodes;
+  state.selectedTemplateNodeId = result.selectedNodeId || "";
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
-  revealWorkflowTemplateSelection(node.id, { editor: true });
+  revealWorkflowTemplateSelection(state.selectedTemplateNodeId, { editor: true });
 }
 
 function moveWorkflowTemplateNode(direction) {
   const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
-  const index = nodes.findIndex((item) => item.id === state.selectedTemplateNodeId);
-  if (index < 0) return;
-  const targetIndex = direction === "up" ? index - 1 : index + 1;
-  if (targetIndex < 0 || targetIndex >= nodes.length) return;
-  const [node] = nodes.splice(index, 1);
-  nodes.splice(targetIndex, 0, node);
-  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
-  revealWorkflowTemplateSelection(node.id, { editor: false });
+  const result = workflowTemplateNodeMutationsApi().moveNode?.({
+    nodes,
+    selectedNodeId: state.selectedTemplateNodeId,
+    direction,
+  });
+  if (!result?.ok) return;
+  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: result.nodes }));
+  revealWorkflowTemplateSelection(result.selectedNodeId, { editor: false });
 }
 
 function removeWorkflowTemplateNode() {
   const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
-  if (nodes.length <= 1) {
+  const result = workflowTemplateNodeMutationsApi().removeNode?.({
+    nodes,
+    selectedNodeId: state.selectedTemplateNodeId,
+  });
+  if (result?.reason === "minimum_nodes") {
     setWorkspaceManageMessage("至少保留一个节点。", true);
     return;
   }
-  const index = nodes.findIndex((item) => item.id === state.selectedTemplateNodeId);
-  if (index < 0) return;
-  nodes.splice(index, 1);
-  state.selectedTemplateNodeId = nodes[Math.max(0, index - 1)]?.id || nodes[0]?.id || "";
-  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
+  if (!result?.ok) return;
+  state.selectedTemplateNodeId = result.selectedNodeId || "";
+  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: result.nodes }));
   revealWorkflowTemplateSelection(state.selectedTemplateNodeId, { editor: false });
 }
 
 function rebuildWorkflowTemplateNodes() {
-  const sourceType = workspaceChainSourceType(state.workflowTemplateDraft?.source?.type || "repo");
-  const nodes = buildWorkspaceStarterNodes({
-    source_type: sourceType,
-    repo_url: state.workflowTemplateDraft?.source?.repo_url || "",
-    repo_ref: state.workflowTemplateDraft?.source?.repo_ref || "",
-    paper_url: state.workflowTemplateDraft?.source?.paper_url || "",
-    idea_text: state.workflowTemplateDraft?.source?.idea_text || state.workflowTemplateDraft?.brief || "",
-    workspace_dir: state.workflowTemplateDraft?.workspace_dir || "",
-    env_name: state.workflowTemplateDraft?.env?.name || "",
-    env_manager: state.workflowTemplateDraft?.env?.manager || "",
-    python_version: state.workflowTemplateDraft?.env?.python || "",
-  });
-  state.selectedTemplateNodeId = nodes[0]?.id || "";
+  const result = workflowTemplateNodeMutationsApi().rebuildNodes?.(
+    { draft: state.workflowTemplateDraft },
+    workflowTemplateNodeMutationDeps(),
+  );
+  if (!result?.ok) return;
+  const nodes = result.nodes;
+  state.selectedTemplateNodeId = result.selectedNodeId || "";
   state.ui.workflowTemplateNodeSearch = "";
   updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes }));
   revealWorkflowTemplateSelection(state.selectedTemplateNodeId, { editor: false });
