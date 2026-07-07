@@ -3112,6 +3112,38 @@ function workflowTemplateNodeMutationDeps() {
   };
 }
 
+function workflowTemplateLifecycleActionsApi() {
+  return window.WorkflowTemplateLifecycleActions || {};
+}
+
+function workflowTemplateLifecycleActionDeps() {
+  return {
+    confirmAction: (message) => confirm(message),
+    fetchJson,
+    loadStatus,
+    newTemplate: newWorkflowTemplateDraft,
+    payloadForSave: workflowTemplatePayloadForSave,
+    previewTemplate: previewWorkflowTemplate,
+    refreshTemplateDiff: refreshWorkspaceTemplateDiff,
+    renderStudioOverview: renderWorkflowTemplateStudioOverview,
+    renderWorkbench: renderWorkspaceWorkbench,
+    selectedTemplate: selectedWorkflowTemplate,
+    selectedTemplateId: () => state.selectedWorkflowTemplateId,
+    selectedWorkspaceId: () => state.selectedWorkspaceId,
+    selectTemplate: selectWorkflowTemplate,
+    setMessage: setWorkspaceManageMessage,
+    setValidation: (value) => {
+      state.workflowTemplateValidation = value;
+    },
+    setValidationBusy: (value) => {
+      state.ui.workflowTemplateValidationBusy = Boolean(value);
+    },
+    validationSummary: workflowTemplateValidationSummary,
+    workflowTemplates: () => state.workflowTemplates,
+    workspaceManageTab: () => state.ui.workspaceManageTab,
+  };
+}
+
 function defaultWorkflowTemplateDraft(sourceType = "repo") {
   return workflowTemplateDraftApi().defaultDraft?.(sourceType, workflowTemplateDraftDeps()) || {};
 }
@@ -3408,27 +3440,12 @@ async function createWorkspaceTemplateMigrationDraft() {
 }
 
 async function previewWorkflowTemplate(options = {}) {
-  const payload = workflowTemplatePayloadForSave();
-  const templateId = String(state.selectedWorkflowTemplateId || "").trim();
-  state.ui.workflowTemplateValidationBusy = true;
-  if (options.render !== false) renderWorkflowTemplateStudioOverview();
-  try {
-    const response = await fetchJson(
-      templateId
-        ? `/api/workflow-templates/${encodeURIComponent(templateId)}/preview`
-        : "/api/workflow-templates/preview",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
-    state.workflowTemplateValidation = response;
-    return response;
-  } finally {
-    state.ui.workflowTemplateValidationBusy = false;
-    if (options.render !== false) renderWorkspaceWorkbench();
+  const api = workflowTemplateLifecycleActionsApi();
+  if (!api?.previewTemplate) {
+    setWorkspaceManageMessage("模板预览模块暂不可用。", true);
+    return null;
   }
+  return await api.previewTemplate(options, workflowTemplateLifecycleActionDeps());
 }
 
 function selectWorkflowTemplate(templateId, options = {}) {
@@ -22240,72 +22257,21 @@ function newWorkflowTemplateDraft(sourceType = "repo") {
 }
 
 async function saveWorkflowTemplate() {
-  const payload = workflowTemplatePayloadForSave();
-  setWorkspaceManageMessage("正在校验模板...");
-  try {
-    const preview = await previewWorkflowTemplate({ render: false });
-    const validation = preview?.validation || {};
-    if (validation.status === "blocked") {
-      renderWorkspaceWorkbench();
-      setWorkspaceManageMessage(`模板校验未通过：${workflowTemplateValidationSummary(validation)}`, true);
-      return;
-    }
-    setWorkspaceManageMessage(state.selectedWorkflowTemplateId ? "正在保存模板..." : "正在创建模板...");
-    const response = await fetchJson(
-      state.selectedWorkflowTemplateId
-        ? `/api/workflow-templates/${encodeURIComponent(state.selectedWorkflowTemplateId)}`
-        : "/api/workflow-templates",
-      {
-        method: state.selectedWorkflowTemplateId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      },
-    );
-    const saved = response.workflow_template;
-    await loadStatus(true, { renderWorkspace: true });
-    if (saved?.id) selectWorkflowTemplate(saved.id);
-    let migrationNotice = "";
-    if (state.selectedWorkspaceId) {
-      const diffPayload = await refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, {
-        quiet: true,
-        render: state.ui.workspaceManageTab === "inspect",
-      });
-      const diff = diffPayload?.diff && typeof diffPayload.diff === "object" ? diffPayload.diff : null;
-      const plan = diff?.migration_plan && typeof diff.migration_plan === "object" ? diff.migration_plan : {};
-      if (diff?.status === "changed") {
-        migrationNotice = plan.can_manual_apply
-          ? "当前实例快照已变化，可在链路诊断应用安全迁移。"
-          : plan.can_create_draft
-            ? "当前实例快照已变化，建议在链路诊断新建迁移草稿。"
-            : "当前实例快照已变化，请在链路诊断复核迁移计划。";
-      }
-    }
-    const saveMessage = validation.status === "warning" ? "模板已保存，但仍有警告项。" : "模板已保存。";
-    setWorkspaceManageMessage(`${saveMessage}${migrationNotice ? ` ${migrationNotice}` : ""}`);
-  } catch (error) {
-    setWorkspaceManageMessage(error.message, true);
+  const api = workflowTemplateLifecycleActionsApi();
+  if (!api?.saveTemplate) {
+    setWorkspaceManageMessage("模板保存模块暂不可用。", true);
+    return null;
   }
+  return await api.saveTemplate(workflowTemplateLifecycleActionDeps());
 }
 
 async function deleteSelectedWorkflowTemplate() {
-  if (!state.selectedWorkflowTemplateId) {
-    newWorkflowTemplateDraft("repo");
-    return;
+  const api = workflowTemplateLifecycleActionsApi();
+  if (!api?.deleteTemplate) {
+    setWorkspaceManageMessage("模板删除模块暂不可用。", true);
+    return null;
   }
-  const template = selectedWorkflowTemplate();
-  if (template && !confirm(`确定删除模板 "${template.name || template.id}" 吗？`)) return;
-  try {
-    await fetchJson(`/api/workflow-templates/${encodeURIComponent(state.selectedWorkflowTemplateId)}`, {
-      method: "DELETE",
-    });
-    await loadStatus(true, { renderWorkspace: true });
-    if (state.workflowTemplates[0]) selectWorkflowTemplate(state.workflowTemplates[0].id);
-    else newWorkflowTemplateDraft("repo");
-    if (state.selectedWorkspaceId) void refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, { quiet: true, render: state.ui.workspaceManageTab === "inspect" });
-    setWorkspaceManageMessage("模板已删除。");
-  } catch (error) {
-    setWorkspaceManageMessage(error.message, true);
-  }
+  return await api.deleteTemplate(workflowTemplateLifecycleActionDeps());
 }
 
 function updateAgentDefinitionDraft(patch) {
