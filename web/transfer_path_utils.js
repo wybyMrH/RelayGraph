@@ -41,6 +41,17 @@
     return `${server.target || server.ssh_alias || server.host_name || server.id}:`;
   }
 
+  function transferTargetMatchesServer(prefix, server) {
+    const text = String(prefix || "");
+    const host = text.includes("@") ? text.split("@").pop() : text;
+    return [server.target, server.id, server.name]
+      .filter(Boolean)
+      .some((value) => {
+        const candidate = String(value);
+        return candidate === text || candidate === host || candidate.endsWith(`@${host}`);
+      });
+  }
+
   function parseIgnoreText(text) {
     return Array.from(
       new Set(
@@ -60,6 +71,7 @@
     parseRsyncTargetPath,
     parseRsyncTargetPrefix,
     transferPathOnly,
+    transferTargetMatchesServer,
     transferTargetPrefix,
   };
 })();

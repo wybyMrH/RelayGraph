@@ -17460,6 +17460,8 @@ function syncTransferSourceServerFromInput() {
 }
 
 function transferTargetMatchesServer(prefix, server) {
+  const api = transferPathUtilsApi();
+  if (api && typeof api.transferTargetMatchesServer === "function") return api.transferTargetMatchesServer(prefix, server);
   const text = String(prefix || "");
   const host = text.includes("@") ? text.split("@").pop() : text;
   return [server.target, server.id, server.name]
