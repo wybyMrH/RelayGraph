@@ -1,6 +1,19 @@
 (function () {
   "use strict";
 
+  const WORKSPACE_RUN_TIMELINE_EVENT_TYPES = [
+    "run.created",
+    "run.updated",
+    "run.step.updated",
+    "job.updated",
+    "agent.step.created",
+    "agent.tool.called",
+    "agent.tool.result",
+    "agent.tool.failed",
+    "agent.completed",
+    "agent.failed",
+  ];
+
   function defaultTimestampMs(value) {
     const ms = Date.parse(String(value || ""));
     return Number.isFinite(ms) ? ms : 0;
@@ -10,11 +23,15 @@
     return typeof options.timestampMs === "function" ? options.timestampMs : defaultTimestampMs;
   }
 
+  function defaultTimelineEventTypes() {
+    return new Set(WORKSPACE_RUN_TIMELINE_EVENT_TYPES);
+  }
+
   function runTimelineEventTypes(options = {}) {
     const source = options.timelineEventTypes;
     if (source instanceof Set) return source;
     if (Array.isArray(source)) return new Set(source.map((item) => String(item || "").trim()).filter(Boolean));
-    return new Set();
+    return defaultTimelineEventTypes();
   }
 
   function eventKey(event = {}) {
@@ -325,5 +342,6 @@
     runTimestampMs,
     shouldKeepExistingRun,
     stepMergeKey,
+    timelineEventTypes: defaultTimelineEventTypes,
   };
 })();

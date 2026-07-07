@@ -22684,7 +22684,7 @@ function normalizeWorkspaceRunEventFromStream(event = {}, payload = {}) {
   const api = workspaceRunStateMergeApi();
   if (typeof api?.normalizeRunEventFromStream === "function") {
     return api.normalizeRunEventFromStream(event, payload, {
-      timelineEventTypes: WORKSPACE_RUN_TIMELINE_EVENT_TYPES,
+      timelineEventTypes: api.timelineEventTypes?.() || WORKSPACE_RUN_TIMELINE_EVENT_TYPES,
     });
   }
   const eventType = String(event.type || "").trim();
