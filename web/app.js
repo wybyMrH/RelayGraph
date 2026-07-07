@@ -19504,8 +19504,28 @@ function workflowTemplateMappingApi() {
   return window.WorkflowTemplateMapping || {};
 }
 
+function workflowTemplateMappingActionsApi() {
+  return window.WorkflowTemplateMappingActions || {};
+}
+
 function workflowTemplateMappingNodes() {
   return Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
+}
+
+function workflowTemplateMappingActionDeps() {
+  return {
+    mappingApi: workflowTemplateMappingApi,
+    mappingDeps: workflowTemplateMappingDeps,
+    mappingNodes: workflowTemplateMappingNodes,
+    mergedMissingInputMapping: workflowTemplateMergedMissingInputMapping,
+    nodeIndex: workflowTemplateNodeIndex,
+    nodes: () => Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [],
+    selectedNode: selectedWorkflowTemplateNode,
+    selectedNodeId: () => state.selectedTemplateNodeId,
+    setMessage: setWorkspaceManageMessage,
+    setSelectedInputMapping: setSelectedWorkflowTemplateInputMapping,
+    updateDraft: updateWorkflowTemplateDraft,
+  };
 }
 
 function workflowTemplateMappingDeps() {
@@ -19667,49 +19687,25 @@ function workflowTemplateMergedMissingInputMapping(node = {}, index = 0, nodes =
 }
 
 function fillSelectedWorkflowTemplateMissingInputMapping(options = {}) {
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  const index = nodes.findIndex((item) => item.id === state.selectedTemplateNodeId);
-  if (index < 0) return 0;
-  const result = workflowTemplateMergedMissingInputMapping(nodes[index], index, nodes);
-  if (!result.targetInputs.length) {
-    setWorkspaceManageMessage("当前节点没有声明输入，不需要补齐 input_mapping。");
+  const api = workflowTemplateMappingActionsApi();
+  if (!api?.fillSelectedMissingInputMapping) {
+    setWorkspaceManageMessage("模板映射动作模块暂不可用。", true);
     return 0;
   }
-  if (!result.added) {
-    setWorkspaceManageMessage("当前节点 input_mapping 已完整。");
-    return 0;
-  }
-  setSelectedWorkflowTemplateInputMapping(result.mapping, options);
-  setWorkspaceManageMessage(`已为当前节点补齐 ${result.added} 条 input_mapping。`);
-  return result.added;
+  return api.fillSelectedMissingInputMapping(workflowTemplateMappingActionDeps(), options);
 }
 
 function fillAllWorkflowTemplateMissingInputMappings() {
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes.slice() : [];
-  let addedTotal = 0;
-  const nextNodes = nodes.map((node, index) => {
-    const result = workflowTemplateMergedMissingInputMapping(node, index, nodes);
-    if (!result.added) return node;
-    addedTotal += result.added;
-    return { ...node, input_mapping: result.mapping };
-  });
-  if (!addedTotal) {
-    setWorkspaceManageMessage("全链 input_mapping 已完整，没有新的缺口需要补齐。");
+  const api = workflowTemplateMappingActionsApi();
+  if (!api?.fillAllMissingInputMappings) {
+    setWorkspaceManageMessage("模板映射动作模块暂不可用。", true);
     return;
   }
-  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: nextNodes }));
-  setWorkspaceManageMessage(`已为全链补齐 ${addedTotal} 条 input_mapping，未覆盖已有手工映射。`);
+  return api.fillAllMissingInputMappings(workflowTemplateMappingActionDeps());
 }
 
 function refreshWorkflowTemplateMappingEditorHealth(editor, options = {}) {
-  const node = selectedWorkflowTemplateNode();
-  workflowTemplateMappingApi().refreshEditorHealth?.(editor, {
-    ...options,
-    node,
-    nodes: workflowTemplateMappingNodes(),
-    index: workflowTemplateNodeIndex(node),
-    ...workflowTemplateMappingDeps(),
-  });
+  workflowTemplateMappingActionsApi().refreshEditorHealth?.(workflowTemplateMappingActionDeps(), editor, options);
 }
 
 function renderWorkspaceNodeEditor() {
