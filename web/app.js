@@ -3312,6 +3312,10 @@ function workflowTemplateVersionHistoryMarkup(template = state.workflowTemplateD
   });
 }
 
+function workflowTemplateVersionHistoryActionsApi() {
+  return window.WorkflowTemplateVersionHistoryActions || {};
+}
+
 function workflowTemplateVersionAuditPayload(template = state.workflowTemplateDraft || {}) {
   const normalized = normalizeWorkflowTemplateDraft(template || {});
   if (!window.WorkflowTemplateVersionHistory?.auditPayload) {
@@ -3332,17 +3336,23 @@ function workflowTemplateVersionAuditPayload(template = state.workflowTemplateDr
   });
 }
 
+function workflowTemplateVersionHistoryActionDeps() {
+  return {
+    auditPayload: workflowTemplateVersionAuditPayload,
+    copyText: copyTextToClipboard,
+    draftTemplate: () => state.workflowTemplateDraft,
+    selectedTemplate: selectedWorkflowTemplate,
+    setMessage: setWorkspaceManageMessage,
+  };
+}
+
 async function copyWorkflowTemplateVersionHistory() {
-  const template = state.workflowTemplateDraft && Object.keys(state.workflowTemplateDraft).length
-    ? state.workflowTemplateDraft
-    : selectedWorkflowTemplate();
-  const payload = workflowTemplateVersionAuditPayload(template || {});
-  if (!payload.history_count) {
-    setWorkspaceManageMessage("当前模板还没有可复制的版本历史。", true);
+  const api = workflowTemplateVersionHistoryActionsApi();
+  if (!api?.copyHistory) {
+    setWorkspaceManageMessage("模板版本历史动作模块暂不可用。", true);
     return;
   }
-  await copyTextToClipboard(JSON.stringify(payload, null, 2));
-  setWorkspaceManageMessage("模板版本历史 JSON 已复制。");
+  return await api.copyHistory(workflowTemplateVersionHistoryActionDeps());
 }
 
 function workspaceTemplateDiffMarkup(options = {}) {
