@@ -2263,7 +2263,19 @@ function workspaceToolSummary(tool) {
   return parts.join(" · ");
 }
 
+function workspaceDraftNormalizersApi() {
+  return window.WorkspaceDraftNormalizers && typeof window.WorkspaceDraftNormalizers === "object"
+    ? window.WorkspaceDraftNormalizers
+    : null;
+}
+
 function normalizeWorkspaceToolDraft(tool = {}, index = 0) {
+  const api = workspaceDraftNormalizersApi();
+  if (api && typeof api.normalizeWorkspaceToolDraft === "function") {
+    return api.normalizeWorkspaceToolDraft(tool, index, {
+      safeId,
+    });
+  }
   const fallbackId = safeId(tool.label || tool.id || `tool-${index + 1}`);
   return {
     id: String(tool.id || fallbackId),
@@ -2278,6 +2290,14 @@ function normalizeWorkspaceToolDraft(tool = {}, index = 0) {
 }
 
 function normalizeWorkspaceAgentDraft(agent = {}, index = 0, toolIds = []) {
+  const api = workspaceDraftNormalizersApi();
+  if (api && typeof api.normalizeWorkspaceAgentDraft === "function") {
+    return api.normalizeWorkspaceAgentDraft(agent, index, toolIds, {
+      parseTagList,
+      positiveNumberOrBlank,
+      safeId,
+    });
+  }
   const roleSeed = String(agent.role || agent.name || `agent-${index + 1}`).trim() || `agent-${index + 1}`;
   const tools = Array.isArray(agent.tools) ? agent.tools.map((item) => String(item || "").trim()).filter(Boolean) : parseTagList(agent.tools || "");
   const allowedTools = new Set(toolIds.map((item) => String(item || "").trim()).filter(Boolean));
@@ -2546,6 +2566,8 @@ function applyRecommendedNodeAssignments() {
 }
 
 function normalizeWorkspaceModelDraft(model = {}) {
+  const api = workspaceDraftNormalizersApi();
+  if (api && typeof api.normalizeWorkspaceModelDraft === "function") return api.normalizeWorkspaceModelDraft(model);
   const routingMode = ["workspace_default", "agent_override"].includes(String(model.routing_mode || ""))
     ? String(model.routing_mode)
     : "workspace_default";
