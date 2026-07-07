@@ -7369,6 +7369,8 @@ function workspaceNodeIoContractState(node = null, sourceNode = null, context = 
 }
 
 function workspaceInputStatusLabel(status = "") {
+  const api = statusLabelsApi();
+  if (api && typeof api.workspaceInputStatusLabel === "function") return api.workspaceInputStatusLabel(status, { workspaceStatusLabel });
   const value = String(status || "").trim();
   if (["ready", "done"].includes(value)) return "已连通";
   if (["blocked", "failed", "stopped"].includes(value)) return "输入断点";

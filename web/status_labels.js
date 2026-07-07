@@ -42,9 +42,21 @@
     return labelStatus(text);
   }
 
+  function workspaceInputStatusLabel(status = "", deps = {}) {
+    const labelWorkspaceStatus = typeof deps.workspaceStatusLabel === "function"
+      ? deps.workspaceStatusLabel
+      : workspaceStatusLabel;
+    const value = String(status || "").trim();
+    if (["ready", "done"].includes(value)) return "已连通";
+    if (["blocked", "failed", "stopped"].includes(value)) return "输入断点";
+    if (["warning", "pending", "draft"].includes(value)) return "待确认";
+    return labelWorkspaceStatus(value || "draft");
+  }
+
   window.StatusLabels = {
     kindText,
     statusText,
+    workspaceInputStatusLabel,
     workspaceStatusLabel,
     zhKind,
     zhStatus,
