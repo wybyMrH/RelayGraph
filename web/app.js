@@ -20828,93 +20828,39 @@ function workflowTemplateTopologyPreviewMarkup(nodes = [], ioStates = [], search
   });
 }
 
+function workflowTemplateCanvasRendererApi() {
+  return window.WorkflowTemplateCanvasRenderer || {};
+}
+
+function workflowTemplateCanvasRendererDeps() {
+  return {
+    canvasSearchState: workflowTemplateCanvasSearchState,
+    canvasSearchToolsMarkup: workflowTemplateCanvasSearchToolsMarkup,
+    connectorMarkup: workflowTemplateConnectorMarkup,
+    createElement: (tagName) => document.createElement(tagName),
+    defaultWorkflowTemplateDraft,
+    edgeInspectorMarkup: workflowTemplateEdgeInspectorMarkup,
+    element: $,
+    escapeHtml,
+    nodeFlowMarkup: workflowTemplateNodeFlowMarkup,
+    nodeIoState: workflowTemplateNodeIoState,
+    normalizeWorkflowTemplateDraft,
+    phaseMapMarkup: workflowTemplatePhaseMapMarkup,
+    refreshSearchDecorations: refreshWorkflowTemplateCanvasSearchDecorations,
+    selectedTemplateNodeId: () => state.selectedTemplateNodeId,
+    selectedWorkflowTemplate,
+    topologyPreviewMarkup: workflowTemplateTopologyPreviewMarkup,
+    workflowTemplateDraft: () => state.workflowTemplateDraft,
+    workspaceNodeLabel,
+  };
+}
+
 function renderWorkflowTemplateCanvas() {
-  const root = $("workflowTemplateCanvas");
-  if (!root) return;
-  const draft = normalizeWorkflowTemplateDraft(state.workflowTemplateDraft || selectedWorkflowTemplate() || defaultWorkflowTemplateDraft("repo"));
-  const nodes = Array.isArray(draft.nodes) ? draft.nodes : [];
-  if (!nodes.length) {
-    root.innerHTML = '<div class="empty">模板里还没有节点。</div>';
-    return;
-  }
-  const selectedIndex = Math.max(0, nodes.findIndex((node) => node.id === state.selectedTemplateNodeId));
-  const selectedNode = nodes[selectedIndex] || nodes[0] || {};
-  const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
-  const search = workflowTemplateCanvasSearchState(nodes, ioStates);
-  const mappedCount = ioStates.filter((item) => item.status === "ready").length;
-  const trackParts = [];
-  nodes.forEach((node, index) => {
-    trackParts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index], { searchQuery: search.query }));
-    if (index < nodes.length - 1) trackParts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1, nodes, ioStates[index + 1]));
-  });
-  const edgeMarkup = workflowTemplateEdgeInspectorMarkup(nodes, selectedIndex);
-  const phaseMap = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates, search);
-  const topologyPreview = workflowTemplateTopologyPreviewMarkup(nodes, ioStates, search);
-  root.innerHTML = `
-    <div class="workflow-template-canvas-head">
-      <div>
-        <strong>${escapeHtml(`${nodes.length} 节点 · ${mappedCount}/${nodes.length} I/O 闭合`)}</strong>
-        <span title="${escapeHtml(selectedNode.title || workspaceNodeLabel(selectedNode.kind))}">${escapeHtml(`当前：${selectedNode.title || workspaceNodeLabel(selectedNode.kind)}`)}</span>
-      </div>
-      <div class="workflow-template-canvas-actions">
-        <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(selectedNode.id || "")}" data-direction="up" title="上移当前节点" ${selectedIndex > 0 ? "" : "disabled"}>上移</button>
-        <button class="secondary mini" type="button" data-action="move-template-node" data-node-id="${escapeHtml(selectedNode.id || "")}" data-direction="down" title="下移当前节点" ${selectedIndex < nodes.length - 1 ? "" : "disabled"}>下移</button>
-        <button class="secondary mini" type="button" data-action="insert-template-node-after" data-node-id="${escapeHtml(selectedNode.id || "")}" title="在当前节点后插入左上角选择的节点类型">插入</button>
-        <button class="secondary mini" type="button" data-action="fill-template-all-missing-mapping" title="为全链声明输入补齐缺失 input_mapping，不覆盖已有手工映射">补齐映射</button>
-      </div>
-    </div>
-    ${workflowTemplateCanvasSearchToolsMarkup(search)}
-    ${topologyPreview}
-    ${phaseMap}
-    <div class="workflow-template-flow-viewport" aria-label="模板顺序链路画布">
-      <div class="workflow-template-flow-track">
-        ${trackParts.join("")}
-      </div>
-    </div>
-    ${edgeMarkup}
-  `;
+  return workflowTemplateCanvasRendererApi().renderCanvas?.(workflowTemplateCanvasRendererDeps());
 }
 
 function refreshWorkflowTemplateCanvasFlowSummary() {
-  const root = $("workflowTemplateCanvas");
-  if (!root) return;
-  const nodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  if (!nodes.length) return;
-  const selectedIndex = Math.max(0, nodes.findIndex((node) => node.id === state.selectedTemplateNodeId));
-  const selectedNode = nodes[selectedIndex] || nodes[0] || {};
-  const ioStates = nodes.map((node, index) => workflowTemplateNodeIoState(node, index, nodes));
-  const search = workflowTemplateCanvasSearchState(nodes, ioStates);
-  const mappedCount = ioStates.filter((item) => item.status === "ready").length;
-  const headStrong = root.querySelector(".workflow-template-canvas-head strong");
-  if (headStrong) headStrong.textContent = `${nodes.length} 节点 · ${mappedCount}/${nodes.length} I/O 闭合`;
-  const headCurrent = root.querySelector(".workflow-template-canvas-head span");
-  if (headCurrent) {
-    const label = selectedNode.title || workspaceNodeLabel(selectedNode.kind);
-    headCurrent.textContent = `当前：${label}`;
-    headCurrent.title = label;
-  }
-  const phaseMap = root.querySelector(".workflow-template-phase-map");
-  if (phaseMap) {
-    const replacement = document.createElement("div");
-    replacement.innerHTML = workflowTemplatePhaseMapMarkup(nodes, selectedNode.id || "", ioStates, search).trim();
-    phaseMap.replaceWith(replacement.firstElementChild);
-  }
-  const topologyPreview = root.querySelector(".workflow-template-layout-preview");
-  if (topologyPreview) {
-    const replacement = document.createElement("div");
-    replacement.innerHTML = workflowTemplateTopologyPreviewMarkup(nodes, ioStates, search).trim();
-    topologyPreview.replaceWith(replacement.firstElementChild);
-  }
-  const track = root.querySelector(".workflow-template-flow-track");
-  if (track) {
-    const parts = [];
-    nodes.forEach((node, index) => {
-      parts.push(workflowTemplateNodeFlowMarkup(node, index, nodes, ioStates[index], { searchQuery: search.query }));
-      if (index < nodes.length - 1) parts.push(workflowTemplateConnectorMarkup(node, nodes[index + 1], index + 1, nodes, ioStates[index + 1]));
-    });
-    track.innerHTML = parts.join("");
-  }
-  refreshWorkflowTemplateCanvasSearchDecorations();
+  return workflowTemplateCanvasRendererApi().refreshFlowSummary?.(workflowTemplateCanvasRendererDeps());
 }
 
 function refreshWorkflowTemplateCanvasSearchDecorations() {
