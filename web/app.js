@@ -17546,6 +17546,8 @@ function renderTerminalOptions() {
 }
 
 function terminalActivityKindLabel(tab) {
+  const api = window.TerminalActivityMarkup;
+  if (api && typeof api.terminalActivityKindLabel === "function") return api.terminalActivityKindLabel(tab);
   if (tab.type === "terminal") return "终端";
   if (tab.type === "tmux") return "tmux";
   if (tab.type === "process") return "进程";
@@ -17556,30 +17558,37 @@ function renderTerminalActivitySnapshot(tabs, terminalCount) {
   const panel = $("terminalActivitySnapshot");
   if (!panel) return;
   const api = window.TerminalActivityMarkup;
-  const counts = {
-    job: tabs.filter((tab) => tab.type === "job").length,
-    tmux: tabs.filter((tab) => tab.type === "tmux").length,
-    process: tabs.filter((tab) => tab.type === "process").length,
-  };
-  const active = tabs.find((tab) => tab.key === state.activeOutputKey) || tabs[0] || null;
-  const activeTerminal = active?.type === "terminal" ? state.terminals[active.terminalId] : null;
-  const activeServerInfo = active?.serverId ? serverById(active.serverId) : null;
-  const activeServer = activeServerInfo?.name || activeServerInfo?.id || activeTerminal?.serverName || "-";
-  const activeStatus = active
-    ? active.type === "terminal"
-      ? activeTerminal?.alive === false ? "已退出" : "运行中"
-      : "已打开"
-    : "未打开";
-  const contentLength = active?.content ? String(active.content).length : 0;
-  const summary = {
-    activeTitle: active ? active.title || terminalActivityKindLabel(active) : "没有标签",
-    activeMeta: active ? `${terminalActivityKindLabel(active)} · ${activeServer} · ${activeStatus}` : "打开任务、tmux、进程或终端后会出现在这里",
-    tabsCount: String(tabs.length),
-    terminalCount: String(terminalCount),
-    jobCount: String(counts.job),
-    tmuxProcessCount: String(counts.tmux + counts.process),
-    contentLengthText: contentLength ? `${contentLength} 字符` : "-",
-  };
+  const summary = api && typeof api.terminalActivitySnapshotSummary === "function"
+    ? api.terminalActivitySnapshotSummary(tabs, terminalCount, {
+      activeOutputKey: state.activeOutputKey,
+      terminals: state.terminals,
+    }, { serverById, terminalActivityKindLabel })
+    : (() => {
+      const counts = {
+        job: tabs.filter((tab) => tab.type === "job").length,
+        tmux: tabs.filter((tab) => tab.type === "tmux").length,
+        process: tabs.filter((tab) => tab.type === "process").length,
+      };
+      const active = tabs.find((tab) => tab.key === state.activeOutputKey) || tabs[0] || null;
+      const activeTerminal = active?.type === "terminal" ? state.terminals[active.terminalId] : null;
+      const activeServerInfo = active?.serverId ? serverById(active.serverId) : null;
+      const activeServer = activeServerInfo?.name || activeServerInfo?.id || activeTerminal?.serverName || "-";
+      const activeStatus = active
+        ? active.type === "terminal"
+          ? activeTerminal?.alive === false ? "已退出" : "运行中"
+          : "已打开"
+        : "未打开";
+      const contentLength = active?.content ? String(active.content).length : 0;
+      return {
+        activeTitle: active ? active.title || terminalActivityKindLabel(active) : "没有标签",
+        activeMeta: active ? `${terminalActivityKindLabel(active)} · ${activeServer} · ${activeStatus}` : "打开任务、tmux、进程或终端后会出现在这里",
+        tabsCount: String(tabs.length),
+        terminalCount: String(terminalCount),
+        jobCount: String(counts.job),
+        tmuxProcessCount: String(counts.tmux + counts.process),
+        contentLengthText: contentLength ? `${contentLength} 字符` : "-",
+      };
+    })();
   panel.innerHTML = api && typeof api.terminalActivitySnapshotMarkup === "function"
     ? api.terminalActivitySnapshotMarkup(summary, { escapeHtml })
     : `
@@ -17630,31 +17639,39 @@ function renderTerminalActivity() {
   }
   list.innerHTML = tabs
     .map((tab) => {
-      const active = tab.key === state.activeOutputKey ? " active" : "";
-      const typeLabel = terminalActivityKindLabel(tab);
-      const terminal = tab.type === "terminal" ? state.terminals[tab.terminalId] : null;
-      const status = tab.type === "terminal"
-        ? terminal?.alive === false ? "stopped" : "running"
-        : "ready";
-      const detail = tab.type === "terminal"
-        ? `${terminal?.serverName || tab.title || "终端"} · ${terminal?.alive === false ? "已退出" : "运行中"}`
-        : tab.title || "输出";
+      const options = api && typeof api.terminalActivityItemOptions === "function"
+        ? api.terminalActivityItemOptions(tab, {
+          activeOutputKey: state.activeOutputKey,
+          terminals: state.terminals,
+        }, { terminalActivityKindLabel })
+        : (() => {
+          const active = tab.key === state.activeOutputKey ? " active" : "";
+          const typeLabel = terminalActivityKindLabel(tab);
+          const terminal = tab.type === "terminal" ? state.terminals[tab.terminalId] : null;
+          const status = tab.type === "terminal"
+            ? terminal?.alive === false ? "stopped" : "running"
+            : "ready";
+          const detail = tab.type === "terminal"
+            ? `${terminal?.serverName || tab.title || "终端"} · ${terminal?.alive === false ? "已退出" : "运行中"}`
+            : tab.title || "输出";
+          return {
+            activeClass: active,
+            detail,
+            status,
+            typeLabel,
+          };
+        })();
       if (api && typeof api.terminalActivityItemMarkup === "function") {
-        return api.terminalActivityItemMarkup(tab, {
-          activeClass: active,
-          detail,
-          status,
-          typeLabel,
-        }, { escapeHtml });
+        return api.terminalActivityItemMarkup(tab, options, { escapeHtml });
       }
       return `
-        <article class="terminal-session-item${active}">
-          <button type="button" data-action="activate-output-tab" data-output-key="${escapeHtml(tab.key)}" title="${escapeHtml(`打开标签：${tab.title || typeLabel}`)}">
-            <span class="state ${escapeHtml(status)}">${escapeHtml(typeLabel)}</span>
-            <strong>${escapeHtml(tab.title || typeLabel)}</strong>
-            <em>${escapeHtml(detail)}</em>
+        <article class="terminal-session-item${options.activeClass}">
+          <button type="button" data-action="activate-output-tab" data-output-key="${escapeHtml(tab.key)}" title="${escapeHtml(`打开标签：${tab.title || options.typeLabel}`)}">
+            <span class="state ${escapeHtml(options.status)}">${escapeHtml(options.typeLabel)}</span>
+            <strong>${escapeHtml(tab.title || options.typeLabel)}</strong>
+            <em>${escapeHtml(options.detail)}</em>
           </button>
-          <button class="secondary mini danger" type="button" data-action="close-output-tab" data-output-key="${escapeHtml(tab.key)}" title="${escapeHtml(`关闭标签：${tab.title || typeLabel}`)}">关闭</button>
+          <button class="secondary mini danger" type="button" data-action="close-output-tab" data-output-key="${escapeHtml(tab.key)}" title="${escapeHtml(`关闭标签：${tab.title || options.typeLabel}`)}">关闭</button>
         </article>
       `;
     })

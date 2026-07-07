@@ -14,6 +14,67 @@
     return (typeof deps.escapeHtml === "function" ? deps.escapeHtml : fallbackEscapeHtml)(value);
   }
 
+  function terminalActivityKindLabel(tab) {
+    if (tab.type === "terminal") return "终端";
+    if (tab.type === "tmux") return "tmux";
+    if (tab.type === "process") return "进程";
+    return "任务";
+  }
+
+  function terminalActivitySnapshotSummary(tabs = [], terminalCount = 0, options = {}, deps = {}) {
+    const kindLabel = typeof deps.terminalActivityKindLabel === "function"
+      ? deps.terminalActivityKindLabel
+      : terminalActivityKindLabel;
+    const serverById = typeof deps.serverById === "function" ? deps.serverById : () => null;
+    const terminals = options.terminals || {};
+    const counts = {
+      job: tabs.filter((tab) => tab.type === "job").length,
+      tmux: tabs.filter((tab) => tab.type === "tmux").length,
+      process: tabs.filter((tab) => tab.type === "process").length,
+    };
+    const active = tabs.find((tab) => tab.key === options.activeOutputKey) || tabs[0] || null;
+    const activeTerminal = active?.type === "terminal" ? terminals[active.terminalId] : null;
+    const activeServerInfo = active?.serverId ? serverById(active.serverId) : null;
+    const activeServer = activeServerInfo?.name || activeServerInfo?.id || activeTerminal?.serverName || "-";
+    const activeStatus = active
+      ? active.type === "terminal"
+        ? activeTerminal?.alive === false ? "已退出" : "运行中"
+        : "已打开"
+      : "未打开";
+    const contentLength = active?.content ? String(active.content).length : 0;
+    return {
+      activeTitle: active ? active.title || kindLabel(active) : "没有标签",
+      activeMeta: active ? `${kindLabel(active)} · ${activeServer} · ${activeStatus}` : "打开任务、tmux、进程或终端后会出现在这里",
+      tabsCount: String(tabs.length),
+      terminalCount: String(terminalCount),
+      jobCount: String(counts.job),
+      tmuxProcessCount: String(counts.tmux + counts.process),
+      contentLengthText: contentLength ? `${contentLength} 字符` : "-",
+    };
+  }
+
+  function terminalActivityItemOptions(tab = {}, options = {}, deps = {}) {
+    const kindLabel = typeof deps.terminalActivityKindLabel === "function"
+      ? deps.terminalActivityKindLabel
+      : terminalActivityKindLabel;
+    const terminals = options.terminals || {};
+    const active = tab.key === options.activeOutputKey ? " active" : "";
+    const typeLabel = kindLabel(tab);
+    const terminal = tab.type === "terminal" ? terminals[tab.terminalId] : null;
+    const status = tab.type === "terminal"
+      ? terminal?.alive === false ? "stopped" : "running"
+      : "ready";
+    const detail = tab.type === "terminal"
+      ? `${terminal?.serverName || tab.title || "终端"} · ${terminal?.alive === false ? "已退出" : "运行中"}`
+      : tab.title || "输出";
+    return {
+      activeClass: active,
+      detail,
+      status,
+      typeLabel,
+    };
+  }
+
   function terminalActivitySnapshotMarkup(summary = {}, deps = {}) {
     return `
     <div class="terminal-activity-snapshot-head">
@@ -71,6 +132,9 @@
   window.TerminalActivityMarkup = {
     terminalActivityEmptyMarkup,
     terminalActivityItemMarkup,
+    terminalActivityItemOptions,
+    terminalActivityKindLabel,
+    terminalActivitySnapshotSummary,
     terminalActivitySnapshotMarkup,
   };
 })();
