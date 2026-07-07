@@ -53,11 +53,27 @@
     return labelWorkspaceStatus(value || "draft");
   }
 
+  function workspaceTraceStatusLabel(status = "", deps = {}) {
+    const labelWorkspaceStatus = typeof deps.workspaceStatusLabel === "function"
+      ? deps.workspaceStatusLabel
+      : workspaceStatusLabel;
+    const value = String(status || "").trim();
+    if (value === "planned") return "已编排";
+    if (value === "queued") return "排队";
+    if (value === "blocked") return "等待";
+    if (value === "running") return "运行";
+    if (value === "done") return "完成";
+    if (value === "failed") return "失败";
+    if (value === "stopped") return "停止";
+    return labelWorkspaceStatus(value || "pending");
+  }
+
   window.StatusLabels = {
     kindText,
     statusText,
     workspaceInputStatusLabel,
     workspaceStatusLabel,
+    workspaceTraceStatusLabel,
     zhKind,
     zhStatus,
   };

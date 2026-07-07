@@ -13166,6 +13166,8 @@ function workspaceArtifactStatusLabel(status) {
 }
 
 function workspaceTraceStatusLabel(status) {
+  const api = statusLabelsApi();
+  if (api && typeof api.workspaceTraceStatusLabel === "function") return api.workspaceTraceStatusLabel(status, { workspaceStatusLabel });
   const value = String(status || "").trim();
   if (value === "planned") return "已编排";
   if (value === "queued") return "排队";
