@@ -1,6 +1,31 @@
 (function () {
   "use strict";
 
+  const WORKSPACE_STREAM_EVENT_TYPES = [
+    "workspace.snapshot",
+    "workspace.updated",
+    "cockpit.updated",
+    "run.created",
+    "run.updated",
+    "run.step.updated",
+    "job.updated",
+    "job.log.delta",
+    "chat.message.created",
+    "chat.message.delta",
+    "chat.message.completed",
+    "chat.message.failed",
+    "agent.message.delta",
+    "agent.step.created",
+    "agent.thought.delta",
+    "agent.tool.called",
+    "agent.tool.result",
+    "agent.tool.failed",
+    "agent.answer.delta",
+    "agent.completed",
+    "agent.failed",
+    "heartbeat",
+  ];
+
   function fn(deps, name, fallback) {
     return typeof deps[name] === "function" ? deps[name] : fallback;
   }
@@ -62,8 +87,12 @@
     return Params ? new Params() : null;
   }
 
+  function defaultEventTypes() {
+    return [...WORKSPACE_STREAM_EVENT_TYPES];
+  }
+
   function eventTypes(deps = {}) {
-    return Array.isArray(deps.eventTypes) ? deps.eventTypes : [];
+    return Array.isArray(deps.eventTypes) ? deps.eventTypes : defaultEventTypes();
   }
 
   function renderRealtimeSurfaces(deps = {}) {
@@ -347,6 +376,7 @@
     applyEvent,
     close,
     connect,
+    eventTypes: defaultEventTypes,
     flushRender,
     gapNotice,
     handleMessage,

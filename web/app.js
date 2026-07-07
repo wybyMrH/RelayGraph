@@ -22845,7 +22845,7 @@ function workspaceEventStreamDeps() {
     state,
     selectedWorkspace,
     selectedWorkspaceId: () => state.selectedWorkspaceId,
-    eventTypes: WORKSPACE_STREAM_EVENT_TYPES,
+    eventTypes: workspaceEventStreamApi()?.eventTypes?.() || WORKSPACE_STREAM_EVENT_TYPES,
     EventSource: typeof EventSource === "undefined" ? null : EventSource,
     requestAnimationFrame: typeof requestAnimationFrame === "function" ? (callback) => requestAnimationFrame(callback) : null,
     setTimeout: (callback, ms) => setTimeout(callback, ms),
