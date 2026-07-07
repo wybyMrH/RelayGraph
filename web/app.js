@@ -1979,6 +1979,8 @@ function parseTagList(value) {
 }
 
 function safeId(value) {
+  const api = inputParsersApi();
+  if (api && typeof api.safeId === "function") return api.safeId(value);
   return String(value || "")
     .trim()
     .toLowerCase()

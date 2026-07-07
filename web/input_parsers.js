@@ -20,9 +20,19 @@
     return Array.from(new Set(String(value || "").split(",").map((item) => item.trim()).filter(Boolean)));
   }
 
+  function safeId(value) {
+    return String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "item";
+  }
+
   window.InputParsers = {
     parseLineList,
     parseTagList,
     positiveNumberOrBlank,
+    safeId,
   };
 })();
