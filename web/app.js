@@ -18408,9 +18408,14 @@ function filePickerNavigationDeps() {
   return {
     state,
     loadFilePicker,
+    previewFileInPicker,
     rememberFilePickerForwardPath,
     updateFilePickerNavigationButtons,
   };
+}
+
+async function activateFilePickerRow(path = "", isDir = false) {
+  return await filePickerNavigationApi()?.activateRow?.(path, isDir, filePickerNavigationDeps());
 }
 
 async function navigateFilePickerForward() {
@@ -25886,16 +25891,7 @@ function bindEvents() {
   });
   window.TransferSurfaceActions?.bind?.({
     element: $,
-    activateFilePickerRow: (path, isDir) => {
-      state.filePicker.selectedPath = path;
-      if (isDir) {
-        state.filePicker.forwardStack = [];
-        state.filePicker.navStack.push(path);
-        void loadFilePicker(path);
-        return;
-      }
-      void previewFileInPicker(path);
-    },
+    activateFilePickerRow,
     addTransferIgnore,
     addTransferSource,
     cancelTransferConflict: () => {

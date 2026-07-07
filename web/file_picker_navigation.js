@@ -101,7 +101,20 @@
     await fn(deps, "loadFilePicker", async () => {})(path);
   }
 
+  async function activateRow(path = "", isDir = false, deps = {}) {
+    const filePicker = filePickerState(deps);
+    filePicker.selectedPath = path;
+    if (isDir) {
+      filePicker.forwardStack = [];
+      filePicker.navStack.push(path);
+      await fn(deps, "loadFilePicker", async () => {})(path);
+      return;
+    }
+    await fn(deps, "previewFileInPicker", async () => {})(path);
+  }
+
   window.FilePickerNavigation = {
+    activateRow,
     forwardNavigationState,
     navigateForward,
     navigateUp,
