@@ -61,6 +61,28 @@
     return [...IDEA_SOURCE_KINDS];
   }
 
+  function workspaceRecipeCommandValueFromNodes(nodes = [], key = "") {
+    const items = Array.isArray(nodes) ? nodes : [];
+    const findConfig = (kind) => {
+      const node = items.find((item) => item?.kind === kind);
+      return node?.config && typeof node.config === "object" ? node.config : {};
+    };
+    if (key === "setup_command") return String(findConfig("env.prepare").setup_command || "");
+    if (key === "run_command") return String(findConfig("run.command").run_command || "");
+    if (key === "schedule") return String(findConfig("run.command").schedule || "");
+    if (key === "report_command") return String(findConfig("eval.report").report_command || "");
+    return "";
+  }
+
+  function workspaceRecipeCommandValues(nodes = []) {
+    return {
+      setup_command: workspaceRecipeCommandValueFromNodes(nodes, "setup_command"),
+      run_command: workspaceRecipeCommandValueFromNodes(nodes, "run_command"),
+      report_command: workspaceRecipeCommandValueFromNodes(nodes, "report_command"),
+      schedule: workspaceRecipeCommandValueFromNodes(nodes, "schedule"),
+    };
+  }
+
   function workspaceNodeSummary(node) {
     if (!node) return "";
     const config = node.config || {};
@@ -96,6 +118,8 @@
   }
 
   window.WorkspaceNodeCatalog = {
+    workspaceRecipeCommandValueFromNodes,
+    workspaceRecipeCommandValues,
     workspaceNodeKindsForSource,
     workspaceNodeLabel,
     workspaceNodeMeta,

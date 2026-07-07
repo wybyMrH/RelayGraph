@@ -3130,6 +3130,10 @@ function workspaceRunNode(nodes = state.workspaceNodesDraft) {
 }
 
 function workspaceRecipeCommandValueFromNodes(nodes = [], key = "") {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceRecipeCommandValueFromNodes === "function") {
+    return api.workspaceRecipeCommandValueFromNodes(nodes, key);
+  }
   const items = Array.isArray(nodes) ? nodes : [];
   const findConfig = (kind) => {
     const node = items.find((item) => item?.kind === kind);
@@ -3143,6 +3147,8 @@ function workspaceRecipeCommandValueFromNodes(nodes = [], key = "") {
 }
 
 function workspaceRecipeCommandValues(nodes = []) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceRecipeCommandValues === "function") return api.workspaceRecipeCommandValues(nodes);
   return {
     setup_command: workspaceRecipeCommandValueFromNodes(nodes, "setup_command"),
     run_command: workspaceRecipeCommandValueFromNodes(nodes, "run_command"),
