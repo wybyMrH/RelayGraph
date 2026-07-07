@@ -3116,6 +3116,8 @@ function buildWorkspaceStarterNodes(formData = {}) {
 }
 
 function workspaceLinksFromNodes(nodes = state.workspaceNodesDraft) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceLinksFromNodes === "function") return api.workspaceLinksFromNodes(nodes);
   return nodes.slice(0, -1).map((node, index) => ({
     id: `link-${index + 1}-${node.id}-${nodes[index + 1].id}`,
     from: node.id,
@@ -3205,6 +3207,8 @@ function persistWorkspaceNodesDraft() {
 }
 
 function workspaceChainSourceType(sourceType) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceChainSourceType === "function") return api.workspaceChainSourceType(sourceType);
   return String(sourceType || "idea") === "mixed" ? "idea" : String(sourceType || "idea");
 }
 

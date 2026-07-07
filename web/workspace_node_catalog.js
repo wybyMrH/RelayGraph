@@ -61,6 +61,18 @@
     return [...IDEA_SOURCE_KINDS];
   }
 
+  function workspaceLinksFromNodes(nodes = []) {
+    return nodes.slice(0, -1).map((node, index) => ({
+      id: `link-${index + 1}-${node.id}-${nodes[index + 1].id}`,
+      from: node.id,
+      to: nodes[index + 1].id,
+    }));
+  }
+
+  function workspaceChainSourceType(sourceType) {
+    return String(sourceType || "idea") === "mixed" ? "idea" : String(sourceType || "idea");
+  }
+
   function workspaceNodeDefaultConfig(kind, formData = {}) {
     const base = {};
     const type = String(formData.source_type || "repo");
@@ -191,6 +203,8 @@
   }
 
   window.WorkspaceNodeCatalog = {
+    workspaceChainSourceType,
+    workspaceLinksFromNodes,
     workspaceNodeDefaultConfig,
     workspaceRecipeCommandValueFromNodes,
     workspaceRecipeCommandValues,
