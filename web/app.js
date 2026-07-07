@@ -22536,274 +22536,99 @@ function workspaceStreamingChatDisplay(message = {}, workspaceId = "", agentId =
   ) || { text: message.error || message.text || "", live: false };
 }
 
+function workspaceEventStreamApi() {
+  return window.WorkspaceEventStream && typeof window.WorkspaceEventStream === "object"
+    ? window.WorkspaceEventStream
+    : null;
+}
+
+function workspaceEventStreamDeps() {
+  return {
+    state,
+    selectedWorkspace,
+    selectedWorkspaceId: () => state.selectedWorkspaceId,
+    eventTypes: WORKSPACE_STREAM_EVENT_TYPES,
+    EventSource: typeof EventSource === "undefined" ? null : EventSource,
+    requestAnimationFrame: typeof requestAnimationFrame === "function" ? (callback) => requestAnimationFrame(callback) : null,
+    setTimeout: (callback, ms) => setTimeout(callback, ms),
+    setInterval: (callback, ms) => setInterval(callback, ms),
+    clearInterval: (timer) => clearInterval(timer),
+    nowMs: () => Date.now(),
+    fetchJson,
+    applyStatusPayload,
+    refreshWorkspaceCockpit,
+    refreshOpenJobOutputTabs,
+    mergeWorkspaceExecutionResultPayload,
+    mergeWorkspaceRunsPayload,
+    mergeWorkspaceChatDelta,
+    mergeWorkspaceJobLogDelta,
+    normalizeWorkspaceRunEventFromStream,
+    mergeWorkspaceRunEventIntoState,
+    mergeWorkspaceAgentStreamEvent,
+    scheduleExecutionOverviewRefresh,
+    renderWorkspaces,
+    renderJobs,
+    renderWorkspaceHome,
+    renderWorkspaceRuns,
+    renderWorkspaceExecutionDetail,
+    renderWorkspaceUseChat,
+    renderWorkspaceChat,
+    renderWorkspaceUseMonitor,
+    setWorkspaceMessage,
+    humanizeFetchError,
+  };
+}
+
 function workspaceStreamGapNotice(payload = {}) {
-  const gap = payload.gap && typeof payload.gap === "object" ? payload.gap : {};
-  const reason = String(payload.snapshot_reason || gap.reason || "event_replay_gap").trim();
-  if (reason === "buffer_overflow") return "实时事件有缺口，已用最新快照补齐状态，并刷新打开的日志。";
-  if (reason === "event_id_reset_or_server_restart") return "服务或事件序号已重置，已用最新快照恢复状态，并刷新打开的日志。";
-  return "实时连接恢复后已补一次快照，并刷新打开的日志。";
+  return workspaceEventStreamApi()?.gapNotice?.(payload) || "";
 }
 
 function renderWorkspaceRealtimeRecovery(workspaceId) {
-  if (workspaceId !== state.selectedWorkspaceId) return;
-  renderWorkspaces();
-  renderJobs();
-  renderWorkspaceHome();
-  renderWorkspaceRuns();
-  renderWorkspaceExecutionDetail();
-  renderWorkspaceUseChat();
-  renderWorkspaceChat();
-  renderWorkspaceUseMonitor(selectedWorkspace());
+  return workspaceEventStreamApi()?.renderRealtimeRecovery?.(workspaceId, workspaceEventStreamDeps());
 }
 
 function flushWorkspaceStreamRender(workspaceId) {
-  state.ui.workspaceStreamRenderQueued = false;
-  state.ui.workspaceStreamRenderTimer = null;
-  const id = String(workspaceId || "").trim();
-  if (!id || id !== state.selectedWorkspaceId) return;
-  renderWorkspaces();
-  renderJobs();
-  renderWorkspaceHome();
-  renderWorkspaceRuns();
-  renderWorkspaceExecutionDetail();
-  renderWorkspaceUseChat();
-  renderWorkspaceChat();
-  renderWorkspaceUseMonitor(selectedWorkspace());
+  return workspaceEventStreamApi()?.flushRender?.(workspaceId, workspaceEventStreamDeps());
 }
 
 function scheduleWorkspaceStreamRender(workspaceId) {
-  const id = String(workspaceId || "").trim();
-  if (!id || id !== state.selectedWorkspaceId) return;
-  if (state.ui.workspaceStreamRenderQueued) return;
-  state.ui.workspaceStreamRenderQueued = true;
-  const flush = () => flushWorkspaceStreamRender(id);
-  if (typeof requestAnimationFrame === "function") {
-    state.ui.workspaceStreamRenderTimer = requestAnimationFrame(flush);
-  } else {
-    state.ui.workspaceStreamRenderTimer = setTimeout(flush, 100);
-  }
+  return workspaceEventStreamApi()?.scheduleRender?.(workspaceId, workspaceEventStreamDeps());
 }
 
 async function recoverWorkspaceStreamGap(workspaceId, payload = {}) {
-  const id = String(workspaceId || "").trim();
-  if (!id || state.ui.workspaceEventRecovering) return;
-  state.ui.workspaceEventRecovering = true;
-  state.ui.workspaceEventGapNotice = workspaceStreamGapNotice(payload);
-  state.ui.workspaceEventGapAt = Date.now();
-  if (id === state.selectedWorkspaceId) {
-    setWorkspaceMessage(state.ui.workspaceEventGapNotice, false);
-    renderWorkspaceRuns();
-    renderWorkspaceUseMonitor(selectedWorkspace());
-  }
-  try {
-    const statusPayload = await fetchJson("/api/status");
-    applyStatusPayload(statusPayload, { preserveWorkspaceUi: true });
-    await refreshWorkspaceCockpit(id, { render: false, quiet: true });
-    await refreshOpenJobOutputTabs({ useOffset: true, quiet: true, keepSearchIndex: true });
-    renderWorkspaceRealtimeRecovery(id);
-  } catch (error) {
-    if (id === state.selectedWorkspaceId) {
-      setWorkspaceMessage(humanizeFetchError(error, "补偿实时事件缺口"), true);
-    }
-  } finally {
-    state.ui.workspaceEventRecovering = false;
-    if (id === state.selectedWorkspaceId) {
-      renderWorkspaceRuns();
-      renderWorkspaceUseMonitor(selectedWorkspace());
-    }
-  }
+  return await workspaceEventStreamApi()?.recoverGap?.(workspaceId, payload, workspaceEventStreamDeps());
 }
 
 function applyWorkspaceStreamEvent(rawEvent = {}) {
-  const event = rawEvent && typeof rawEvent === "object" ? rawEvent : {};
-  const eventType = String(event.type || "").trim();
-  if (eventType === "heartbeat") return;
-  const payload = event.payload && typeof event.payload === "object" ? event.payload : {};
-  const workspaceId = String(event.workspace_id || payload.workspace_id || payload.workspace?.id || "").trim();
-  if (!workspaceId) return;
-  mergeWorkspaceExecutionResultPayload(workspaceId, payload);
-  if (eventType === "workspace.snapshot" && payload.gap) {
-    void recoverWorkspaceStreamGap(workspaceId, payload);
-  }
-  if (eventType === "chat.message.delta") {
-    mergeWorkspaceChatDelta(workspaceId, {
-      ...payload,
-      created_at: event.created_at || payload.created_at || "",
-    });
-  }
-  if (eventType === "job.log.delta") {
-    mergeWorkspaceJobLogDelta(payload);
-  }
-  const runEvent = normalizeWorkspaceRunEventFromStream(event, payload);
-  if (runEvent) mergeWorkspaceRunEventIntoState(workspaceId, runEvent);
-  if (eventType.startsWith("agent.")) {
-    mergeWorkspaceAgentStreamEvent(workspaceId, event, payload);
-  }
-  if (
-    eventType.startsWith("run.")
-    || eventType === "job.updated"
-    || eventType === "agent.completed"
-    || eventType === "agent.failed"
-  ) {
-    scheduleExecutionOverviewRefresh();
-  }
-  if (workspaceId === state.selectedWorkspaceId && eventType !== "job.log.delta") {
-    scheduleWorkspaceStreamRender(workspaceId);
-  }
+  return workspaceEventStreamApi()?.applyEvent?.(rawEvent, workspaceEventStreamDeps());
 }
 
 function handleWorkspaceStreamMessage(event) {
-  let payload = null;
-  try {
-    payload = JSON.parse(event.data || "{}");
-  } catch (error) {
-    return;
-  }
-  const workspaceId = String(payload.workspace_id || state.ui.workspaceEventWorkspaceId || "").trim();
-  const eventType = String(payload.type || event.type || "").trim();
-  const eventId = Number(event.lastEventId || payload.id || 0);
-  if (workspaceId && Number.isFinite(eventId)) {
-    if (eventType === "workspace.snapshot" && eventId >= 0) {
-      state.ui.workspaceEventLastIds[workspaceId] = eventId;
-    } else if (eventId > 0) {
-      state.ui.workspaceEventLastIds[workspaceId] = Math.max(
-        Number(state.ui.workspaceEventLastIds[workspaceId] || 0),
-        eventId,
-      );
-    }
-  }
-  applyWorkspaceStreamEvent(payload);
+  return workspaceEventStreamApi()?.handleMessage?.(event, workspaceEventStreamDeps());
 }
 
 function closeWorkspaceEventStream() {
-  if (state.ui.workspaceEventSource) {
-    state.ui.workspaceEventSource.close();
-  }
-  state.ui.workspaceEventSource = null;
-  state.ui.workspaceEventWorkspaceId = "";
-  state.ui.workspaceEventConnected = false;
-  stopWorkspaceEventFallbackPolling();
+  return workspaceEventStreamApi()?.close?.(workspaceEventStreamDeps());
 }
 
 function workspaceRealtimeStatusText() {
-  if (!selectedWorkspace()?.id) return "";
-  if (state.ui.workspaceEventRecovering) return "实时补偿中";
-  if (state.ui.workspaceEventGapAt && Date.now() - Number(state.ui.workspaceEventGapAt || 0) < 60000) {
-    return "实时已补快照";
-  }
-  if (state.ui.workspaceEventConnected) return "实时连接";
-  if (typeof EventSource === "undefined") return "实时不可用 · 轮询中";
-  if (state.ui.workspaceEventFallbackTimer) return "实时断开 · 窄轮询";
-  return "实时连接中";
+  return workspaceEventStreamApi()?.realtimeStatusText?.(workspaceEventStreamDeps()) || "";
 }
 
 async function pollWorkspaceEventFallback(workspaceId = state.ui.workspaceEventFallbackWorkspaceId) {
-  const id = String(workspaceId || "").trim();
-  if (!id || state.ui.workspaceEventFallbackBusy) return;
-  state.ui.workspaceEventFallbackBusy = true;
-  try {
-    try {
-      const params = new URLSearchParams();
-      params.set("since", String(Math.max(0, Number(state.ui.workspaceEventLastIds[id] || 0))));
-      params.set("limit", "200");
-      const replay = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/events/replay?${params.toString()}`);
-      const events = Array.isArray(replay.events) ? replay.events : [];
-      events.forEach((streamEvent) => {
-        applyWorkspaceStreamEvent(streamEvent);
-        const eventId = Number(streamEvent?.id || 0);
-        if (Number.isFinite(eventId) && eventId > 0) {
-          state.ui.workspaceEventLastIds[id] = Math.max(Number(state.ui.workspaceEventLastIds[id] || 0), eventId);
-        }
-      });
-      const nextSinceId = Number(replay.next_since_id || 0);
-      if (Number.isFinite(nextSinceId) && nextSinceId > 0) {
-        state.ui.workspaceEventLastIds[id] = Math.max(Number(state.ui.workspaceEventLastIds[id] || 0), nextSinceId);
-      }
-    } catch (replayError) {
-      const statusPayload = await fetchJson("/api/status");
-      applyStatusPayload(statusPayload, { preserveWorkspaceUi: true });
-      const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/runs`);
-      if (Array.isArray(payload.runs)) mergeWorkspaceRunsPayload(id, payload.runs);
-      await refreshWorkspaceCockpit(id, { render: false, quiet: true });
-    }
-    await refreshOpenJobOutputTabs({ useOffset: true, quiet: true, keepSearchIndex: true });
-    if (id === state.selectedWorkspaceId) {
-      renderWorkspaces();
-      renderJobs();
-      renderWorkspaceHome();
-      renderWorkspaceRuns();
-      renderWorkspaceExecutionDetail();
-      renderWorkspaceUseChat();
-      renderWorkspaceChat();
-      renderWorkspaceUseMonitor(selectedWorkspace());
-    }
-  } catch (error) {
-    // SSE fallback should stay quiet; the normal refresh path still surfaces hard failures.
-  } finally {
-    state.ui.workspaceEventFallbackBusy = false;
-  }
+  return await workspaceEventStreamApi()?.pollFallback?.(workspaceId, workspaceEventStreamDeps());
 }
 
 function startWorkspaceEventFallbackPolling(workspaceId = state.selectedWorkspaceId) {
-  const id = String(workspaceId || "").trim();
-  if (!id) return;
-  if (state.ui.workspaceEventFallbackTimer && state.ui.workspaceEventFallbackWorkspaceId === id) return;
-  stopWorkspaceEventFallbackPolling();
-  state.ui.workspaceEventFallbackWorkspaceId = id;
-  void pollWorkspaceEventFallback(id);
-  state.ui.workspaceEventFallbackTimer = setInterval(() => {
-    if (state.ui.workspaceEventConnected || state.selectedWorkspaceId !== id) {
-      stopWorkspaceEventFallbackPolling();
-      return;
-    }
-    void pollWorkspaceEventFallback(id);
-  }, Math.max(3000, Number(state.ui.pollIntervalMs || 5000)));
-  if (id === state.selectedWorkspaceId) renderWorkspaceRuns();
+  return workspaceEventStreamApi()?.startFallbackPolling?.(workspaceId, workspaceEventStreamDeps());
 }
 
 function stopWorkspaceEventFallbackPolling() {
-  if (state.ui.workspaceEventFallbackTimer) {
-    clearInterval(state.ui.workspaceEventFallbackTimer);
-  }
-  state.ui.workspaceEventFallbackTimer = null;
-  state.ui.workspaceEventFallbackWorkspaceId = "";
-  state.ui.workspaceEventFallbackBusy = false;
-  if (selectedWorkspace()?.id) renderWorkspaceRuns();
+  return workspaceEventStreamApi()?.stopFallbackPolling?.(workspaceEventStreamDeps());
 }
 
 function connectWorkspaceEventStream(workspaceId = state.selectedWorkspaceId) {
-  const id = String(workspaceId || "").trim();
-  if (!id) {
-    closeWorkspaceEventStream();
-    return;
-  }
-  if (typeof EventSource === "undefined") {
-    closeWorkspaceEventStream();
-    state.ui.workspaceEventWorkspaceId = id;
-    startWorkspaceEventFallbackPolling(id);
-    return;
-  }
-  if (state.ui.workspaceEventSource && state.ui.workspaceEventWorkspaceId === id) return;
-  closeWorkspaceEventStream();
-  const lastId = Number(state.ui.workspaceEventLastIds[id] || 0);
-  const url = `/api/workspaces/${encodeURIComponent(id)}/events${lastId > 0 ? `?since=${encodeURIComponent(String(lastId))}` : ""}`;
-  const source = new EventSource(url);
-  state.ui.workspaceEventSource = source;
-  state.ui.workspaceEventWorkspaceId = id;
-  WORKSPACE_STREAM_EVENT_TYPES.forEach((eventType) => {
-    source.addEventListener(eventType, handleWorkspaceStreamMessage);
-  });
-  source.onmessage = handleWorkspaceStreamMessage;
-  source.onopen = () => {
-    state.ui.workspaceEventConnected = true;
-    stopWorkspaceEventFallbackPolling();
-    renderWorkspaceRuns();
-  };
-  source.onerror = () => {
-    state.ui.workspaceEventConnected = false;
-    startWorkspaceEventFallbackPolling(id);
-    renderWorkspaceRuns();
-  };
+  return workspaceEventStreamApi()?.connect?.(workspaceId, workspaceEventStreamDeps());
 }
 
 async function refreshWorkspaceCockpit(workspaceId = state.selectedWorkspaceId, options = {}) {
