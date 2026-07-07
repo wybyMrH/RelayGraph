@@ -20939,46 +20939,39 @@ function workflowTemplateNodeEditorRendererDeps() {
   };
 }
 
+function workflowTemplateManageRendererApi() {
+  return window.WorkflowTemplateManageRenderer || {};
+}
+
+function workflowTemplateManageRendererDeps() {
+  return {
+    agentDefinitions: () => state.agentDefinitions,
+    defaultWorkflowTemplateDraft,
+    element: $,
+    escapeHtml,
+    normalizeWorkflowTemplateDraft,
+    providerProfileKind,
+    providerProfileLabel,
+    providerProfiles: () => state.providerProfiles,
+    renderManageTemplateList,
+    renderWorkflowTemplateCanvas,
+    renderWorkflowTemplateNodeEditor,
+    renderWorkflowTemplateNodeList,
+    renderWorkflowTemplateStudioOverview,
+    selectedTemplateNodeId: () => state.selectedTemplateNodeId,
+    selectedWorkflowTemplate,
+    setSelectedTemplateNodeId: (nodeId) => {
+      state.selectedTemplateNodeId = nodeId;
+    },
+    setWorkflowTemplateDraft: (draft) => {
+      state.workflowTemplateDraft = draft;
+    },
+    workflowTemplateDraft: () => state.workflowTemplateDraft,
+  };
+}
+
 function renderManageTemplateModule() {
-  const draft = state.workflowTemplateDraft && Object.keys(state.workflowTemplateDraft).length
-    ? normalizeWorkflowTemplateDraft(state.workflowTemplateDraft)
-    : selectedWorkflowTemplate()
-      ? normalizeWorkflowTemplateDraft(selectedWorkflowTemplate())
-      : defaultWorkflowTemplateDraft("repo");
-  state.workflowTemplateDraft = draft;
-  if (!state.selectedTemplateNodeId || !draft.nodes.some((node) => node.id === state.selectedTemplateNodeId)) {
-    state.selectedTemplateNodeId = draft.nodes[0]?.id || "";
-  }
-  if ($("workflowTemplateTitle")) $("workflowTemplateTitle").textContent = draft.name || "工作流模板";
-  if ($("workflowTemplateMeta")) $("workflowTemplateMeta").textContent = `${draft.source?.type || "repo"} · ${draft.nodes.length} 个节点 · ${draft.tags.length} 个标签`;
-  if ($("templateNameInput")) $("templateNameInput").value = draft.name || "";
-  if ($("templateSourceTypeSelect")) $("templateSourceTypeSelect").value = draft.source?.type || "repo";
-  if ($("templateStatusSelect")) $("templateStatusSelect").value = draft.status || "ready";
-  if ($("templateTagsInput")) $("templateTagsInput").value = (draft.tags || []).join(",");
-  if ($("templateDescriptionInput")) $("templateDescriptionInput").value = draft.description || "";
-  if ($("templateBriefInput")) $("templateBriefInput").value = draft.brief || "";
-  if ($("templateRepoUrlInput")) $("templateRepoUrlInput").value = draft.source?.repo_url || "";
-  if ($("templateRepoRefInput")) $("templateRepoRefInput").value = draft.source?.repo_ref || "";
-  if ($("templatePaperUrlInput")) $("templatePaperUrlInput").value = draft.source?.paper_url || "";
-  if ($("templateWorkspaceDirInput")) $("templateWorkspaceDirInput").value = draft.workspace_dir || "";
-  if ($("templateIdeaInput")) $("templateIdeaInput").value = draft.source?.idea_text || "";
-  if ($("templateEnvNameInput")) $("templateEnvNameInput").value = draft.env?.name || "";
-  if ($("templateEnvManagerSelect")) $("templateEnvManagerSelect").value = draft.env?.manager || "";
-  if ($("templatePythonVersionInput")) $("templatePythonVersionInput").value = draft.env?.python || "";
-  if ($("templateProviderProfileSelect")) {
-    $("templateProviderProfileSelect").innerHTML = `<option value="">未选择</option>${state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm").map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(providerProfileLabel(profile))}</option>`).join("")}`;
-    $("templateProviderProfileSelect").value = draft.model?.provider_profile_id || "";
-  }
-  if ($("templateRoutingModeSelect")) $("templateRoutingModeSelect").value = draft.model?.routing_mode || "workspace_default";
-  if ($("templateChatAgentSelect")) {
-    $("templateChatAgentSelect").innerHTML = `<option value="">未选择</option>${state.agentDefinitions.map((agent) => `<option value="${escapeHtml(agent.id)}">${escapeHtml(agent.name || agent.id)}</option>`).join("")}`;
-    $("templateChatAgentSelect").value = draft.model?.chat_agent_id || "";
-  }
-  renderWorkflowTemplateStudioOverview();
-  renderManageTemplateList();
-  renderWorkflowTemplateCanvas();
-  renderWorkflowTemplateNodeList();
-  renderWorkflowTemplateNodeEditor();
+  return workflowTemplateManageRendererApi().renderManageTemplateModule?.(workflowTemplateManageRendererDeps());
 }
 
 function selectGlobalAgent(agentId) {
