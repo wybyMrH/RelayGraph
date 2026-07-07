@@ -12378,6 +12378,10 @@ function workspaceRunProgressMarkup(run, options = {}) {
 }
 
 function workspaceToolPolicyBadge(sideEffect = "", controlled = false) {
+  const api = workspaceToolCatalogApi();
+  if (api && typeof api.workspaceToolPolicyBadge === "function") {
+    return api.workspaceToolPolicyBadge(sideEffect, controlled, { escapeHtml });
+  }
   const tier = String(sideEffect || "").trim();
   if (!tier) return "";
   const map = {

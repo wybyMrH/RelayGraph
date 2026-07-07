@@ -55,10 +55,38 @@
     return parts.join(" · ");
   }
 
+  function fallbackEscapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function escapeFor(options, value) {
+    return (typeof options.escapeHtml === "function" ? options.escapeHtml : fallbackEscapeHtml)(value);
+  }
+
+  function workspaceToolPolicyBadge(sideEffect = "", controlled = false, options = {}) {
+    const tier = String(sideEffect || "").trim();
+    if (!tier) return "";
+    const map = {
+      read: { label: "读", cls: "policy-read" },
+      mutate_config: { label: "改配置", cls: "policy-config" },
+      mutate_runtime: { label: controlled ? "受控运行" : "运行", cls: "policy-runtime" },
+      dangerous: { label: "危险", cls: "policy-dangerous" },
+    };
+    const entry = map[tier];
+    if (!entry) return "";
+    return `<span class="tool-policy-badge ${entry.cls}" title="工具权限策略：${escapeFor(options, tier)}${controlled ? "（经 job 队列受控）" : ""}">${escapeFor(options, entry.label)}</span>`;
+  }
+
   window.WorkspaceToolCatalog = {
     workspaceToolById,
     workspaceToolCategoryLabel,
     workspaceToolLabel,
+    workspaceToolPolicyBadge,
     workspaceToolSummary,
     workspaceToolsByCategory,
   };
