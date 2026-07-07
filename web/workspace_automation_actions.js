@@ -149,6 +149,106 @@
     return NON_BLOCKING_ACTIONS.has(String(action || ""));
   }
 
+  const BUSY_CONTROL_ACTIONS = [
+    ["workspaceCreateTaskBtn", "create-workspace"],
+    ["workspaceCreateDiscoverTaskBtn", "create-workspace-discover"],
+    ["workspaceCreateRunTaskBtn", "create-workspace-run"],
+    ["workspaceTestChainBtn", "test-workspace-chain"],
+    ["workspaceRunFlowBtn", "run-selected-workspace"],
+  ];
+
+  function actionButtons(deps = {}) {
+    return fn(deps, "actionButtons", () => document.querySelectorAll("[data-action]"))();
+  }
+
+  function updateBusyControls(deps = {}) {
+    const state = appState(deps);
+    const busyAction = String(state.ui.workspaceAutomationBusyAction || "");
+    const busy = Boolean(busyAction);
+    actionButtons(deps).forEach((button) => {
+      const action = button.dataset?.action || "";
+      if (!hasAction(action)) return;
+      if (isNonBlockingAction(action)) return;
+      button.disabled = busy;
+    });
+    BUSY_CONTROL_ACTIONS.forEach(([id, action]) => {
+      const button = element(deps, id);
+      if (!button) return;
+      button.disabled = busy;
+      button.dataset.busyAction = busyAction === action ? "1" : "";
+    });
+  }
+
+  function beginAutomationAction(action, options = {}, deps = {}) {
+    const state = appState(deps);
+    const busyAction = String(state.ui.workspaceAutomationBusyAction || "");
+    if (busyAction) {
+      const message = `${actionLabel(busyAction)}正在处理中，稍等一下再操作。`;
+      if (options.useMessage) fn(deps, "setWorkspaceUseMessage", () => {})(message, true);
+      else fn(deps, "setWorkspaceMessage", () => {})(message, true);
+      return false;
+    }
+    state.ui.workspaceAutomationBusyAction = String(action || "workspace-action");
+    updateBusyControls(deps);
+    fn(deps, "renderWorkspaceCockpitOverview", () => {})();
+    fn(deps, "renderWorkspaceExecutionDetail", () => {})();
+    return true;
+  }
+
+  function endAutomationAction(action, deps = {}) {
+    const state = appState(deps);
+    const current = String(state.ui.workspaceAutomationBusyAction || "");
+    if (current && current !== String(action || "")) return;
+    state.ui.workspaceAutomationBusyAction = "";
+    updateBusyControls(deps);
+    fn(deps, "renderWorkspaceCockpitOverview", () => {})();
+    fn(deps, "renderWorkspaceExecutionDetail", () => {})();
+  }
+
+  function workflowErrorMessage(error) {
+    const blocked = Array.isArray(error?.payload?.blocked_checks) ? error.payload.blocked_checks : [];
+    if (!blocked.length) return error?.message || "工作流提交失败";
+    const applied = Array.isArray(error?.payload?.applied) ? error.payload.applied.length : 0;
+    const prefix = applied ? `已先回填 ${applied} 项建议/发现，但` : "";
+    const labels = blocked
+      .map((item) => item.label || item.title || item.node_kind || item.id)
+      .filter(Boolean)
+      .slice(0, 5)
+      .join("、");
+    return `${prefix}完整运行前检查未通过：${labels}。先点“自动发现”或补齐阻塞项，再提交完整工作流。`;
+  }
+
+  function advanceMessage(payload) {
+    const action = String(payload?.action || "").trim();
+    const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+    const applied = Array.isArray(payload?.applied) ? payload.applied.length : 0;
+    const evidenceApplied = Array.isArray(payload?.evidence_applied) ? payload.evidence_applied.length : 0;
+    const decision = payload?.decision && typeof payload.decision === "object" ? payload.decision : null;
+    const suffix = decision?.reason
+      ? ` 原因：${decision.reason}${decision.next_action ? ` 下一步：${decision.next_action}` : ""}`
+      : "";
+    if (action === "discover") {
+      return `自动推进已提交发现链：${jobs.length} 个节点${applied ? ` · 先应用 ${applied} 项建议` : ""}。${suffix}`;
+    }
+    if (action === "run") {
+      return `自动推进已提交完整工作流：${jobs.length} 个节点${applied ? ` · 先回填 ${applied} 项` : ""}${evidenceApplied ? ` · ${evidenceApplied} 项来自发现证据` : ""}。${suffix}`;
+    }
+    if (action === "watch") {
+      const active = Array.isArray(payload?.active_job_ids) ? payload.active_job_ids.length : 0;
+      return `自动推进暂停：已有 ${active} 个任务在队列或运行中，先观察当前执行。${suffix}`;
+    }
+    if (action === "review_failed") {
+      const failed = Array.isArray(payload?.failed_job_ids) ? payload.failed_job_ids.length : 0;
+      return `自动推进暂停：存在 ${failed} 个失败或停止任务，先查看输出再继续。${suffix}`;
+    }
+    if (action === "blocked") {
+      const blocked = Array.isArray(payload?.blocked_checks) ? payload.blocked_checks : [];
+      const labels = blocked.map((item) => item.label || item.title || item.node_kind || item.id).filter(Boolean).slice(0, 5).join("、");
+      return `${payload?.message || "自动推进遇到阻塞"}${labels ? `：${labels}` : ""}${suffix}`;
+    }
+    return `${payload?.message || "自动推进已完成。"}${suffix}`;
+  }
+
   function handleAutomationAction(button, deps = {}) {
     if (!button?.dataset?.action) return false;
     const action = button.dataset.action;
@@ -467,10 +567,15 @@
   }
 
   window.WorkspaceAutomationActions = {
+    advanceMessage,
     actionHelp,
     actionLabel,
+    beginAutomationAction,
+    endAutomationAction,
     handleAutomationAction,
     hasAction,
     isNonBlockingAction,
+    updateBusyControls,
+    workflowErrorMessage,
   };
 })();

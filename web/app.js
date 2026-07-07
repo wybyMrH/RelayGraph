@@ -23130,63 +23130,19 @@ function workspaceAutomationActionIsNonBlocking(action) {
 }
 
 function updateWorkspaceAutomationBusyControls() {
-  const busyAction = String(state.ui.workspaceAutomationBusyAction || "");
-  const busy = Boolean(busyAction);
-  document.querySelectorAll("[data-action]").forEach((button) => {
-    const action = button.dataset?.action || "";
-    if (!workspaceAutomationActionKnown(action)) return;
-    if (workspaceAutomationActionIsNonBlocking(action)) return;
-    button.disabled = busy;
-  });
-  [
-    ["workspaceCreateTaskBtn", "create-workspace"],
-    ["workspaceCreateDiscoverTaskBtn", "create-workspace-discover"],
-    ["workspaceCreateRunTaskBtn", "create-workspace-run"],
-    ["workspaceTestChainBtn", "test-workspace-chain"],
-    ["workspaceRunFlowBtn", "run-selected-workspace"],
-  ].forEach(([id, action]) => {
-    const button = $(id);
-    if (!button) return;
-    button.disabled = busy;
-    button.dataset.busyAction = busyAction === action ? "1" : "";
-  });
+  return workspaceAutomationActionsApi()?.updateBusyControls?.(workspaceAutomationActionDeps());
 }
 
 function beginWorkspaceAutomationAction(action, options = {}) {
-  const busyAction = String(state.ui.workspaceAutomationBusyAction || "");
-  if (busyAction) {
-    const message = `${workspaceAutomationActionLabel(busyAction)}正在处理中，稍等一下再操作。`;
-    if (options.useMessage) setWorkspaceUseMessage(message, true);
-    else setWorkspaceMessage(message, true);
-    return false;
-  }
-  state.ui.workspaceAutomationBusyAction = String(action || "workspace-action");
-  updateWorkspaceAutomationBusyControls();
-  renderWorkspaceCockpitOverview();
-  renderWorkspaceExecutionDetail();
-  return true;
+  return workspaceAutomationActionsApi()?.beginAutomationAction?.(action, options, workspaceAutomationActionDeps()) || false;
 }
 
 function endWorkspaceAutomationAction(action) {
-  const current = String(state.ui.workspaceAutomationBusyAction || "");
-  if (current && current !== String(action || "")) return;
-  state.ui.workspaceAutomationBusyAction = "";
-  updateWorkspaceAutomationBusyControls();
-  renderWorkspaceCockpitOverview();
-  renderWorkspaceExecutionDetail();
+  return workspaceAutomationActionsApi()?.endAutomationAction?.(action, workspaceAutomationActionDeps());
 }
 
 function workspaceWorkflowErrorMessage(error) {
-  const blocked = Array.isArray(error?.payload?.blocked_checks) ? error.payload.blocked_checks : [];
-  if (!blocked.length) return error?.message || "工作流提交失败";
-  const applied = Array.isArray(error?.payload?.applied) ? error.payload.applied.length : 0;
-  const prefix = applied ? `已先回填 ${applied} 项建议/发现，但` : "";
-  const labels = blocked
-    .map((item) => item.label || item.title || item.node_kind || item.id)
-    .filter(Boolean)
-    .slice(0, 5)
-    .join("、");
-  return `${prefix}完整运行前检查未通过：${labels}。先点“自动发现”或补齐阻塞项，再提交完整工作流。`;
+  return workspaceAutomationActionsApi()?.workflowErrorMessage?.(error) || error?.message || "工作流提交失败";
 }
 
 async function cancelAgentExecution(executionId, options = {}) {
@@ -23364,34 +23320,7 @@ async function runWorkspaceWorkflow() {
 }
 
 function workspaceAdvanceMessage(payload) {
-  const action = String(payload?.action || "").trim();
-  const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
-  const applied = Array.isArray(payload?.applied) ? payload.applied.length : 0;
-  const evidenceApplied = Array.isArray(payload?.evidence_applied) ? payload.evidence_applied.length : 0;
-  const decision = payload?.decision && typeof payload.decision === "object" ? payload.decision : null;
-  const suffix = decision?.reason
-    ? ` 原因：${decision.reason}${decision.next_action ? ` 下一步：${decision.next_action}` : ""}`
-    : "";
-  if (action === "discover") {
-    return `自动推进已提交发现链：${jobs.length} 个节点${applied ? ` · 先应用 ${applied} 项建议` : ""}。${suffix}`;
-  }
-  if (action === "run") {
-    return `自动推进已提交完整工作流：${jobs.length} 个节点${applied ? ` · 先回填 ${applied} 项` : ""}${evidenceApplied ? ` · ${evidenceApplied} 项来自发现证据` : ""}。${suffix}`;
-  }
-  if (action === "watch") {
-    const active = Array.isArray(payload?.active_job_ids) ? payload.active_job_ids.length : 0;
-    return `自动推进暂停：已有 ${active} 个任务在队列或运行中，先观察当前执行。${suffix}`;
-  }
-  if (action === "review_failed") {
-    const failed = Array.isArray(payload?.failed_job_ids) ? payload.failed_job_ids.length : 0;
-    return `自动推进暂停：存在 ${failed} 个失败或停止任务，先查看输出再继续。${suffix}`;
-  }
-  if (action === "blocked") {
-    const blocked = Array.isArray(payload?.blocked_checks) ? payload.blocked_checks : [];
-    const labels = blocked.map((item) => item.label || item.title || item.node_kind || item.id).filter(Boolean).slice(0, 5).join("、");
-    return `${payload?.message || "自动推进遇到阻塞"}${labels ? `：${labels}` : ""}${suffix}`;
-  }
-  return `${payload?.message || "自动推进已完成。"}${suffix}`;
+  return workspaceAutomationActionsApi()?.advanceMessage?.(payload) || `${payload?.message || "自动推进已完成。"}`;
 }
 
 async function advanceWorkspaceAutomation() {
@@ -25496,6 +25425,7 @@ function workspaceAutomationActionsApi() {
 
 function workspaceAutomationActionDeps() {
   return {
+    actionButtons: () => document.querySelectorAll("[data-action]"),
     element: $,
     state,
     WORKSPACE_MANAGE_TABS,
@@ -25552,6 +25482,7 @@ function workspaceAutomationActionDeps() {
     copyTextToClipboard,
     workspaceExecutionBundleScriptText,
     workspaceExecutionBundlePackageText,
+    renderWorkspaceCockpitOverview,
   };
 }
 
