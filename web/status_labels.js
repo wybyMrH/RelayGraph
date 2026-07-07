@@ -1,0 +1,44 @@
+(function () {
+  "use strict";
+
+  const statusText = {
+    draft: "草稿",
+    ready: "已就绪",
+    preview: "预览",
+    pending: "未运行",
+    idle: "空闲",
+    busy: "忙碌",
+    blocked: "等待 Profile",
+    queued: "等待中",
+    starting: "启动中",
+    running: "运行中",
+    done: "已完成",
+    completed: "已完成",
+    failed: "失败",
+    stopped: "已停止",
+    offline: "离线",
+  };
+
+  const kindText = {
+    command: "单命令",
+    "batch-item": "批量",
+    "profiled-batch-item": "批量",
+    profile: "Profile",
+    transfer: "文件传输",
+  };
+
+  function zhStatus(value) {
+    return statusText[value] || value || "-";
+  }
+
+  function zhKind(value) {
+    return kindText[value] || value || "任务";
+  }
+
+  window.StatusLabels = {
+    kindText,
+    statusText,
+    zhKind,
+    zhStatus,
+  };
+})();

@@ -1742,11 +1742,19 @@ const kindText = {
   transfer: "文件传输",
 };
 
+function statusLabelsApi() {
+  return window.StatusLabels && typeof window.StatusLabels === "object" ? window.StatusLabels : null;
+}
+
 function zhStatus(value) {
+  const api = statusLabelsApi();
+  if (api && typeof api.zhStatus === "function") return api.zhStatus(value);
   return statusText[value] || value || "-";
 }
 
 function zhKind(value) {
+  const api = statusLabelsApi();
+  if (api && typeof api.zhKind === "function") return api.zhKind(value);
   return kindText[value] || value || "任务";
 }
 
