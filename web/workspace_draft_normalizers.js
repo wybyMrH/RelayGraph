@@ -78,9 +78,23 @@
     };
   }
 
+  function normalizeWorkspaceToolsDraft(tools = [], deps = {}) {
+    const normalizeToolDraft = typeof deps.normalizeWorkspaceToolDraft === "function"
+      ? deps.normalizeWorkspaceToolDraft
+      : normalizeWorkspaceToolDraft;
+    const defaultTools = typeof deps.defaultWorkspaceTools === "function"
+      ? deps.defaultWorkspaceTools
+      : () => [];
+    const list = (Array.isArray(tools) ? tools : [])
+      .map((item, index) => normalizeToolDraft(item, index))
+      .filter(Boolean);
+    return list.length ? list : defaultTools();
+  }
+
   window.WorkspaceDraftNormalizers = {
     normalizeWorkspaceAgentDraft,
     normalizeWorkspaceModelDraft,
     normalizeWorkspaceToolDraft,
+    normalizeWorkspaceToolsDraft,
   };
 })();

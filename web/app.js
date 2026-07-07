@@ -2666,6 +2666,13 @@ function normalizeProviderProfile(profile = {}, index = 0) {
 }
 
 function normalizeWorkspaceToolsDraft(tools = []) {
+  const api = workspaceDraftNormalizersApi();
+  if (api && typeof api.normalizeWorkspaceToolsDraft === "function") {
+    return api.normalizeWorkspaceToolsDraft(tools, {
+      defaultWorkspaceTools,
+      normalizeWorkspaceToolDraft,
+    });
+  }
   const list = (Array.isArray(tools) ? tools : [])
     .map((item, index) => normalizeWorkspaceToolDraft(item, index))
     .filter(Boolean);
