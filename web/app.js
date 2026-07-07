@@ -18334,6 +18334,10 @@ async function previewTransferSourceInput() {
 }
 
 function findFilePickerRow(path) {
+  const api = filePickerNavigationApi();
+  if (api && typeof api.findRow === "function") {
+    return api.findRow(path, filePickerNavigationDeps());
+  }
   const list = $("filePickerList");
   if (!list || !path) return null;
   const target = normalizePathForCompare(path);
@@ -18344,6 +18348,11 @@ function findFilePickerRow(path) {
 }
 
 function restoreFilePickerScrollAfterRender() {
+  const api = filePickerNavigationApi();
+  if (api && typeof api.restoreScrollAfterRender === "function") {
+    api.restoreScrollAfterRender(filePickerNavigationDeps());
+    return;
+  }
   const anchor = state.filePicker.scrollAnchorPath;
   if (!anchor) return;
   requestAnimationFrame(() => {
@@ -18411,6 +18420,8 @@ function filePickerNavigationApi() {
 function filePickerNavigationDeps() {
   return {
     getElement: $,
+    normalizePathForCompare,
+    requestAnimationFrame: (callback) => requestAnimationFrame(callback),
     state,
     loadFilePicker,
     previewFileInPicker,

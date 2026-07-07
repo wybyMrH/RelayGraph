@@ -48,6 +48,33 @@
     if (forwardBtn) forwardBtn.hidden = !buttonState.canGoForward;
   }
 
+  function findRow(path = "", deps = {}) {
+    const getElement = typeof deps.getElement === "function" ? deps.getElement : () => null;
+    const list = getElement("filePickerList");
+    if (!list || !path) return null;
+    const target = normalizeFor(deps, path);
+    for (const row of list.querySelectorAll(".file-picker-row")) {
+      if (normalizeFor(deps, row.dataset.path || "") === target) return row;
+    }
+    return null;
+  }
+
+  function restoreScrollAfterRender(deps = {}) {
+    const state = deps.state && typeof deps.state === "object" ? deps.state : {};
+    const filePicker = state.filePicker && typeof state.filePicker === "object" ? state.filePicker : {};
+    const anchor = filePicker.scrollAnchorPath;
+    if (!anchor) return;
+    const schedule = typeof deps.requestAnimationFrame === "function"
+      ? deps.requestAnimationFrame
+      : (callback) => window.requestAnimationFrame(callback);
+    schedule(() => {
+      const row = findRow(anchor, deps);
+      if (row) row.scrollIntoView({ block: "center", inline: "nearest" });
+      const latestFilePicker = state.filePicker && typeof state.filePicker === "object" ? state.filePicker : null;
+      if (latestFilePicker) latestFilePicker.scrollAnchorPath = "";
+    });
+  }
+
   function forwardNavigationState(filePicker = {}) {
     const forwardStack = Array.isArray(filePicker?.forwardStack) ? filePicker.forwardStack.slice() : [];
     const nextPath = forwardStack.shift() || "";
@@ -138,6 +165,7 @@
 
   window.FilePickerNavigation = {
     activateRow,
+    findRow,
     forwardNavigationState,
     markPathInputChanged,
     navigateForward,
@@ -147,6 +175,7 @@
     previewPath,
     rememberForwardPath,
     resetNavigationState,
+    restoreScrollAfterRender,
     updateNavigationButtons,
   };
 })();
