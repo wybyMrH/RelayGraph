@@ -19226,6 +19226,8 @@ async function chooseFilePickerPath(path, isDir) {
 }
 
 function jobSearchKey(job) {
+  const api = jobStateApi();
+  if (api && typeof api.jobSearchKey === "function") return api.jobSearchKey(job);
   return [
     job.id,
     job.name,
@@ -19240,11 +19242,15 @@ function jobSearchKey(job) {
 }
 
 function jobMatchesKindFilter(job, value) {
+  const api = jobStateApi();
+  if (api && typeof api.matchesKindFilter === "function") return api.matchesKindFilter(job, value);
   if (!value) return true;
   return jobKindGroup(job) === value;
 }
 
 function jobMatchesStatusFilter(job, value) {
+  const api = jobStateApi();
+  if (api && typeof api.matchesStatusFilter === "function") return api.matchesStatusFilter(job, value);
   if (!value) return true;
   const status = String(job.status || "");
   if (value === "running") return ["running", "starting"].includes(status);

@@ -46,12 +46,45 @@
     return Number.isFinite(rank) && rank > 0 ? rank : Number.MAX_SAFE_INTEGER;
   }
 
+  function jobSearchKey(job) {
+    return [
+      job.id,
+      job.name,
+      job.kind,
+      job.command_display || job.command,
+      job.error,
+      job.server_id,
+      job.requested_server_id,
+    ]
+      .join(" ")
+      .toLowerCase();
+  }
+
+  function matchesKindFilter(job, value) {
+    if (!value) return true;
+    return jobKindGroup(job) === value;
+  }
+
+  function matchesStatusFilter(job, value) {
+    if (!value) return true;
+    const status = String(job.status || "");
+    if (value === "running") return ["running", "starting"].includes(status);
+    if (value === "waiting") return ["queued", "blocked"].includes(status);
+    if (value === "done") return status === "done";
+    if (value === "failed") return ["failed", "stopped"].includes(status);
+    if (value === "transfer") return job.kind === "transfer";
+    return status === value;
+  }
+
   window.JobState = {
     formatDurationMs,
     isWaitingJob,
     jobDurationMs,
     jobKindGroup,
     jobQueueRank,
+    jobSearchKey,
+    matchesKindFilter,
+    matchesStatusFilter,
     parseDateMs,
   };
 })();
