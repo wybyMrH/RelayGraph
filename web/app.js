@@ -23164,159 +23164,15 @@ async function cancelAgentExecution(executionId, options = {}) {
 }
 
 async function runWorkspaceNode(nodeId, options = {}) {
-  const workspace = selectedWorkspace();
-  const node = state.workspaceNodesDraft.find((item) => item.id === nodeId);
-  if (!workspace?.id || !node) {
-    setWorkspaceMessage("先保存项目，再运行节点。", true);
-    return;
-  }
-  const prefer = String(options.prefer || options.executorMode || "auto").trim().toLowerCase();
-  const normalizedPrefer = ["auto", "job", "agent"].includes(prefer) ? prefer : "auto";
-  if (!beginWorkspaceAutomationAction("run-selected-node")) return;
-  const modeLabel = normalizedPrefer === "agent" ? "Agent" : normalizedPrefer === "job" ? "Job" : "自动";
-  setWorkspaceMessage(`正在以 ${modeLabel} 模式运行节点“${node.title || workspaceNodeLabel(node.kind)}”...`);
-  try {
-    const payload = await fetchJson(
-      `/api/workspaces/${encodeURIComponent(workspace.id)}/nodes/${encodeURIComponent(node.id)}/run`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prefer: normalizedPrefer, executor_mode: normalizedPrefer }),
-      },
-    );
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: node.id,
-        selectedExecutionNodeId: node.id,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-      });
-    }
-    setWorkspaceMessage(
-      payload.executor === "agent"
-        ? `Agent 节点“${node.title || workspaceNodeLabel(node.kind)}”已执行。`
-        : `节点“${node.title || workspaceNodeLabel(node.kind)}”已加入执行队列。`,
-    );
-    if (payload.job?.id) {
-      await loadStatus(true, { renderWorkspace: true });
-      await showLog(payload.job.id);
-    }
-  } catch (error) {
-    setWorkspaceMessage(workspaceWorkflowErrorMessage(error), true);
-  } finally {
-    endWorkspaceAutomationAction("run-selected-node");
-  }
+  return workspaceAutomationActionsApi()?.runWorkspaceNode?.(nodeId, options, workspaceAutomationActionDeps());
 }
 
 async function runWorkspaceToNode(nodeId) {
-  const workspace = selectedWorkspace();
-  const node = state.workspaceNodesDraft.find((item) => item.id === nodeId);
-  if (!workspace?.id || !node) {
-    setWorkspaceMessage("先保存项目，再选择要运行到的节点。", true);
-    return;
-  }
-  if (!beginWorkspaceAutomationAction("run-workspace-to-selected-node")) return;
-  const nodeTitle = node.title || workspaceNodeLabel(node.kind);
-  setWorkspaceMessage(`正在从起点运行到“${nodeTitle}”...`);
-  try {
-    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        auto_apply: false,
-        apply_evidence: false,
-        until_node_id: node.id,
-      }),
-    });
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId: node.id,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    const created = Array.isArray(payload.jobs) ? payload.jobs.length : 0;
-    const applied = Array.isArray(payload.applied) ? payload.applied.length : 0;
-    const scope = payload.execution_package?.scope;
-    const target = scope?.target_node_title || nodeTitle;
-    setWorkspaceMessage(`已提交到“${target}”，创建 ${created} 个前置执行节点${applied ? ` · 先回填 ${applied} 项` : ""}。`);
-    if (payload.jobs?.[0]?.id) {
-      await loadStatus(true, { renderWorkspace: true });
-      await showLog(payload.jobs[0].id);
-    }
-  } catch (error) {
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, error?.payload || {});
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId: node.id,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    setWorkspaceMessage(workspaceWorkflowErrorMessage(error), true);
-  } finally {
-    endWorkspaceAutomationAction("run-workspace-to-selected-node");
-  }
+  return workspaceAutomationActionsApi()?.runWorkspaceToNode?.(nodeId, workspaceAutomationActionDeps());
 }
 
 async function runWorkspaceWorkflow() {
-  const workspace = selectedWorkspace();
-  if (!workspace?.id) {
-    setWorkspaceMessage("先保存项目，再运行工作流。", true);
-    return;
-  }
-  const selectedExecutionNodeId = state.selectedWorkspaceExecutionNodeId;
-  if (!beginWorkspaceAutomationAction("run-selected-workspace")) return;
-  setWorkspaceMessage("正在整理建议/发现并提交整条工作流...");
-  try {
-    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ auto_apply: true, apply_evidence: true }),
-    });
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    const created = Array.isArray(payload.jobs) ? payload.jobs.length : 0;
-    const applied = Array.isArray(payload.applied) ? payload.applied.length : 0;
-    const executionPackage = payload.execution_package && typeof payload.execution_package === "object" ? payload.execution_package : {};
-    const script = executionPackage.script && typeof executionPackage.script === "object" ? executionPackage.script : {};
-    const packageText = executionPackage.status
-      ? ` · 执行包 ${executionPackage.status}${script.summary ? ` · ${script.summary}` : ""}`
-      : "";
-    setWorkspaceMessage(`已提交工作流，创建 ${created} 个执行节点${applied ? ` · 先回填 ${applied} 项` : ""}${packageText}。`);
-    if (payload.jobs?.[0]?.id) {
-      await loadStatus(true, { renderWorkspace: true });
-      await showLog(payload.jobs[0].id);
-    }
-  } catch (error) {
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, error?.payload || {});
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    setWorkspaceMessage(workspaceWorkflowErrorMessage(error), true);
-  } finally {
-    endWorkspaceAutomationAction("run-selected-workspace");
-  }
+  return workspaceAutomationActionsApi()?.runWorkspaceWorkflow?.(workspaceAutomationActionDeps());
 }
 
 function workspaceAdvanceMessage(payload) {
@@ -23324,124 +23180,15 @@ function workspaceAdvanceMessage(payload) {
 }
 
 async function advanceWorkspaceAutomation() {
-  const workspace = selectedWorkspace();
-  if (!workspace?.id) {
-    setWorkspaceMessage("先创建任务实例，再自动推进。", true);
-    return;
-  }
-  const selectedExecutionNodeId = state.selectedWorkspaceExecutionNodeId;
-  if (!beginWorkspaceAutomationAction("advance-workspace-automation")) return;
-  setWorkspaceMessage("正在判断下一步并自动推进...");
-  try {
-    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/advance`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    setWorkspaceMessage(workspaceAdvanceMessage(payload), payload.action === "blocked" || payload.action === "review_failed");
-    const firstJobId = payload.jobs?.[0]?.id || payload.active_job_ids?.[0] || payload.failed_job_ids?.[0] || "";
-    await loadStatus(true, { renderWorkspace: true });
-    if (firstJobId) await showLog(firstJobId);
-  } catch (error) {
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, error?.payload || {});
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    setWorkspaceMessage(workspaceWorkflowErrorMessage(error), true);
-  } finally {
-    endWorkspaceAutomationAction("advance-workspace-automation");
-  }
+  return workspaceAutomationActionsApi()?.advanceWorkspaceAutomation?.(workspaceAutomationActionDeps());
 }
 
 async function runWorkspaceDiscovery() {
-  const workspace = selectedWorkspace();
-  if (!workspace?.id) {
-    setWorkspaceMessage("先创建任务实例，再运行自动发现。", true);
-    return;
-  }
-  const selectedExecutionNodeId = state.selectedWorkspaceExecutionNodeId;
-  if (!beginWorkspaceAutomationAction("run-workspace-discovery")) return;
-  setWorkspaceMessage("正在准备源码、应用建议并提交发现链...");
-  try {
-    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/discovery/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apply_defaults: true, include_source: true }),
-    });
-    const mergedWorkspace = mergeWorkspaceExecutionResultPayload(workspace.id, payload);
-    if (mergedWorkspace) {
-      selectWorkspace(mergedWorkspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    const created = Array.isArray(payload.jobs) ? payload.jobs.length : 0;
-    const applied = Array.isArray(payload.applied) ? payload.applied.length : 0;
-    const skipped = Array.isArray(payload.skipped) ? payload.skipped.length : 0;
-    setWorkspaceMessage(`已提交源码/发现链：${created} 个节点 · 应用 ${applied} 项建议${skipped ? ` · 跳过 ${skipped} 项` : ""}。`);
-    if (payload.jobs?.[0]?.id) {
-      await loadStatus(true, { renderWorkspace: true });
-      await showLog(payload.jobs[0].id);
-    }
-  } catch (error) {
-    setWorkspaceMessage(error.message, true);
-  } finally {
-    endWorkspaceAutomationAction("run-workspace-discovery");
-  }
+  return workspaceAutomationActionsApi()?.runWorkspaceDiscovery?.(workspaceAutomationActionDeps());
 }
 
 async function applyWorkspaceAutomationDefaults() {
-  const workspace = selectedWorkspace();
-  if (!workspace?.id) {
-    setWorkspaceMessage("先创建任务实例，再回填建议和发现结果。", true);
-    return;
-  }
-  const selectedExecutionNodeId = state.selectedWorkspaceExecutionNodeId;
-  if (!beginWorkspaceAutomationAction("apply-workspace-automation")) return;
-  setWorkspaceMessage("正在回填自动化建议和发现证据...");
-  try {
-    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(workspace.id)}/automation/apply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apply_evidence: true }),
-    });
-    if (payload.workspace) {
-      upsertWorkspaceInState(payload.workspace);
-      selectWorkspace(payload.workspace.id, {
-        persist: true,
-        selectedNodeId: state.selectedWorkspaceNodeId,
-        selectedExecutionNodeId,
-        selectedAgentId: state.selectedWorkspaceAgentId,
-        selectedToolId: state.selectedWorkspaceToolId,
-      });
-    }
-    const applied = Array.isArray(payload.applied) ? payload.applied : [];
-    const evidenceApplied = Array.isArray(payload.evidence_applied) ? payload.evidence_applied.length : 0;
-    setWorkspaceMessage(applied.length ? `已回填 ${applied.length} 项建议/发现${evidenceApplied ? `，其中 ${evidenceApplied} 项来自发现证据` : ""}。` : "没有新的建议或发现结果需要回填。");
-  } catch (error) {
-    setWorkspaceMessage(error.message, true);
-  } finally {
-    endWorkspaceAutomationAction("apply-workspace-automation");
-  }
+  return workspaceAutomationActionsApi()?.applyWorkspaceAutomationDefaults?.(workspaceAutomationActionDeps());
 }
 
 function renderJobSourceHint() {
@@ -25461,6 +25208,13 @@ function workspaceAutomationActionDeps() {
     toggleCockpitMonitorMode,
     renderWorkspaceWorkbench,
     selectedWorkspace,
+    fetchJson,
+    encodeURIComponent,
+    mergeWorkspaceExecutionResultPayload,
+    upsertWorkspaceInState,
+    selectWorkspace,
+    workspaceNodeLabel,
+    loadStatus,
     workspaceCockpitNextAction,
     renderWorkspaceExecutionDetail,
     advanceWorkspaceAutomation,
