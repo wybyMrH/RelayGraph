@@ -2963,11 +2963,6 @@ function workspaceNodeKindsForSource(sourceType) {
   ];
 }
 
-function workspaceSearchSeed(formData = {}) {
-  const idea = String(formData.idea_text || formData.brief || "").trim().split("\n")[0] || "";
-  return String(formData.paper_url || "").trim() || idea || String(formData.repo_url || "").trim();
-}
-
 function workspaceNodeDefaultConfig(kind, formData = {}) {
   const api = workspaceNodeCatalogApi();
   if (api && typeof api.workspaceNodeDefaultConfig === "function") {
