@@ -11296,7 +11296,17 @@ function humanizeFetchError(error, context = "") {
   return raw;
 }
 
+function filePreviewStateApi() {
+  return window.FilePreviewState && typeof window.FilePreviewState === "object"
+    ? window.FilePreviewState
+    : null;
+}
+
 function isLikelyTextPreviewPath(path) {
+  const api = filePreviewStateApi();
+  if (api && typeof api.isLikelyTextPreviewPath === "function") {
+    return api.isLikelyTextPreviewPath(path, { pathBaseName });
+  }
   const base = pathBaseName(String(path || "")).toLowerCase();
   if (!base) return false;
   if (base.startsWith(".") && base.length > 1) return true;
@@ -11316,6 +11326,10 @@ function isLikelyTextPreviewPath(path) {
 }
 
 function formatPreviewText(path, text) {
+  const api = filePreviewStateApi();
+  if (api && typeof api.formatPreviewText === "function") {
+    return api.formatPreviewText(path, text, { pathBaseName });
+  }
   const base = pathBaseName(String(path || "")).toLowerCase();
   if (base.endsWith(".json") || base.endsWith(".jsonc")) {
     try {
