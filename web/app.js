@@ -17453,50 +17453,38 @@ function clearTransferTargetTree() {
   updateTransferPathFavoriteButtons();
 }
 
+function transferTreeNavigationApi() {
+  return window.TransferTreeNavigation && typeof window.TransferTreeNavigation === "object"
+    ? window.TransferTreeNavigation
+    : null;
+}
+
+function transferTreeNavigationDeps() {
+  return {
+    state,
+    parentDirectoryPath,
+    transferSourceValue,
+    transferTargetValue,
+    loadTransferSourceTree,
+    loadTransferTargetTree,
+    updateTransferTreeClearButtons,
+  };
+}
+
 async function navigateTransferSourceParent() {
-  const parent = parentDirectoryPath(state.transfer.source?.path || transferSourceValue());
-  if (!parent) return;
-  await loadTransferSourceTree(parent, { rememberForward: true });
+  return await transferTreeNavigationApi()?.navigateSourceParent?.(transferTreeNavigationDeps());
 }
 
 async function navigateTransferSourceForward() {
-  const api = window.TransferTreeNavigation;
-  const forwardState = api && typeof api.forwardNavigationState === "function"
-    ? api.forwardNavigationState(state.transfer.sourceForwardStack)
-    : null;
-  const stack = forwardState
-    ? forwardState.forwardStack
-    : Array.isArray(state.transfer.sourceForwardStack) ? state.transfer.sourceForwardStack : [];
-  const next = forwardState ? forwardState.nextPath : stack.shift();
-  state.transfer.sourceForwardStack = stack;
-  if (!next) {
-    updateTransferTreeClearButtons();
-    return;
-  }
-  await loadTransferSourceTree(next, { keepForward: true });
+  return await transferTreeNavigationApi()?.navigateSourceForward?.(transferTreeNavigationDeps());
 }
 
 async function navigateTransferTargetParent() {
-  const parent = parentDirectoryPath(state.transfer.target?.path || transferTargetValue());
-  if (!parent) return;
-  await loadTransferTargetTree(parent, { rememberForward: true });
+  return await transferTreeNavigationApi()?.navigateTargetParent?.(transferTreeNavigationDeps());
 }
 
 async function navigateTransferTargetForward() {
-  const api = window.TransferTreeNavigation;
-  const forwardState = api && typeof api.forwardNavigationState === "function"
-    ? api.forwardNavigationState(state.transfer.targetForwardStack)
-    : null;
-  const stack = forwardState
-    ? forwardState.forwardStack
-    : Array.isArray(state.transfer.targetForwardStack) ? state.transfer.targetForwardStack : [];
-  const next = forwardState ? forwardState.nextPath : stack.shift();
-  state.transfer.targetForwardStack = stack;
-  if (!next) {
-    updateTransferTreeClearButtons();
-    return;
-  }
-  await loadTransferTargetTree(next, { keepForward: true });
+  return await transferTreeNavigationApi()?.navigateTargetForward?.(transferTreeNavigationDeps());
 }
 
 function updateTransferTreeClearButtons() {
