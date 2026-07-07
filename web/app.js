@@ -24240,7 +24240,20 @@ async function checkTransferConflicts(sourceItems, target, excludes, options) {
   });
 }
 
+function transferCommandBuilderApi() {
+  return window.TransferCommandBuilder && typeof window.TransferCommandBuilder === "object"
+    ? window.TransferCommandBuilder
+    : null;
+}
+
 function buildTransferCommandParts(form, sourceItems, target, excludes, transferOptions = {}) {
+  const api = transferCommandBuilderApi();
+  if (api && typeof api.buildTransferCommandParts === "function") {
+    return api.buildTransferCommandParts(form, sourceItems, target, excludes, transferOptions, {
+      rsyncTransferSourceValue,
+      shellQuote,
+    });
+  }
   const baseParts = ["rsync", "-avPh", "--info=progress2"];
   if (form.checksum?.checked) {
     baseParts.push("--checksum");
