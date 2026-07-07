@@ -3215,6 +3215,26 @@ function workflowTemplateRepairApi() {
   return window.WorkflowTemplateRepair || {};
 }
 
+function workflowTemplateRepairActionApi() {
+  return window.WorkflowTemplateRepairActions || {};
+}
+
+function workflowTemplateRepairActionDeps() {
+  return {
+    nodes: () => Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [],
+    previewTemplate: previewWorkflowTemplate,
+    repairActions: workflowTemplateRepairActions,
+    repairApi: workflowTemplateRepairApi,
+    setMessage: setWorkspaceManageMessage,
+    setSelectedNodeId: (nodeId) => {
+      state.selectedTemplateNodeId = nodeId;
+    },
+    updateDraft: updateWorkflowTemplateDraft,
+    validation: () => state.workflowTemplateValidation,
+    validationSummary: workflowTemplateValidationSummary,
+  };
+}
+
 function workflowTemplateRepairActions(response = state.workflowTemplateValidation, { limit = 4 } = {}) {
   return workflowTemplateRepairApi().repairActions?.(response, { limit }) || [];
 }
@@ -3244,63 +3264,29 @@ function workflowTemplateValidationMarkup(validation = state.workflowTemplateVal
 }
 
 function workflowTemplateRepairActionById(repairId = "", nodeId = "") {
-  return workflowTemplateRepairApi().repairActionById?.(state.workflowTemplateValidation, repairId, nodeId) || null;
+  return workflowTemplateRepairActionApi().repairActionById?.(workflowTemplateRepairActionDeps(), repairId, nodeId) || null;
 }
 
 function applyWorkflowTemplateRepairPatch(action = {}) {
-  const currentNodes = Array.isArray(state.workflowTemplateDraft?.nodes) ? state.workflowTemplateDraft.nodes : [];
-  const result = workflowTemplateRepairApi().applyRepairActionToNodes?.(currentNodes, action);
-  if (!result?.ok) return false;
-  if (result.selectedNodeId) state.selectedTemplateNodeId = result.selectedNodeId;
-  updateWorkflowTemplateDraft((draft) => ({ ...draft, nodes: result.nodes }));
-  return true;
+  return Boolean(workflowTemplateRepairActionApi().applyRepairPatch?.(workflowTemplateRepairActionDeps(), action));
 }
 
 async function applyWorkflowTemplateRepairAction(repairId = "", nodeId = "") {
-  const action = workflowTemplateRepairActionById(repairId, nodeId);
-  if (!action) {
-    setWorkspaceManageMessage("修复动作已过期，请重新校验模板。", true);
+  const api = workflowTemplateRepairActionApi();
+  if (!api?.applyRepairAction) {
+    setWorkspaceManageMessage("模板修复动作模块暂不可用。", true);
     return null;
   }
-  if (!applyWorkflowTemplateRepairPatch(action)) {
-    setWorkspaceManageMessage("这个修复动作无法安全应用到当前草稿。", true);
-    return null;
-  }
-  try {
-    const response = await previewWorkflowTemplate({ render: true });
-    setWorkspaceManageMessage(`已应用：${action.label || action.kind || "修复动作"}。${workflowTemplateValidationSummary(response?.validation)}`, response?.validation?.status === "blocked");
-    return response;
-  } catch (error) {
-    setWorkspaceManageMessage(error.message || "修复已应用，但重新校验失败。", true);
-    return null;
-  }
+  return await api.applyRepairAction(workflowTemplateRepairActionDeps(), repairId, nodeId);
 }
 
 async function applyAllWorkflowTemplateRepairActions() {
-  const actions = workflowTemplateRepairActions(state.workflowTemplateValidation, { limit: Infinity });
-  if (!actions.length) {
-    setWorkspaceManageMessage("当前校验结果没有可应用的修复动作。", true);
+  const api = workflowTemplateRepairActionApi();
+  if (!api?.applyAllRepairActions) {
+    setWorkspaceManageMessage("模板修复动作模块暂不可用。", true);
     return null;
   }
-  let applied = 0;
-  let firstNodeId = "";
-  actions.forEach((action) => {
-    if (!firstNodeId) firstNodeId = String(action.node_id || "").trim();
-    if (applyWorkflowTemplateRepairPatch(action)) applied += 1;
-  });
-  if (!applied) {
-    setWorkspaceManageMessage("没有修复动作能安全应用到当前草稿。", true);
-    return null;
-  }
-  if (firstNodeId) state.selectedTemplateNodeId = firstNodeId;
-  try {
-    const response = await previewWorkflowTemplate({ render: true });
-    setWorkspaceManageMessage(`已应用 ${applied} 项修复。${workflowTemplateValidationSummary(response?.validation)}`, response?.validation?.status === "blocked");
-    return response;
-  } catch (error) {
-    setWorkspaceManageMessage(error.message || "修复已应用，但重新校验失败。", true);
-    return null;
-  }
+  return await api.applyAllRepairActions(workflowTemplateRepairActionDeps());
 }
 
 function workflowTemplateVersionHistoryMarkup(template = state.workflowTemplateDraft || {}) {
