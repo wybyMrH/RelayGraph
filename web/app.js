@@ -2859,15 +2859,33 @@ async function deleteProviderProfile(profileId) {
   await loadProviderProfiles();
 }
 
+function workspaceNodeCatalogApi() {
+  return window.WorkspaceNodeCatalog && typeof window.WorkspaceNodeCatalog === "object"
+    ? window.WorkspaceNodeCatalog
+    : null;
+}
+
 function workspaceNodeMeta(kind) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceNodeMeta === "function") {
+    return api.workspaceNodeMeta(WORKSPACE_NODE_TYPES, kind);
+  }
   return WORKSPACE_NODE_TYPES[kind] || WORKSPACE_NODE_TYPES["custom.step"];
 }
 
 function workspaceNodeLabel(kind) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceNodeLabel === "function") {
+    return api.workspaceNodeLabel(WORKSPACE_NODE_TYPES, kind);
+  }
   return workspaceNodeMeta(kind).label || kind || "节点";
 }
 
 function workspaceNodeKindsForSource(sourceType) {
+  const api = workspaceNodeCatalogApi();
+  if (api && typeof api.workspaceNodeKindsForSource === "function") {
+    return api.workspaceNodeKindsForSource(sourceType);
+  }
   if (sourceType === "repo") return [
     "source.repo",
     "repo.clone",
