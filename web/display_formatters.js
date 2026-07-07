@@ -26,7 +26,14 @@
     return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`;
   }
 
+  function compactText(value, limit = 80) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    const max = Math.max(Number(limit) || 80, 12);
+    return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+  }
+
   window.DisplayFormatters = {
+    compactText,
     fmtMiB,
     formatBytes,
     formatPercent,

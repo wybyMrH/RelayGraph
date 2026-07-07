@@ -12471,6 +12471,8 @@ function workspaceStatusLabel(value) {
 }
 
 function compactText(value, limit = 80) {
+  const api = displayFormattersApi();
+  if (api && typeof api.compactText === "function") return api.compactText(value, limit);
   const text = String(value || "").replace(/\s+/g, " ").trim();
   const max = Math.max(Number(limit) || 80, 12);
   return text.length > max ? `${text.slice(0, max - 1)}...` : text;
