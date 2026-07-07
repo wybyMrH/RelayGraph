@@ -1750,13 +1750,23 @@ function zhKind(value) {
   return kindText[value] || value || "任务";
 }
 
+function displayFormattersApi() {
+  return window.DisplayFormatters && typeof window.DisplayFormatters === "object"
+    ? window.DisplayFormatters
+    : null;
+}
+
 function fmtMiB(value) {
+  const api = displayFormattersApi();
+  if (api && typeof api.fmtMiB === "function") return api.fmtMiB(value);
   const n = Number(value || 0);
   if (n >= 1024) return `${(n / 1024).toFixed(1)} GiB`;
   return `${n} MiB`;
 }
 
 function formatBytes(value) {
+  const api = displayFormattersApi();
+  if (api && typeof api.formatBytes === "function") return api.formatBytes(value);
   let n = Number(value || 0);
   if (!Number.isFinite(n) || n <= 0) return "0 B";
   const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
@@ -1770,6 +1780,8 @@ function formatBytes(value) {
 }
 
 function formatPercent(value) {
+  const api = displayFormattersApi();
+  if (api && typeof api.formatPercent === "function") return api.formatPercent(value);
   const n = Number(value);
   if (!Number.isFinite(n)) return "--";
   return `${Math.max(0, Math.min(100, n)).toFixed(n % 1 === 0 ? 0 : 1)}%`;
