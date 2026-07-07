@@ -58,8 +58,47 @@
     };
   }
 
+  function fn(deps, name, fallback) {
+    return typeof deps[name] === "function" ? deps[name] : fallback;
+  }
+
+  function filePickerState(deps = {}) {
+    const state = deps.state && typeof deps.state === "object" ? deps.state : {};
+    if (!state.filePicker || typeof state.filePicker !== "object") state.filePicker = {};
+    if (!Array.isArray(state.filePicker.forwardStack)) state.filePicker.forwardStack = [];
+    if (!Array.isArray(state.filePicker.navStack)) state.filePicker.navStack = [];
+    return state.filePicker;
+  }
+
+  async function navigateForward(deps = {}) {
+    const filePicker = filePickerState(deps);
+    const forwardState = forwardNavigationState(filePicker);
+    filePicker.forwardStack = forwardState.forwardStack;
+    if (!forwardState.nextPath) {
+      fn(deps, "updateFilePickerNavigationButtons", () => {})();
+      return;
+    }
+    filePicker.navStack = forwardState.navStack;
+    filePicker.selectedPath = forwardState.selectedPath;
+    await fn(deps, "loadFilePicker", async () => {})(forwardState.nextPath);
+  }
+
+  async function navigateUp(deps = {}) {
+    const filePicker = filePickerState(deps);
+    if (!filePicker.parent) return;
+    fn(deps, "rememberFilePickerForwardPath", () => {})(filePicker.path);
+    const anchor = filePicker.navStack.pop();
+    if (anchor) {
+      filePicker.scrollAnchorPath = anchor;
+      filePicker.selectedPath = anchor;
+    }
+    await fn(deps, "loadFilePicker", async () => {})(filePicker.parent);
+  }
+
   window.FilePickerNavigation = {
     forwardNavigationState,
+    navigateForward,
+    navigateUp,
     navigationButtonState,
     rememberForwardPath,
     resetNavigationState,

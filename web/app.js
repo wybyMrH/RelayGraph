@@ -18398,6 +18398,29 @@ function updateFilePickerNavigationButtons() {
   if (forwardBtn) forwardBtn.hidden = !buttonState.canGoForward;
 }
 
+function filePickerNavigationApi() {
+  return window.FilePickerNavigation && typeof window.FilePickerNavigation === "object"
+    ? window.FilePickerNavigation
+    : null;
+}
+
+function filePickerNavigationDeps() {
+  return {
+    state,
+    loadFilePicker,
+    rememberFilePickerForwardPath,
+    updateFilePickerNavigationButtons,
+  };
+}
+
+async function navigateFilePickerForward() {
+  return await filePickerNavigationApi()?.navigateForward?.(filePickerNavigationDeps());
+}
+
+async function navigateFilePickerUp() {
+  return await filePickerNavigationApi()?.navigateUp?.(filePickerNavigationDeps());
+}
+
 function renderRuntimeStoragePanel(payload = {}) {
   const stats = $("runtimeStorageStats");
   const previewAgeInput = $("runtimePreviewMaxAgeHours");
@@ -25883,42 +25906,11 @@ function bindEvents() {
     clearTargetTree: clearTransferTargetTree,
     closeFilePicker,
     downloadCurrentPreview: downloadCurrentFilePreview,
-    filePickerForward: () => {
-      const api = window.FilePickerNavigation;
-      const forwardState = api && typeof api.forwardNavigationState === "function"
-        ? api.forwardNavigationState(state.filePicker)
-        : null;
-      const stack = forwardState
-        ? forwardState.forwardStack
-        : Array.isArray(state.filePicker.forwardStack) ? state.filePicker.forwardStack : [];
-      const nextPath = forwardState ? forwardState.nextPath : stack.shift();
-      state.filePicker.forwardStack = stack;
-      if (!nextPath) {
-        updateFilePickerNavigationButtons();
-        return;
-      }
-      if (forwardState) {
-        state.filePicker.navStack = forwardState.navStack;
-        state.filePicker.selectedPath = forwardState.selectedPath;
-      } else {
-        if (state.filePicker.path) state.filePicker.navStack.push(nextPath);
-        state.filePicker.selectedPath = nextPath;
-      }
-      void loadFilePicker(nextPath);
-    },
+    filePickerForward: navigateFilePickerForward,
     filePickerPathInputChanged: () => {
       state.filePicker.requestId = (state.filePicker.requestId || 0) + 1;
     },
-    filePickerUp: () => {
-      if (!state.filePicker.parent) return;
-      rememberFilePickerForwardPath(state.filePicker.path);
-      const anchor = state.filePicker.navStack.pop();
-      if (anchor) {
-        state.filePicker.scrollAnchorPath = anchor;
-        state.filePicker.selectedPath = anchor;
-      }
-      void loadFilePicker(state.filePicker.parent);
-    },
+    filePickerUp: navigateFilePickerUp,
     inspectSource: () => loadTransferSourceTree(),
     inspectTarget: () => loadTransferTargetTree(),
     navigateSourceForward: navigateTransferSourceForward,
