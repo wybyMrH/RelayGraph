@@ -32,6 +32,18 @@
     return (typeof deps.formatPercent === "function" ? deps.formatPercent : fallbackFormatPercent)(value);
   }
 
+  function serverIsReachable(server) {
+    if (!server) return false;
+    if (typeof server.reachable === "boolean") return server.reachable;
+    return Boolean(server.online);
+  }
+
+  function serverHasMonitorIssue(server, deps = {}) {
+    return Boolean(server)
+      && !server.online
+      && (typeof deps.serverIsReachable === "function" ? deps.serverIsReachable : serverIsReachable)(server);
+  }
+
   function serverBusyGpuCount(server) {
     return (server.gpus || []).filter((gpu) => gpu.state === "busy").length;
   }
@@ -75,6 +87,37 @@
       title: `CPU ${cpuText} · 内存 ${memText} · 悬停查看磁盘和网络`,
       state: "ok",
     };
+  }
+
+  function serverOptionLabel(server, deps = {}) {
+    const parts = [server.name || server.id || "未命名服务器"];
+    const tags = [
+      server.online
+        ? "在线"
+        : (typeof deps.serverIsReachable === "function" ? deps.serverIsReachable : serverIsReachable)(server)
+          ? "已连接"
+          : "离线",
+    ];
+    if ((typeof deps.serverHasMonitorIssue === "function" ? deps.serverHasMonitorIssue : serverHasMonitorIssue)(server)) {
+      tags.push("GPU 异常");
+    }
+    const gpuCount = (server.gpus || []).length;
+    const busyCount = (typeof deps.serverBusyGpuCount === "function" ? deps.serverBusyGpuCount : serverBusyGpuCount)(server);
+    const processCount = (server.processes || []).length;
+    if (gpuCount) tags.push(`${busyCount}/${gpuCount} GPU 忙`);
+    if (processCount) tags.push(`${processCount} 进程`);
+    return `${parts.join("")} · ${tags.join(" · ")}`;
+  }
+
+  function serverOptionShortLabel(server, deps = {}) {
+    const name = server.name || server.id || "未命名服务器";
+    if (server.online) return `${name} · 在线`;
+    if ((typeof deps.serverIsReachable === "function" ? deps.serverIsReachable : serverIsReachable)(server)) {
+      return (typeof deps.serverHasMonitorIssue === "function" ? deps.serverHasMonitorIssue : serverHasMonitorIssue)(server)
+        ? `${name} · 已连接 · GPU 异常`
+        : `${name} · 已连接`;
+    }
+    return `${name} · 离线`;
   }
 
   function serverSparklineMarkup(series = [], maxValue = 1, variant = "", deps = {}) {
@@ -203,11 +246,15 @@
     offlineServerGroupMarkup,
     serverCardMarkup,
     serverBusyGpuCount,
+    serverHasMonitorIssue,
     serverHostResources,
     serverHostResourceSummary,
     serverIdleGpuCount,
+    serverIsReachable,
     serverListEmptyMarkup,
     serverOnlineEmptyMarkup,
+    serverOptionLabel,
+    serverOptionShortLabel,
     serverSparklineMarkup,
   };
 })();

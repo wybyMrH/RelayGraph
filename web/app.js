@@ -12381,12 +12381,18 @@ function onlineServers() {
 }
 
 function serverIsReachable(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverIsReachable === "function") return api.serverIsReachable(server);
   if (!server) return false;
   if (typeof server.reachable === "boolean") return server.reachable;
   return Boolean(server.online);
 }
 
 function serverHasMonitorIssue(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverHasMonitorIssue === "function") {
+    return api.serverHasMonitorIssue(server, { serverIsReachable });
+  }
   return Boolean(server) && !server.online && serverIsReachable(server);
 }
 
@@ -12407,6 +12413,10 @@ function sortedVisibleServers() {
 }
 
 function serverOptionLabel(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverOptionLabel === "function") {
+    return api.serverOptionLabel(server, { serverBusyGpuCount, serverHasMonitorIssue, serverIsReachable });
+  }
   const parts = [server.name || server.id || "未命名服务器"];
   const tags = [server.online ? "在线" : serverIsReachable(server) ? "已连接" : "离线"];
   if (serverHasMonitorIssue(server)) tags.push("GPU 异常");
@@ -12419,6 +12429,10 @@ function serverOptionLabel(server) {
 }
 
 function serverOptionShortLabel(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverOptionShortLabel === "function") {
+    return api.serverOptionShortLabel(server, { serverHasMonitorIssue, serverIsReachable });
+  }
   const name = server.name || server.id || "未命名服务器";
   if (server.online) return `${name} · 在线`;
   if (serverIsReachable(server)) {
