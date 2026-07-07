@@ -34,6 +34,34 @@
     return "active";
   }
 
+  function normalizeFilters(filters = {}) {
+    const source = filters && typeof filters === "object" ? filters : {};
+    const kind = String(source.kind || "all").trim();
+    return {
+      query: String(source.query || "").trim().toLowerCase(),
+      status: String(source.status || "").trim(),
+      kind: ["all", "runs", "jobs"].includes(kind) ? kind : "all",
+    };
+  }
+
+  function filtersMatch(a = {}, b = {}) {
+    const left = normalizeFilters(a);
+    const right = normalizeFilters(b);
+    return left.query === right.query && left.status === right.status && left.kind === right.kind;
+  }
+
+  function backendFilteredItems(runs = [], jobs = [], filters = {}) {
+    const normalized = normalizeFilters(filters);
+    const showRuns = normalized.kind !== "jobs";
+    const showJobs = normalized.kind !== "runs";
+    return {
+      runs: showRuns ? (Array.isArray(runs) ? runs : []) : [],
+      jobs: showJobs ? (Array.isArray(jobs) ? jobs : []) : [],
+      showRuns,
+      showJobs,
+    };
+  }
+
   function recordSearchText(record = {}, type = "") {
     const progress = record.progress && typeof record.progress === "object" ? record.progress : {};
     return [
@@ -149,8 +177,11 @@
   }
 
   window.WorkspaceExecutionOverview = {
+    backendFilteredItems,
+    filtersMatch,
     filteredItems,
     jobItemMarkup,
+    normalizeFilters,
     recordMatches,
     recordSearchText,
     runItemMarkup,

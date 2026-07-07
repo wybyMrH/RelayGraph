@@ -21409,6 +21409,8 @@ function executionOverviewFilters() {
 }
 
 function normalizeExecutionOverviewFilters(filters = {}) {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.normalizeFilters === "function") return module.normalizeFilters(filters);
   const source = filters && typeof filters === "object" ? filters : {};
   const kind = String(source.kind || "all").trim();
   return {
@@ -21419,12 +21421,16 @@ function normalizeExecutionOverviewFilters(filters = {}) {
 }
 
 function executionOverviewFiltersMatch(a = {}, b = {}) {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.filtersMatch === "function") return module.filtersMatch(a, b);
   const left = normalizeExecutionOverviewFilters(a);
   const right = normalizeExecutionOverviewFilters(b);
   return left.query === right.query && left.status === right.status && left.kind === right.kind;
 }
 
 function backendFilteredExecutionOverviewItems(runs = [], jobs = [], filters = executionOverviewFilters()) {
+  const module = workspaceExecutionOverviewModule();
+  if (typeof module?.backendFilteredItems === "function") return module.backendFilteredItems(runs, jobs, filters);
   const normalized = normalizeExecutionOverviewFilters(filters);
   const showRuns = normalized.kind !== "jobs";
   const showJobs = normalized.kind !== "runs";
