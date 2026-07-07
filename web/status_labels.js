@@ -53,6 +53,16 @@
     return labelWorkspaceStatus(value || "draft");
   }
 
+  function workspaceArtifactStatusLabel(status = "") {
+    const value = String(status || "").trim();
+    if (value === "found") return "已找到";
+    if (value === "expected") return "待生成";
+    if (value === "missing") return "缺失";
+    if (value === "unreadable") return "不可读";
+    if (value === "planned") return "计划中";
+    return value || "未知";
+  }
+
   function workspaceTraceStatusLabel(status = "", deps = {}) {
     const labelWorkspaceStatus = typeof deps.workspaceStatusLabel === "function"
       ? deps.workspaceStatusLabel
@@ -71,6 +81,7 @@
   window.StatusLabels = {
     kindText,
     statusText,
+    workspaceArtifactStatusLabel,
     workspaceInputStatusLabel,
     workspaceStatusLabel,
     workspaceTraceStatusLabel,

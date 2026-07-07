@@ -13156,6 +13156,8 @@ function workspaceRuntimeResources(node = {}) {
 }
 
 function workspaceArtifactStatusLabel(status) {
+  const api = statusLabelsApi();
+  if (api && typeof api.workspaceArtifactStatusLabel === "function") return api.workspaceArtifactStatusLabel(status);
   const value = String(status || "").trim();
   if (value === "found") return "已找到";
   if (value === "expected") return "待生成";
