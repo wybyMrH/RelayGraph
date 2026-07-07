@@ -6304,7 +6304,7 @@ function workspacePlaybookActionButton(action = {}, tone = "secondary") {
   const serverAttr = serverId ? ` data-server-id="${escapeHtml(serverId)}"` : "";
   const label = action.button_label || workspaceAutomationActionLabel(buttonAction) || action.label || "执行";
   const help = workspaceAutomationActionHelp(buttonAction, action.title || action.detail || label);
-  const busy = Boolean(state.ui.workspaceAutomationBusyAction) && !WORKSPACE_NON_BLOCKING_ACTIONS.has(buttonAction);
+  const busy = Boolean(state.ui.workspaceAutomationBusyAction) && !workspaceAutomationActionIsNonBlocking(buttonAction);
   return `
     <button class="${tone} mini" type="button" data-action="${escapeHtml(buttonAction)}"${nodeAttr}${serverAttr} title="${escapeHtml(help)}" aria-label="${escapeHtml(`${label}：${help}`)}" data-workspace-help="${escapeHtml(help)}" ${busy ? "disabled" : ""}>
       ${escapeHtml(busy && state.ui.workspaceAutomationBusyAction === buttonAction ? "处理中..." : label)}
@@ -6481,7 +6481,7 @@ function workspaceStateMachineActionForStep(step = {}, readiness = {}) {
 
 function workspaceStateMachineActionButton(action = {}, current = false) {
   if (!action?.action) return "";
-  const busy = Boolean(state.ui.workspaceAutomationBusyAction) && !WORKSPACE_NON_BLOCKING_ACTIONS.has(action.action);
+  const busy = Boolean(state.ui.workspaceAutomationBusyAction) && !workspaceAutomationActionIsNonBlocking(action.action);
   const label = busy && state.ui.workspaceAutomationBusyAction === action.action ? "处理中..." : action.label || "操作";
   const help = workspaceAutomationActionHelp(action.action, action.title || label);
   return `
@@ -23113,111 +23113,20 @@ async function copyTextToClipboard(text) {
   if (!ok) throw new Error("复制失败，请手动选择脚本。");
 }
 
-const WORKSPACE_AUTOMATION_ACTION_LABELS = {
-  "focus-scheduling-stage": "定位闭环阶段",
-  "select-execution-node": "定位执行节点",
-  "select-workspace-node": "编辑工作流节点",
-  "select-workspace-agent": "编辑 Agent",
-  "focus-workspace-goal": "填写目标",
-  "focus-workspace-node-kind": "聚焦节点类型",
-  "focus-workspace-backfill-target": "定位回填字段",
-  "create-workspace": "仅建实例",
-  "create-workspace-discover": "建实例 + 发现",
-  "create-workspace-run": "建实例 + 推进",
-  "test-workspace-chain": "启动检查",
-  "run-workspace-node": "运行节点",
-  "run-workspace-node-agent": "Agent 运行",
-  "run-workspace-node-job": "Job 运行",
-  "run-selected-node": "运行当前节点",
-  "run-workspace-to-selected-node": "运行到当前节点",
-  "run-selected-workspace": "运行工作流",
-  "open-workspace-run": "打开运行输出",
-  "apply-recommended-workspace-roles": "应用推荐分工",
-  "merge-recommended-workspace-agents": "补齐推荐角色",
-  "add-workspace-agent": "新增 Agent",
-  "merge-recommended-workspace-tools": "补齐推荐工具",
-  "add-workspace-tool": "新增工具",
-  "add-provider-profile": "新增 Profile",
-  "open-workspace-details": "打开高级配置",
-  "submit-workspace-form": "保存项目",
-  "advance-workspace-automation": "自动推进",
-  "run-workspace-discovery": "自动发现",
-  "apply-workspace-automation": "回填证据",
-  "apply-workspace-backfill-item": "应用单项回填",
-  "apply-workspace-scheduler-candidate": "应用调度候选",
-  "refresh-workspace-resources": "刷新资源",
-  "refresh-workspace-resource-server": "刷新推荐服务器",
-  "refresh-workspace-resource-selected-server": "刷新单机",
-  "copy-execution-bundle-script": "复制执行脚本",
-  "copy-execution-bundle-json": "复制执行包 JSON",
-  "copy-node-execution-bundle-script": "复制节点脚本",
-};
-
-const WORKSPACE_NON_BLOCKING_ACTIONS = new Set([
-  "focus-scheduling-stage",
-  "select-execution-node",
-  "select-workspace-node",
-  "select-workspace-agent",
-  "focus-workspace-goal",
-  "open-workspace-details",
-  "focus-workspace-node-kind",
-  "focus-workspace-backfill-target",
-  "open-workspace-run",
-  "refresh-workspace-resources",
-  "refresh-workspace-resource-server",
-  "refresh-workspace-resource-selected-server",
-  "test-workspace-chain",
-  "copy-execution-bundle-script",
-  "copy-execution-bundle-json",
-  "copy-node-execution-bundle-script",
-]);
-
 function workspaceAutomationActionLabel(action) {
-  return WORKSPACE_AUTOMATION_ACTION_LABELS[action] || "工作台操作";
+  return workspaceAutomationActionsApi()?.actionLabel?.(action) || "工作台操作";
 }
 
-const WORKSPACE_AUTOMATION_ACTION_HELP = {
-  "focus-scheduling-stage": "定位到这个闭环阶段对应的执行节点、资源矩阵或执行详情，并短暂高亮相关区域。",
-  "select-execution-node": "定位到这个执行节点，并在右侧查看门禁、资源、任务、产物和执行包详情。",
-  "select-workspace-node": "定位到这个工作流节点，并在右侧编辑执行者、交接、输入输出和资源策略。",
-  "select-workspace-agent": "定位到这个 Agent，并编辑角色、提示词、工具和模型覆盖。",
-  "focus-workspace-goal": "把焦点放到复现/部署目标输入框；先写清目标，系统再自动整理 repo、论文、数据路径、环境和 GPU 调度线索。",
-  "focus-workspace-node-kind": "把焦点放到节点类型选择器，准备插入新的工作流节点。",
-  "focus-workspace-backfill-target": "定位到证据或回填建议对应的执行节点，并在右侧查看字段、门禁、资源和上下文。",
-  "create-workspace": "只建实例快照，不提交发现链或运行队列。",
-  "create-workspace-discover": "建实例后只跑安全发现链，先收集源码、路径、数据、环境、GPU 和产物证据。",
-  "create-workspace-run": "建实例后交给自动推进；首次通常先跑安全发现，门禁通过后再完整运行。",
-  "test-workspace-chain": "启动前检查当前输入、链路模板、发现链、资源和执行包是否就绪，不创建实例。",
-  "run-workspace-node": "按自动策略提交当前节点（Agent 优先，失败则回退 Job）。",
-  "run-workspace-node-agent": "由绑定的 Agent 执行当前节点，可调用 workflow.edit / artifact.write 写回配置。",
-  "run-workspace-node-job": "把当前节点作为 shell Job 提交到队列，适合发现链与 run.command。",
-  "run-selected-node": "只提交当前节点，用于单点调试；不会运行整条链。",
-  "run-workspace-to-selected-node": "从起点运行到当前选中节点，用于验证前置 source/data/env/GPU 链路；不会提交后续节点。",
-  "run-selected-workspace": "门禁通过后提交完整工作流；门禁失败时不会创建半截队列。",
-  "open-workspace-run": "打开这条运行记录的输出日志，用于确认当前卡在命令、环境、路径、数据还是 GPU 调度。",
-  "apply-recommended-workspace-roles": "根据节点类型批量填充推荐 Agent 分工，降低逐个配置节点的成本。",
-  "merge-recommended-workspace-agents": "按复现/部署链路补齐默认 Agent 角色，不覆盖已有自定义 Agent。",
-  "add-workspace-agent": "在当前项目实例内新增一个 Agent 草稿。",
-  "merge-recommended-workspace-tools": "补齐复现/部署常用工具定义，不移除已有工具。",
-  "add-workspace-tool": "在当前项目实例内新增一个工具草稿。",
-  "add-provider-profile": "新增一个当前浏览器可用的 Provider Profile，并展开 AI 高级配置。",
-  "open-workspace-details": "展开当前模块的高级配置抽屉，查看列表、编辑器和低层参数。",
-  "submit-workspace-form": "保存当前项目实例、节点链、Agent、工具和 AI 路由草稿。",
-  "advance-workspace-automation": "根据当前门禁自动决定发现、观察、复查失败、回填或完整运行。",
-  "run-workspace-discovery": "只运行安全发现链，收集源码、路径、数据、环境、GPU 和产物证据。",
-  "apply-workspace-automation": "把建议和发现证据回填到节点配置，后续运行会使用这些路径、环境和资源线索。",
-  "apply-workspace-backfill-item": "只把当前这一条证据回填到对应节点字段，不触发全局默认值或其他证据回填。",
-  "apply-workspace-scheduler-candidate": "把当前候选服务器/GPU 写入 gpu.allocate 和 run.command，后续执行包会使用这个调度目标。",
-  "refresh-workspace-resources": "刷新全部服务器、GPU、任务和工作台资源快照；异步返回后保留当前工作台选项卡和草稿。",
-  "refresh-workspace-resource-server": "只刷新指定服务器的 GPU、显存、进程和连接状态；不会重置工作台。",
-  "refresh-workspace-resource-selected-server": "只刷新下拉选择的单台服务器 GPU、显存、进程和连接状态；不会重置工作台。",
-  "copy-execution-bundle-script": "复制当前执行包脚本，便于在 tmux、SSH 或任务队列中复核执行。",
-  "copy-execution-bundle-json": "复制结构化执行包 JSON，包含目标、清单、调度、步骤和复现脚本，便于外部队列、审计或跨机器复跑。",
-  "copy-node-execution-bundle-script": "复制当前节点归档的执行包脚本，便于复查这次运行按什么脚本提交。",
-};
-
 function workspaceAutomationActionHelp(action, fallback = "") {
-  return WORKSPACE_AUTOMATION_ACTION_HELP[action] || fallback || workspaceAutomationActionLabel(action);
+  return workspaceAutomationActionsApi()?.actionHelp?.(action, fallback) || fallback || workspaceAutomationActionLabel(action);
+}
+
+function workspaceAutomationActionKnown(action) {
+  return Boolean(workspaceAutomationActionsApi()?.hasAction?.(action));
+}
+
+function workspaceAutomationActionIsNonBlocking(action) {
+  return Boolean(workspaceAutomationActionsApi()?.isNonBlockingAction?.(action));
 }
 
 function updateWorkspaceAutomationBusyControls() {
@@ -23225,8 +23134,8 @@ function updateWorkspaceAutomationBusyControls() {
   const busy = Boolean(busyAction);
   document.querySelectorAll("[data-action]").forEach((button) => {
     const action = button.dataset?.action || "";
-    if (!WORKSPACE_AUTOMATION_ACTION_LABELS[action]) return;
-    if (WORKSPACE_NON_BLOCKING_ACTIONS.has(action)) return;
+    if (!workspaceAutomationActionKnown(action)) return;
+    if (workspaceAutomationActionIsNonBlocking(action)) return;
     button.disabled = busy;
   });
   [
