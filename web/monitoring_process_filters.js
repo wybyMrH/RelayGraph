@@ -65,6 +65,18 @@
     return filtered;
   }
 
+  function allGpus(servers = []) {
+    return servers.flatMap((server) =>
+      (server.gpus || []).map((gpu) => ({ server, gpu })),
+    );
+  }
+
+  function allProcesses(servers = []) {
+    return servers.flatMap((server) =>
+      (server.processes || []).map((process) => ({ server, process })),
+    );
+  }
+
   function processMatchesGpuFocus(server = {}, process = {}, focus = {}) {
     if (!focus.serverId || focus.gpuIndex === "") return false;
     return String(server?.id || "") === String(focus.serverId) &&
@@ -72,6 +84,8 @@
   }
 
   window.MonitoringProcessFilters = {
+    allGpus,
+    allProcesses,
     filteredProcesses,
     normalizedFilters,
     processFilterKey,

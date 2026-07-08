@@ -12140,12 +12140,16 @@ function serverAlertCount() {
 }
 
 function allGpus() {
+  const api = window.MonitoringProcessFilters;
+  if (api && typeof api.allGpus === "function") return api.allGpus(onlineServers());
   return onlineServers().flatMap((server) =>
     (server.gpus || []).map((gpu) => ({ server, gpu })),
   );
 }
 
 function allProcesses() {
+  const api = window.MonitoringProcessFilters;
+  if (api && typeof api.allProcesses === "function") return api.allProcesses(onlineServers());
   return onlineServers().flatMap((server) =>
     (server.processes || []).map((process) => ({ server, process })),
   );
