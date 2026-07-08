@@ -16881,19 +16881,36 @@ function updateServerHistory(servers = state.servers) {
 }
 
 function serverOriginalIndex(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverOriginalIndex === "function") {
+    return api.serverOriginalIndex(server, { servers: state.servers });
+  }
   return state.servers.findIndex((item) => item.id === server.id);
 }
 
 function serverManualIndex(server) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverManualIndex === "function") {
+    return api.serverManualIndex(server, {
+      serverOrder: state.ui.serverOrder,
+      servers: state.servers,
+    }, { serverOriginalIndex });
+  }
   const index = state.ui.serverOrder.indexOf(server.id);
   return index >= 0 ? index : state.ui.serverOrder.length + Math.max(serverOriginalIndex(server), 0);
 }
 
 function serverPinned(serverId) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverPinned === "function") return api.serverPinned(serverId, { serverPins: state.ui.serverPins });
   return state.ui.serverPins.includes(serverId);
 }
 
 function serverSortScore(server, mode) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.serverSortScore === "function") {
+    return api.serverSortScore(server, mode, { serverBusyGpuCount, serverIdleGpuCount });
+  }
   if (mode === "idle") {
     return [serverIdleGpuCount(server), (server.gpus || []).length, -((server.processes || []).length)];
   }
@@ -16916,6 +16933,8 @@ function serverSortScore(server, mode) {
 }
 
 function compareServerArrays(left, right) {
+  const api = window.ServerListMarkup;
+  if (api && typeof api.compareServerArrays === "function") return api.compareServerArrays(left, right);
   const length = Math.max(left.length, right.length);
   for (let index = 0; index < length; index += 1) {
     const delta = Number(right[index] || 0) - Number(left[index] || 0);
@@ -16926,6 +16945,21 @@ function compareServerArrays(left, right) {
 
 function sortedServersForDisplay(servers) {
   syncServerOrderingState();
+  const api = window.ServerListMarkup;
+  if (api && typeof api.sortedServersForDisplay === "function") {
+    return api.sortedServersForDisplay(servers, {
+      serverOrder: state.ui.serverOrder,
+      serverPins: state.ui.serverPins,
+      serverSort: state.ui.serverSort,
+      servers: state.servers,
+    }, {
+      compareServerArrays,
+      serverManualIndex,
+      serverOriginalIndex,
+      serverPinned,
+      serverSortScore,
+    });
+  }
   const mode = state.ui.serverSort || "default";
   const items = servers.slice();
   items.sort((a, b) => {

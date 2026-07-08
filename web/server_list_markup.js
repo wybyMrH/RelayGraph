@@ -120,6 +120,93 @@
     return `${name} · 离线`;
   }
 
+  function serverOriginalIndex(server, context = {}) {
+    const servers = Array.isArray(context.servers) ? context.servers : [];
+    return servers.findIndex((item) => item.id === server.id);
+  }
+
+  function serverManualIndex(server, context = {}, deps = {}) {
+    const serverOrder = Array.isArray(context.serverOrder) ? context.serverOrder : [];
+    const index = serverOrder.indexOf(server.id);
+    if (index >= 0) return index;
+    const originalIndex = typeof deps.serverOriginalIndex === "function" ? deps.serverOriginalIndex : serverOriginalIndex;
+    return serverOrder.length + Math.max(originalIndex(server, context), 0);
+  }
+
+  function serverPinned(serverId, context = {}) {
+    const serverPins = Array.isArray(context.serverPins) ? context.serverPins : [];
+    return serverPins.includes(serverId);
+  }
+
+  function serverSortScore(server, mode, deps = {}) {
+    if (mode === "idle") {
+      const idleGpuCount = typeof deps.serverIdleGpuCount === "function" ? deps.serverIdleGpuCount : serverIdleGpuCount;
+      return [idleGpuCount(server), (server.gpus || []).length, -((server.processes || []).length)];
+    }
+    if (mode === "alerts") {
+      const busyGpuCount = typeof deps.serverBusyGpuCount === "function" ? deps.serverBusyGpuCount : serverBusyGpuCount;
+      return [
+        server.online ? 0 : 3,
+        server.error ? 2 : 0,
+        busyGpuCount(server),
+        (server.processes || []).length,
+        (server.gpus || []).length,
+      ];
+    }
+    if (mode === "gpus") {
+      const idleGpuCount = typeof deps.serverIdleGpuCount === "function" ? deps.serverIdleGpuCount : serverIdleGpuCount;
+      return [(server.gpus || []).length, idleGpuCount(server)];
+    }
+    if (mode === "processes") {
+      return [((server.processes || []).length), (server.gpus || []).length];
+    }
+    return [];
+  }
+
+  function compareServerArrays(left, right) {
+    const length = Math.max(left.length, right.length);
+    for (let index = 0; index < length; index += 1) {
+      const delta = Number(right[index] || 0) - Number(left[index] || 0);
+      if (delta !== 0) return delta;
+    }
+    return 0;
+  }
+
+  function sortedServersForDisplay(servers, context = {}, deps = {}) {
+    const mode = context.serverSort || "default";
+    const items = servers.slice();
+    const pinned = (serverId) => (typeof deps.serverPinned === "function" ? deps.serverPinned : serverPinned)(serverId, context);
+    const manualIndex = (server) => (typeof deps.serverManualIndex === "function" ? deps.serverManualIndex : serverManualIndex)(server, context, deps);
+    const originalIndex = (server) => (typeof deps.serverOriginalIndex === "function" ? deps.serverOriginalIndex : serverOriginalIndex)(server, context);
+    const sortScore = (server) => (typeof deps.serverSortScore === "function" ? deps.serverSortScore : serverSortScore)(server, mode, deps);
+    const compareArrays = (left, right) => (typeof deps.compareServerArrays === "function" ? deps.compareServerArrays : compareServerArrays)(left, right);
+    items.sort((a, b) => {
+      const pinCompare = Number(pinned(b.id)) - Number(pinned(a.id));
+      if (pinCompare !== 0) return pinCompare;
+      if (mode === "manual") {
+        return manualIndex(a) - manualIndex(b);
+      }
+      if (mode === "default") {
+        return originalIndex(a) - originalIndex(b);
+      }
+      if (mode === "name") {
+        return String(a.name || a.id).localeCompare(String(b.name || b.id), "zh-Hans-CN", {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }
+      const scoreCompare = compareArrays(sortScore(a), sortScore(b));
+      if (scoreCompare !== 0) return scoreCompare;
+      const nameCompare = String(a.name || a.id).localeCompare(String(b.name || b.id), "zh-Hans-CN", {
+        numeric: true,
+        sensitivity: "base",
+      });
+      if (nameCompare !== 0) return nameCompare;
+      return originalIndex(a) - originalIndex(b);
+    });
+    return items;
+  }
+
   function serverSparklineMarkup(series = [], maxValue = 1, variant = "", deps = {}) {
     return `
     <div class="server-sparkline${variant ? ` ${escapeFor(deps, variant)}` : ""}">
@@ -244,6 +331,7 @@
 
   window.ServerListMarkup = {
     offlineServerGroupMarkup,
+    compareServerArrays,
     serverCardMarkup,
     serverBusyGpuCount,
     serverHasMonitorIssue,
@@ -252,9 +340,14 @@
     serverIdleGpuCount,
     serverIsReachable,
     serverListEmptyMarkup,
+    serverManualIndex,
     serverOnlineEmptyMarkup,
     serverOptionLabel,
     serverOptionShortLabel,
+    serverOriginalIndex,
+    serverPinned,
+    serverSortScore,
     serverSparklineMarkup,
+    sortedServersForDisplay,
   };
 })();
