@@ -21,6 +21,9 @@ STATE: TotalControlState | None = None
 class Handler(SimpleHTTPRequestHandler):
     server_version = "TotalControl/0.1"
 
+    def __init__(self, *args: Any, directory: str | os.PathLike[str] | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, directory=str(WEB_DIR if directory is None else directory), **kwargs)
+
     def translate_path(self, path: str) -> str:
         parsed = urlparse(path)
         clean = unquote(parsed.path)
