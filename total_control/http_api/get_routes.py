@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, unquote
 
 from ..events import public_job_event_payload, stream_workspace_events
 from ..utils import now_iso, safe_int
+from .path_utils import single_segment_path_id
 
 
 def _workspace_jobs_snapshot(state: Any, workspace_id: str) -> list[dict[str, Any]]:
@@ -329,17 +330,13 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path == "/api/provider-catalog":
         handler.send_json(state.list_provider_catalog())
         return True
-    if parsed.path.startswith("/api/provider-profiles/") and "/" not in parsed.path[19:]:
-        profile_id = parsed.path.split("/")[3]
-        profile = state.provider_profile_by_id(profile_id)
+    profile_id = single_segment_path_id(parsed.path, "/api/provider-profiles/")
+    if profile_id:
+        profile = state.provider_profile_public_by_id(profile_id)
         if not profile:
             handler.send_json({"error": "provider profile not found"}, HTTPStatus.NOT_FOUND)
             return True
-        result = dict(profile)
-        if result.get("api_key"):
-            result["api_key_masked"] = result["api_key"][:8] + "..." + result["api_key"][-4:] if len(result["api_key"]) > 12 else "***"
-            del result["api_key"]
-        handler.send_json({"provider_profile": result})
+        handler.send_json({"provider_profile": profile})
         return True
     if parsed.path == "/api/files/browse":
         query = parse_qs(parsed.query)

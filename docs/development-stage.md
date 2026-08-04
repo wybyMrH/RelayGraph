@@ -13,6 +13,7 @@ Completed in this stage:
 - Frontend modules organized by feature folder under `web/`.
 - `web/core/app.js` remains the composition root, while catalog data, runtime helpers, and focus/scroll navigation are split into reusable helpers.
 - Obsolete `tests/test_provider_smoke.py` removed after its useful assertion was merged into `tests/test_provider_key_encryption.py`.
+- Current review status is tracked in `docs/review-status.md`.
 
 ## Current Guardrails
 
@@ -20,12 +21,13 @@ Completed in this stage:
 - Do not move browser/remote/provider smoke into `tests/`.
 - Do not stage `dev_work/`, runtime data, provider profile data, secrets, logs, or cache.
 - Do not split backend route contracts and frontend consumers in the same change without contract tests.
+- Static file serving must keep decoded paths inside `web/`; path-safety regressions belong in `tests/`.
 
 ## Next Architecture Slices
 
 - Split server admin and runtime-storage UI controllers out of `web/core/app.js`.
-- Split transfer/file-picker orchestration surfaces further if duplicated state wiring appears.
 - Split workspace run surfaces and config-center run overview wiring after another contract pass.
+- Split transfer/file-picker orchestration surfaces further only if duplicated dependency plumbing remains after review.
 - Review old phase-named regression files and rename them only when the rename improves code review clarity without losing history.
 
 ## Temporary Records

@@ -3,6 +3,8 @@ from __future__ import annotations
 from http import HTTPStatus
 from typing import Any
 
+from .path_utils import single_segment_path_id
+
 
 def handle_put(handler: Any, state: Any, parsed: Any) -> bool:
     if parsed.path.startswith("/api/workspaces/") and "/" not in parsed.path[16:]:
@@ -25,8 +27,8 @@ def handle_put(handler: Any, state: Any, parsed: Any) -> bool:
         tool = state.update_tool_definition(tool_id, handler.read_body())
         handler.send_json({"tool_definition": tool})
         return True
-    if parsed.path.startswith("/api/provider-profiles/") and "/" not in parsed.path[19:]:
-        profile_id = parsed.path.split("/")[3]
+    profile_id = single_segment_path_id(parsed.path, "/api/provider-profiles/")
+    if profile_id:
         profile = state.update_provider_profile(profile_id, handler.read_body())
         handler.send_json({"provider_profile": profile})
         return True

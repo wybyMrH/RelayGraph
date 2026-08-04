@@ -50,13 +50,13 @@
     const raw = String(error?.message || error || "未知错误");
     if (raw === "Failed to fetch") {
       return context
-        ? `${context}失败：无法连接后端，请确认 Total Control 服务仍在运行。`
-        : "无法连接后端，请确认 Total Control 服务仍在运行。";
+        ? `${context}失败：无法连接后端，请确认 RelayGraph 服务仍在运行。`
+        : "无法连接后端，请确认 RelayGraph 服务仍在运行。";
     }
     if (raw === "not found") {
       return context
-        ? `${context}失败：接口不存在，请重启 Total Control 以加载最新后端。`
-        : "接口不存在，请重启 Total Control 以加载最新后端。";
+        ? `${context}失败：接口不存在，请重启 RelayGraph 以加载最新后端。`
+        : "接口不存在，请重启 RelayGraph 以加载最新后端。";
     }
     return raw;
   }

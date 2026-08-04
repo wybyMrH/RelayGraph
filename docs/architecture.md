@@ -24,6 +24,8 @@ RelayGraph is a local web app for GPU monitoring, remote command launch, file tr
 
 Route handlers are intentionally thin. They parse request inputs, call state or orchestration services, and preserve public response envelopes used by the plain JavaScript client.
 
+Static fallback serving is limited to decoded paths inside `web/`. Any change to `Handler.translate_path` must keep path traversal attempts from resolving to repository files, runtime data, local secrets, or logs.
+
 ## Frontend Layers
 
 - `web/index.html` is the app shell and navigation surface.
@@ -48,6 +50,16 @@ Current architecture optimization keeps `web/core/app.js` responsible for shared
 - Configuration center: templates, agent/tool registries, AI profiles, diagnostics, and global execution views.
 
 The cockpit is the execution surface: goal input, workspace creation, starter-chain selection, feedback, and run inspection. The configuration center is the setup surface: templates, Agents, tools, AI providers, global runtime views, and chain diagnostics.
+
+## UI Boundaries
+
+| Surface | Responsibility | Main Frontend Areas | Allowed Operations |
+| --- | --- | --- | --- |
+| Workspace cockpit | Run the current instance and inspect execution feedback. | `web/index.html` cockpit panels, `web/workspace/`, `web/core/app.js` composition wiring | Goal input, instance creation, starter-chain selection, run/node focus, feedback, replay, export, and evidence review |
+| Global configuration center | Manage reusable setup shared by instances. | `web/config-center/`, `web/workflow-template/`, configuration-center panels in `web/index.html` | Workflow template CRUD/validation, global Agent/tool definitions, AI/provider profiles, diagnostics, and global run overview |
+| Instance snapshot advanced editing | Edit the selected workspace instance copy when execution preparation needs exact fields. | Workspace drawer/tabs inside `web/index.html`, `web/workspace/` helpers | Project metadata, node configs, instance Agent/tool/model overrides, and instance-bound run records |
+
+Navigation between these surfaces must make hidden state explicit. Actions that say they will locate an execution node should switch back to the cockpit/use surface before revealing the execution board.
 
 ## Data Boundaries
 

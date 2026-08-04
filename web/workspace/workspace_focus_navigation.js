@@ -101,12 +101,11 @@
     requestAnimationFrame(() => {
       const escaped = window.CSS?.escape ? CSS.escape(id) : id.replace(/(["\\])/g, "\\$1");
       const panelTarget = options.targetId ? elementById(deps, options.targetId) : null;
-        const nodeCard = id
-          ? document.querySelector(`#workspaceExecutionBoard [data-action="select-execution-node"][data-node-id="${escaped}"]`)
-            || document.querySelector(`#workspaceLauncherPlan [data-action="select-execution-node"][data-node-id="${escaped}"]`)
-            || document.querySelector(`#workspaceLauncherDetails [data-action="select-execution-node"][data-node-id="${escaped}"]`)
-            || document.querySelector(`#workspaceManageInspectChain [data-action="select-execution-node"][data-node-id="${escaped}"]`)
-            || document.querySelector(`#workspaceManageInspectChain [data-action="select-execution-node"][data-node-id="${escaped}"]`)
+      const nodeCard = id
+        ? document.querySelector(`#workspaceExecutionBoard [data-action="select-execution-node"][data-node-id="${escaped}"]`)
+          || document.querySelector(`#workspaceLauncherPlan [data-action="select-execution-node"][data-node-id="${escaped}"]`)
+          || document.querySelector(`#workspaceLauncherDetails [data-action="select-execution-node"][data-node-id="${escaped}"]`)
+          || document.querySelector(`#workspaceManageInspectChain [data-action="select-execution-node"][data-node-id="${escaped}"]`)
         : null;
       const target = nodeCard || panelTarget || elementById(deps, "workspaceExecutionBoard");
       if (panelTarget) revealWorkspaceElement(panelTarget, options);

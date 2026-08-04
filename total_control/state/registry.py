@@ -322,6 +322,12 @@ class RegistryMixin:
         return next((item for item in self.provider_profiles if str(item.get("id")) == str(profile_id)), None)
 
 
+    def provider_profile_public_by_id(self, profile_id: str) -> dict[str, Any] | None:
+        with self.lock:
+            profile = self.provider_profile_by_id(profile_id)
+            return provider_profile_public_payload(profile) if profile else None
+
+
     def list_provider_profiles(self) -> dict[str, Any]:
         """List all provider profiles (API keys masked)."""
         with self.lock:

@@ -558,6 +558,7 @@
       if (nodeId) {
         fn(deps, "focusWorkspaceExecutionNode", () => {})(nodeId, { targetId, tab });
       } else {
+        fn(deps, "switchWorkspaceMode", () => {})("use");
         fn(deps, "switchWorkspaceTab", () => {})(tab, { reveal: false });
         fn(deps, "revealWorkspacePanelTarget", () => {})(targetId, { block: "center" });
       }

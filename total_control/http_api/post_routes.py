@@ -7,6 +7,7 @@ from typing import Any
 from ..infra.shell import check_transfer_conflicts
 from ..utils import public_job_payload, safe_int
 from ..workspace.errors import WorkspaceWorkflowReadinessError
+from .path_utils import single_segment_path_id
 
 
 def _public_job_response(payload: Any) -> Any:
@@ -362,8 +363,8 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         tool = state.update_tool_definition(tool_id, handler.read_body())
         handler.send_json({"tool_definition": tool})
         return True
-    if parsed.path.startswith("/api/provider-profiles/") and "/" not in parsed.path[19:]:
-        profile_id = parsed.path.split("/")[3]
+    profile_id = single_segment_path_id(parsed.path, "/api/provider-profiles/")
+    if profile_id:
         profile = state.update_provider_profile(profile_id, handler.read_body())
         handler.send_json({"provider_profile": profile})
         return True

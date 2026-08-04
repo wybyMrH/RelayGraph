@@ -8,6 +8,7 @@ Use this directory for long-lived documentation:
 - [Architecture](architecture.md) - current runtime model, module boundaries, and UI split.
 - [Development Guide](development-guide.md) - setup, code map, contribution workflow, and quality bar for maintainers.
 - [Development Stage](development-stage.md) - current architecture optimization scope, completed cleanup, and next handoff.
+- [Review Status](review-status.md) - latest committed review conclusion, fixed issues, and open follow-ups.
 - [Testing](testing.md) - committed regression suite and local-only smoke boundary.
 - [Development Roadmap](development-roadmap.md) - the next feature phase after the current architecture cleanup.
 

@@ -167,11 +167,11 @@
                 <input id="runtimeRemoteCleanupEnabled" type="checkbox" checked />
                 自动清理远程运行日志
               </label>
-              <p class="muted">填 0 表示不限制该项；手动清理只删除 Total Control 自己的日志和预览缓存，活跃任务和保留运行证据引用的日志会保留，单个大日志会在任务结束后按阈值清理。</p>
+              <p class="muted">填 0 表示不限制该项；手动清理只删除 RelayGraph 自己的日志和预览缓存，活跃任务和保留运行证据引用的日志会保留，单个大日志会在任务结束后按阈值清理。</p>
               <div class="runtime-storage-actions">
                 <button id="runtimeStorageSaveBtn" class="secondary" type="button" title="保存自动清理阈值">保存设置</button>
                 <button id="runtimeStorageCleanupBtn" class="secondary" type="button" title="按当前阈值立即清理运行日志和预览缓存">按策略清理</button>
-                <button id="runtimeStoragePurgeBtn" class="secondary danger" type="button" title="清空 Total Control 自己的运行日志和预览缓存">清空运行数据</button>
+                <button id="runtimeStoragePurgeBtn" class="secondary danger" type="button" title="清空 RelayGraph 自己的运行日志和预览缓存">清空运行数据</button>
                 <button id="runtimeStateCleanupBtn" class="secondary" type="button" title="清理已完成任务记录并裁剪旧运行记录，不删除日志文件">清理运行记录</button>
                 <button id="runtimeStorageResetBtn" class="secondary" type="button" title="恢复默认自动清理策略">重置默认策略</button>
               </div>
@@ -850,9 +850,9 @@
               </section>
             </section>
             <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
-            <summary class="workspace-project-drawer-summary" title="展开配置中心里的实例配置、节点链、Agent、工具、AI 和运行记录编辑区">
+            <summary class="workspace-project-drawer-summary" title="展开配置中心里的实例快照配置、节点链、Agent、工具、AI 和运行记录编辑区">
               <span>
-                <strong>实例配置 / 高级编辑</strong>
+                <strong>实例快照配置 / 高级编辑</strong>
                 <em id="workspaceProjectDrawerMeta">新工作区 · 概览 · 0 节点 · 0 Agent</em>
               </span>
               <span class="workspace-project-drawer-state" aria-hidden="true"></span>

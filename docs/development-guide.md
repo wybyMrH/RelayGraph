@@ -36,12 +36,39 @@ http://127.0.0.1:8765
 - Helpers should accept dependencies or data arguments; they should not own business state or cache DOM nodes rebuilt by render.
 - Preserve the cockpit/config-center boundary: cockpit is for execution, configuration center is for setup and diagnostics.
 
+## Frontend Review Map
+
+Read the frontend in this order when reviewing a change:
+
+- `web/index.html` for static shell, element ids, script order, and product-surface boundaries.
+- `web/core/app_runtime.js` for shared browser utilities and fetch/storage behavior.
+- `web/core/app.js` for global state, dependency injection, and top-level composition.
+- The owning feature folder for the changed surface: `workspace/`, `workflow-template/`, `config-center/`, `monitoring/`, or `transfer/`.
+- `web/styles/styles.css` last, after checking that markup and state ownership are correct.
+
+When extracting from `web/core/app.js`, keep the slice narrow:
+
+- Move pure data catalogs, pure formatters, normalizers, render helpers, or event-action dispatchers first.
+- Pass `state`, DOM lookup, formatting, and backend functions through explicit dependencies.
+- Keep selected ids, active tabs, timers, and cross-surface orchestration in `app.js` until the owning controller boundary is clear.
+- Update `web/index.html` script order in the same change and run `node --check` for every JS file.
+- Add or update a deterministic regression when the extraction changes a public payload, path-safety rule, persistence behavior, or execution state transition.
+
 ## Backend Rules
 
 - Keep HTTP response envelopes and SSE event types stable unless a contract test changes with them.
 - Route handlers should parse inputs, call state/orchestration services, and return public payloads.
 - Do not expose raw provider keys, raw runtime log paths, or private local machine paths in public payloads.
 - Add durable regressions under `tests/` for contract, safety, persistence, and execution behavior.
+- For single-resource route matching, prefer explicit path-segment helpers over manual string slice lengths.
+
+Provider profile contract:
+
+- `GET /api/provider-profiles` returns `{provider_profiles: [...]}` with `api_key` removed and public fields such as `api_key_masked`, `has_api_key`, `key_required`, `status`, and `missing_fields`.
+- `GET /api/provider-profiles/{id}` returns `{provider_profile: {...}}` with the same redaction and health fields as the list endpoint.
+- `POST /api/provider-profiles` creates a profile; `PUT /api/provider-profiles/{id}` updates an existing profile.
+- `POST /api/provider-profiles/from-catalog`, `/test`, and `/models` are setup/diagnostic helpers and must not leak raw keys in responses.
+- `DELETE /api/provider-profiles/{id}` returns `{ok: true}`.
 
 ## Test Workflow
 

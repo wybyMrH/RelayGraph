@@ -3663,8 +3663,7 @@ function revealWorkspaceExecutionNode(nodeId, options = {}) {
           || document.querySelector(`#workspaceLauncherPlan [data-action="select-execution-node"][data-node-id="${escaped}"]`)
           || document.querySelector(`#workspaceLauncherDetails [data-action="select-execution-node"][data-node-id="${escaped}"]`)
           || document.querySelector(`#workspaceManageInspectChain [data-action="select-execution-node"][data-node-id="${escaped}"]`)
-          || document.querySelector(`#workspaceManageInspectChain [data-action="select-execution-node"][data-node-id="${escaped}"]`)
-      : null;
+        : null;
     const target = nodeCard || panelTarget || $("workspaceExecutionBoard");
     if (panelTarget) revealWorkspaceElement(panelTarget, options);
     if (target) {
@@ -3726,6 +3725,7 @@ function selectWorkspaceExecutionNode(nodeId, options = {}) {
 
 function focusWorkspaceExecutionNode(nodeId, options = {}) {
   const next = String(nodeId || "").trim();
+  switchWorkspaceMode("use");
   switchWorkspaceTab(options.tab || "home", { reveal: false });
   if (next) {
     selectWorkspaceExecutionNode(next, { ...options, reveal: true });
@@ -11216,13 +11216,13 @@ function humanizeFetchError(error, context = "") {
   const raw = String(error?.message || error || "未知错误");
   if (raw === "Failed to fetch") {
     return context
-      ? `${context}失败：无法连接后端，请确认 Total Control 服务仍在运行。`
-      : "无法连接后端，请确认 Total Control 服务仍在运行。";
+      ? `${context}失败：无法连接后端，请确认 RelayGraph 服务仍在运行。`
+      : "无法连接后端，请确认 RelayGraph 服务仍在运行。";
   }
   if (raw === "not found") {
     return context
-      ? `${context}失败：接口不存在，请重启 Total Control 以加载最新后端。`
-      : "接口不存在，请重启 Total Control 以加载最新后端。";
+      ? `${context}失败：接口不存在，请重启 RelayGraph 以加载最新后端。`
+      : "接口不存在，请重启 RelayGraph 以加载最新后端。";
   }
   return raw;
 }
@@ -18847,7 +18847,7 @@ async function cleanupRuntimeStorageNow(removeAll = false) {
   const safetyText = removeAll
     ? "会删除范围内已有日志和预览缓存，但会保留正在运行任务和保留运行证据引用的日志。"
     : "会保留未超过当前时间/大小阈值的数据，以及正在运行任务和保留运行证据引用的日志。";
-  if (!confirm(`确定${actionText} Total Control 的运行日志和预览缓存吗？范围仅限本机 data/logs${remoteText} 与 /tmp/total-control-file-preview；${safetyText}`)) return;
+  if (!confirm(`确定${actionText} RelayGraph 的运行日志和预览缓存吗？范围仅限本机 data/logs${remoteText} 与 /tmp/total-control-file-preview；${safetyText}`)) return;
   if (message) {
     message.textContent = removeAll ? "正在清空..." : "正在按策略清理...";
     message.classList.remove("error");

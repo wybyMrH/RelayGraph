@@ -166,6 +166,7 @@ Project docs:
 - [docs/features.md](docs/features.md)
 - [docs/development-guide.md](docs/development-guide.md)
 - [docs/development-stage.md](docs/development-stage.md)
+- [docs/review-status.md](docs/review-status.md)
 - [docs/testing.md](docs/testing.md)
 
 ## License

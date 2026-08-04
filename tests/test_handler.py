@@ -4,7 +4,9 @@ import http.client
 import os
 import threading
 from http.server import HTTPServer
+from pathlib import Path
 
+from total_control.constants import WEB_DIR
 from total_control.handler import Handler
 
 
@@ -29,3 +31,19 @@ def test_handler_serves_static_file_when_cwd_is_missing(monkeypatch):
 
     assert response.status == 200
     assert not thread.is_alive()
+
+
+def test_handler_static_path_translation_stays_inside_web_dir():
+    web_root = WEB_DIR.resolve()
+    outside_readme = (web_root.parent / "README.md").resolve()
+
+    for request_path in (
+        "/../README.md",
+        "/%2e%2e/README.md",
+        "/..%2fREADME.md",
+        "/core/%2e%2e/%2e%2e/README.md",
+    ):
+        translated = Path(Handler.translate_path(None, request_path)).resolve(strict=False)
+
+        assert translated == web_root or translated.is_relative_to(web_root)
+        assert translated != outside_readme

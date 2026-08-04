@@ -10,6 +10,8 @@ Representative coverage:
 
 - `tests/test_events.py`
 - `tests/test_http_get_routes.py`
+- `tests/test_handler.py`
+- `tests/test_provider_profile_routes.py`
 - `tests/test_workflow_data_contract.py`
 - `tests/test_transfer_path_safety.py`
 - `tests/test_file_browser_path_safety.py`
@@ -44,5 +46,8 @@ git check-ignore -v dev_work/plans/example.md docs/README.md
 ## Boundary Notes
 
 - Add new durable regressions to `tests/`.
+- Static file serving changes need path traversal and resource path checks.
+- API single-resource routes should have direct route harness coverage for the paths used by the frontend.
+- Frontend reorganization should include `index.html` static reference checks and `window.X` load-order smoke when helpers move.
 - Keep one-off smoke scripts outside the committed suite.
 - Do not use runtime data or cached logs as test fixtures.

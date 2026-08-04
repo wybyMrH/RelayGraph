@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import json
+import posixpath
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,7 +30,16 @@ class Handler(SimpleHTTPRequestHandler):
         clean = unquote(parsed.path)
         if clean == "/":
             return str(WEB_DIR / "index.html")
-        return str(WEB_DIR / clean.lstrip("/"))
+        target = WEB_DIR
+        for word in posixpath.normpath(clean).split("/"):
+            if not word or word in {os.curdir, os.pardir} or os.path.dirname(word):
+                continue
+            target /= word
+        web_root = WEB_DIR.resolve()
+        resolved_target = target.resolve(strict=False)
+        if resolved_target == web_root or resolved_target.is_relative_to(web_root):
+            return str(target)
+        return str(WEB_DIR / "__invalid_static_path__")
 
     def _suppress_access_log(self, args: tuple[Any, ...]) -> bool:
         if os.environ.get("TOTAL_CONTROL_VERBOSE_ACCESS_LOG", "").strip().lower() in {"1", "true", "yes", "on"}:
