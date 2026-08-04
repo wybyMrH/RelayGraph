@@ -11,6 +11,7 @@ import pytest
 from total_control import secrets_crypto
 from total_control.secrets_crypto import decrypt_secret, encrypt_secret, is_encrypted
 from total_control.state.persistence import PersistenceMixin
+from total_control.state.registry_pkg.provider_profiles import merge_saved_provider_profile_versions
 
 
 class _FakeState(PersistenceMixin):
@@ -100,6 +101,39 @@ def test_search_provider_key_is_encrypted_too(monkeypatch, tmp_path):
     assert on_disk[0]["api_key"] != "fc-real-1234567890"
     assert is_encrypted(on_disk[0]["api_key"])
     assert decrypt_secret(on_disk[0]["api_key"]) == "fc-real-1234567890"
+
+
+def test_merge_saved_provider_profile_versions_decrypts_and_preserves_key(monkeypatch, tmp_path):
+    _isolate_crypto(monkeypatch, tmp_path)
+    merged = merge_saved_provider_profile_versions(
+        [
+            {
+                "id": "p1",
+                "name": "DeepSeek Main",
+                "provider": "deepseek",
+                "base_url": "https://api.deepseek.com/v1",
+                "api_key": encrypt_secret("sk-real-1234567890"),
+                "models": ["deepseek-v4-pro"],
+                "created_at": "2026-06-15T23:37:19",
+                "updated_at": "2026-06-15T23:37:19",
+            },
+            {
+                "id": "p1",
+                "name": "DeepSeek Main",
+                "provider": "deepseek",
+                "base_url": "https://api.deepseek.com/v1",
+                "api_key": "",
+                "models": ["deepseek-v4-flash"],
+                "created_at": "2026-06-15T23:37:22",
+                "updated_at": "2026-06-15T23:37:22",
+            },
+        ],
+        "p1",
+    )
+    assert merged is not None
+    assert merged["api_key"] == "sk-real-1234567890"
+    assert merged["models"] == ["deepseek-v4-flash"]
+    assert merged["updated_at"] == "2026-06-15T23:37:22"
 
 
 def test_invalid_ciphertext_does_not_raise(monkeypatch, tmp_path):

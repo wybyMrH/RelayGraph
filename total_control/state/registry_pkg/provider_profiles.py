@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from ...constants_pkg.provider_catalog import PROVIDER_CATALOG, provider_catalog_by_id
+from ...secrets_crypto import decrypt_secret
 
 
 def normalized_provider_base_url(value: Any) -> str:
@@ -97,6 +98,30 @@ def provider_profile_models(profile: dict[str, Any]) -> list[str]:
         for item in (profile.get("models") if isinstance(profile.get("models"), list) else [])
         if str(item or "").strip()
     ]
+
+
+def merge_saved_provider_profile_versions(profiles: list[Any], profile_id: str) -> dict[str, Any] | None:
+    """Merge saved versions for one profile and return a private draft with a decrypted key."""
+    merged: dict[str, Any] | None = None
+    for item in profiles:
+        if not isinstance(item, dict) or item.get("id") != profile_id:
+            continue
+        current = dict(item)
+        current["api_key"] = decrypt_secret(str(current.get("api_key") or ""))
+        if merged is None:
+            merged = current
+            continue
+        for key in ("name", "provider", "base_url", "created_at", "updated_at"):
+            value = str(current.get(key) or "").strip()
+            if value:
+                merged[key] = value
+        if isinstance(current.get("models"), list) and current.get("models"):
+            merged["models"] = list(current["models"])
+        if "is_default" in current:
+            merged["is_default"] = bool(current.get("is_default"))
+        if str(current.get("api_key") or "").strip():
+            merged["api_key"] = str(current.get("api_key") or "").strip()
+    return merged
 
 
 def build_provider_profile_draft(payload: dict[str, Any], *, profile_id: str) -> dict[str, Any]:

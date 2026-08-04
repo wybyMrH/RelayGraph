@@ -131,12 +131,15 @@ AI provider profiles may contain API keys. Keep them local, rotate any key that 
 ## Project Layout
 
 ```text
+docs/            Long-lived project docs
 config/            Example and default configuration
 data/              Public starter registries plus ignored runtime state
-tests/             Unit and smoke tests
+tests/             Committed regression tests
 total_control/     Python backend and workflow execution code
 web/               Static frontend
 ```
+
+The frontend is organized by feature under `web/`: `core/`, `workspace/`, `workflow-template/`, `config-center/`, `monitoring/`, `transfer/`, and `styles/`.
 
 ## Development
 
@@ -146,11 +149,24 @@ Run the full test suite from the repository root:
 python -m pytest -q
 ```
 
-The project includes `pytest.ini` so local scratch directories such as `temp/` are not collected as tests.
+The project includes `pytest.ini` so local scratch directories such as `temp/` and `dev_work/` are not collected as tests.
+
+See the formal docs index at [docs/README.md](docs/README.md).
 
 ## Roadmap
 
-RelayGraph is evolving from a GPU control panel into a workflow and multi-agent operations workbench. Near-term work focuses on clearer module boundaries for projects, workflows, chat, agent management, tool registration, AI configuration, and run records.
+RelayGraph is being developed in two distinct stages.
+
+- Current: architecture optimization and boundary cleanup. The current shape of the system is documented in [docs/architecture.md](docs/architecture.md).
+- Next: feature development and product hardening. The forward plan lives in [docs/development-roadmap.md](docs/development-roadmap.md).
+
+Project docs:
+
+- [docs/README.md](docs/README.md)
+- [docs/features.md](docs/features.md)
+- [docs/development-guide.md](docs/development-guide.md)
+- [docs/development-stage.md](docs/development-stage.md)
+- [docs/testing.md](docs/testing.md)
 
 ## License
 
