@@ -18721,201 +18721,73 @@ function renderRuntimeStatePanel(payload = {}) {
   stats.innerHTML = lines.join("<br>");
 }
 
-function runtimeStorageSettingsInputPayload() {
-  const previewAgeInput = $("runtimePreviewMaxAgeHours");
-  const previewSizeInput = $("runtimePreviewMaxSizeMib");
-  const logAgeInput = $("runtimeLogMaxAgeHours");
-  const logFileInput = $("runtimeLogMaxFileMib");
-  const logSizeInput = $("runtimeLogMaxSizeMib");
-  const intervalInput = $("runtimeAutoIntervalMinutes");
-  const remoteInput = $("runtimeRemoteCleanupEnabled");
+function runtimeStorageActionsApi() {
+  return window.RuntimeStorageActions && typeof window.RuntimeStorageActions === "object"
+    ? window.RuntimeStorageActions
+    : null;
+}
+
+function runtimeStorageActionDeps() {
   return {
-    preview_max_age_hours: Number(previewAgeInput?.value || 0),
-    preview_max_size_mib: Number(previewSizeInput?.value || 0),
-    log_max_age_hours: Number(logAgeInput?.value || 0),
-    log_max_file_mib: Number(logFileInput?.value || 0),
-    log_max_size_mib: Number(logSizeInput?.value || 0),
-    auto_cleanup_interval_minutes: Number(intervalInput?.value || 60),
-    remote_log_cleanup_enabled: Boolean(remoteInput?.checked),
+    confirm: (message) => confirm(message),
+    element: $,
+    fetchJson,
+    formatBytes,
+    humanizeFetchError,
+    loadStatus,
+    renderRuntimeStatePanel,
+    renderRuntimeStoragePanel,
+    state,
   };
 }
 
-const RUNTIME_STORAGE_CONTROL_IDS = [
-  "runtimeStorageSaveBtn",
-  "runtimeStorageCleanupBtn",
-  "runtimeStoragePurgeBtn",
-  "runtimeStateCleanupBtn",
-  "runtimeStorageResetBtn",
-];
+function runtimeStorageSettingsInputPayload() {
+  const api = runtimeStorageActionsApi();
+  if (api && typeof api.settingsInputPayload === "function") {
+    return api.settingsInputPayload(runtimeStorageActionDeps());
+  }
+  return {};
+}
 
 function setRuntimeStorageControlsBusy(busy) {
-  state.ui.runtimeStorageBusy = Boolean(busy);
-  RUNTIME_STORAGE_CONTROL_IDS.forEach((id) => {
-    const button = $(id);
-    if (button) button.disabled = Boolean(busy);
-  });
+  const api = runtimeStorageActionsApi();
+  if (api && typeof api.setControlsBusy === "function") {
+    api.setControlsBusy(busy, runtimeStorageActionDeps());
+  }
 }
 
 async function loadRuntimeStoragePanel() {
-  const message = $("runtimeStorageMessage");
-  try {
-    const [payload, runtimeState] = await Promise.all([
-      fetchJson("/api/admin/runtime-storage"),
-      fetchJson("/api/admin/runtime-state"),
-    ]);
-    renderRuntimeStoragePanel(payload);
-    renderRuntimeStatePanel(runtimeState);
-    if (message) {
-      message.textContent = "";
-      message.classList.remove("error");
-    }
-  } catch (error) {
-    if (message) {
-      message.textContent = humanizeFetchError(error, "读取运行数据");
-      message.classList.add("error");
-    }
+  const api = runtimeStorageActionsApi();
+  if (api && typeof api.loadPanel === "function") {
+    await api.loadPanel(runtimeStorageActionDeps());
   }
 }
 
 async function saveRuntimeStorageSettings() {
-  if (state.ui.runtimeStorageBusy) return;
-  const message = $("runtimeStorageMessage");
-  if (message) {
-    message.textContent = "正在保存...";
-    message.classList.remove("error");
-  }
-  setRuntimeStorageControlsBusy(true);
-  try {
-    const payload = await fetchJson("/api/admin/runtime-storage/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(runtimeStorageSettingsInputPayload()),
-    });
-    renderRuntimeStoragePanel(payload);
-    if (message) message.textContent = "自动清理设置已保存。";
-  } catch (error) {
-    if (message) {
-      message.textContent = humanizeFetchError(error, "保存设置");
-      message.classList.add("error");
-    }
-  } finally {
-    setRuntimeStorageControlsBusy(false);
+  const api = runtimeStorageActionsApi();
+  if (api && typeof api.saveSettings === "function") {
+    await api.saveSettings(runtimeStorageActionDeps());
   }
 }
 
 async function cleanupRuntimeStateNow() {
-  if (state.ui.runtimeStorageBusy) return;
-  const message = $("runtimeStorageMessage");
-  if (!confirm("确定清理已完成/失败/停止的任务记录，并把每个项目的旧运行记录裁剪到最近 20 条吗？这不会删除运行日志、缓存、项目配置、聊天或密钥。")) return;
-  if (message) {
-    message.textContent = "正在清理运行记录...";
-    message.classList.remove("error");
-  }
-  setRuntimeStorageControlsBusy(true);
-  try {
-    const payload = await fetchJson("/api/admin/runtime-state/cleanup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        clear_completed_jobs: true,
-        prune_workspace_runs: true,
-        max_runs_per_workspace: 20,
-      }),
-    });
-    renderRuntimeStatePanel(payload.status || {});
-    if (message) {
-      message.textContent = `已清理运行记录：任务 ${Number(payload.removed_jobs || 0)} 条，项目 run ${Number(payload.removed_runs || 0)} 条，事件 ${Number(payload.removed_events || 0)} 条。日志文件没有删除。`;
-    }
-    await loadStatus(true);
-  } catch (error) {
-    if (message) {
-      message.textContent = humanizeFetchError(error, "清理运行记录");
-      message.classList.add("error");
-    }
-  } finally {
-    setRuntimeStorageControlsBusy(false);
+  const api = runtimeStorageActionsApi();
+  if (api && typeof api.cleanupRuntimeState === "function") {
+    await api.cleanupRuntimeState(runtimeStorageActionDeps());
   }
 }
 
 async function cleanupRuntimeStorageNow(removeAll = false) {
-  if (state.ui.runtimeStorageBusy) return;
-  const message = $("runtimeStorageMessage");
-  const remoteInput = $("runtimeRemoteCleanupEnabled");
-  const includeRemote = remoteInput?.checked !== false;
-  const remoteText = includeRemote ? "、远程 $HOME/.total_control/logs" : "";
-  const actionText = removeAll ? "清空" : "按当前阈值清理";
-  const safetyText = removeAll
-    ? "会删除范围内已有日志和预览缓存，但会保留正在运行任务和保留运行证据引用的日志。"
-    : "会保留未超过当前时间/大小阈值的数据，以及正在运行任务和保留运行证据引用的日志。";
-  if (!confirm(`确定${actionText} RelayGraph 的运行日志和预览缓存吗？范围仅限本机 data/logs${remoteText} 与 /tmp/total-control-file-preview；${safetyText}`)) return;
-  if (message) {
-    message.textContent = removeAll ? "正在清空..." : "正在按策略清理...";
-    message.classList.remove("error");
-  }
-  setRuntimeStorageControlsBusy(true);
-  try {
-    const payload = await fetchJson("/api/admin/runtime-storage/cleanup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...runtimeStorageSettingsInputPayload(),
-        include_preview: true,
-        include_logs: true,
-        include_remote: includeRemote,
-        remove_all: Boolean(removeAll),
-      }),
-    });
-    renderRuntimeStoragePanel(payload.status || {});
-    if (message) {
-      const api = window.RuntimeStorageSummary;
-      if (api && typeof api.runtimeStorageCleanupMessage === "function") {
-        message.textContent = api.runtimeStorageCleanupMessage(payload, removeAll, { formatBytes });
-      } else {
-        const previewRemoved = payload.preview_cache?.removed_text || "0 B";
-        const localRemoved = payload.local_logs?.removed_text || "0 B";
-        const remoteRemoved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.removed_bytes || 0), 0);
-        const localPreserved = Number(payload.local_logs?.preserved_count || 0);
-        const remotePreserved = (payload.remote_logs || []).reduce((sum, item) => sum + Number(item.preserved_count || 0), 0);
-        const preservedText = localPreserved || remotePreserved
-          ? ` 已保留活跃任务或运行证据日志 ${localPreserved + remotePreserved} 个。`
-          : "";
-        message.textContent = `${removeAll ? "已清空" : "已按策略清理"}：预览缓存 ${previewRemoved}，本机日志 ${localRemoved}，远程日志 ${formatBytes(remoteRemoved)}。${preservedText}`;
-      }
-    }
-  } catch (error) {
-    if (message) {
-      message.textContent = humanizeFetchError(error, "清理运行数据");
-      message.classList.add("error");
-    }
-  } finally {
-    setRuntimeStorageControlsBusy(false);
+  const api = runtimeStorageActionsApi();
+  if (api && typeof api.cleanupStorage === "function") {
+    await api.cleanupStorage(removeAll, runtimeStorageActionDeps());
   }
 }
 
 async function resetRuntimeStorageSettings() {
-  if (state.ui.runtimeStorageBusy) return;
-  const message = $("runtimeStorageMessage");
-  if (!confirm("确定恢复默认自动清理策略吗？这不会删除已有日志或缓存。")) return;
-  if (message) {
-    message.textContent = "正在重置...";
-    message.classList.remove("error");
-  }
-  setRuntimeStorageControlsBusy(true);
-  try {
-    const payload = await fetchJson("/api/admin/runtime-storage/reset", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    renderRuntimeStoragePanel(payload);
-    if (message) message.textContent = "已恢复默认清理策略。";
-  } catch (error) {
-    if (message) {
-      message.textContent = humanizeFetchError(error, "重置清理策略");
-      message.classList.add("error");
-    }
-  } finally {
-    setRuntimeStorageControlsBusy(false);
+  const api = runtimeStorageActionsApi();
+  if (api && typeof api.resetSettings === "function") {
+    await api.resetSettings(runtimeStorageActionDeps());
   }
 }
 
@@ -26371,8 +26243,6 @@ function bindEvents() {
     addServer,
     cancelEdit,
     checkServer: checkServerConnection,
-    cleanupRuntimeState: cleanupRuntimeStateNow,
-    cleanupRuntimeStorage: cleanupRuntimeStorageNow,
     closeServerModal,
     editServer,
     openServerModal,
@@ -26380,9 +26250,14 @@ function bindEvents() {
       if (!confirm("确认从列表移除该服务器？")) return;
       await removeServer(serverId);
     },
-    resetRuntimeStorageSettings,
     restoreDiscovery,
     saveAlias,
+  });
+  window.RuntimeStorageActions?.bind?.({
+    element: $,
+    cleanupRuntimeState: cleanupRuntimeStateNow,
+    cleanupRuntimeStorage: cleanupRuntimeStorageNow,
+    resetRuntimeStorageSettings,
     saveRuntimeStorageSettings,
   });
   window.MonitoringProcessStopActions?.bind?.({

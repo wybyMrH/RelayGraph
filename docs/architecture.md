@@ -34,7 +34,7 @@ Static fallback serving is limited to decoded paths inside `web/`. Any change to
 - `web/workspace/` holds cockpit, workspace execution, Agent/tool/run surfaces, event streams, and workspace catalog data.
 - `web/workflow-template/` holds template catalog, canvas, validation, mapping, repair, version history, and template review helpers.
 - `web/config-center/` holds configuration-center renderers/actions for Agents, tools, AI/provider profiles, diagnostics, and global run overview.
-- `web/monitoring/` holds server, GPU/process, job, tmux, log, terminal, runtime-storage, and task-plan UI helpers.
+- `web/monitoring/` holds server, GPU/process, job, tmux, log, terminal, runtime-storage, and task-plan UI helpers/actions.
 - `web/transfer/` holds file picker, file preview, transfer path, tree, progress, and transfer action helpers.
 - `web/styles/` holds CSS.
 - The frontend uses `window.X` globals instead of a bundler or module build pipeline.
@@ -42,6 +42,8 @@ Static fallback serving is limited to decoded paths inside `web/`. Any change to
 - Helpers should not own global business state or cache DOM nodes that are rebuilt during render.
 
 Current architecture optimization keeps `web/core/app.js` responsible for shared `state`, dependency injection, and top-level rendering composition. Data catalogs, runtime utilities, and focus/scroll behavior are split into reusable helpers because they are low-risk shared behavior.
+
+Runtime-storage actions are also split into `web/monitoring/runtime_storage_actions.js`. The helper owns form payload collection, busy button state, confirmation flow, API calls, and status messages through injected dependencies; `web/core/app.js` keeps the shared state and render functions.
 
 ## Product Surfaces
 

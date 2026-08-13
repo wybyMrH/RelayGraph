@@ -1,6 +1,6 @@
 # Review Status
 
-Updated: 2026-08-04
+Updated: 2026-08-13
 
 This page records the current project review status for maintainers. It is a committed summary, not a scratch investigation log.
 
@@ -20,11 +20,12 @@ This page records the current project review status for maintainers. It is a com
 - Workspace focus navigation removed a duplicate selector branch left by the helper extraction.
 - Selecting an execution node from configuration-center diagnostics now returns to the cockpit/use surface before revealing the execution board.
 - User-facing frontend service/error text now uses the current product name, RelayGraph, while compatibility log markers such as `[total-control]` remain unchanged.
+- Runtime-storage UI actions are split into `web/monitoring/runtime_storage_actions.js`, leaving `web/core/app.js` as a dependency-injecting composition root and keeping `server_admin_actions.js` focused on server admin interactions.
 
 ## Open Follow-Ups
 
 - `web/core/app.js` is still the largest maintenance risk and should continue shrinking by low-risk controller slices.
-- The next frontend slices should target server admin/runtime-storage UI and then workspace run/config-center overview wiring after another contract review.
+- The next frontend slices should target remaining server admin UI logic and then workspace run/config-center overview wiring after another contract review.
 - Workspace executor adapters still include plan-only or blocked paths for tools that are registered but not implemented as real runtime adapters.
 - Remote, browser, and provider smoke coverage depends on local environment and should record skips or failures in `dev_work/reports/`.
 

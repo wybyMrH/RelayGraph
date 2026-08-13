@@ -14,6 +14,7 @@ Completed in this stage:
 - `web/core/app.js` remains the composition root, while catalog data, runtime helpers, and focus/scroll navigation are split into reusable helpers.
 - Obsolete `tests/test_provider_smoke.py` removed after its useful assertion was merged into `tests/test_provider_key_encryption.py`.
 - Current review status is tracked in `docs/review-status.md`.
+- Runtime-storage UI actions moved from `web/core/app.js`/server-admin binding into `web/monitoring/runtime_storage_actions.js`; `app.js` now injects dependencies through thin wrappers.
 
 ## Current Guardrails
 
@@ -25,7 +26,7 @@ Completed in this stage:
 
 ## Next Architecture Slices
 
-- Split server admin and runtime-storage UI controllers out of `web/core/app.js`.
+- Split remaining server admin UI controller logic out of `web/core/app.js`.
 - Split workspace run surfaces and config-center run overview wiring after another contract pass.
 - Split transfer/file-picker orchestration surfaces further only if duplicated dependency plumbing remains after review.
 - Review old phase-named regression files and rename them only when the rename improves code review clarity without losing history.

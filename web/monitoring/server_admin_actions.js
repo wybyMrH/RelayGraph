@@ -76,24 +76,6 @@
     });
   }
 
-  function bindRuntimeStorageControls(callbacks = {}) {
-    element(callbacks, "runtimeStorageSaveBtn")?.addEventListener("click", () => {
-      callAsync(callbacks, "saveRuntimeStorageSettings");
-    });
-    element(callbacks, "runtimeStorageCleanupBtn")?.addEventListener("click", () => {
-      callAsync(callbacks, "cleanupRuntimeStorage", false);
-    });
-    element(callbacks, "runtimeStoragePurgeBtn")?.addEventListener("click", () => {
-      callAsync(callbacks, "cleanupRuntimeStorage", true);
-    });
-    element(callbacks, "runtimeStateCleanupBtn")?.addEventListener("click", () => {
-      callAsync(callbacks, "cleanupRuntimeState");
-    });
-    element(callbacks, "runtimeStorageResetBtn")?.addEventListener("click", () => {
-      callAsync(callbacks, "resetRuntimeStorageSettings");
-    });
-  }
-
   function bindAdminLists(callbacks = {}) {
     element(callbacks, "adminServerList")?.addEventListener("click", (event) => {
       handleAdminServerListClick(event, callbacks);
@@ -105,7 +87,6 @@
 
   function bind(callbacks = {}) {
     bindModalControls(callbacks);
-    bindRuntimeStorageControls(callbacks);
     bindAdminLists(callbacks);
   }
 
@@ -113,7 +94,6 @@
     bind,
     bindAdminLists,
     bindModalControls,
-    bindRuntimeStorageControls,
     handleAdminServerListClick,
     handleHiddenListClick,
   };
