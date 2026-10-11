@@ -23433,9 +23433,13 @@ function renderJobs() {
           : `GPU ${job.gpu_index}`;
       const durationText = formatDurationMs(jobDurationMs(job));
       const queueText = queuePositions.get(job.id) ? `队列 #${queuePositions.get(job.id)}` : "";
-      const statusTextLine = job.kind === "transfer" && state.transfer.logs[job.id]
-        ? `${zhStatus(job.status)} · ${state.transfer.logs[job.id].progress ?? 0}% · ${state.transfer.logs[job.id].line}`
-        : job.error || job.created_at;
+      // Once a task has failed, always show the persisted error. A stale
+      // transfer progress snapshot can otherwise mask the real failure with
+      // the generic "等待输出..." placeholder.
+      const statusTextLine = job.error
+        || (job.kind === "transfer" && state.transfer.logs[job.id]
+          ? `${zhStatus(job.status)} · ${state.transfer.logs[job.id].progress ?? 0}% · ${state.transfer.logs[job.id].line}`
+          : job.created_at);
       const meta = job.metadata || {};
       const template = meta.template ? ` · ${escapeHtml(meta.template)}` : "";
       const commandText = escapeHtml(job.command_display || job.command || "");

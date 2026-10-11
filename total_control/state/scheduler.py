@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 
 from ._deps import *  # noqa: F403
+from .files_pkg.runtime_log_snapshots import build_log_tail_snapshot_payload
 
 class SchedulerMixin:
     def _read_local_job_log_delta(
@@ -268,6 +269,24 @@ emit({
                 job["status"] = "failed"
                 job["error"] = "tmux session ended before Total Control wrote an exit_code marker"
             job["finished_at"] = now_iso()
+            if job["status"] == "failed" and tail:
+                metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
+                snapshot_tail = tail[-65536:]
+                truncation_reasons = []
+                if len(tail.splitlines()) >= 240:
+                    truncation_reasons.append("line_window")
+                if len(snapshot_tail) < len(tail):
+                    truncation_reasons.append("failure_tail_limit")
+                metadata["log_tail_snapshot"] = build_log_tail_snapshot_payload(
+                    job,
+                    {
+                        "tail": snapshot_tail,
+                        "truncated": bool(truncation_reasons),
+                        "truncation_reasons": truncation_reasons,
+                    },
+                    source="job_failure",
+                )
+                job["metadata"] = metadata
             self.publish_job_log_delta(job, final=True)
             changed_jobs.append(job)
             if job.get("kind") in {"profile", "preset-profile"}:

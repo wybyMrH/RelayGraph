@@ -797,9 +797,9 @@ body.has-log-pane .metric-card {
   border-top: 1px solid var(--border);
   background: var(--panel);
   margin-top: 12px;
-  height: clamp(260px, 36vh, var(--log-pane-height));
+  height: clamp(160px, 30vh, var(--log-pane-height));
   max-height: calc(100vh - (var(--main-padding) * 2));
-  flex: 0 0 clamp(260px, 36vh, var(--log-pane-height));
+  flex: 0 0 clamp(160px, 30vh, var(--log-pane-height));
   min-height: 0;
   width: 100%;
   display: flex;
@@ -17852,7 +17852,7 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 .output-tab {
   display: inline-flex;
   align-items: center;
-  max-width: 360px;
+  max-width: 250px;
   min-width: 0;
   height: 30px;
   padding: 0;
@@ -17876,7 +17876,7 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
-  padding: 0 0 0 9px;
+  padding: 0 0 0 7px;
   border: none;
   background: transparent;
   color: inherit;
@@ -17893,7 +17893,7 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 }
 
 .output-tab-close {
-  width: 28px;
+  width: 24px;
   height: 100%;
   border: none;
   background: transparent;

@@ -6,7 +6,7 @@
 
 本次提交维护 309 个正式代码文件的台账：166 个后端 Python、117 个前端 JavaScript、HTML/CSS 各 1 个、24 个测试文件；另审查 1 个用户本地新增测试和 40 个本地 smoke 脚本的职责与验收价值，并核对 3 份公开 registry JSON、3 份配置和 pytest.ini。忽略运行数据、密钥、缓存、第三方/生成产物，不读取 Provider 密钥。
 
-本次包含审查前就已存在的未提交修改：paths、checks、transfer、Job execution、scheduler、app.js、index.html、styles.css、scheduler 测试和未跟踪的 tmux/transfer 测试。没有撤销或改写这些内容，也没有将它们纳入本次清理提交。问题复现基于审查工作区；提交验证另用暂存区的隔离副本，避免用户改动掩盖清理回归。台账行号取审查时源码，未纳入的原有改动可能带来少量行号偏差。
+审查时已有 paths、checks、transfer、Job execution、scheduler、app.js、index.html、styles.css、scheduler 测试和本地 tmux/transfer 测试等未提交改动。N00C 清理提交未纳入这些内容；随后按用户要求，在 N00D 核对并整合其中的业务与界面改动，修正停止进程的权限处理和失败快照的截断标记。测试脚本改动与执行结果仍只保存在本地，不纳入提交；已跟踪历史测试保持原样。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -202,6 +202,20 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 
 本切片只清理无消费者或完全相同的实现，不代表完成 G10/G16，也不提前实施 N01–N17。未删除失败测试，未调整失败断言或跳过条件。
 
+### N00D：原有任务、传输与输出改动整合
+
+本次按用户要求整合已有业务改动，不扩展下一阶段的工作流功能：
+
+| 对应需求 | 当前变更 | 边界与保留决定 |
+| --- | --- | --- |
+| R07 · 进程停止 | 正常权限优先发信号，失败后使用 sudo -n；用 ps 状态核对存活，不把 sudo 无权限误判为已退出 | 保留原有非本人/归属未知进程确认入口；sudo 不等待密码；进程仍存活就报失败 |
+| R08 · SSH 文件传输 | rsync 的 SSH 参数包含 ServerConfig.port | 复用原 SSH config/密码参数；没有另建传输协议或队列 |
+| R07/R12 · tmux 输出 | 默认宽度改为 160 列，显示快照去掉尾部空行/空白 | 保留内部换行/缩进；这是显示快照，原日志文件不改写 |
+| R11 · 失败证据 | 非零退出码或缺少退出标记时保存最多 65536 字符的失败日志尾部 | 复用现有快照 schema；短日志不虚报字符截断，行窗口与字符上限分开标记；不是完整归档 |
+| R12 · 错误呈现与布局 | transfer 的错误优先于缓存进度提示；缩小输出区和标签宽度并更新 CSS 缓存版本 | 保留进度条；错误文字继续 HTML 转义；不重构前端控制器 |
+
+本轮验证脚本、截图、命令输出与结果说明只保存在本地 dev_work/，不纳入远端。实际验证状态在交接时报告；未用本轮整合来关闭 G01–G22 中尚未解决的功能缺口。真实 SSH 主机和跨用户 sudo 权限需在对应环境验收，受控替身不代表远程通过。
+
 ## 4. 逐文件台账的读法
 
 下面每行对应一个实际文件，列出需求、职责与输入处理输出、检查结论和解决路径。`保留`表示本轮未发现该文件的独立缺陷，不保证所有分支正确；`关联`表示参与某个问题的修补或验收，不表示文件自身一定有 bug。同一问题的详细方案只在 G 登记维护，避免在几百行表格重复且漂移。
@@ -236,7 +250,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/constants_pkg/__init__.py) · 10 | R02/R03/R05；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [paths.py](../total_control/constants_pkg/paths.py) · 59 | R02/R03/R05；环境变量/项目根 → 定义配置、数据、日志位置 → 路径常量 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | 文件整体/公开入口 |
+| [paths.py](../total_control/constants_pkg/paths.py) · 59 | R02/R03/R05；环境变量/项目根 → 定义配置、数据、日志位置 → 路径常量 | N00D 将 tmux 默认宽度设为 160；路径与运行数据规则保持，关联 [G08](#g08)。 | 文件整体/公开入口 |
 | [provider_catalog.py](../total_control/constants_pkg/provider_catalog.py) · 185 | R02/R03/R05；静态厂商描述 → 按 id 查询 → Provider 预设 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `provider_catalog_by_id:183` |
 | [workspace_contracts.py](../total_control/constants_pkg/workspace_contracts.py) · 444 | R02/R03/R05；节点类型 → 定义 I/O、默认绑定与能力 → 契约目录 | 问题/修补关联 [G10](#g10)、[G14](#g14)；按登记方案处理，不另建平行服务。 | 文件整体/公开入口 |
 | [workspace_nodes.py](../total_control/constants_pkg/workspace_nodes.py) · 202 | R02/R03/R05；源类型/节点类型 → 节点库与流程默认 → 节点描述 | 问题/修补关联 [G10](#g10)、[G14](#g14)；按登记方案处理，不另建平行服务。 | 文件整体/公开入口 |
@@ -257,7 +271,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/infra/__init__.py) · 5 | R01/R07；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [checks.py](../total_control/infra/checks.py) · 218 | R01/R07；主机/检查或停止请求 → 连接、能力、进程所有者检查 → 诊断或停止结果 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `run_server_checks:21`；`build_process_stop_script:90` |
+| [checks.py](../total_control/infra/checks.py) · 218 | R01/R07；主机/检查或停止请求 → 连接、能力、进程所有者检查 → 诊断或停止结果 | N00D 修正停止权限：正常信号优先，sudo -n 回退，ps 判存活；保留实时归属确认入口。 | `run_server_checks:21`；`build_process_stop_script:90` |
 | [shell.py](../total_control/infra/shell.py) · 2 | R01/R07；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [web_terminal.py](../total_control/infra/web_terminal.py) · 160 | R07；主机/输入/信号 → PTY 启动与读写 → 终端缓冲和状态 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `set_terminal_winsize:19`；`WebTerminal:26` |
 
@@ -274,7 +288,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | [process.py](../total_control/infra/shell_pkg/process.py) · 61 | R01/R07；PID/ps 输出 → 本地或远程查进程 → 进程元信息 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `ps_lookup_local:22`；`ps_lookup_remote:28` |
 | [ssh.py](../total_control/infra/shell_pkg/ssh.py) · 109 | R01/R07；ServerConfig/命令 → SSH 参数与连通性检查 → 远程命令结果 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `_ssh_command_impl:22`；`ssh_command:29` |
 | [tmux.py](../total_control/infra/shell_pkg/tmux.py) · 68 | R01/R07；会话/尺寸/任务 id → tmux 参数与日志命名 → 会话操作参数 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `tmux_new_session_args:21`；`tmux_resize_commands:35` |
-| [transfer.py](../total_control/infra/shell_pkg/transfer.py) · 489 | R08；源/目标/过滤/冲突策略 → rsync、安全与冲突探测 → 传输命令/检查结果 | 问题/修补关联 [G14](#g14)；按登记方案处理，不另建平行服务。 | `rsync_endpoint_prefix:53`；`server_matches_rsync_prefix:65` |
+| [transfer.py](../total_control/infra/shell_pkg/transfer.py) · 489 | R08；源/目标/过滤/冲突策略 → rsync、安全与冲突探测 → 传输命令/检查结果 | N00D 在 rsync SSH shell 中携带配置端口；复用原参数与路径安全规则，工作流交接仍关联 [G14](#g14)。 | `rsync_endpoint_prefix:53`；`server_matches_rsync_prefix:65` |
 
 ### total_control/orchestration
 
@@ -299,7 +313,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | [monitoring.py](../total_control/state/monitoring.py) · 113 | R01/R12；刷新/状态查询 → 探针、工作区公开投影 → status/cockpit payload | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `MonitoringMixin:5`；`reload_config:6` |
 | [persistence.py](../total_control/state/persistence.py) · 63 | R11/R13；内存 jobs/workspaces/registries → JSON 保存与密钥加密 → 本地状态文件 | 问题/修补关联 [G09](#g09)；按登记方案处理，不另建平行服务。 | `PersistenceMixin:5`；`save_jobs:6` |
 | [registry.py](../total_control/state/registry.py) · 606 | R03/R05；能力/模板/Profile 请求 → CRUD 与诊断组合 → 公开 registry payload | 问题/修补关联 [G11](#g11)、[G21](#g21)；按登记方案处理，不另建平行服务。 | `RegistryMixin:30`；`tool_definition_by_id:31` |
-| [scheduler.py](../total_control/state/scheduler.py) · 360 | R01/R07；资源快照/队列/日志 → 监控终态、依赖与启动 → Job 更新与事件 | 问题/修补关联 [G01](#g01)、[G02](#g02)、[G13](#g13)；按登记方案处理，不另建平行服务。 | `SchedulerMixin:8`；`_read_local_job_log_delta:9` |
+| [scheduler.py](../total_control/state/scheduler.py) · 369 | R01/R07；资源快照/队列/日志 → 监控终态、依赖与启动 → Job 更新与事件 | N00D 持久失败日志尾部并标明窗口/字符截断；任务等待、原子预留仍关联 [G01](#g01)/[G13](#g13)。 | `SchedulerMixin:8` |
 | [servers.py](../total_control/state/servers.py) · 430 | R01/R07；服务器配置/所有者停止请求 → 编辑覆盖、检查与实时核对 → 服务器/停止结果 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `ServersMixin:5`；`list_servers_admin:6` |
 | [terminals.py](../total_control/state/terminals.py) · 65 | R07；终端 id/输入/信号 → 管理 WebTerminal → 会话状态/输出 | N00C 已删除无调用者的 terminal_list；保留 open/read/write/signal/close 会话管理。 | `TerminalsMixin:5` |
 
@@ -323,7 +337,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | [__init__.py](../total_control/state/jobs_pkg/__init__.py) · 15 | R07；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | `JobsMixin:12` |
 | [_deps.py](../total_control/state/jobs_pkg/_deps.py) · 12 | R07；上层模块/公共符号 → 星号聚合依赖 → 子包可见依赖 | 结构风险；改显式依赖前先锁定 monkeypatch 与兼容调用。 | 文件整体/公开入口 |
 | [crud.py](../total_control/state/jobs_pkg/crud.py) · 198 | R07；Job 请求/重试/复制/删除 → 创建记录与保留判断 → Job/关联 run | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `CrudJobsMixin:8`；`retained_workspace_run_job_ids_for_jobs:9` |
-| [execution.py](../total_control/state/jobs_pkg/execution.py) · 747 | R07；Job/资源/日志请求 → GPU 选择、tmux 启停、尾部读取 → 状态与日志 | 问题/修补关联 [G13](#g13)、[G12](#g12)；按登记方案处理，不另建平行服务。 | `_read_text_file_tail:10`；`_read_text_file_chunk:36` |
+| [execution.py](../total_control/state/jobs_pkg/execution.py) · 747 | R07；Job/资源/日志请求 → GPU 选择、tmux 启停、尾部读取 → 状态与日志 | N00D 去掉 tmux 显示快照的尾部空白；GPU 选择/预留仍按 [G13](#g13) 处理。 | `_read_text_file_tail:10`；`_read_text_file_chunk:36` |
 | [paths.py](../total_control/state/jobs_pkg/paths.py) · 25 | R07；任务/服务器路径 → 展开远程目录变量 → 实际任务路径 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `PathsJobsMixin:8`；`_format_remote_path:9` |
 | [presets.py](../total_control/state/jobs_pkg/presets.py) · 70 | R07；研究 preset 请求 → 专用计划与 Job 创建 → 实验任务列表 | 问题/修补关联 [G18](#g18)；按登记方案处理，不另建平行服务。 | `PresetsJobsMixin:8`；`preset_command:9` |
 | [queue.py](../total_control/state/jobs_pkg/queue.py) · 48 | R07；Job id/移动方向 → 调整排队序号 → 队列位置 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `QueueJobsMixin:8`；`reorder_job:9` |
@@ -475,7 +489,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1894 | R12/R14；浏览器加载 → 界面壳、DOM id 与脚本顺序 → 产品入口 | 保留壳；关联 [G15](#g15)，抽控制器同步验证引用/加载次序。 | 文件整体/公开入口 |
+| [index.html](../web/index.html) · 1894 | R12/R14；浏览器加载 → 界面壳、DOM id 与脚本顺序 → 产品入口 | N00D 更新样式缓存版本；静态脚本加载顺序保持。 | 文件整体/公开入口 |
 
 ### web/config-center
 
@@ -497,7 +511,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26570 | R12；页面数据/注入依赖 → 应用组合、共享状态和跨界面编排 → 派生状态/界面结果 | 契约/维护关联 [G15](#g15)、[G10](#g10)、[G17](#g17)；消费后端结果，随所属切片收敛。 | `markWorkspaceUiInteraction:280`；`workspaceFlowCanvasControlsApi:341` |
+| [app.js](../web/core/app.js) · 26570 | R12；页面数据/注入依赖 → 应用组合、共享状态和跨界面编排 → 派生状态/界面结果 | N00D 优先显示 Job.error，避免传输旧进度覆盖失败；组合根过重仍关联 [G15](#g15)。 | `markWorkspaceUiInteraction:280`；`workspaceFlowCanvasControlsApi:341` |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 70 | R12；用户事件/注入依赖 → 顶层导航动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`query:12` |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch、浏览器存储与表单状态 → 派生状态/界面结果 | 契约/维护关联 [G19](#g19)；消费后端结果，随所属切片收敛。 | `loadStoredValue:7`；`saveStoredValue:15` |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |
@@ -534,7 +548,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [styles.css](../web/styles/styles.css) · 23037 | R12/R14；界面类名/视口 → 层叠与响应式布局 → 视觉样式 | 维护风险；[G15](#g15)，覆盖/媒体规则逐块验证后收敛，禁自动去重。 | 文件整体/公开入口 |
+| [styles.css](../web/styles/styles.css) · 23037 | R12/R14；界面类名/视口 → 层叠与响应式布局 → 视觉样式 | N00D 缩小输出区/标签尺寸；样式叠加仍关联 [G15](#g15)，未自动删除重复 selector。 | 文件整体/公开入口 |
 
 ### web/transfer
 
@@ -661,7 +675,7 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 
 ### 用户本地新增测试（未纳入本次提交）
 
-`tests/test_tmux_transfer_regressions.py`：2 个测试函数（参数化后 3 个用例），覆盖 rsync 显式 SSH 端口、local/SSH tmux 尾部空行；对应用户原有修复。保留在工作区，未当成清理提交的回归证据，未删独有断言。后续提交这些修复时再纳入正式文件台账。
+`tests/test_tmux_transfer_regressions.py`：2 个测试函数（参数化后 3 个用例），覆盖 rsync 显式 SSH 端口、local/SSH tmux 尾部空行；对应 N00D 已整合的修复，参与本地验证；脚本按用户要求只保留在工作区，不纳入正式文件台账或提交，未删独有断言。
 
 ### 本地 smoke 脚本：40 个，逐文件保留价值判断
 

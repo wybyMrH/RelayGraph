@@ -683,7 +683,9 @@ emit({
         if result.returncode != 0:
             text = (result.stderr or result.stdout or "").strip()
             raise ValueError(text or "tmux capture-pane failed")
-        return result.stdout
+        # capture-pane includes unused rows below the cursor. Do not let
+        # follow-to-bottom scroll the browser past the actual output.
+        return result.stdout.rstrip(" \t\r\n")
 
 
     def stop_job(self, job_id: str) -> dict[str, Any]:
