@@ -63,16 +63,3 @@ class TerminalsMixin:
         if not term:
             raise ValueError("terminal session not found")
         term.close()
-
-
-    def terminal_list(self) -> list[dict[str, Any]]:
-        with self.terminals_lock:
-            return [
-                {
-                    "session_id": term.id,
-                    "server_id": term.server_id,
-                    "server_name": term.server_name,
-                    "alive": term.alive,
-                }
-                for term in self.terminals.values()
-            ]

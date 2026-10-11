@@ -469,24 +469,6 @@ class LLMClient:
             return "", str(delta.get("stop_reason") or ""), usage
         return "", "", usage
 
-    def simple_chat(self, system_prompt: str, user_message: str, model: str | None = None, **kwargs) -> LLMResponse:
-        """Simple chat with system and user message.
-
-        Args:
-            system_prompt: System prompt
-            user_message: User message
-            model: Model to use
-            **kwargs: Additional parameters
-
-        Returns:
-            LLMResponse with the result
-        """
-        messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=user_message),
-        ]
-        return self.chat(messages, model, **kwargs)
-
 
 def tool_definition_for_llm(tool: dict[str, Any]) -> dict[str, Any]:
     """Convert a tool definition to LLM function calling format.

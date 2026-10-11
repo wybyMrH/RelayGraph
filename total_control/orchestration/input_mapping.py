@@ -4,20 +4,8 @@ import copy
 import json
 from typing import Any
 
+from ..context_refs import context_ref_value
 from .workspace_mutations import apply_artifact_write, find_workspace_node
-
-
-def context_ref_value(data: Any, path: str) -> Any:
-    current = data
-    for part in [item for item in str(path or "").split(".") if item]:
-        if isinstance(current, dict):
-            current = current.get(part)
-        elif isinstance(current, list) and part.isdigit():
-            index = int(part)
-            current = current[index] if 0 <= index < len(current) else None
-        else:
-            return None
-    return current
 
 
 def _is_mapping_ref(value: str) -> bool:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ....context_refs import context_ref_value as workspace_context_ref_value
 from .._deps import *  # noqa: F403
 from ...schema.agents_tools import normalize_workspace_agents, normalize_workspace_tools
 from ...schema.recipe import normalize_workspace_model
@@ -79,18 +80,6 @@ def workspace_node_workflow_contract_metadata(workspace: dict[str, Any], node: d
         ],
         "model": route,
     }
-
-def workspace_context_ref_value(data: Any, path: str) -> Any:
-    current = data
-    for part in [item for item in str(path or "").split(".") if item]:
-        if isinstance(current, dict):
-            current = current.get(part)
-        elif isinstance(current, list) and part.isdigit():
-            index = int(part)
-            current = current[index] if 0 <= index < len(current) else None
-        else:
-            return None
-    return current
 
 def workspace_context_value_present(value: Any) -> bool:
     if value is None:

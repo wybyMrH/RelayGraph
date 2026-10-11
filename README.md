@@ -1,174 +1,55 @@
 # RelayGraph
 
-RelayGraph is a local web dashboard for GPU labs and research workflows. It monitors local or SSH-accessible GPU machines, launches commands in `tmux`, moves files with `rsync`, and provides a node-based workbench for turning repos, papers, and ideas into executable multi-agent workflows.
+RelayGraph 是一个本地研究与运维工作台，把 GPU 监控、远程任务、文件传输和 Agent 工作流串成可执行、可追溯的研究流程。
 
-The backend uses the Python standard library, and the frontend is plain HTML/CSS/JavaScript. Runtime setup stays light: no database, no Node build step, and no required Python package install for the app itself.
+已有能力包括本地/SSH 机器监控、tmux 任务与空闲 GPU 队列、rsync 传输、浏览器终端、工作区、模板与能力配置、Agent 执行、SSE 反馈、运行摘要回放和导出。异步工作流的等待/恢复与交付验证仍有已登记缺口；当前状态见[代码审查](docs/current-audit.md)，不要把模块存在当成整个闭环已验收。
 
-## Features
+后端是 Python，HTTP 服务使用标准库；前端是静态 HTML/CSS/JavaScript，没有 Node 构建步骤。密钥加密实际依赖 `cryptography`，因此应用并非纯标准库。LangGraph、LiteLLM 目前是[计划中的候选](docs/next-stage-plan.md)，尚未集成。
 
-- Monitor local and remote GPUs with `nvidia-smi`: memory, utilization, temperature, power, and CUDA processes.
-- Discover SSH hosts from `~/.ssh/config` and merge them with local config overlays.
-- Launch background jobs in `tmux`, with optional GPU selection through `CUDA_VISIBLE_DEVICES`.
-- Queue jobs until a GPU meets configurable free-memory and utilization thresholds.
-- Transfer files with `rsync`, including progress tracking and task history.
-- Inspect live `tmux` sessions and open browser-based terminal sessions for selected servers.
-- Manage a workbench with projects, workflows, conversations, agents, tools, AI profiles, and run records.
-- Generate starter workflow chains from a repo, paper, or idea, then edit nodes, assignments, and execution order.
-- Use default agent/tool/workflow registries from `data/*.json`, editable through the app.
+## 本地启动
 
-## Requirements
+适用环境为 Linux/WSL；终端与任务功能依赖 Unix PTY、SSH、tmux 等能力。项目声明 Python 3.11+，当前审查环境为 Python 3.13；干净环境的依赖清单和兼容矩阵仍待 N00A 补齐。
 
-- Python 3.11 or newer.
-- A modern browser.
-- `nvidia-smi` for GPU monitoring.
-- `ssh`, `tmux`, and `rsync` for remote execution and file transfer.
-- `pytest` only if you want to run the test suite.
-
-RelayGraph works best with SSH key authentication. Password-based SSH is supported for local-only use, but plain-text password files should never be committed or shared.
-
-## Quick Start
-
-Start the local server:
+创建自己的 Python 环境后，先安装当前必要依赖：
 
 ```bash
+python -m pip install cryptography
 python -m total_control.server --host 127.0.0.1 --port 8765
 ```
 
-Open the dashboard:
+浏览器打开 `http://127.0.0.1:8765`。`nvidia-smi` 用于 GPU 监控；远程任务和传输需要 `ssh`、`tmux`、`rsync`，目标主机按所用功能安装相应工具。默认监听本机，现有接口可执行命令，不应直接开放为公共服务。
 
-```text
-http://127.0.0.1:8765
-```
+## 配置与数据
 
-Run tests:
-
-```bash
-python -m pytest -q
-```
-
-The app defaults to `127.0.0.1`. Binding to `0.0.0.0` exposes a remote command execution surface and should only be used on a trusted network.
-
-## Configuration
-
-The tracked default config is:
-
-```text
-config/servers.toml
-```
-
-It starts with a local server and SSH discovery enabled:
-
-```toml
-[app]
-poll_interval_seconds = 5
-remote_timeout_seconds = 6
-idle_min_free_mib = 1024
-idle_max_gpu_util = 10
-
-[server_aliases]
-"local" = "Local"
-
-[[servers]]
-id = "local"
-name = "Local"
-mode = "local"
-enabled = true
-labels = ["local"]
-
-[ssh_discovery]
-enabled = true
-config_path = "~/.ssh/config"
-include = ["*"]
-exclude = []
-```
-
-Keep personal machine lists in an ignored local overlay:
+默认配置是 `config/servers.toml`，包含本地服务器和 SSH config 发现。个人主机、别名和路径放忽略的覆盖文件：
 
 ```bash
 cp config/user_servers.example.toml config/user_servers.toml
 ```
 
-`config/user_servers.toml` is intended for private SSH paths, aliases, and host lists.
+优先使用 SSH key。确需密码时按 `config/secrets.example.toml` 创建本地 `config/secrets.toml`，不提交或分享真实文件。
 
-If you must use SSH passwords, create the ignored secrets file:
+公开起始目录是 `data/agent_definitions.json`、`data/tool_definitions.json`、`data/workflow_templates.json`。运行 Job、工作区、Provider Profile、日志与主密钥属于本地数据并被 Git 忽略。Provider key 加密落盘，主密钥位于 `data/.master_key`；运行数据不能随公共归档发布。
 
-```bash
-cp config/secrets.example.toml config/secrets.toml
-```
+## 开发与文档
 
-Example format:
+完整文档入口为 [docs/README.md](docs/README.md)，由三个部分组成：
 
-```toml
-[ssh_passwords]
-"gpu-box" = "your-password"
-"192.0.2.10" = "your-password"
-"alice@192.0.2.10" = "your-password"
-```
+1. [稳定的项目目标、需求与组件契约](docs/project-spec.md)。
+2. [当前问题与逐文件审查](docs/current-audit.md)。
+3. [下一阶段计划、技术复用与消融验证](docs/next-stage-plan.md)。
 
-Prefer SSH keys whenever possible. `config/secrets.toml` is ignored by Git and should remain local.
+开发规则见 [AGENTS.md](AGENTS.md)。当前优先级是可靠顺序工作流、失败证据、Agent 控制和报告正文，再扩到统一远程文件、GPU 占用和工作流传输。
 
-## Workbench Data
-
-RelayGraph ships with public starter registries:
-
-```text
-data/agent_definitions.json
-data/tool_definitions.json
-data/workflow_templates.json
-```
-
-Runtime data is local and ignored:
-
-```text
-data/jobs.json
-data/workspaces.json
-data/provider_profiles.json
-data/logs/
-```
-
-AI provider profiles may contain API keys. Keep them local, rotate any key that may have been exposed, and do not include runtime data in public archives or screenshots.
-
-## Project Layout
-
-```text
-docs/            Long-lived project docs
-config/            Example and default configuration
-data/              Public starter registries plus ignored runtime state
-tests/             Committed regression tests
-total_control/     Python backend and workflow execution code
-web/               Static frontend
-```
-
-The frontend is organized by feature under `web/`: `core/`, `workspace/`, `workflow-template/`, `config-center/`, `monitoring/`, `transfer/`, and `styles/`.
-
-## Development
-
-Run the full test suite from the repository root:
+回归测试：
 
 ```bash
+python -m pip install pytest
 python -m pytest -q
 ```
 
-The project includes `pytest.ini` so local scratch directories such as `temp/` and `dev_work/` are not collected as tests.
-
-See the formal docs index at [docs/README.md](docs/README.md).
-
-## Roadmap
-
-RelayGraph is being developed in two distinct stages.
-
-- Current: architecture optimization and boundary cleanup. The current shape of the system is documented in [docs/architecture.md](docs/architecture.md).
-- Next: feature development and product hardening. The forward plan lives in [docs/development-roadmap.md](docs/development-roadmap.md).
-
-Project docs:
-
-- [docs/README.md](docs/README.md)
-- [docs/features.md](docs/features.md)
-- [docs/development-guide.md](docs/development-guide.md)
-- [docs/development-stage.md](docs/development-stage.md)
-- [docs/review-status.md](docs/review-status.md)
-- [docs/testing.md](docs/testing.md)
+`tests/` 保存确定性契约与安全回归；`dev_work/` 保存忽略的本地调查、PoC、浏览器/远程/Provider smoke 及产物。代码按 `total_control/`、`web/` 分层，前端通过 `window.X` 与静态脚本装配。
 
 ## License
 
-MIT
+MIT，见 [LICENSE](LICENSE)。引入的第三方代码和技能按其对应版本/目录的许可另行核对。
