@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
+from ..orchestration.run_store import RunStore
 
 
 def _dedupe_provider_profiles(profiles: list[Any]) -> tuple[list[dict[str, Any]], bool]:
@@ -66,6 +67,7 @@ class BaseMixin:
         self.last_refresh = 0.0
         self.last_refreshed_at = ""
         self.jobs: list[dict[str, Any]] = read_json(JOBS_PATH, [])
+        self.execution_store = RunStore(Path(self.config.execution_db_path) if self.config.execution_db_path else DATA_DIR / "execution.sqlite3")
         raw_tool_definitions = read_json(TOOL_DEFINITIONS_PATH, [])
         self.tool_definitions: list[dict[str, Any]] = normalize_global_tool_definitions(raw_tool_definitions)
         self.tool_definitions, default_tools_applied = backfill_default_tool_definitions(
@@ -114,6 +116,10 @@ class BaseMixin:
         self.job_log_stream_positions: dict[str, str] = {}
         self.workspace_delta_evidence_save_state: dict[str, dict[str, Any]] = {}
         self.stop_event = threading.Event()
+        for workspace in self.workspaces:
+            for run_id in self.execution_store.run_ids(workspace["id"]):
+                self.reconcile_workflow_submissions(workspace["id"], run_id)
+            self.refresh_workflow_records(workspace)
         if self.bootstrap_queue_ranks():
             write_json(JOBS_PATH, self.jobs)
         if (not isinstance(raw_tool_definitions, list) or not raw_tool_definitions) or default_tools_applied:

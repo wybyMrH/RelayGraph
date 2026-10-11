@@ -250,7 +250,7 @@ class FilesMixin:
         changed_workspaces = False
 
         with self.lock:
-            protected_job_ids: set[str] = set()
+            protected_job_ids = self.workflow_receipt_job_ids()
             planned_run_prunes: list[tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]] = []
             for workspace in getattr(self, "workspaces", []):
                 if not isinstance(workspace, dict) or not isinstance(workspace.get("runs"), list):
@@ -264,7 +264,7 @@ class FilesMixin:
                 kept: list[dict[str, Any]] = []
                 removed: list[dict[str, Any]] = []
                 for run in runs:
-                    if not prune_runs:
+                    if not prune_runs or run.get("plan_hash"):
                         kept.append(run)
                         continue
                     if str(run.get("status") or "") in active_statuses:
@@ -350,7 +350,7 @@ class FilesMixin:
 
 
     def retained_workspace_run_job_ids(self) -> set[str]:
-        job_ids: set[str] = set()
+        job_ids = self.workflow_receipt_job_ids()
         with self.lock:
             workspaces = copy.deepcopy(getattr(self, "workspaces", []))
         for workspace in workspaces:

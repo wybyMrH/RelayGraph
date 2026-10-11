@@ -13,6 +13,7 @@ from urllib.parse import quote, unquote, urlparse
 from .constants import DEFAULT_CONFIG, ROOT, WEB_DIR
 from .http_api import handle_delete, handle_get, handle_post, handle_put
 from .state import TotalControlState
+from .orchestration.run_store import RunStoreError
 from .utils import now_iso, safe_int
 
 
@@ -106,6 +107,9 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if handle_get(self, STATE, parsed):
                 return
+        except RunStoreError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
         except ValueError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
@@ -116,6 +120,8 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             handle_post(self, STATE, parsed)
+        except RunStoreError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except ValueError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         except json.JSONDecodeError:
@@ -126,6 +132,8 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             handle_put(self, STATE, parsed)
+        except RunStoreError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except ValueError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
         except json.JSONDecodeError:
@@ -136,6 +144,8 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             handle_delete(self, STATE, parsed)
+        except RunStoreError as exc:
+            self.send_json({"error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
         except ValueError as exc:
             self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
 

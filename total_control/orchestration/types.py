@@ -5,6 +5,20 @@ from typing import Any
 
 
 @dataclass(slots=True)
+class RunPlan:
+    """Frozen submission snapshot; serialized and hashed by RunStore before execution."""
+
+    run_id: str
+    workspace_id: str
+    steps: list[dict[str, Any]]
+    workspace_snapshot: dict[str, Any]
+    package_snapshot: dict[str, Any]
+    executor_prefer: str = "auto"
+    engine_version: str = "legacy-sequence/n02"
+    schema_version: int = 1
+
+
+@dataclass(slots=True)
 class StepResult:
     status: str = "skipped"
     executor: str = "none"

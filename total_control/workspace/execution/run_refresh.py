@@ -188,6 +188,12 @@ def refresh_workspace_execution_run(
         if job_id:
             step_job_ids.add(job_id)
         job = jobs_by_id.get(job_id)
+        if run.get("plan_hash") and job:
+            metadata = job.get("metadata", {})
+            if (metadata.get("execution_run_id") != run.get("id")
+                    or metadata.get("node_id") != step.get("node_id")
+                    or metadata.get("execution_attempt_id") != step.get("attempt_id")):
+                job = None
         if executor == "agent":
             refreshed_steps.append(
                 refresh_workspace_agent_run_step_from_child_jobs(
@@ -210,7 +216,7 @@ def refresh_workspace_execution_run(
             for key in ("resources", "validation"):
                 if not job_step.get(key) and isinstance(step.get(key), dict):
                     job_step[key] = copy.deepcopy(step.get(key))
-            for key in ("runtime_control", "runtime_status", "runtime_side_effect"):
+            for key in ("step_id", "attempt_id", "submission_state", "runtime_control", "runtime_status", "runtime_side_effect"):
                 if not str(job_step.get(key) or "").strip() and str(step.get(key) or "").strip():
                     job_step[key] = str(step.get(key) or "").strip()
             refreshed_steps.append(
@@ -220,8 +226,12 @@ def refresh_workspace_execution_run(
                 )
             )
         else:
-            refreshed_steps.append(normalize_workspace_run_step(step, existing=step))
-    for job in workspace_jobs_bound_to_execution_run(jobs_by_id, str(run.get("id") or "").strip()):
+            missing = dict(step)
+            if run.get("plan_hash") and job_id:
+                missing.update(status="blocked", runtime_status="reconciling", error="Job reference unavailable; reconciliation required")
+            refreshed_steps.append(normalize_workspace_run_step(missing, existing=step))
+    bound_jobs = [] if run.get("plan_hash") else workspace_jobs_bound_to_execution_run(jobs_by_id, str(run.get("id") or "").strip())
+    for job in bound_jobs:
         job_id = str(job.get("id") or "").strip()
         if not job_id or job_id in step_job_ids:
             continue
@@ -238,7 +248,7 @@ def refresh_workspace_execution_run(
         {
             **run,
             "steps": refreshed_steps,
-            "status": derive_workspace_execution_run_status(refreshed_steps),
+            "status": "failed" if run.get("submission_error") else derive_workspace_execution_run_status(refreshed_steps),
             "progress": derive_workspace_execution_run_progress(refreshed_steps),
             "updated_at": now_iso(),
         },

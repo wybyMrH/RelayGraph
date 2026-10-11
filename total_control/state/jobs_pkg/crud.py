@@ -87,9 +87,14 @@ class CrudJobsMixin:
         with self.lock:
             self.reserve_queue_ranks([job])
             self.jobs.insert(0, job)
-        if wait_for_idle:
-            self.save_jobs()
-        else:
+            if wait_for_idle:
+                try:
+                    # A scheduler must not see a queued Job before its durable receipt exists.
+                    self.save_jobs()
+                except Exception:
+                    self.jobs.remove(job)
+                    raise
+        if not wait_for_idle:
             self.start_job(job, allow_busy=True, publish_events=publish_events)
         if publish_events:
             self.publish_job_event(job, "job.updated")
@@ -102,6 +107,8 @@ class CrudJobsMixin:
         metadata = copy.deepcopy(job.get("metadata") or {})
         metadata.pop("execution_run_id", None)
         metadata.pop("step_index", None)
+        for key in ("submission_key", "submission_payload_hash", "execution_attempt_id"):
+            metadata.pop(key, None)
         return {
             "name": str(job.get("name") or job.get("command_display") or job.get("command") or "任务"),
             "server_id": requested_server,

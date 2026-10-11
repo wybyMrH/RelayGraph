@@ -4,7 +4,7 @@ RelayGraph 是一个本地研究与运维工作台，把 GPU 监控、远程任�
 
 已有能力包括本地/SSH 机器监控、tmux 任务与空闲 GPU 队列、rsync 传输、浏览器终端、工作区、模板与能力配置、Agent 执行、SSE 反馈、运行摘要回放和导出。异步工作流的等待/恢复与交付验证仍有已登记缺口；当前状态见[代码审查](docs/current-audit.md)，不要把模块存在当成整个闭环已验收。
 
-后端是 Python，HTTP 服务使用标准库；前端是静态 HTML/CSS/JavaScript，没有 Node 构建步骤。密钥加密实际依赖 `cryptography`，因此应用并非纯标准库。LangGraph core + SQLite 已完成[本地选型验证](docs/next-stage-plan.md)，正式服务接入待 N02/N03；LiteLLM 仍为待验证候选。
+后端是 Python，HTTP 服务使用标准库；前端是静态 HTML/CSS/JavaScript，没有 Node 构建步骤。密钥加密实际依赖 `cryptography`，因此应用并非纯标准库。LangGraph core + SQLite 已完成[本地选型验证](docs/next-stage-plan.md)，领域账本已接入 N02，LangGraph 推进接入待 N03；LiteLLM 仍为待验证候选。
 
 ## 本地启动
 
@@ -31,7 +31,7 @@ config/ 默认只跟踪公开默认和 *.example.toml 模板，本机配置与�
 
 优先使用 SSH key。确需密码时按 `config/secrets.example.toml` 创建本地 `config/secrets.toml`，不提交或分享真实文件。
 
-公开起始目录是 `data/agent_definitions.json`、`data/tool_definitions.json`、`data/workflow_templates.json`。运行 Job、工作区、Provider Profile、日志与主密钥属于本地数据并被 Git 忽略。Provider key 加密落盘，主密钥位于 `data/.master_key`；运行数据不能随公共归档发布。上述 Provider 私密配置与主密钥仍是现有 data/ 布局，统一归入 config/ 的兼容迁移安排在 N00E；本轮没有搬动或读取真实密钥。
+公开起始目录是 `data/agent_definitions.json`、`data/tool_definitions.json`、`data/workflow_templates.json`。运行 Job、工作区、Provider Profile、日志与主密钥属于本地数据并被 Git 忽略。Provider key 加密落盘，主密钥位于 `data/.master_key`；运行数据不能随公共归档发布。执行账本默认使用 data/execution.sqlite3；可在 config/ 主机配置文件的 [app] 设置 execution_db_path（相对路径从该配置所在目录计算），数据库和锁文件不提交。上述 Provider 私密配置与主密钥仍是现有 data/ 布局，统一归入 config/ 的兼容迁移安排在 N00E；本轮没有搬动或读取真实密钥。
 
 ## 开发与文档
 
@@ -41,7 +41,7 @@ config/ 默认只跟踪公开默认和 *.example.toml 模板，本机配置与�
 2. [当前问题与逐文件审查](docs/current-audit.md)。
 3. [下一阶段计划、技术复用与消融验证](docs/next-stage-plan.md)。
 
-开发规则见 [AGENTS.md](AGENTS.md)。当前优先级是可靠顺序工作流、失败证据、Agent 控制和报告正文，再扩到统一远程文件、GPU 占用和工作流传输。
+开发规则见 [AGENTS.md](AGENTS.md)。N02 已加入完整计划、attempt 和提交记录；当前优先级是 N03 的 Job → Agent 等待恢复、失败证据、Agent 控制和报告正文，再扩到统一远程文件、GPU 占用和工作流传输。
 
 用户已清理并忽略 tests/；后续按功能切片生成本地验证，不上传脚本、执行结果或产物。dev_work/ 保存忽略的调查、PoC、浏览器/远程/Provider 验证。当前 N01 本地样机的运行方式见第三部分 2.4；正式应用仍按上面的启动命令运行。
 

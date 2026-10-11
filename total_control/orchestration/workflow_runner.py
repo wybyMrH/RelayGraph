@@ -27,6 +27,8 @@ class WorkflowRunnerCallbacks:
     step_from_job: Callable[[dict[str, Any], int], dict[str, Any]]
     step_from_agent: Callable[[dict[str, Any], StepResult, int], dict[str, Any]]
     executable_node_kinds: frozenset[str]
+    on_step_start: Callable[[dict[str, Any], int], Any] | None = None
+    on_step_error: Callable[[dict[str, Any], int, Exception], Any] | None = None
     record_run_steps: Callable[[str, list[dict[str, Any]], list[dict[str, Any]]], Any] | None = None
 
 
@@ -93,82 +95,91 @@ def run_workflow_sequence(
         if mode == "agent" and pending_agent_runtime:
             stopped_early = True
             break
-        if mode == "agent":
-            current_workspace = callbacks.refresh_workspace()
-            run_context = ExecutionRunContext(
-                workspace_id=workspace_id,
-                run_id=run_id,
-                kind="workflow",
-                step_index=len(run_steps),
-                outputs=copy.deepcopy(accumulated_outputs),
-                previous_output=copy.deepcopy(previous_step_output) if previous_step_output else None,
-            )
-            step_result = callbacks.execute_agent_node(workspace_id, node, run_context)
-            agent_step = callbacks.step_from_agent(node, step_result, len(run_steps))
-            if step_result.status in {"completed", "warning"}:
+        if mode == "skip":
+            run_steps.append({"index": index, "node_id": node.get("id", ""),
+                              "node_kind": node.get("kind", ""), "executor": "skip", "status": "skipped"})
+            continue
+        if mode == "job" and pending_agent_runtime and not previous_job_id:
+            stopped_early = True
+            break
+        if callbacks.on_step_start:
+            callbacks.on_step_start(node, index)
+        try:
+            if mode == "agent":
+                current_workspace = callbacks.refresh_workspace()
+                run_context = ExecutionRunContext(
+                    workspace_id=workspace_id,
+                    run_id=run_id,
+                    kind="workflow",
+                    step_index=index,
+                    outputs=copy.deepcopy(accumulated_outputs),
+                    previous_output=copy.deepcopy(previous_step_output) if previous_step_output else None,
+                )
+                step_result = callbacks.execute_agent_node(workspace_id, node, run_context)
+                agent_step = callbacks.step_from_agent(node, step_result, index)
+                if step_result.status in {"completed", "warning"}:
+                    run_steps.append(agent_step)
+                    if run_id and callbacks.record_run_steps:
+                        callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
+                    agent_step_count += 1
+                    child_handoff = _agent_child_runtime_handoff(agent_step)
+                    if child_handoff.get("child_job_id"):
+                        previous_job_id = str(child_handoff.get("child_job_id") or "")
+                    if child_handoff.get("failed"):
+                        stopped_early = True
+                        break
+                    pending_agent_runtime = child_handoff if child_handoff.get("pending") else {}
+                    if step_result.output_key and step_result.output_key in run_context.outputs:
+                        accumulated_outputs[step_result.output_key] = run_context.outputs[step_result.output_key]
+                        previous_step_output = {
+                            "output_key": step_result.output_key,
+                            "node_id": str(node.get("id") or "").strip(),
+                            "node_kind": str(node.get("kind") or "").strip(),
+                            "produced": True,
+                            "status": "ready",
+                            **(
+                                run_context.outputs[step_result.output_key]
+                                if isinstance(run_context.outputs[step_result.output_key], dict)
+                                else {"value": run_context.outputs[step_result.output_key]}
+                            ),
+                        }
+                    current_workspace = callbacks.refresh_workspace()
+                    continue
                 run_steps.append(agent_step)
                 if run_id and callbacks.record_run_steps:
                     callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
                 agent_step_count += 1
-                child_handoff = _agent_child_runtime_handoff(agent_step)
-                if child_handoff.get("child_job_id"):
-                    previous_job_id = str(child_handoff.get("child_job_id") or "")
-                if child_handoff.get("failed"):
-                    stopped_early = True
-                    break
-                pending_agent_runtime = child_handoff if child_handoff.get("pending") else {}
-                if step_result.output_key and step_result.output_key in run_context.outputs:
-                    accumulated_outputs[step_result.output_key] = run_context.outputs[step_result.output_key]
-                    previous_step_output = {
-                        "output_key": step_result.output_key,
-                        "node_id": str(node.get("id") or "").strip(),
-                        "node_kind": str(node.get("kind") or "").strip(),
-                        "produced": True,
-                        "status": "ready",
-                        **(
-                            run_context.outputs[step_result.output_key]
-                            if isinstance(run_context.outputs[step_result.output_key], dict)
-                            else {"value": run_context.outputs[step_result.output_key]}
-                        ),
-                    }
-                current_workspace = callbacks.refresh_workspace()
-                continue
-            run_steps.append(agent_step)
+                stopped_early = True
+                break
+            payload = callbacks.build_job_payload(
+                current_workspace,
+                node,
+                previous_job_id=previous_job_id,
+                automation=automation,
+            )
+            payload["wait_for_idle"] = True
+            metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+            metadata["workflow_index"] = index
+            if run_id:
+                metadata["execution_run_id"] = run_id
+                metadata["step_index"] = index
+            if until_node_id:
+                metadata["workflow_phase"] = "run_to_node"
+                metadata["workflow_until_node_id"] = until_node_id
+                metadata["workflow_until_node_title"] = str((target_node or {}).get("title") or "").strip()
+                metadata["workflow_until_node_kind"] = str((target_node or {}).get("kind") or "").strip()
+            payload["metadata"] = metadata
+            job = callbacks.create_job(payload)
+            jobs.append(job)
+            run_steps.append(callbacks.step_from_job(job, index))
             if run_id and callbacks.record_run_steps:
                 callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
-            agent_step_count += 1
-            stopped_early = True
-            break
-        if mode == "skip":
-            continue
-        if pending_agent_runtime and not previous_job_id:
-            stopped_early = True
-            break
-        payload = callbacks.build_job_payload(
-            current_workspace,
-            node,
-            previous_job_id=previous_job_id,
-            automation=automation,
-        )
-        payload["wait_for_idle"] = True
-        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
-        metadata["workflow_index"] = index
-        if run_id:
-            metadata["execution_run_id"] = run_id
-            metadata["step_index"] = len(run_steps)
-        if until_node_id:
-            metadata["workflow_phase"] = "run_to_node"
-            metadata["workflow_until_node_id"] = until_node_id
-            metadata["workflow_until_node_title"] = str((target_node or {}).get("title") or "").strip()
-            metadata["workflow_until_node_kind"] = str((target_node or {}).get("kind") or "").strip()
-        payload["metadata"] = metadata
-        job = callbacks.create_job(payload)
-        jobs.append(job)
-        run_steps.append(callbacks.step_from_job(job, len(run_steps)))
-        if run_id and callbacks.record_run_steps:
-            callbacks.record_run_steps(run_id, copy.deepcopy(run_steps), copy.deepcopy(jobs))
-        previous_job_id = str(job.get("id") or "")
-        pending_agent_runtime = {}
+            previous_job_id = str(job.get("id") or "")
+            pending_agent_runtime = {}
+        except Exception as exc:
+            if callbacks.on_step_error:
+                callbacks.on_step_error(node, index, exc)
+            raise
 
     return WorkflowRunResult(
         jobs=jobs,

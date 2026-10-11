@@ -540,12 +540,13 @@ def derive_workspace_reproduction_manifest(
             "node_id": run_node_id,
         }
     ready_to_execute = bundle_status == "ready" and str(run_plan.get("status") or "") == "ready"
+    target_gpu_index = "none" if gpu_policy.lower() in {"cpu", "none", "no_gpu"} else recommended_gpu_index or "auto"
     bundle_target = {
         "mode": intent["mode"],
         "label": intent["label"],
         "workspace_dir": workspace_dir,
         "server_id": recommended_server_id,
-        "gpu_index": recommended_gpu_index or "auto",
+        "gpu_index": target_gpu_index,
         "gpu_policy": gpu_policy,
         "env_name": str(env.get("name") or "").strip(),
         "env_manager": str(env.get("manager") or "").strip() or "conda",
@@ -626,7 +627,7 @@ def derive_workspace_reproduction_manifest(
         "target.gpu_index": {
             "source": "scheduler.selected.gpu_index",
             "status": str(selected_scheduler.get("status") or scheduler_for_package.get("status") or "draft").strip(),
-            "value": recommended_gpu_index or "auto",
+            "value": target_gpu_index,
             "policy": gpu_policy,
             "min_free_memory_gib": str(run_config.get("min_free_memory_gib") or gpu_config.get("min_free_memory_gib") or "").strip(),
         },

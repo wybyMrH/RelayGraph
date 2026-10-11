@@ -42,6 +42,7 @@ class AppConfig:
     remote_timeout_seconds: int = 6
     idle_min_free_mib: int = 1024
     idle_max_gpu_util: int = 10
+    execution_db_path: str = ""
     servers: list[ServerConfig] = field(default_factory=list)
 
 
@@ -136,6 +137,8 @@ def load_config(path: Path) -> AppConfig:
         remote_timeout_seconds=safe_int(app.get("remote_timeout_seconds"), 6),
         idle_min_free_mib=safe_int(app.get("idle_min_free_mib"), 1024),
         idle_max_gpu_util=safe_int(app.get("idle_max_gpu_util"), 10),
+        execution_db_path=str((path.parent / Path(str(app["execution_db_path"])).expanduser()).resolve())
+        if app.get("execution_db_path") else "",
     )
 
     seen: set[str] = set()

@@ -11,9 +11,10 @@ from .debug import DebugMixin
 from .nodes import NodesMixin
 from .agents import AgentsMixin
 from .workflow import WorkflowMixin
+from .workflow_records import WorkflowRecordsMixin
 from .chat import ChatMixin
 
-class WorkspacesMixin(CrudMixin, DefaultsMixin, RunsMixin, DiscoveryMixin, AutomationMixin, DebugMixin, NodesMixin, AgentsMixin, WorkflowMixin, ChatMixin):
+class WorkspacesMixin(CrudMixin, DefaultsMixin, RunsMixin, DiscoveryMixin, AutomationMixin, DebugMixin, NodesMixin, AgentsMixin, WorkflowMixin, WorkflowRecordsMixin, ChatMixin):
     """Composed workspace state mixin."""
 
 __all__ = ["WorkspacesMixin"]

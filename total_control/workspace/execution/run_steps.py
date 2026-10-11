@@ -209,6 +209,9 @@ def normalize_workspace_run_step(
     error = payload.get("error") if "error" in payload else current.get("error")
     return {
         "index": index,
+        "step_id": str(payload.get("step_id") or current.get("step_id") or ""),
+        "attempt_id": str(payload.get("attempt_id") or current.get("attempt_id") or ""),
+        "submission_state": str(payload.get("submission_state") or current.get("submission_state") or ""),
         "node_id": str(payload.get("node_id") or current.get("node_id") or "").strip(),
         "node_kind": str(payload.get("node_kind") or current.get("node_kind") or "").strip(),
         "node_title": str(payload.get("node_title") or current.get("node_title") or payload.get("node_kind") or current.get("node_kind") or "").strip(),

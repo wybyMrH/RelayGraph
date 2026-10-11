@@ -31,7 +31,7 @@ def derive_workspace_execution_run_status(steps: list[dict[str, Any]]) -> str:
         return "running"
     if any(status == "queued" for status in statuses):
         return "queued"
-    if all(status == "done" for status in statuses):
+    if all(status in {"done", "skipped"} for status in statuses):
         return "done"
     return "pending"
 
@@ -39,14 +39,16 @@ def derive_workspace_execution_run_status(steps: list[dict[str, Any]]) -> str:
 def derive_workspace_execution_run_progress(steps: list[dict[str, Any]]) -> dict[str, int]:
     total = len(steps)
     done = sum(1 for step in steps if str(step.get("status") or "") == "done")
+    skipped = sum(1 for step in steps if str(step.get("status") or "") == "skipped")
     stopped = sum(1 for step in steps if str(step.get("status") or "") == "stopped")
     failed = sum(1 for step in steps if str(step.get("status") or "") in {"failed", "blocked", "stopped"})
     running = sum(1 for step in steps if str(step.get("status") or "") == "running")
     queued = sum(1 for step in steps if str(step.get("status") or "") == "queued")
-    percent = int((done / total) * 100) if total else 0
+    percent = int(((done + skipped) / total) * 100) if total else 0
     return {
         "total": total,
         "done": done,
+        "skipped": skipped,
         "failed": failed,
         "stopped": stopped,
         "running": running,
@@ -79,11 +81,7 @@ def normalize_workspace_execution_run(
     ]
     steps.sort(key=lambda item: safe_int(item.get("index"), 0))
     status = str(payload.get("status") or current.get("status") or derive_workspace_execution_run_status(steps)).strip()
-    progress = payload.get("progress") if isinstance(payload.get("progress"), dict) else current.get("progress")
-    if not isinstance(progress, dict):
-        progress = derive_workspace_execution_run_progress(steps)
-    else:
-        progress = derive_workspace_execution_run_progress(steps)
+    progress = derive_workspace_execution_run_progress(steps)
     package_snapshot = payload.get("package_snapshot") if isinstance(payload.get("package_snapshot"), dict) else {}
     if not package_snapshot and isinstance(current.get("package_snapshot"), dict):
         package_snapshot = current.get("package_snapshot") or {}
@@ -109,6 +107,11 @@ def normalize_workspace_execution_run(
     created_at = str(payload.get("created_at") or current.get("created_at") or now_iso()).strip() or now_iso()
     return {
         "id": run_id,
+        "execution_plan": copy.deepcopy(payload.get("execution_plan", current.get("execution_plan", {}))),
+        "plan_hash": str(payload.get("plan_hash") or current.get("plan_hash") or ""),
+        "attempts": copy.deepcopy(payload.get("attempts", current.get("attempts", []))),
+        "submissions": copy.deepcopy(payload.get("submissions", current.get("submissions", []))),
+        "submission_error": str(payload.get("submission_error", current.get("submission_error", ""))),
         "workspace_id": workspace_id,
         "kind": kind,
         "status": status,
@@ -147,7 +150,9 @@ def normalize_workspace_execution_runs(
         if isinstance(item, dict)
     ]
     runs.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("id") or "")), reverse=True)
-    return runs[: max(limit, 1)]
+    visible = runs[: max(limit, 1)]
+    # Ledger plans/receipts are retained until an explicit transactional retention policy exists.
+    return [*visible, *(run for run in runs[max(limit, 1):] if run.get("plan_hash"))]
 
 
 def workspace_execution_run_sort_key(run: dict[str, Any]) -> tuple[str, str]:

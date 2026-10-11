@@ -251,6 +251,10 @@ class RunsMixin:
         changed_jobs: list[dict[str, Any]] = []
         previous_run: dict[str, Any] = {}
         updated_run: dict[str, Any] = {}
+        managed = run_id in self.execution_store.run_ids(workspace_id)
+        if managed:
+            self.record_workflow_steps(run_id, incoming_steps)
+            self.execution_store.update_record(run_id, summary=summary, package_snapshot=package_snapshot)
         with self.lock:
             workspace_index = next(
                 (idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id),
@@ -259,6 +263,9 @@ class RunsMixin:
             if workspace_index < 0:
                 raise ValueError("workspace not found")
             workspace = self.workspaces[workspace_index]
+            if managed:
+                self.refresh_workflow_records(workspace)
+                incoming_steps = next(item for item in workspace["runs"] if item["id"] == run_id)["steps"]
             runs = normalize_workspace_execution_runs(workspace.get("runs"))
             run_index = next((idx for idx, item in enumerate(runs) if str(item.get("id") or "") == run_id), -1)
             if run_index < 0:

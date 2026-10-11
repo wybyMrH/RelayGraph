@@ -48,6 +48,7 @@ class MonitoringMixin:
 
 
     def workspace_public_payload(self, workspace: dict[str, Any]) -> dict[str, Any]:
+        self.refresh_workflow_records(workspace)
         jobs = getattr(self, "jobs", [])
         payload = apply_workspace_job_runtime(clean_workspace_placeholder_config_values(workspace), jobs)
         payload["runs"] = workspace_execution_runs_public(workspace.get("runs"), jobs)

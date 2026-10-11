@@ -7,6 +7,7 @@ from typing import Any
 from ..infra.shell import check_transfer_conflicts
 from ..utils import public_job_payload, safe_int
 from ..workspace.errors import WorkspaceWorkflowReadinessError
+from ..orchestration.run_store import RunConflictError
 from .path_utils import single_segment_path_id
 
 
@@ -305,6 +306,8 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         try:
             result = state.run_workspace_workflow(workspace_id, handler.read_body())
             handler.send_json(_public_job_response(result), HTTPStatus.CREATED)
+        except RunConflictError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
         except WorkspaceWorkflowReadinessError as exc:
             handler.send_json(
                 {

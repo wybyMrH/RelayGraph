@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 from ..registry_pkg.provider_profiles import provider_profile_health
+from ...orchestration.run_store import content_hash
 
 
 def _workspace_env_prepare_failure_checks(execution: dict[str, Any]) -> list[dict[str, Any]]:
@@ -188,6 +189,7 @@ class WorkflowMixin:
         self,
         workspace_id: str,
         automation: dict[str, Any] | None = None,
+        run_id: str = "",
     ) -> WorkflowRunnerCallbacks:
         workspace_id = str(workspace_id or "").strip()
         automation_snapshot = automation if isinstance(automation, dict) else {}
@@ -219,7 +221,7 @@ class WorkflowMixin:
             )
 
         def create_workspace_job(payload: dict[str, Any]) -> dict[str, Any]:
-            return self.create_job(payload, publish_events=False)
+            return self.submit_workflow_job(payload) if run_id else self.create_job(payload, publish_events=False)
 
         def record_run_steps(
             run_id: str,
@@ -242,12 +244,21 @@ class WorkflowMixin:
             step_from_agent=workspace_run_step_from_agent,
             executable_node_kinds=WORKSPACE_EXECUTABLE_NODE_KINDS,
             record_run_steps=record_run_steps,
+            on_step_start=(lambda node, index: self.begin_workflow_step(run_id, node, index)) if run_id else None,
+            on_step_error=(lambda node, index, error: self.fail_workflow_step(run_id, node, index, error)) if run_id else None,
         )
 
 
     def run_workspace_workflow(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         requested_payload = payload if isinstance(payload, dict) else {}
+        request_id = requested_payload.get("request_id", "")
+        if not isinstance(request_id, str) or (request_id and not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", request_id)):
+            raise ValueError("request_id must be a safe nonempty identifier of at most 128 characters")
+        request_hash = content_hash({key: value for key, value in requested_payload.items() if key != "request_id"})
+        previous_run_id = self.execution_store.find_request(workspace_id, request_id, request_hash)
+        if previous_run_id:
+            return self.replay_workflow_response(workspace_id, previous_run_id)
         force = bool(requested_payload.get("force") or False)
         until_node_id = str(requested_payload.get("until_node_id") or requested_payload.get("target_node_id") or "").strip()
         auto_apply_raw = requested_payload.get("auto_apply", requested_payload.get("apply_defaults", True))
@@ -441,44 +452,31 @@ class WorkflowMixin:
                 "target_node_title": str((target_node or {}).get("title") or "").strip(),
                 "target_node_kind": str((target_node or {}).get("kind") or "").strip(),
             }
-        run = self.register_workspace_execution_run(
-            workspace_id,
-            kind="reproduction",
-            trigger="user",
-            summary=run_summary,
-            steps=[],
-            package_snapshot=initial_package,
+        run, created = self.register_planned_workflow_run(
+            workspace, nodes, planned_modes, initial_package,
+            request_id=request_id, request_hash=request_hash, summary=run_summary, executor_prefer=executor_prefer,
         )
         run_id = str(run.get("id") or "").strip()
-        workflow_runner = WorkflowRunner(self.workflow_runner_callbacks(workspace_id, automation))
+        if not created:
+            return self.replay_workflow_response(workspace_id, run_id)
+        workflow_runner = WorkflowRunner(self.workflow_runner_callbacks(workspace_id, automation, run_id))
         try:
-            sequence_result = workflow_runner.run(
-                workspace_id,
-                nodes,
-                workspace,
-                executor_prefer=executor_prefer,
-                automation=automation,
-                until_node_id=until_node_id,
-                target_node=target_node,
-                run_id=run_id,
-            )
+            with self.execution_store.run_lock(run_id):
+                sequence_result = workflow_runner.run(
+                    workspace_id,
+                    nodes,
+                    workspace,
+                    executor_prefer=executor_prefer,
+                    automation=automation,
+                    until_node_id=until_node_id,
+                    target_node=target_node,
+                    run_id=run_id,
+                )
         except Exception as exc:
-            failed_step = normalize_workspace_run_step(
-                {
-                    "index": 0,
-                    "node_id": "",
-                    "node_kind": "workflow",
-                    "node_title": "工作流提交",
-                    "executor": "system",
-                    "status": "failed",
-                    "completed_at": now_iso(),
-                    "error": str(exc),
-                }
-            )
+            self.execution_store.fail_run(run_id, str(exc))
             self.update_workspace_execution_run_steps(
                 workspace_id,
                 run_id,
-                steps=[failed_step],
                 package_snapshot=initial_package,
             )
             raise
@@ -487,22 +485,10 @@ class WorkflowMixin:
         agent_step_count = sequence_result.agent_step_count
 
         if not run_steps:
-            failed_step = normalize_workspace_run_step(
-                {
-                    "index": 0,
-                    "node_id": "",
-                    "node_kind": "workflow",
-                    "node_title": "工作流提交",
-                    "executor": "system",
-                    "status": "failed",
-                    "completed_at": now_iso(),
-                    "error": "workspace has no runnable steps",
-                }
-            )
+            self.execution_store.fail_run(run_id, "workspace has no runnable steps")
             self.update_workspace_execution_run_steps(
                 workspace_id,
                 run_id,
-                steps=[failed_step],
                 package_snapshot=initial_package,
             )
             raise ValueError("workspace has no runnable steps")
