@@ -1,0 +1,6 @@
+# N01 本地验证配置；复制为 config/workflow-poc.local.toml 后使用。
+# 本阶段不调用供应商，不需要 API key；不要在本文件填写真实密钥。
+[poc]
+engine = "langgraph"
+state_dir = "dev_work/n01/state"
+worker_delay_seconds = 0.1

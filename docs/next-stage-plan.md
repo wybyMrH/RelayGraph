@@ -1,6 +1,6 @@
 # 第三部分：下一阶段计划、技术复用与消融验证
 
-计划日期：2026-10-11。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理与 N00D 原有业务改动整合；其余代码切片均为待实施，不能把“写入计划”标成已完成。
+计划日期：2026-10-11。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合与 N01 本地选型验证；其余生产代码切片均为待实施，不能把“写入计划”标成已完成。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -8,7 +8,7 @@
 
 不做“整仓重构再补功能”，也不把 22 个问题塞进一个 PR。每次选择下表一个切片，交付一个可观察行为与对应删除/保留判断；不得顺手加入后续切片。对规模较大的切片，再按列出的子边界拆开。
 
-N00C 已完成有证据的清理，N00D 已整合此前未提交的任务/传输/输出修复，范围见第二部分；新增测试脚本和执行结果按用户要求仅保存在本地。接下来建议做 **N01 的执行引擎验证与决策**；它只解决选型和替换边界，先避免修完自制 runner 又改一次 LangGraph。若现有失败测试妨碍基线，在独立 N00B 修文件浏览，不能混进工作流迁移。N00A 依赖声明也单独交付。
+N00C/N00D 已完成清理和原有改动整合；**N01 已完成本机验证并选定 LangGraph core + SQLite checkpointer**，结论与接入边界见 2.4。下一轮只执行 **N02：完整计划与提交记录**。N00A 依赖声明、N00B 文件浏览容错可以独立交付；现有 G07 没有因测试被移出远端而消失，不混进工作流迁移。测试脚本和执行结果按用户要求只保存在本地。
 
 核心推进在 N02–N04；N05–N07 补控制与交付；N08–N10 扩到目标机器、GPU 与传输。每一步都沿用同一计划/attempt/外部任务接口，不另造并行路径。
 
@@ -16,16 +16,16 @@ N00C 已完成有证据的清理，N00D 已整合此前未提交的任务/传输
 
 ### 2.1 已查阅的开源与官方资料
 
-检索日期：2026-10-11，使用 Firecrawl 查询 GitHub 与官方文档。资料说明上游能力，不构成本仓库集成成功证明。本轮未安装这些库，未修改应用依赖，未执行它们的 PoC。正式采用时锁定实际版本、对应许可与兼容 Python 范围；不以仓库星数代替验证。
+检索日期：2026-10-11，使用 Firecrawl 查询 GitHub 与官方文档。资料说明上游能力，不构成本仓库集成成功证明。最初审查只评估候选；随后 N01 在隔离虚拟环境安装并验证 LangGraph 与 SQLite checkpointer，正式应用尚未引入这些依赖。LiteLLM 仍未做 PoC。正式采用时锁定实际版本、对应许可与兼容 Python 范围；不以仓库星数代替验证。
 
 | 候选 | 能解决什么 | 不能替项目解决什么 | 本阶段判断 |
 | --- | --- | --- | --- |
-| [LangGraph](https://github.com/langchain-ai/langgraph) core + 持久 checkpointer | 图状态、等待/恢复、检查点、节点失败处理 | SSH/tmux Job 的事实核对、GPU 预留、外部副作用幂等、artifact 实物校验 | 优先做 N01 最小 PoC；通过后作为唯一工作流推进器，非直接全量迁移 |
+| [LangGraph](https://github.com/langchain-ai/langgraph) core + 持久 checkpointer | 图状态、等待/恢复、检查点、节点失败处理 | SSH/tmux Job 的事实核对、GPU 预留、外部副作用幂等、artifact 实物校验 | N01 已完成本地评估，选为下一阶段唯一推进器；生产接入从 N02/N03 开始 |
 | [LiteLLM](https://github.com/BerriAI/litellm) Python SDK | 多供应商消息/响应规范、流式调用、受限重试/fallback | 项目 Profile 与密钥生命周期、工具权限、Agent 总预算、工作流状态 | N12 验证后替换 llm_client 协议层；先 SDK，不上完整 Proxy 平台 |
 | SQLite / Python sqlite3 | 本地事务、计划/attempt/外部引用、查询、迁移 | 外部进程与数据库之间的天然 exactly-once | 执行状态的轻量持久方案；配合幂等键/核对，不把所有 JSON 一次改成库 |
 | 现有 SSH、tmux、rsync、nvidia-smi | 远程连接、长任务、同步、GPU 采样 | 工作流生命周期与统一证据 | 继续复用；统一适配器和结果，不重写工具协议 |
 | TypedDict/dataclass；必要时 Pydantic | 领域结构与输入验证 | 业务完成语义、跨步骤正确性 | 先扩已有类型；若引入框架已有该依赖，再评估用在 API 边界，不为每个 dict 全面建模 |
-| pytest + 浏览器自动化 | 领域回归、模拟故障、实际 UI 流程 | 证明未实际运行的 SSH/Provider | 保留现有 pytest；浏览器 smoke 按核心场景合并，开发依赖与运行依赖分开 |
+| pytest + 浏览器自动化 | 领域回归、模拟故障、实际 UI 流程 | 证明未实际运行的 SSH/Provider | 继续用 pytest 做按切片生成的本地检查；浏览器 smoke 按核心场景组织，开发依赖与运行依赖分开 |
 | [OpenAI skills catalog](https://github.com/openai/skills) | 复用开发流程、资料查询、浏览器等可选技能 | 应用里的工具适配器或产品权限 | 先选具体任务所需 skill，检查其 SKILL.md 与逐技能许可，再安装；不是默认装整套 |
 
 LangGraph [持久化文档](https://docs.langchain.com/oss/python/langgraph/persistence)明确区分 checkpointer 与长期 store；内存 saver 不提供跨进程恢复，SQLite 等持久 saver 的具体包/API 要在 PoC 核实。[故障容错文档](https://docs.langchain.com/oss/python/langgraph/fault-tolerance)包含 retry、timeout、error handler，也有版本前提（所查文档对节点 timeout/error handler 要求 >=1.2）。不能只复制示例后承诺旧版具备同样能力。
@@ -42,7 +42,7 @@ Temporal、Celery/Redis、Ray、完整 LiteLLM Proxy、Kubernetes、多租户身
 
 ### 2.3 两项选型的通过条件
 
-**LangGraph PoC** 只使用 fake Job registry 与小型持久存储，验证 submit → wait → external completion → resume → report；等待期间退出/重启；重复完成通知；提交后保存前崩溃的核对；前置失败阻止下游。关键指标是外部 Job 启动次数、已恢复步骤、状态/证据一致性，而不是代码能 import。
+**LangGraph PoC 的验收范围**使用 fake Job registry 与小型持久存储，验证 submit → wait → external completion → resume → report；等待期间退出/重启；重复完成通知；提交后保存前崩溃的核对；前置失败阻止下游。关键指标是外部 Job 启动次数、已恢复步骤、状态/证据一致性，而不是代码能 import。
 
 必须明确 LangGraph thread/checkpoint 与项目 run/attempt 的映射；UI run 是可查询领域投影，不能另有一套自行推进的 FSM。框架重放可能再次进入节点，外部提交放在幂等适配器后。项目仍保留一套 Job 队列，LangGraph 不负责直接执行 shell。
 
@@ -51,6 +51,64 @@ Temporal、Celery/Redis、Ray、完整 LiteLLM Proxy、Kubernetes、多租户身
 **LiteLLM PoC** 使用受控 OpenAI-compatible endpoint，加上可用时的真实 Profile，核对普通/流式、无密钥本地模型、Anthropic 格式、工具参数、结构化输出、usage、429/5xx、部分流失败、deadline、取消与脱敏。真实供应商缺配置时对应格子是未验证，不准拿 fake endpoint 全绿代替。
 
 替换后 LLMClient 可以暂做薄兼容门面，但旧请求/解析实现必须退出主路径。禁止在 Agent、SDK 和 HTTP adapter 三层同时重试。自动跨供应商 fallback 默认关闭，启用时明确目标、数据边界和预算。
+
+### 2.4 N01 决策：LangGraph core + 本地 SQLite 持久检查点
+
+**决定**：后续工作流推进采用 LangGraph core；本机使用 SqliteSaver。保留项目现有 Job 生命周期与队列，通过幂等适配器连接协调器。N01 样机不被正式服务导入，没有改变公开 API、前端、生产任务启动或现有 Provider 密钥存储。
+
+对照的轻量 SQLite 状态机也能完成本轮最小链。LangGraph 并没有让两节点样机代码更少，且增加了 SDK、序列化、Pydantic 等间接依赖。采用它的依据是第一部分已明确需要多步骤/Agent 子任务等待、节点失败恢复和可追溯推进，原生节点检查点与 interrupt/resume 可以复用，避免在领域代码再长期维护通用恢复游标。SQLite 对照只留在本地作为取舍依据，不做第二条生产路径，也不据此宣称轻量方案无法实现这些能力。
+
+**实际核对的组件**：LangGraph 1.2.7、langgraph-checkpoint-sqlite 3.1.1、langgraph-checkpoint 4.2.0，使用同步 invoke 与 durability="sync"；本机 Python 3.13.5、SQLite 3.45.3。前三项发行元数据的许可为 MIT、Python 要求 >=3.10；项目仍以 3.11+ 为目标，3.11/3.12 尚未做本轮运行验证。SQLite saver 还引入 sqlite-vec 等间接依赖，具体版本清单和许可元数据保存在本地锁文件；正式应用依赖归 N00A 统一声明，不能用 PoC 环境代替部署清单。
+
+本地样机已运行一个固定 CPU 命令写 result.json，再由确定性 Agent 替身读取当前任务结果生成 Fixture 汇总；不使用 GPU、SSH、模型密钥或外部 tracing。任务服务和工作流使用不同 SQLite 文件，工作流动作可跨新进程继续。验证涵盖等待/恢复、通知重复或丢失、提交/汇总后的硬退出、任务失败/停止、身份冲突、旧输出拒绝与损坏检查点。原始执行结果、脚本与截图不进入远端；可复现实验保存在本地 dev_work/n01/。
+
+**需要保留的事实边界**：
+
+- SqliteSaver 保存的是图状态和节点恢复位置，不是 SSH/tmux 的执行事实。暂停节点恢复时会从节点开头重新进入，暂停前不得藏不可重放副作用。
+- fake registry 的唯一键与事务才提供样机的提交去重。现有 create_job 每次生成新 ID，没有同等的持久提交键契约；N02/N03 必须补上，不能直接把它塞进可重放节点。
+- 同一 run 的 resume 必须串行化，N02 定义 lease/版本条件。不能从串行重复通知的验证外推为多个协调器并发恢复已经安全。
+- 节点检查点与外部提交之间没有共享事务。先保存提交意图，再提交/核对；事实不明时停在 reconciling，禁止盲目重试。
+- 样机的 Agent 是可幂等缓存的确定性替身，不证明真实模型请求只调用一次，也不替代 N05 总预算、N07 正文保存和交付校验。
+- 本地 CPU worker 是串行验证工具，不是生产守护器；worker 本身崩溃后需核对 running 任务，不能凭工作流恢复再次启动它。
+
+**配置与运行方式**：可分享的参数模板为 config/workflow-poc.example.toml，本机修改放 config/workflow-poc.local.toml。只接受 engine、state_dir、worker_delay_seconds；状态目录限制在 dev_work/n01/，不读个人 data/。本轮没有需要填写的 API key。config/ 默认忽略本地配置与凭据，只允许公开模板和 servers.toml 入库。现有 data/ 中的加密 Provider key 与主密钥尚未迁移；统一到 config/ 的兼容迁移列为 N00E，不能在这里宣称已经完成。
+
+本机使用命令如下（脚本和锁文件为本地交付，不随 Git 分发）：
+
+```bash
+# 本地环境已准备好；重新创建时使用本地 requirements.lock.txt 安装。
+dev_work/n01/.venv/bin/python dev_work/n01/cli.py demo
+# 分步动作：start → work → resume → inspect；均可在新进程执行。
+dev_work/n01/.venv/bin/python dev_work/n01/cli.py --run manual start
+```
+
+本地锁文件目前针对本机 Linux/WSL + Python 3.13；正式采用时补齐受支持环境验证。demo 默认每次生成新的 run_id，实际执行新的 CPU 任务；分步恢复使用原来的 run_id，不能改变原始计划或输入。PoC 的 summary 是流程验证产物，正式工作台的报告正文仍由 N07 交付。
+
+**N02 接口草案**（先确定字段与责任，再写生产实现）：
+
+| 契约 | 输入/保存内容 | 输出与限制 |
+| --- | --- | --- |
+| RunPlan | run_id、workspace_id、package/version、不可变计划及 hash、全部 step_id、engine_version | 首个副作用前计划可查；进度分母始终为完整计划 |
+| StepAttempt | run_id、step_id、attempt_id、输入来源、状态、错误、输出引用 | 重试追加 attempt，不覆盖旧记录；输出绑定本次 attempt |
+| SubmissionIntent | 稳定 submit_key、payload_hash、目标主机/执行方式、attempt_id | 先持久记录意图；相同键不同载荷是冲突，不能静默复用 |
+| JobAdapter | submit(intent)、lookup(submit_key)、observe(job_ref) | 返回外部引用或需核对状态；queued/running 不产生完成输出 |
+| Coordinator | start(run_id)、resume(run_id, wakeup_hint)、读取权威 checkpoint | thread_id 对应 run_id；checkpoint_id 仅是内部恢复版本，不拿来当新的任务幂等键 |
+| RunProjection | 完整计划/attempt 账本、checkpoint、已核对外部事实 | 对外 run/step/revision；只读投影，不自行推进或启动任务 |
+
+LangGraph checkpoint 是推进位置的权威；领域 SQLite 记录计划、attempt、提交意图、外部引用与证据；二者按职责分工，JSON/UI/SSE 不再各自推进。完成通知只唤醒协调器，结果仍由 JobAdapter 核对。持久副作用键至少包含 run_id/step_id/attempt_id/operation，重放复用本次键，显式重试才产生新 attempt。
+
+**旧代码去向**：
+
+| 旧入口/职责 | 决定与退出条件 |
+| --- | --- |
+| orchestration/workflow_runner.py 的同步 for 循环与 pending_agent_runtime | 生产接入前暂保留；N03 切换顺序执行主入口时退出对应推进路径，不能和新引擎推进同一个 run |
+| state/workspaces/workflow.py | 保留 HTTP/状态服务入口、门禁、执行包快照；逐步转为提交完整计划与唤醒协调器 |
+| state/jobs_pkg 与 scheduler.py | 保留唯一 Job 生命周期/资源队列；增加稳定提交键核对接口，完成事实交给协调器消费 |
+| cockpit/fsm.py 与 automation/advance.py | 保留操作建议/就绪投影；不能因 UI 按钮或 next_action 独立推进已经托管的 run |
+| state/workspaces/runs.py 与 execution/run_* | 保留查询、兼容响应和证据展示边界；运行事实改读权威账本，历史 JSON 兼容读取不充当新游标 |
+| 本地 SQLite 对照状态机 | 只保留实验依据；不进入 total_control/ 或生产依赖 |
+
+N02 只落实完整计划、attempt/提交账本和领域存储接口，保持公开响应兼容；N03 才接入等待/恢复主路径并退出旧推进职责。任何阶段都不允许同一个 run 被两套推进器同时驱动。N01 选型完成不等于 G01/G02/G09 已修复。
 
 ## 3. 按功能划分的实施切片
 
@@ -61,8 +119,9 @@ Temporal、Celery/Redis、Ray、完整 LiteLLM Proxy、Kubernetes、多租户身
 | N00C · 清理基线（已完成） | 收敛文档，移除遮蔽文件/无消费者方法/相同取值副本 | G10/G16/G22；R05/R09/R14 | 已完成本切片的调用核对与消融验证 | 三部分与 AGENTS；取值等价对照；隔离提交验证，详见第二部分；未关闭原功能缺口 |
 | N00D · 原有改动整合（已完成） | 整合任务停止、失败日志、SSH 端口和输出呈现修复 | R07/R08/R11/R12 | 用户授权整合已有改动 | 修正权限/截断边界，复用原组件；测试脚本和执行结果仅本地保存 |
 | N00A · 部署基线 | 最小依赖声明与干净环境启动 | G08；R14 | 无 | 安装清单、启动验证，文档与真实依赖一致 |
+| N00E · 凭据配置归位 | 把 Provider 私密配置与主密钥归入 config，并兼容旧数据 | G09；R13 | 独立迁移，不阻塞无密钥 PoC | 不丢现有密钥；路径/加密与历史兼容明确；仅模板入库 |
 | N00B · 浏览根容错 | 一块坏盘不阻断其他目录 | G07；R04 | 无 | 模拟 stat/iterdir 失败测试与正常浏览 |
-| N01 · 推进器选型 | 决定唯一工作流引擎与存储映射 | G01/G02/G09；R06 | 当前审查 | 最小 PoC 结果、决策与旧路径退出清单 |
+| N01 · 推进器选型（已完成） | LangGraph core + SQLite 持久检查点；明确领域接口和替换边界 | G01/G02/G09；R06 | 本地评估已完成 | 决策见 2.4；样机与结果仅本地，生产缺口仍开放 |
 | N02 · 完整计划与提交记录 | 运行开始前留计划，中途异常不丢历史 | G03/G09；R06/R11 | N01 | 可查询计划、attempt、提交意图/外部引用与追加失败 |
 | N03 · Job → Agent | 本地 CPU Job 成功后才运行报告 Agent | G01；R06/R09 | N02 | 等待/失败/重启/重复通知测试，一条真实本地链 |
 | N04 · Agent 子任务续跑 | 子任务完成后恢复后续 Agent | G02；R06 | N03 | child Job 后续跑、正确分母、幂等与恢复 |
@@ -87,17 +146,17 @@ N11B 只修正能力目录与消费者的真实语义，不要求把每个建议
 
 ## 4. 近期切片的具体交接要求
 
-### N01：唯一推进器的最小验证
+### N01：唯一推进器的最小验证（已完成，决策见 2.4）
 
-只允许新增本地 PoC、对照记录和选型结论；不修改公开 API、业务 Job 启动方式、模板编辑或前端。用同一组执行契约记录两方案结果，测重启前后 Job 启动计数。第三方包的额外依赖、持久 saver、许可、最低版本、升级方式和调试入口一并记录。
+本切片范围只允许新增本地 PoC、对照记录和选型结论；不修改公开 API、业务 Job 启动方式、模板编辑或前端。用同一组执行契约记录两方案结果，测重启前后 Job 启动计数。第三方包的额外依赖、持久 saver、许可、最低版本、升级方式和调试入口一并记录。
 
 完成条件是一个明确采用/暂缓决定、领域接口草案、旧 runner/FSM 的职责去向和 N02 范围。失败也可以是有效结论，但必须指出具体阻碍，不以“不想引入依赖”代替比较。没有结论就不开始长期维护另一个 runner。
 
 ### N02：运行计划和提交证据
 
-围绕 run 的创建/提交生命周期修改 orchestration/types、workflow 状态服务和执行存储适配。先让整条计划可查，StepAttempt 可追加，任务提交有幂等键与意图记录；提交失败保留已产生步骤。历史 JSON 只提供兼容读取/一次性导入边界，不重写模板和 Provider 存储。
+沿 2.4 的 RunPlan/StepAttempt/SubmissionIntent 契约，围绕 run 的创建/提交生命周期修改 orchestration/types、workflow 状态服务和执行存储适配。先让整条计划可查，StepAttempt 可追加，任务提交有幂等键与意图记录；提交失败保留已产生步骤。历史 JSON 只提供兼容读取/一次性导入边界，不重写模板和 Provider 存储。
 
-测试重点：空计划拒绝；完整计划先于副作用；第二步失败后第一步还在；进度分母不缩小；重发启动命令不重复建 Job；坏记录明确报错不覆盖为空。这个切片不实现所有等待类型，只给 N03/N04 稳定接口。
+测试重点：空计划拒绝；完整计划先于副作用；第二步失败后第一步还在；进度分母不缩小；重发启动命令不重复建 Job；坏记录明确报错不覆盖为空。这个切片不实现所有等待类型，只给 N03/N04 稳定接口。同一 run 的恢复互斥、计划 hash 冲突、提交意图与外部引用的核对状态必须有明确约束，不留给后续再推翻数据模型。
 
 ### N03：本地 Job 完成后的 Agent
 
@@ -137,11 +196,9 @@ N00C 已消除相同的 context_ref 取值函数；尚未统一引用规则。�
 
 ## 6. 测试和旧资料的收敛方案
 
-本次保留 24 个正式测试文件和 1 个用户本地新增测试：逐文件审查没有证明哪份整文件已无用，而且多份 phase 文件保存独有契约。后续按 N 切片迁移行为所有权，例如 execution-package、workflow-lifecycle、agent-lifecycle、provider-routing、artifact-delivery，而不是只改名制造整仓 diff。
+用户在 42960ac 清理提交中删除了远端 24 个历史测试文件，并将 tests/ 忽略；旧本地 smoke 也已清理。后续按功能实际生成需要的本地验证，脚本与执行结果不提交，不把“没有测试文件”写成回归通过。需要查旧安全断言时可从 Git 历史读取，不能把原有失败用例的删除当成问题解决。
 
-同一场景已经在更合适测试覆盖时，先列旧测试对应的新断言与差异，再删除重复项。共同 fixture 用统一隔离数据目录/假 Provider/假主机，禁止运行测试时读写个人 runtime 或依赖真实挂载。保留路径、密钥、公共 payload、幂等、退出码和证据保留门禁。
-
-40 个本地 smoke 按核心闭环归并：本地工作流、远程工作流、Provider/search、保留清理、配置中心和导航装配。单次 helper 抽取 smoke 在确认无独有场景后可以删除，不能在本轮仅凭文件名删除。
+确定性检查按 workflow-lifecycle、agent-lifecycle、provider-routing、artifact-delivery 等行为组织，共用隔离数据/假主机/受控 Provider。真实浏览器、SSH、GPU 和模型只在对应切片验证；未配置记未验证。N01 的样机和场景检查保存在本地 dev_work/n01/，不恢复一套固定 Phase 脚本到远端。
 
 旧正式文档的目标/功能/架构/开发/阶段/测试/路线信息已经归入三份主文档和 AGENTS.md。旧“Phase 完成”、历史 agent id、旧 web/app.js 命令等不再作为当前规则。原提交历史可由 Git 找回；本地旧计划的有效需求已提取后删除，复现报告作为本地证据保留但不参与规则优先级。
 

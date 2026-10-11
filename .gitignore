@@ -18,9 +18,10 @@ Thumbs.db
 .agents/
 .codex/
 
-# Secrets & user config
-config/secrets.toml
-config/user_servers.toml
+# Local configuration and credentials: only public defaults/templates are tracked.
+config/*
+!config/*.example.toml
+!config/servers.toml
 
 # Runtime data
 data/jobs.json

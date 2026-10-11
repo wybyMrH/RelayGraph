@@ -4,15 +4,15 @@
 
 ## 1. 范围、证据等级与结论
 
-本次提交维护 309 个正式代码文件的台账：166 个后端 Python、117 个前端 JavaScript、HTML/CSS 各 1 个、24 个测试文件；另审查 1 个用户本地新增测试和 40 个本地 smoke 脚本的职责与验收价值，并核对 3 份公开 registry JSON、3 份配置和 pytest.ini。忽略运行数据、密钥、缓存、第三方/生成产物，不读取 Provider 密钥。
+当前正式代码台账覆盖 285 个文件：166 个后端 Python、117 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
-审查时已有 paths、checks、transfer、Job execution、scheduler、app.js、index.html、styles.css、scheduler 测试和本地 tmux/transfer 测试等未提交改动。N00C 清理提交未纳入这些内容；随后按用户要求，在 N00D 核对并整合其中的业务与界面改动，修正停止进程的权限处理和失败快照的截断标记。测试脚本改动与执行结果仍只保存在本地，不纳入提交；已跟踪历史测试保持原样。
+N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型，样机与验证仅存在本地 dev_work/n01/。生产源码没有接入 LangGraph，G01/G02/G09 等功能缺口仍开放。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
-证据等级：E1=本轮运行/隔离复现；E2=具体源码路径确认；E3=设计风险，需后续实验；E4=需求能力尚未完成。类别为能力缺口、冗余/职责重叠、伪成功或语义误导、可靠性/安全风险。一个问题可以有多个类别。
+证据等级：E1=审查时已运行/隔离复现（历史复现不代表本轮重跑）；E2=具体源码路径确认；E3=设计风险，需后续实验；E4=需求能力尚未完成。类别为能力缺口、冗余/职责重叠、伪成功或语义误导、可靠性/安全风险。一个问题可以有多个类别。
 
-已有成果：监控、tmux Job、资源等待、rsync、浏览器终端、工作区与配置中心、受控 runtime 工具、输出校验、SSE、执行包、run/日志保留、模板诊断与迁移都有真实代码和测试。最大问题是“这些组件各自可用”尚未充分等于“异步工作流完整且可恢复”。
+已有成果：监控、tmux Job、资源等待、rsync、浏览器终端、工作区与配置中心、受控 runtime 工具、输出校验、SSE、执行包、run/日志保留、模板诊断与迁移都有真实代码，历史曾有相应用例。最大问题是“这些组件各自可用”尚未充分等于“异步工作流完整且可恢复”。
 
 优先级：P1=可导致错误执行、漏执行、证据丢失或控制失效；P2=正常操作受阻、结果误导、重要设计缺口；P3=后续体验/维护改进。未发现需紧急停用全项目的 P0 证据。
 
@@ -24,6 +24,7 @@
 - 对齐 R06/R09，类别：能力缺口、执行风险，证据 E1。
 - workflow_runner.py:89–106、147–171 提交 Job 后继续遍历，后续 Agent 没有等待 previous_job_id；Job 的本次输出也没有在此进入 previous_step_output。
 - 复现 run.command → eval.report(Agent)：Job 返回 queued 时报告 Agent 已被调用，previous_output=None。输入门禁可能改为阻塞，但仍不是等待后续跑。
+- N01 已选 LangGraph + SQLite checkpoint，正式协调器尚未接入，本问题保持开放。
 - 方案：协调器持久记录 waiting_on，在任务成功且本次输出可用后推进；失败/停止传播。不要往 HTTP 请求里加轮询 sleep。验收 Job → Agent、Job → Agent → Job，确认报告读取本次结果。
 
 <a id="g02"></a>
@@ -31,7 +32,8 @@
 
 - 对齐 R06，类别：能力缺口、伪完成，证据 E1/E2。
 - workflow_runner.py:93–95 遇到 pending_agent_runtime 后的 Agent 直接 break；WorkflowMixin 不消费 stopped_early，也不保存剩余节点游标。run_records.py:20–55 只以已有 steps 计算终态与分母。
-- 两个 Agent 的复现只留下第一个 step；子任务结束后按现有计算得到 done、1/1、100%，第二个 Agent 未运行。现有测试只证明阻止提前执行，未证明完成后的恢复。
+- 两个 Agent 的复现只留下第一个 step；子任务结束后按现有计算得到 done、1/1、100%，第二个 Agent 未运行。历史用例只证明阻止提前执行，未证明完成后的恢复。
+- N01 已确定 thread/run 与 checkpoint/恢复位置的边界；子任务生产续跑仍待 N04。
 - 方案：先冻结完整计划，再为每个节点记录等待/尝试；完成事件恢复推进。分别处理子 Job 与子 run，重复通知不重复启动，服务重启能恢复。
 
 <a id="g03"></a>
@@ -85,7 +87,8 @@
 
 - 对齐 R06/R11/R13，类别：恢复能力缺口、持久化风险，证据 E2/E3。
 - persistence.py 保存 jobs/workspaces 等独立 JSON；utils.write_json 可原子替换单文件，但不能对多文件与 tmux 副作用提供事务。read_json 在 JSON 损坏时返回默认值，可能把损坏误当首次初始化。agent_runtime.py 取消注册仅在内存。
-- 方案：选择单一执行状态权威（优先评估 LangGraph 持久 checkpoint + 薄领域存储），保存计划/attempt/幂等键；提交前记意图，提交后登记外部引用，重启核对。配置目录仍可 JSON。坏文件隔离与版本迁移另设小切片，不能一次迁移全部历史。
+- N01 已选择 LangGraph 持久 checkpoint + 领域 SQLite 账本；外部副作用幂等仍由项目适配器负责，未把样机的 fake registry 当成现有 create_job 已支持幂等。现有 Provider 密钥与主密钥仍在 data/，按用户配置目录要求的兼容迁移归 N00E。
+- 方案：落实已选的单一推进权威，保存计划/attempt/幂等键；提交前记意图，提交后登记外部引用，重启核对。配置目录仍可 JSON。坏文件隔离与版本迁移另设小切片，不能一次迁移全部历史。
 
 <a id="g10"></a>
 ### G10 · P2 · 同一输入引用和默认目录多处维护
@@ -177,17 +180,15 @@
 <a id="g22"></a>
 ### G22 · P2 · 测试与历史文档按阶段堆叠，核心缺口未形成验收门禁
 
-- 对齐全部需求，类别：验证缺口、维护冗余，证据 E1/E2。
-- 现有阶段测试包含大量有效安全与契约断言；文件长或 phase 名称不是删除理由。缺 G01–G06 的关键交接/失败验证，局部成功被用来代表整链完成。40 个本地 smoke 有真实验收价值，但依赖私有环境，部分与单次 helper 抽取绑定。
-- 方案：按行为迁移测试所有权，复用隔离 fixtures；重复测试只有在证明同一输入/行为/失败模式已被覆盖后删除。helper 装配测试可精简，但路径、脱敏、幂等、保留、退出码与执行转移必须保留。正式文档本轮收敛为三部分，旧本地计划退出规则来源。
+- 对齐全部需求，类别：验证缺口、历史维护冗余，证据 E1/E2。
+- 历史阶段测试和本地 smoke 已由用户清理；源码中的 G01–G06 关键交接缺口仍在。N01 有隔离引擎样机验证，但正式工作流尚未接入，不能作为生产生命周期已验收的证明。后续按切片生成本地验证，不能用没有脚本代替通过。
+- 方案：按行为迁移测试所有权，复用隔离 fixtures；重复测试只有在证明同一输入/行为/失败模式已被覆盖后删除。helper 装配测试可精简，但路径、脱敏、幂等、保留、退出码与执行转移必须保留。正式文档收敛为三部分，旧本地计划退出规则来源；被用户清理的脚本需要时从 Git 历史读取有效断言，不恢复无用阶段组织。
 
-## 3. 本轮验证与尚未验证的事
+## 3. 验证边界与阶段状态
 
-审查工作区基线（包含用户本地修改及新增测试）的 `python -m pytest -q`：255 passed、1 failed、80 warnings，约 52.78 秒；唯一失败是 G07 的失效挂载。Python compileall 通过；117 个 JS 全部 node --check 通过。HTML 的 117 个脚本引用均有对应文件、没有漏加载的正式 JS，组合根最后加载。语法/引用通过不证明 UI 流程正确。
+历史审查对 G01/G02/G04/G05/G06 做过隔离复现，G03 为源码确认；G07 的失效挂载问题仍未修复。旧测试被移出远端不改变这些问题的状态。本地原始调查结果与旧 smoke 已清理，不把历史运行声明当成本轮完成证明。
 
-N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total_control` 通过；`python -m pytest -q` 为 **252 passed、1 failed（42.84 秒）**。少 3 个通过用例是因为用户新增 tmux/transfer 测试未纳入提交，没有删除测试。唯一失败仍是同一文件浏览测试在 `/mnt/g` 遇到 Errno 19；恢复清理前代码后单独执行该用例也同样失败，确认是原有 G07。取值函数 135 组前后等价对照通过，automation 的 82 个公开导出名称保持一致。此轮没有前端变更，不重跑浏览器/远程 smoke。
-
-隔离复现涵盖 G01/G02/G04/G05/G06；G03 为源码确认。未调用真实 SSH、GPU、联网 Provider 或浏览器端到端；旧 smoke 记录只说明历史有过验证，不能当成本次通过。文档整理不重跑网络 smoke，也不因环境未配置删除它。
+N01 的场景检查、依赖锁文件、硬退出恢复记录和本地 CPU 实物演示保存在 dev_work/n01/，不上传脚本或执行结果。正式决策、接口草案和旧路径去向见第三部分 2.4。该样机不访问现有 data/、真实密钥、SSH、GPU 或联网 Provider；不证明生产 runner 已具备等待/恢复，也不证明真实模型请求可 exactly-once。
 
 ### N00C：本次有证据的清理
 
@@ -198,9 +199,9 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | LLMClient.simple_chat | 全仓代码、测试、smoke、文档只有定义；是 chat 的未使用包装 | Agent/Provider 继续调用 chat/chat_stream，不改变协议 |
 | TerminalsMixin.terminal_list | 全仓只有定义；HTTP 路由没有会话列表入口 | 保留现有会话打开、读写、信号和关闭 |
 | 两份 context_ref_value | 函数 AST 一致，字典/列表/缺失/空路径等 135 组输入结果和对象引用等价 | 唯一实现放 context_refs.py；旧导入名是别名，静态/运行时规则不在此轮改写 |
-| 正式测试、40 个本地 smoke、CSS 和其他门面 | 尚无等价替代或无消费者的充分证据 | 保留；不能把未执行的 UI/远程场景当成重复覆盖 |
+| CSS 和其他门面 | 尚无等价替代或无消费者的充分证据 | 保留；不按同名/短文件直接删除 |
 
-本切片只清理无消费者或完全相同的实现，不代表完成 G10/G16，也不提前实施 N01–N17。未删除失败测试，未调整失败断言或跳过条件。
+本切片只清理无消费者或完全相同的实现，不代表完成 G10/G16，也不提前实施 N01–N17。N00C 当时未删除失败测试或改变断言；后续用户清理测试不构成 G07 已修复的证据。
 
 ### N00D：原有任务、传输与输出改动整合
 
@@ -644,85 +645,9 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | [workspace_template_migration_actions.js](../web/workspace/workspace_template_migration_actions.js) · 174 | R02/R06/R09/R12；用户事件/注入依赖 → 模板迁移动作动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `selectedWorkspace:8`；`cachedDiff:12` |
 | [workspace_tool_catalog.js](../web/workspace/workspace_tool_catalog.js) · 93 | R02/R06/R09/R12；页面数据/注入依赖 → 实例工具分类/健康/副作用显示 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `workspaceToolById:22`；`workspaceToolLabel:26` |
 
-### tests
+### 本地验证与历史文件
 
-| 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
-| --- | --- | --- | --- |
-| [test_agent_output_persistence.py](../tests/test_agent_output_persistence.py) · 44 | R09/R10；隔离 fixture/假适配器 → 3 个行为用例 → 断言公开结果与失败边界 | 保留；补长正文/attempt 输出来源，保留输出持久化断言；关联 [G06](#g06)、[G09](#g09) | `test_agent_meta_persists_and_round_trips:12`；`test_job_step_has_empty_agent_meta:36` |
-| [test_agent_output_validation.py](../tests/test_agent_output_validation.py) · 198 | R09；隔离 fixture/假适配器 → 13 个行为用例 → 断言公开结果与失败边界 | 保留；保留 JSON/字段校验；补过期/取消后的成功禁止；关联 [G04](#g04)、[G10](#g10) | `_workspace:22`；`test_validate_accepts_valid_json:33` |
-| [test_agent_runtime_metadata.py](../tests/test_agent_runtime_metadata.py) · 86 | R09；隔离 fixture/假适配器 → 4 个行为用例 → 断言公开结果与失败边界 | 保留；保留嵌套 runtime 元数据兼容；新协议稳定后再收敛；关联 [G02](#g02)、[G11](#g11) | `test_tool_runtime_metadata_ignores_invalid_observation_payloads:8`；`test_tool_runtime_metadata_reads_existing_top_level_fields:14` |
-| [test_agent_timeout_cancel.py](../tests/test_agent_timeout_cancel.py) · 203 | R09；隔离 fixture/假适配器 → 9 个行为用例 → 断言公开结果与失败边界 | 保留；补最后调用返回后取消/超时与副作用前检查；关联 [G04](#g04) | `_FakeResp:20`；`_FakeClient:28` |
-| [test_agent_trace_and_run_filter.py](../tests/test_agent_trace_and_run_filter.py) · 319 | R09/R11；隔离 fixture/假适配器 → 8 个行为用例 → 断言公开结果与失败边界 | 保留；保留 trace/完整引用筛选；与相同过滤场景对照后再合并；关联 [G20](#g20) | `test_make_and_normalize_agent_trace_events:17`；`test_tool_observation_failed_flags_runtime_terminal_failures:41` |
-| [test_events.py](../tests/test_events.py) · 633 | R12；隔离 fixture/假适配器 → 18 个行为用例 → 断言公开结果与失败边界 | 保留；保留 SSE gap/回放；补重启/重复完成通知的领域恢复；关联 [G02](#g02)、[G09](#g09) | `test_broker_reports_gap_when_visible_workspace_event_was_evicted:25`；`test_broker_does_not_gap_for_only_unrelated_workspace_evictions:43` |
-| [test_file_browser_path_safety.py](../tests/test_file_browser_path_safety.py) · 52 | R04/R13；隔离 fixture/假适配器 → 4 个行为用例 → 断言公开结果与失败边界 | 保留；修正宿主挂载依赖，保留敏感路径/符号链接断言；关联 [G07](#g07) | `test_local_file_browser_filters_sensitive_entries:12`；`test_local_file_browser_blocks_sensitive_file_read:28` |
-| [test_handler.py](../tests/test_handler.py) · 49 | R12/R13；隔离 fixture/假适配器 → 2 个行为用例 → 断言公开结果与失败边界 | 保留；保留静态路径穿越；补请求大小/JSON 类型错误；关联 [G19](#g19) | `test_handler_serves_static_file_when_cwd_is_missing:13`；`test_handler_static_path_translation_stays_inside_web_dir:36` |
-| [test_http_get_routes.py](../tests/test_http_get_routes.py) · 55 | R12；隔离 fixture/假适配器 → 1 个行为用例 → 断言公开结果与失败边界 | 保留；保留公开封装与 GET 分发；按族补参数边界；关联 [G19](#g19) | `_SpyState:8`；`_JsonHandler:17` |
-| [test_job_launch_idempotence.py](../tests/test_job_launch_idempotence.py) · 37 | R07；隔离 fixture/假适配器 → 1 个行为用例 → 断言公开结果与失败边界 | 保留；保留单任务幂等；新增跨任务 GPU claim/崩溃窗口验收；关联 [G09](#g09)、[G13](#g13) | `_LaunchState:9`；`test_start_job_skips_duplicate_launch_attempt:23` |
-| [test_phase3_agent_node_kinds.py](../tests/test_phase3_agent_node_kinds.py) · 105 | R06/R09；隔离 fixture/假适配器 → 7 个行为用例 → 断言公开结果与失败边界 | 保留；按执行器选择行为归档，不因阶段名删除；关联 [G01](#g01)、[G11](#g11) | `test_path_resolve_and_artifact_collect_are_agent_executable:15`；`test_agent_handler_selects_agent_executor_for_path_resolve:20` |
-| [test_phase3_agent_runtime_integration.py](../tests/test_phase3_agent_runtime_integration.py) · 1119 | R03/R09；隔离 fixture/假适配器 → 16 个行为用例 → 断言公开结果与失败边界 | 保留；保留受控工具/敏感路径；补远程 host 文件与完成后恢复；关联 [G02](#g02)、[G11](#g11)、[G12](#g12) | `_isolated_runtime_paths:15`；`_isolated_state:40` |
-| [test_phase4_context_reflection_dismiss.py](../tests/test_phase4_context_reflection_dismiss.py) · 254 | R09/R12；隔离 fixture/假适配器 → 4 个行为用例 → 断言公开结果与失败边界 | 保留；保留人工反思边界；补非抛异常的 Agent 失败状态；关联 [G05](#g05) | `_state:11`；`_assistant_message_with_reflection:31` |
-| [test_phase5_execution_package.py](../tests/test_phase5_execution_package.py) · 1629 | R05/R06/R10；隔离 fixture/假适配器 → 42 个行为用例 → 断言公开结果与失败边界 | 保留；拆出工作流推进/执行包/交付行为；补闭环失败场景后再去重；关联 [G01](#g01)、[G02](#g02)、[G03](#g03)、[G06](#g06) | `_StubContext:34`；`_NodePayloadState:39` |
-| [test_phase6_agent_capability_management.py](../tests/test_phase6_agent_capability_management.py) · 71 | R03；隔离 fixture/假适配器 → 1 个行为用例 → 断言公开结果与失败边界 | 保留；保留有效运行配置 round-trip，统一 fixtures 即可；关联 [G21](#g21) | `test_global_agent_runtime_boundaries_round_trip_and_debug:8` |
-| [test_phase6_tool_provider_run_overview.py](../tests/test_phase6_tool_provider_run_overview.py) · 1128 | R03/R11；隔离 fixture/假适配器 → 13 个行为用例 → 断言公开结果与失败边界 | 保留；拆工具安全测试/路由/全局概览所有权，不删除独有安全断言；关联 [G11](#g11)、[G21](#g21) | `_state:14`；`test_tool_safe_payload_blocks_runtime_tools:46` |
-| [test_phase6_workflow_template_validation.py](../tests/test_phase6_workflow_template_validation.py) · 560 | R02/R05；隔离 fixture/假适配器 → 19 个行为用例 → 断言公开结果与失败边界 | 保留；保留模板隔离、映射、迁移与拓扑校验；区别预览与执行语义；关联 [G10](#g10) | `_FakeState:24`；`_default_template:62` |
-| [test_provider_catalog.py](../tests/test_provider_catalog.py) · 155 | R03；隔离 fixture/假适配器 → 9 个行为用例 → 断言公开结果与失败边界 | 保留；保留目录/无密钥/按种类默认契约，迁移 SDK 时继续运行；关联 [G21](#g21) | `_FakeState:20`；`test_catalog_lists_known_vendors:31` |
-| [test_provider_key_encryption.py](../tests/test_provider_key_encryption.py) · 149 | R13；隔离 fixture/假适配器 → 10 个行为用例 → 断言公开结果与失败边界 | 保留；保留落盘密文/内存明文；补主密钥丢失的明确恢复；关联 [G08](#g08)、[G09](#g09) | `_FakeState:17`；`_isolate_crypto:23` |
-| [test_provider_profile_routes.py](../tests/test_provider_profile_routes.py) · 111 | R12/R13；隔离 fixture/假适配器 → 5 个行为用例 → 断言公开结果与失败边界 | 保留；保留单资源段与脱敏契约，作为其他路由模板；关联 [G19](#g19) | `_JsonHandler:11`；`_ProviderProfileState:27` |
-| [test_runtime_storage_maintenance.py](../tests/test_runtime_storage_maintenance.py) · 954 | R11/R13；隔离 fixture/假适配器 → 23 个行为用例 → 断言公开结果与失败边界 | 保留；保留递归引用/日志留存/精确清理；提取隔离 fixtures；关联 [G09](#g09)、[G20](#g20) | `_write_log:23`；`test_local_runtime_log_stats_exposes_newest_and_largest_paths:29` |
-| [test_scheduler_terminal_status.py](../tests/test_scheduler_terminal_status.py) · 304 | R07/R11；隔离 fixture/假适配器 → 12 个行为用例 → 断言公开结果与失败边界 | 保留；保留退出码、停止、增量日志；新增资源占用竞争用例；关联 [G13](#g13) | `_runtime_log_path:12`；`_SchedulerState:20` |
-| [test_transfer_path_safety.py](../tests/test_transfer_path_safety.py) · 140 | R08/R13；隔离 fixture/假适配器 → 6 个行为用例 → 断言公开结果与失败边界 | 保留；保留 rsync 参数/敏感路径/冲突；补 run 归属和下游依赖；关联 [G14](#g14) | `_remote:14`；`test_build_transfer_command_blocks_sensitive_sources:34` |
-| [test_workflow_data_contract.py](../tests/test_workflow_data_contract.py) · 129 | R05/R09；隔离 fixture/假适配器 → 10 个行为用例 → 断言公开结果与失败边界 | 保留；保留映射缺口/前向引用；统一解析后做等价差异验证；关联 [G10](#g10) | `test_context_output_resolves_when_present:12`；`test_context_output_missing_returns_none:21` |
-
-### 用户本地新增测试（未纳入本次提交）
-
-`tests/test_tmux_transfer_regressions.py`：2 个测试函数（参数化后 3 个用例），覆盖 rsync 显式 SSH 端口、local/SSH tmux 尾部空行；对应 N00D 已整合的修复，参与本地验证；脚本按用户要求只保留在工作区，不纳入正式文件台账或提交，未删独有断言。
-
-### 本地 smoke 脚本：40 个，逐文件保留价值判断
-
-这些是当前工作区的本地文件，不作为正式部署依赖；未逐个运行，也未验证当前私有环境是否齐全。以下“保留/候选合并”是交接计划，不是本轮删除授权的替代证据。
-
-| 本地文件 | 输入 → 验证输出 | 结论与下一步 |
-| --- | --- | --- |
-| `dev_work/smokes/phase3_agent_runtime_observe_smoke.py` | 隔离本地服务、fake Provider/Job 与浏览器 → 核心执行、事件或证据闭环 | 保留；扩为按行为命名的核心 smoke，不删除独有场景。 |
-| `dev_work/smokes/phase4_chat_stream_smoke.py` | 隔离本地服务、fake Provider/Job 与浏览器 → 核心执行、事件或证据闭环 | 保留；扩为按行为命名的核心 smoke，不删除独有场景。 |
-| `dev_work/smokes/phase4_job_log_delta_smoke.py` | 隔离本地服务、fake Provider/Job 与浏览器 → 核心执行、事件或证据闭环 | 保留；扩为按行为命名的核心 smoke，不删除独有场景。 |
-| `dev_work/smokes/phase5_full_workflow_smoke.py` | 隔离本地服务、fake Provider/Job 与浏览器 → 核心执行、事件或证据闭环 | 保留；扩为按行为命名的核心 smoke，不删除独有场景。 |
-| `dev_work/smokes/phase5_remote_full_workflow_smoke.py` | 所选 SSH 主机、隔离工作区与浏览器 → 远程执行/清理事实和归属证据 | 保留远程门禁；未配置时记 skipped，不可当通过。 |
-| `dev_work/smokes/phase5_remote_mixed_agent_job_smoke.py` | 所选 SSH 主机、隔离工作区与浏览器 → 远程执行/清理事实和归属证据 | 保留远程门禁；未配置时记 skipped，不可当通过。 |
-| `dev_work/smokes/phase6_7_config_center_smoke.py` | 受控页面/脚本依赖/注入事件 → 7 config center 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase6_agent_health_smoke.py` | 受控页面/脚本依赖/注入事件 → agent health 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_app_navigation_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → app navigation actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_app_status_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → app status actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_job_form_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → job form actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_monitoring_filter_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → monitoring filter actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_output_terminal_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → output terminal actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_process_stop_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → process stop actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_replay_preview_smoke.py` | 受控页面/脚本依赖/注入事件 → replay preview 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_server_admin_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → server admin actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_server_list_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → server list actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_server_list_drag_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → server list drag actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_server_list_popover_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → server list popover actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_server_offline_toggle_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → server offline toggle actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_server_resource_overlay_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → server resource overlay actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_server_selection_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → server selection actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_task_plan_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → task plan actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_template_canvas_search_smoke.py` | 受控页面/脚本依赖/注入事件 → template canvas search 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_template_review_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → template review actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_transfer_surface_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → transfer surface actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workflow_template_node_list_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workflow template node list actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_action_surfaces_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace action surfaces 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_agent_tool_toolbar_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace agent tool toolbar 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_chat_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace chat actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_form_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace form actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_help_popover_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace help popover actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_history_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace history actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_launcher_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace launcher actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_run_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace run actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase7_workspace_shell_actions_smoke.py` | 受控页面/脚本依赖/注入事件 → workspace shell actions 的装配/交互结果 | 候选合并到所属界面 smoke；先核对独有断言与对应正式测试，不直接删除。 |
-| `dev_work/smokes/phase_runtime_maintenance_smoke.py` | 隔离本地服务、fake Provider/Job 与浏览器 → 核心执行、事件或证据闭环 | 保留；扩为按行为命名的核心 smoke，不删除独有场景。 |
-| `dev_work/smokes/phase_runtime_remote_maintenance_smoke.py` | 所选 SSH 主机、隔离工作区与浏览器 → 远程执行/清理事实和归属证据 | 保留远程门禁；未配置时记 skipped，不可当通过。 |
-| `dev_work/smokes/phase_search_provider_smoke.py` | 显式 Provider/Profile 或受控 endpoint → 真实模型/搜索契约、来源与错误 | 保留供应商验收；确定性 endpoint 与真实供应商分开记录。 |
-| `dev_work/smokes/provider_smoke.py` | 显式 Provider/Profile 或受控 endpoint → 真实模型/搜索契约、来源与错误 | 保留供应商验收；确定性 endpoint 与真实供应商分开记录。 |
+用户清理后，tests/ 与旧 dev_work/smokes/ 不再有现存脚本，历史文件可从 Git 读取。N01 新样机集中在本地 dev_work/n01/：common.py 管理配置与模拟外部任务，engines.py 包含 LangGraph/SQLite 对照，cli.py 提供跨进程本地演示，verify.py 验证故障与恢复；这些均不进入正式源码或远端。第三方环境、锁文件、数据库、输出文件同样只保留本地。
 
 ### 配置、公开样例与测试入口
 
@@ -734,9 +659,10 @@ N00C 的实际提交版本在隔离目录验证：`python -m compileall -q total
 | [data/agent_definitions.json](../data/agent_definitions.json) | R03；保留公开 Agent 目录；与真实 adapter/Provider 绑定校验，关联 G10/G11。 |
 | [data/tool_definitions.json](../data/tool_definitions.json) | R03；保留工具 schema；明确建议/真实读取/异步执行级别，关联 G11。 |
 | [data/workflow_templates.json](../data/workflow_templates.json) | R02/R05；保留起始链；顺序执行与拓扑预览分开，新增 Transfer 后版本化。 |
-| [pytest.ini](../pytest.ini) | R14；保留 testpaths=tests 与 scratch 排除；不要把私有 smoke 混入确定性门禁。 |
+| [config/workflow-poc.example.toml](../config/workflow-poc.example.toml) | R06/R13/R14；N01 无密钥配置模板，定义引擎、隔离状态目录和 worker 延迟；仅本地样机读取，正式服务尚未接入。 |
+| [pytest.ini](../pytest.ini) | R14；历史 testpaths=tests 与 scratch 排除；当前没有正式测试文件，后续按切片生成本地检查；无用例不算通过。 |
 
 ### 台账完整性与维护
 
-正式代码台账包含 309 行，一文件一行；另有用户本地新增测试 1 项、本地 smoke 40 行；配置/公开数据/测试入口 7 行。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
+正式代码台账包含 285 行，一文件一行；配置/公开数据/验证入口 8 行；本地 N01 样机另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
 <!-- FILE_AUDIT_END -->
