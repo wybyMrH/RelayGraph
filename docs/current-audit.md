@@ -90,6 +90,7 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 - persistence.py 保存 jobs/workspaces 等独立 JSON；utils.write_json 可原子替换单文件，但不能对多文件与 tmux 副作用提供事务。read_json 在 JSON 损坏时返回默认值，可能把损坏误当首次初始化。agent_runtime.py 取消注册仅在内存。
 - N01 已选择 LangGraph 持久 checkpoint + 领域 SQLite 账本；N02 的真实 workflow 入口已接入 RunStore 和 Job 提交适配器，先存意图、保存排队回执再公开、绑定引用，重启按稳定键核对。无法确认时进入 reconciling，不自动重提；LangGraph checkpoint 与取消/恢复尚未生产接入。普通 create_job 仍非通用幂等 API，不能绕过适配器。现有 Provider 密钥与主密钥仍在 data/，按用户配置目录要求的兼容迁移归 N00E。
 - N02 新增存储 schema/hash 校验、损坏记录明确报错、单机 run 文件锁；当前只支持一个服务负责 JSON Job 队列。新账本 run/Job 回执暂受保护，不被 JSON 条数裁剪；事务归档与孤立账本处理待 N14。
+- N03 真实过程复验发现 start_job 可让旧调度快照再次启动已 running/终态 Job：一份 compute 回执对应 count=2。N03J0 仅收紧启动状态门禁；30 秒启动占用及跨进程未知窗口仍待处理，不能用提交去重证明进程一定只启动一次。
 - 方案：N03 落实已选的单一推进权威，复用已有计划/attempt/幂等键与核对适配器。配置目录仍可 JSON。坏文件隔离与版本迁移另设小切片，不能一次迁移全部历史。
 
 <a id="g10"></a>
@@ -105,9 +106,6 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 - 对齐 R03，类别：能力缺口、语义误导，证据 E2。
 - repo.search 汇集 query/roots/hints，未实际搜索仓库；log.read 返回最新日志入口而非正文；notify.user 返回载荷，schedule.plan 是 dry_run。gpu.allocate 的实际 callback 返回 plan_only=True、persisted=False，并不写绑定；旧本地文档“已绑定”不准确。
 - N02 的真实入口检查还发现：完整 CPU 工作流也被固定 Starter Chain 要求加入 dataset.find/env.infer/gpu.allocate；这些节点不是任意最小链的实际依赖。N03 需要按当前计划校验，不通过强制模式或伪造节点验收。
-- N02 的真实入口检查还发现：完整 CPU 工作流也被固定 Starter Chain 要求加入 dataset.find/env.infer/gpu.allocate；这些节点不是任意最小链的实际依赖。N03 需要按当前计划校验，不通过强制模式或伪造节点验收。
-- N02 的真实入口检查还发现：完整 CPU 工作流也被固定 Starter Chain 要求加入 dataset.find/env.infer/gpu.allocate；这些节点不是任意最小链的实际依赖。N03 需要按当前计划校验，不通过强制模式或伪造节点验收。
-- N02 的真实入口检查还发现：完整 CPU 工作流也被固定 Starter Chain 要求加入 dataset.find/env.infer/gpu.allocate；这些节点不是任意最小链的实际依赖。N03 需要按当前计划校验，不通过强制模式或伪造节点验收。
 - AgentExecutor 缺少 tool_executor 时返回 [Simulated]，若当生产路径使用可能让模型把模拟当真实。自定义工具 CRUD 也不等于自动产生适配器。
 - 方案：能力目录明确执行级别与真实 adapter_id；无适配器只能配置/诊断，不能进入可执行包。建议型工具保留并如实命名，不必为每个名字补大型实现；验证调用方确实需要正文/通知后再开发。
 
@@ -117,9 +115,6 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 - 对齐 R04/R10，类别：能力缺口、错误证据风险，证据 E2。
 - tools/workspace_executor_pkg/read_tools.py、helpers.py、discovery.py 用本机 pathlib 扫描/读取；浏览器文件工具已有 SSH 路径，二者不是同一适配入口。远程工作区可能读不到文件或读到本机同名目录。
 - Job 形式的 dataset.find 还会把固定默认根加入扫描，即使已经明确本次数据目录；这是多余环境依赖，N03 最小链不应靠执行无关扫描取得就绪，范围收敛随 N08 核对。
-- Job 形式的 dataset.find 还会把固定默认根加入扫描，即使已经明确本次数据目录；这是多余环境依赖，N03 最小链不应靠执行无关扫描取得就绪，范围收敛随 N08 核对。
-- Job 形式的 dataset.find 还会把固定默认根加入扫描，即使已经明确本次数据目录；这是多余环境依赖，N03 最小链不应靠执行无关扫描取得就绪，范围收敛随 N08 核对。
-- Job 形式的 dataset.find 还会把固定默认根加入扫描，即使已经明确本次数据目录；这是多余环境依赖，N03 最小链不应靠执行无关扫描取得就绪，范围收敛随 N08 核对。
 - _read_text_file 先 read_text 整个文件再截取，响应限额并非 I/O/内存限额。
 - 方案：HostFileAdapter 统一本地/SSH stat/list/read/probe；强制 host_id；有界读取、禁止敏感路径，失败返回 unavailable/permission 而非伪造 missing。复用已有远程探针，不复制一套 shell 脚本。
 
@@ -128,9 +123,6 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 
 - 对齐 R01/R07，类别：资源竞争风险，证据 E2/E3。
 - jobs_pkg/execution.py.find_gpu 只读最近 statuses；scheduler.py 一轮遍历多个 queued Job，启动一个任务后没有在选择器中扣除预留。启动幂等测试只保护同一个 Job，不保护多个 Job 选择同一 GPU。
-- N02 修复本地 CPU 提交的目标不一致：执行包/来源记录统一 gpu_index=none，避免 gpu_policy=cpu 时因包为 auto、任务为 none 被门禁拒绝；没有修改 GPU 选择、占用或预留语义。
-- N02 修复本地 CPU 提交的目标不一致：执行包/来源记录统一 gpu_index=none，避免 gpu_policy=cpu 时因包为 auto、任务为 none 被门禁拒绝；没有修改 GPU 选择、占用或预留语义。
-- N02 修复本地 CPU 提交的目标不一致：执行包/来源记录统一 gpu_index=none，避免 gpu_policy=cpu 时因包为 auto、任务为 none 被门禁拒绝；没有修改 GPU 选择、占用或预留语义。
 - N02 修复本地 CPU 提交的目标不一致：执行包/来源记录统一 gpu_index=none，避免 gpu_policy=cpu 时因包为 auto、任务为 none 被门禁拒绝；没有修改 GPU 选择、占用或预留语义。
 - 可由源码确认竞争窗口，尚未用真实 GPU 制造 OOM；外部使用者竞争也不能靠内部锁完全解决。
 - 方案：主机/GPU 范围的原子 claim 与释放、过期/重启核对、采样陈旧限制。CPU 不走 GPU claim。验收两个 Job 同时竞争一张卡，只有获准者启动，不能用固定 sleep 假装预留。
@@ -230,36 +222,6 @@ N01 的场景检查、依赖锁文件、硬退出恢复记录和本地 CPU 实�
 | R12 · 错误呈现与布局 | transfer 的错误优先于缓存进度提示；缩小输出区和标签宽度并更新 CSS 缓存版本 | 保留进度条；错误文字继续 HTML 转义；不重构前端控制器 |
 
 本轮验证脚本、截图、命令输出与结果说明只保存在本地 dev_work/，不纳入远端。实际验证状态在交接时报告；未用本轮整合来关闭 G01–G22 中尚未解决的功能缺口。真实 SSH 主机和跨用户 sudo 权限需在对应环境验收，受控替身不代表远程通过。
-
-### N02：完整计划、attempt 与提交证据
-
-正式行为与请求/查询契约见第三部分 2.5。新工作流的执行证据以 SQLite 为准，JSON runs 是兼容投影/事件缓存；历史 JSON 保持读取，不承担新 run 的计划或恢复游标。当前仍是原顺序 runner，未引入第二套推进状态机。
-
-删除了两条“单条失败覆盖整个 run”的路径，合并提交与启动核对的 Job 身份检查，去掉相同结果反复写库和同一调用内的重复投影读取；保留有实际消费者的旧 runner 与历史 run 读取，N03 接入新推进器时退出新 run 的同步循环职责。
-
-正常验收走真实 HTTP、门禁、调度器与 tmux；重复请求需要显式稳定 request_id，客户端尚未携带该键的限制已记录。故障注入只用于异常/硬退出边界，正常路径不修改终态、不关闭门禁。测试脚本、真实执行结果、超时排查与消融记录均在本地 dev_work/n02/，不提交远端。
-
-N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续跑，也不证明任意外部副作用 exactly-once。默认完整链的冗余节点、非必要目录扫描和单机保留策略仍如实登记，不能拿完整链成功掩盖最小入口缺口。
-
-### N02：完整计划、attempt 与提交证据
-
-正式行为与请求/查询契约见第三部分 2.5。新工作流的执行证据以 SQLite 为准，JSON runs 是兼容投影/事件缓存；历史 JSON 保持读取，不承担新 run 的计划或恢复游标。当前仍是原顺序 runner，未引入第二套推进状态机。
-
-删除了两条“单条失败覆盖整个 run”的路径，合并提交与启动核对的 Job 身份检查，去掉相同结果反复写库和同一调用内的重复投影读取；保留有实际消费者的旧 runner 与历史 run 读取，N03 接入新推进器时退出新 run 的同步循环职责。
-
-正常验收走真实 HTTP、门禁、调度器与 tmux；重复请求需要显式稳定 request_id，客户端尚未携带该键的限制已记录。故障注入只用于异常/硬退出边界，正常路径不修改终态、不关闭门禁。测试脚本、真实执行结果、超时排查与消融记录均在本地 dev_work/n02/，不提交远端。
-
-N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续跑，也不证明任意外部副作用 exactly-once。默认完整链的冗余节点、非必要目录扫描和单机保留策略仍如实登记，不能拿完整链成功掩盖最小入口缺口。
-
-### N02：完整计划、attempt 与提交证据
-
-正式行为与请求/查询契约见第三部分 2.5。新工作流的执行证据以 SQLite 为准，JSON runs 是兼容投影/事件缓存；历史 JSON 保持读取，不承担新 run 的计划或恢复游标。当前仍是原顺序 runner，未引入第二套推进状态机。
-
-删除了两条“单条失败覆盖整个 run”的路径，合并提交与启动核对的 Job 身份检查，去掉相同结果反复写库和同一调用内的重复投影读取；保留有实际消费者的旧 runner 与历史 run 读取，N03 接入新推进器时退出新 run 的同步循环职责。
-
-正常验收走真实 HTTP、门禁、调度器与 tmux；重复请求需要显式稳定 request_id，客户端尚未携带该键的限制已记录。故障注入只用于异常/硬退出边界，正常路径不修改终态、不关闭门禁。测试脚本、真实执行结果、超时排查与消融记录均在本地 dev_work/n02/，不提交远端。
-
-N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续跑，也不证明任意外部副作用 exactly-once。默认完整链的冗余节点、非必要目录扫描和单机保留策略仍如实登记，不能拿完整链成功掩盖最小入口缺口。
 
 ### N02：完整计划、attempt 与提交证据
 
@@ -393,7 +355,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [__init__.py](../total_control/state/jobs_pkg/__init__.py) · 15 | R07；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | `JobsMixin:12` |
 | [_deps.py](../total_control/state/jobs_pkg/_deps.py) · 12 | R07；上层模块/公共符号 → 星号聚合依赖 → 子包可见依赖 | 结构风险；改显式依赖前先锁定 monkeypatch 与兼容调用。 | 文件整体/公开入口 |
 | [crud.py](../total_control/state/jobs_pkg/crud.py) · 205 | R07/R11；Job 创建/重试/复制/删除 → 唯一队列生命周期 → Job/关联 run | N02 排队 Job 在锁内写盘后才公开，失败撤销内存条目；克隆清除旧提交身份。普通 create_job 不提供通用去重；关联 [G09](#g09)。 | `CrudJobsMixin:8` |
-| [execution.py](../total_control/state/jobs_pkg/execution.py) · 747 | R07；Job/资源/日志请求 → GPU 选择、tmux 启停、尾部读取 → 状态与日志 | N00D 去掉 tmux 显示快照的尾部空白；GPU 选择/预留仍按 [G13](#g13) 处理。 | `_read_text_file_tail:10`；`_read_text_file_chunk:36` |
+| [execution.py](../total_control/state/jobs_pkg/execution.py) · 747 | R07；Job/资源/日志请求 → GPU 选择、tmux 启停、尾部读取 → 状态与日志 | N03J0 收紧 queued/starting 启动门禁，退出 running 会话消失就重启路径；完成核对仍归 monitor_jobs。其余资源/日志/控制缺口关联 [G09](#g09)、[G13](#g13)。 | `_read_text_file_tail:10`；`_read_text_file_chunk:36` |
 | [paths.py](../total_control/state/jobs_pkg/paths.py) · 25 | R07；任务/服务器路径 → 展开远程目录变量 → 实际任务路径 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `PathsJobsMixin:8`；`_format_remote_path:9` |
 | [presets.py](../total_control/state/jobs_pkg/presets.py) · 70 | R07；研究 preset 请求 → 专用计划与 Job 创建 → 实验任务列表 | 问题/修补关联 [G18](#g18)；按登记方案处理，不另建平行服务。 | `PresetsJobsMixin:8`；`preset_command:9` |
 | [queue.py](../total_control/state/jobs_pkg/queue.py) · 48 | R07；Job id/移动方向 → 调整排队序号 → 队列位置 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `QueueJobsMixin:8`；`reorder_job:9` |

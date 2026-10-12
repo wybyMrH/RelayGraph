@@ -207,18 +207,18 @@ class ExecutionJobsMixin:
         *,
         publish_events: bool = True,
     ) -> None:
-        running_probe_job: dict[str, Any] | None = None
         with self.lock:
             status = str(job.get("status") or "").strip()
-            if status == "running":
-                running_probe_job = copy.deepcopy(job)
+            # A stale scheduler snapshot is not authorization to restart a running or terminal Job.
+            if status not in {"queued", "starting"}:
+                return
             metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
             launching_at = safe_float(metadata.get("_launching_at"), 0.0)
             if launching_at and time.time() - launching_at < 30:
                 return
-        if running_probe_job and self.tmux_running(running_probe_job):
-            return
         with self.lock:
+            if str(job.get("status") or "").strip() not in {"queued", "starting"}:
+                return
             metadata = job.get("metadata") if isinstance(job.get("metadata"), dict) else {}
             launching_at = safe_float(metadata.get("_launching_at"), 0.0)
             if launching_at and time.time() - launching_at < 30:
