@@ -4,11 +4,11 @@
 
 ## 1. 范围、证据等级与结论
 
-当前正式代码台账覆盖 288 个文件：168 个后端 Python、118 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
+当前正式代码台账覆盖 289 个文件：169 个后端 Python、118 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
 N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 已在 N03B2b 接入单 Job，N03B2c1 接入一个 Job → 无工具报告 Agent；G01 的更长混合链、G02 子任务续跑和 G09 剩余恢复边界仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。两节点 shell CPU 链是旧路径的历史验收；当前新计划仅接受单 Job 或 Job → 无工具 eval.report Agent，其他多节点计划明确拒绝。
 
-N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码仍为 288 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；唯一下一片 N07A 报告正文落盘与验证，仍不接 Agent 工具/子任务。
+N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码仍为 289 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；唯一下一片 N07A-UI 报告阅读，仍不接 Agent 工具/子任务。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -69,8 +69,10 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R10/R11，类别：能力缺口、语义误导，证据 E1/E2。
 - workspace_mutations.py:78–143 不写文件，content >4000 时仅保留 240 字符 summary；dispatcher 的 report.write 仍返回 written。4001 字符临时目录复现：无文件、无正文。
 - run_delivery.py 根据 artifact 的 exists/status 等声明判断 observed；report_ready 可由报告条目存在推导，不能单独作为实际文件可取的证明。此处未做真实远程文件验收。
-- N03B2c1 报告回答不走 apply_final_answer_output/artifact.write/report.write；≤4000 字回答保存为 attempt 的 inline-answer 证据，无 artifact、file_verified=false，交付闭包 report.incomplete=true/status=warning。超过 4000 字显式失败，不把截断摘要当正文；JSON 无法解析也失败。没有落盘报告，通用旧声明路径仍存在，G06 未关闭。后续 N07A 只保存并验证这条链的本地正文；当前先补前端欠账，顺序见第三部分 2.14。
-- 本次实际网页点击确认：记录页可看步骤、打开 Job 日志并下载结构化导出；workspaceRunStepItemMarkup 不提供当前 output_value.content 的独立正文阅读入口。演示材料另存正文仅作证据，不算产品报告文件交付；N07A 需落实正文读取与实物验证。
+- N03B2c1 原有 ≤4000 字 inline-answer 仍作为不可覆盖的 attempt 执行证据。**N07A 已部分修复**：新 run 冻结受控本机报告目录，成功回答持久后登记 prepared 回执，再非覆盖发布文件并核对 UTF-8 字节/sha256；验证成功才令当前文件交付完整。文件交付失败不把已完成 Agent 改成失败，不丢原回答，也不再次调用模型。
+- 新增 GET `/api/workspaces/{workspace_id}/runs/{run_id}/report`，只读取该 run/attempt 的文件，返回正文、身份、摘要/字节数、验证状态与原因，不接收任意路径、不泄露物理目录。run/list/replay/export 复用同一验证投影；文件后来缺失/损坏时立即 incomplete、正文为 null，不回退 inline 冒充文件，历史 verified 回执不被改写。
+- 真实 HTTP/tmux→受控 Provider 链及可见导出通过；写前/写后硬退出均从已持久回答恢复，计算/模型各一次，发布后已有正确文件不重写。冲突与只读目录写入失败保留证据；空、4001 字、无效 JSON 拒绝，4000 中文字符/12000 字节通过。故障注入只在本地 wrapper；未验证真实 AI/远程/断电持久性。
+- G06 **仍开放**：旧 dispatcher 的声明型 report.write/artifact.write 有调用者，长报告未支持；旧 run 未冻结目录不自动补文件，failed 交付不自动修复。记录页目前有原有导出，没有专门的正文阅读布局；唯一下一片 N07A-UI 负责该界面，不能把 API 或本地展示页当成产品前端已交付。
 - 方案：ArtifactStore 保存正文或受控文件，返回可验证引用；区分 declared/written/verified；正文超过限额显式拒绝或另存。执行结束和交付完整度独立展示。
 
 <a id="g07"></a>
@@ -217,7 +219,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R06/R12，类别：状态呈现错误，证据 E1/E2。
 - 本次 Chromium 实际点击运行 Job→报告链，后台始终两步、计算实物计数 1；页面从未绑定任务到 Job/Agent ID 的过程中，compute/report 各保留一份 pending 占位。正常结束时实时 DOM 有 4 行，既显示已完成又显示未运行；重新打开页面的完整快照恢复两行。
 - workspace_run_state_merge.js 的 stepMergeKey 优先 job_id/agent_execution_id，再退回 node_id+index；身份随绑定变化，mergeSteps 又追加旧 key，导致占位未退出。此前仅检查页面内存中的 run 终态或进度，没有断言实际 DOM 行数，未覆盖这个缺陷。
-- 方案：单独交付稳定 step/attempt 身份的合并修复，保留历史记录和实时事件边界；对待执行→绑定任务→终态、Agent 绑定及旧记录做真实浏览器验证。不能用强制刷新、隐藏重复行或删除测试来代替修复。N13A 已作为 N03B2c1 后的独立前端小片验收；新隔离实例正常/失败/重启的实时 DOM 均为两行。当时交接 N13B1；现其验收见 G26，当前下一片 N07A。
+- 方案：单独交付稳定 step/attempt 身份的合并修复，保留历史记录和实时事件边界；对待执行→绑定任务→终态、Agent 绑定及旧记录做真实浏览器验证。不能用强制刷新、隐藏重复行或删除测试来代替修复。N13A 已作为 N03B2c1 后的独立前端小片验收；新隔离实例正常/失败/重启的实时 DOM 均为两行。当时交接 N13B1；现其验收见 G26，当前下一片 N07A-UI。
 
 - N13A 实现：step_id 优先、node_id/index 兼容；绑定的 Job/Agent ID 不再改变计划步骤身份。单步 SSE 保留可选 step_id/attempt_id，未更新的另一计划步骤继续保留；新 attempt 不继承旧任务/输出/错误。已知节点冲突不合并；缺 attempt 的历史事件不能把已知 attempt 改绑到另一任务。没有新增通用版本协议，迟到完整 run 快照仍沿既有时间/终态保护。
 - app.js 的步骤 key/合并 fallback 已退出，原消费入口只委托唯一 helper；其他尚有消费者的投影 fallback 保留待 N13 后续收敛。历史真实旧 run 只读合并检查通过，未在本片重新执行旧任务。G25/G26 与无版本事件的一般排序不因本片关闭。
@@ -236,9 +238,9 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - **N13B1 已验收**：当前实例的运行列表、步骤详情、日志、回放、比较与导出从配置表单/抽屉移至顶层“运行记录”。驾驶舱同级入口直接到达，可选择实例、去编辑、返回；配置的旧记录页签/模块卡片与包住全部记录的 workspaceRunDetails 已退出，旧动作跳到同一个阅读区。复用唯一 run renderer/merger、现有日志与订阅，没有第二套推进器或轮询。无消费者的旧运行工具栏滚轮分支、workspace-runs-panel 单个选择器与卡片统计变量同步退出。
 - 原四张统计卡、最新任务/命令块改成文字摘要，计划步骤在主阅读顺序，次要输入过程、交付和事件按需展开。限定阅读区的样式修正了旧 grid 规则把按钮竖排造成的空白。原生 summary/按钮的点击和键盘不再误激活整行日志，展开状态在重绘中保留。
 - 本次基线复现刷新清除已选实例；现改为恢复并核对实例 ID，过期 ID 回到明确空状态。比较基准和回放选择只保存 ID，不保存日志/正文；刷新后的“加载回放”一次沿既有 API 获取正文。旧 runs 页签迁移落盘为规范值，避免以后每次刷新强制返回记录页。
-- **仍待处理**：配置中心的全局运行概览及其可见性刷新依然存在，交 N13B2；实例高级编辑本身的多层容器交 N13B3。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债、G25 源 error 红字与 G06 报告正文文件缺口继续开放。
+- **仍待处理**：配置中心的全局运行概览及其可见性刷新依然存在，交 N13B2；实例高级编辑本身的多层容器交 N13B3。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债、G25 源 error 红字继续开放；G06 当前报告文件已由N07A补齐，独立阅读界面和长报告仍待后片。
 - 新隔离实例的成功/退出7/真实服务重启/同实例第二次运行经过实际按钮、默认门禁、HTTP/tmux；实时两行，Job 启动增量各1，受控报告接口调用增量1/0/1/1。14项页面导航检查和5项边界检查通过；1440×900、1280×720、768×1024、390×844 阅读/返回与宽度核对，实际长名称、63583字符进程日志和显式注入的长HTTP错误有本地截图。受控 Provider 非真实模型，故障注入不算真实后端故障恢复。
-- 保留仍有调用者的配置概览 renderer/actions 和全站旧样式；不得凭相同 selector 删除。下一片 N07A 先做本地报告文件，随后独立 N07A-UI；B2/B3 另排，不把三个页面职责同时重构。
+- 保留仍有调用者的配置概览 renderer/actions 和全站旧样式；不得凭相同 selector 删除。N07A 已完成本地报告文件，下一片独立 N07A-UI；B2/B3 另排，不把三个页面职责同时重构。
 
 ## 3. 验证边界与阶段状态
 
@@ -369,6 +371,18 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 
 相关 JS node --check、118 个脚本引用/存在性/顺序、compileall 通过；根 pytest 无用例退出 5，不算通过。测试/截图/录像/结果在本地 dev_work/artifacts/n13a 与 smokes，不入 Git。该 N13A 片没有改布局、G25 红字或报告文件交付；第一部分稳定。当时交接 N13B1，现该片已验收，见 G26。
 
+### N07A：当前本地报告文件（后端小片，已验收）
+
+本片只接新 B2c1 run 的非空、验证通过、≤4000 字符回答。RunPlan 在副作用前冻结 config 的 report_output_dir，默认执行账本旁 reports/；相对路径从配置文件目录解析。既有 SQLite record_json 保存按 step/attempt 绑定的 prepared→verified/failed 回执，无新表/第二状态库。原 Agent 终态与回答保持不可覆盖；文件交付是单独事实。
+
+一个 stdlib 文件适配器负责非覆盖发布、受控读取与实物核验；拒绝敏感路径、符号链接、目录/FIFO及不匹配大小/摘要，先校验大小再有界读取。临时文件 fsync 后硬链接发布，不支持该文件系统操作时明确失败；已存在相同正文可采用，不同正文不覆盖。当前投影每次核验实物，读取不会偷偷补文件。output.report_file 仅元数据，artifact 放当前已验证正文，新增受控 GET/report 从同一投影取正文；沿用已有导出，无额外正文缓存。
+
+实际验收：18 项本地契约；4 条真实 Chromium 可见运行/日志/导出路径（正常、退出7、等待重启、同实例再运行），实时均两步，Job 增量各1、受控报告调用1/0/1/1；8项恢复/失败检查，包括原 POST 重发、各读取投影检测篡改/删除、写前/写后真实进程硬退出恢复、冲突、只读目录及冻结目录。另4类真实HTTP内容检查确认4001字/空/无效JSON失败且无文件、4000中文字符12000bytes成功，任意path参数不起作用、跨workspace返回404。最终重启隔离服务加载最新源码，浏览器再次实际点击导出并打开GET/report，正文、摘要、字节数与身份一致。
+
+过程限制：正常路径保留默认门禁/auto_apply，无 force、人工补终态/回执。受控本机模型接口只证明执行交接；硬退出由本地 wrapper 注入，无生产测试开关。最初两个契约失败分别是测试复用了同一attempt写不同内容（修正隔离身份）和循环链接错误分类（产品收紧分类）；不以删用例通过。发布后清理临时文件失败不掩盖已验证交付。历史计划无目录不迁移；failed交付不自动重试；失物不自动重建。原声明工具由 dispatcher/debug 消费，保留至后续迁移/对照，不宣称 G06 全部关闭。
+
+compileall 通过；根pytest无用例退出5，不计通过。本片不改前端、图推进器、Job入口或Provider协议。长报告/工具/子任务、真实AI/SSH/GPU、一般交付修复与各文件系统断电保证均排除。测试/配置/结果/静态展示只留本地 dev_work/artifacts/n07a/；原展示归档保留。第一部分稳定不改，唯一下一片 **N07A-UI**。
+
 ## 4. 逐文件台账的读法
 
 下面每行对应一个实际文件，列出需求、职责与输入处理输出、检查结论和解决路径。`保留`表示本轮未发现该文件的独立缺陷，不保证所有分支正确；`关联`表示参与某个问题的修补或验收，不表示文件自身一定有 bug。同一问题的详细方案只在 G 登记维护，避免在几百行表格重复且漂移。
@@ -385,7 +399,7 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 | [agent_executor.py](../total_control/agent_executor.py) · 511 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；普通多轮路径保持，G04/G21 未关闭。 | `_tool_side_effect:31`；`_metadata_value:39` |
 | [agent_runtime.py](../total_control/agent_runtime.py) · 49 | R09；execution_id/取消请求 → 进程内注册与信号 → active/cancel 检查 | 问题/修补关联 [G04](#g04)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `register_agent_cancel:20`；`cancel_agent_run:30` |
 | [compat.py](../total_control/compat.py) · 21 | R14；公开门面名/默认实现 → 查询 override → 兼容调用入口 | 问题/修补关联 [G16](#g16)；按登记方案处理，不另建平行服务。 | `public_api_override:7`；`public_api_value:17` |
-| [config.py](../total_control/config.py) · 332 | R01/R13；config/ TOML/SSH 配置 → 合并主机与本机路径参数 → AppConfig/ServerConfig | N02 新增 execution_db_path，以配置目录解析相对路径；默认沿 DATA_DIR，真实密钥布局不迁移；其余关联 [G19](#g19)。 | `ServerConfig:18`；`AppConfig:40`；`load_secrets:49` |
+| [config.py](../total_control/config.py) · 335 | R01/R13；config/ TOML/SSH 配置 → 合并主机与本机路径参数 → AppConfig/ServerConfig | N07A 新增 report_output_dir，相对配置目录解析；空值默认账本旁 reports。新run冻结目录，公开配置不含私密路径；原执行账本/SSH兼容保留，G19未整体关闭。 | `ServerConfig:18`；`AppConfig:40`；`load_secrets:49` |
 | [constants.py](../total_control/constants.py) · 2 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [context_refs.py](../total_control/context_refs.py) · 18 | R05/R09；数据和点分路径 → 字典键/列表下标查找 → 原值或 None | N00C 唯一纯取值内核；执行映射与上下文投影均已接入；不承担引用前缀或就绪规则。 | `context_ref_value:8` |
 | [events.py](../total_control/events.py) · 207 | R12；业务事件/游标 → 有界队列、gap 与 SSE 编码 → 实时通知 | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `EventBroker:12`；`sse_encode:135` |
@@ -414,7 +428,7 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/http_api/__init__.py) · 10 | R12；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [delete_routes.py](../total_control/http_api/delete_routes.py) · 55 | R12；资源删除路径 → 匹配并调用删除 → 结果响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 | `handle_delete:9` |
-| [get_routes.py](../total_control/http_api/get_routes.py) · 460 | R12；查询路径/参数 → 调用状态服务、回放/下载/SSE → 查询响应 | 问题/修补关联 [G19](#g19)、[G20](#g20)；按登记方案处理，不另建平行服务。 | `_workspace_jobs_snapshot:14`；`_workspace_stream_snapshot_event:27` |
+| [get_routes.py](../total_control/http_api/get_routes.py) · 470 | R12；查询路径/参数 → 调用状态服务、回放/下载/SSE → 查询响应 | N07A 增量 GET runs/{id}/report，按workspace/run取绑定文件投影、缺失明确不完整，不接受任意path；原回放/导出保留。G19/G20其余边界未关闭。 | `_workspace_jobs_snapshot:14`；`_workspace_stream_snapshot_event:27` |
 | [path_utils.py](../total_control/http_api/path_utils.py) · 14 | R12；API 路径/前缀 → 单资源路径段匹配 → id 或空 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `single_segment_path_id:6` |
 | [post_routes.py](../total_control/http_api/post_routes.py) · 416 | R06/R12；POST 命令 → 现有状态服务/公开封装 → 启动/配置响应 | N02 工作流 request_id/提交冲突返回 409；其余路由不批量改写，关联 [G19](#g19)。 | `_public_job_response:14`；`handle_post:30` |
 | [put_routes.py](../total_control/http_api/put_routes.py) · 44 | R12；资源更新请求 → 匹配资源与调用更新 → 更新响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 | `handle_put:9` |
@@ -425,6 +439,7 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/infra/__init__.py) · 5 | R01/R07；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [checks.py](../total_control/infra/checks.py) · 218 | R01/R07；主机/检查或停止请求 → 连接、能力、进程所有者检查 → 诊断或停止结果 | N00D 修正停止权限：正常信号优先，sudo -n 回退，ps 判存活；保留实时归属确认入口。 | `run_server_checks:21`；`build_process_stop_script:90` |
+| [report_files.py](../total_control/infra/report_files.py) · 126 | R10/R11/R13；已验证回答/受控目录/身份 → 非覆盖发布、摘要核验与有界读取 → 当前文件交付视图 | N07A唯一受管报告文件内核；18项契约及真实崩溃/缺失/冲突通过。仅本地≤4000字符，硬链接不支持明确失败；不拥有工作流状态、不自动修复，G06余项保留。 | `report_file_descriptor`；`publish_report_file`；`read_report_file`；`report_file_view` |
 | [shell.py](../total_control/infra/shell.py) · 2 | R01/R07；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [web_terminal.py](../total_control/infra/web_terminal.py) · 160 | R07；主机/输入/信号 → PTY 启动与读写 → 终端缓冲和状态 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `set_terminal_winsize:19`；`WebTerminal:26` |
 
@@ -450,8 +465,8 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 | [__init__.py](../total_control/orchestration/__init__.py) · 20 | R06/R09；节点执行/输入类型 → 公开导出 → 单节点兼容入口 | N03B2b 退出 WorkflowRunner 等同步推进导出；保留已有节点执行消费者。 | 文件整体/公开入口 |
 | [input_mapping.py](../total_control/orchestration/input_mapping.py) · 296 | R05/R09；引用/上下文/模型输出 → 解析映射与 JSON 输出校验 → 输入值/输出证据 | N00C 改为导入唯一取值内核；前缀/缺失/历史输出规则仍关联 [G10](#g10)，未整体统一。 | `_is_mapping_ref:11`；`resolve_input_mapping_ref:16` |
 | [node_runner.py](../total_control/orchestration/node_runner.py) · 212 | R06/R09；节点/执行上下文 → 选择 Agent/Job、Agent 失败校验 → StepResult | 共用原 Agent 执行入口/映射和失败规则；N03B2c1 传递 output_value 到持久 step，不自建模型或推进循环。G02/G04 仍开放。 | `_node_handler_mode:51`；`_node_agent_id:56` |
-| [run_store.py](../total_control/orchestration/run_store.py) · 305 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N03B2c1 在原 attempts 表增加 Agent 原子 claim，无第二提交表/schema 迁移；execution_id/未知窗口可核对，终态仍不可覆盖。G09 启动/保留风险未关闭。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
-| [types.py](../total_control/orchestration/types.py) · 89 | R06/R09/R11；计划/结果/上下文 → RunPlan/StepResult/ExecutionRunContext → 类型化边界 | N02 RunPlan 仍经领域库冻结；N03B2c1 StepResult 追加可选 output_value，承载本次报告证据，不把回答当实物。 | `RunPlan:8`；`StepResult:22`；`ExecutionRunContext:73` |
+| [run_store.py](../total_control/orchestration/run_store.py) · 347 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N07A 在既有record_json追加绑定step/attempt的文件回执；仅已持久且验证成功的回答可prepare，终态回执不覆盖。无新表/账本，Agent claim及G09边界保留。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
+| [types.py](../total_control/orchestration/types.py) · 90 | R06/R09/R11；计划/结果/上下文 → RunPlan/StepResult/ExecutionRunContext → 类型化边界 | N07A RunPlan追加可选report_output_root，副作用前冻结；旧计划缺字段不自动补文件。StepResult原inline执行证据与交付事实分开。 | `RunPlan:8`；`StepResult:22`；`ExecutionRunContext:73` |
 | [job_coordinator.py](../total_control/orchestration/job_coordinator.py) · 126 | R06/R11/R13；run/冻结计划、Job 回调 → 持久图/暂停、去重唤醒与身份检查 → attempt 事实及检查点 | N03B2c1 在唯一图加报告节点，保留 B2b 节点/engine；pending writes 有任务但 next 为空仍结算。Job/Agent 副作用由领域适配器核对，其他链不支持。 | `JobCoordinator`；`advance`；`_validate_checkpoint` |
 | [workspace_mutations.py](../total_control/orchestration/workspace_mutations.py) · 143 | R02/R10；节点/配置或 artifact 内容 → 修改工作区内存快照 → 配置/产物元数据 | 问题/修补关联 [G06](#g06)；按登记方案处理，不另建平行服务。 | `find_workspace_node:29`；`apply_workflow_edit:45` |
 
@@ -519,7 +534,7 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 | [agent_runtime_inputs.py](../total_control/state/workspaces/agent_runtime_inputs.py) · 100 | R05/R06/R09；映射/节点位置/历史输出 → 检查运行时引用 → refs/blockers | 问题/修补关联 [G10](#g10)、[G01](#g01)；按登记方案处理，不另建平行服务。 | `_agent_node_runtime_input_refs:10` |
 | [agent_runtime_observation.py](../total_control/state/workspaces/agent_runtime_observation.py) · 156 | R05/R06/R09；子 Job/run id/观察限额 → 等待与读取受限快照 → runtime observation | 问题/修补关联 [G02](#g02)、[G04](#g04)；按登记方案处理，不另建平行服务。 | `workspace_tool_observe_options:9`；`workspace_tool_job_snapshot:35` |
 | [agent_runtime_safety.py](../total_control/state/workspaces/agent_runtime_safety.py) · 327 | R05/R06/R09；命令/观测文本 → 允许诊断边界与密钥脱敏 → 拒绝原因/安全文本 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `redact_runtime_observation_text:18`；`workspace_tool_command_block_reason:29` |
-| [agents.py](../total_control/state/workspaces/agents.py) · 887 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | N03B2c1 共用现有映射/AgentExecutor，冻结工作区不合历史 outputs/不写回实例，报告不调用声明型 artifact 写入；返回有界 inline 证据。debug 旧路径保留，G04/G06 未关闭。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
+| [agents.py](../total_control/state/workspaces/agents.py) · 887 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | N07A 仅同步>4000字错误文义，本链仍拒绝长报告。沿用N03B2c1无工具/当前输入/inline证据；debug与声明工具保留，G04/G06未关闭。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
 | [automation.py](../total_control/state/workspaces/automation.py) · 138 | R06/R12；用户推进请求/权威 run 与 Job 投影 → 活跃运行保护、发现/受理命令 → watch/blocked/run 反馈 | 受理窗口 watch 保护同时涵盖 B2b/B2c1；当前运行未完成或未知时不另开发现任务。不是图推进入口，G17 建议投影仍开放。 | `AutomationMixin:8`；`advance_workspace_automation:9` |
 | [chat.py](../total_control/state/workspaces/chat.py) · 902 | R09/R12；聊天/反思/流请求 → 路由、Agent、消息更新 → 聊天与事件 | 问题/修补关联 [G05](#g05)、[G04](#g04)、[G21](#g21)；按登记方案处理，不另建平行服务。 | `ChatMixin:7`；`_chat_agent_execution_trace:33` |
 | [crud.py](../total_control/state/workspaces/crud.py) · 365 | R02；工作区与迁移请求 → 创建/更新/模板差异与草稿 → 工作区快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `CrudMixin:7`；`workspace_by_id:8` |
@@ -527,9 +542,9 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 | [defaults.py](../total_control/state/workspaces/defaults.py) · 62 | R05/R06/R09；工作区/应用建议请求 → 有来源的默认与发现回填 → 配置快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `DefaultsMixin:7`；`apply_workspace_automation_defaults:8` |
 | [discovery.py](../total_control/state/workspaces/discovery.py) · 162 | R05/R06/R09；工作区/发现节点 → 创建受控发现 Job 链 → 发现任务/run | 问题/修补关联 [G12](#g12)；按登记方案处理，不另建平行服务。 | `DiscoveryMixin:7`；`run_workspace_discovery:8` |
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 461 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)；按登记方案处理，不另建平行服务。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
-| [runs.py](../total_control/state/workspaces/runs.py) · 650 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N02 新工作流先写所属 attempt，再复用既有事件/响应；不以局部步骤替换完整计划。历史 JSON 分支保留，关联 [G02](#g02)、[G03](#g03)、[G09](#g09)。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
+| [runs.py](../total_control/state/workspaces/runs.py) · 665 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
 | [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N03B2c1 仅支持单 Job 或 Job→无工具 eval.report Agent；原命令/主机/引用门禁保留，冻结路由 hash；其他计划明确拒绝，无同步 runner 回退。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 387 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N03B2c1 冻结两步计划、捕获本次有界输出、复用原解析/Agent 执行；先 claim 后调用，未知阻塞、已记结果复用。单后台图唤醒线程，Job 服务/提交账本保持唯一。 | `WorkflowRecordsMixin:21` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 420 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N07A 冻结报告目录，在原报告回调/已记结果重入中发布；不重调模型，投影沿同一文件核验内核。旧attempt不改、历史计划不迁移，无第二推进器。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 
@@ -615,9 +630,9 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 | [log_parser.py](../total_control/workspace/execution/log_parser.py) · 278 | R06/R10/R11；日志/路径标记 → 提取 artifact、资源、指标 → 结构化证据 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_log_path_artifact:8`；`workspace_manifest_setup_suggestion:19` |
 | [nodes.py](../total_control/workspace/execution/nodes.py) · 30 | R06/R10/R11；节点集合/kind → 查询配置或节点 → 选中节点 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_node_config_by_kind:7`；`workspace_node_by_kind:17` |
 | [paths.py](../total_control/workspace/execution/paths.py) · 217 | R06/R10/R11；路径/Job/日志快照 → 安全 probe 与有界尾部选择 → 路径/日志证据 | 问题/修补关联 [G12](#g12)、[G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_config_values:7`；`compact_workspace_command:22` |
-| [run_artifacts.py](../total_control/workspace/execution/run_artifacts.py) · 41 | R06/R10/R11；artifact 列表 → 字段规范与限制 → step artifacts | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `normalize_workspace_run_step_artifacts:9` |
+| [run_artifacts.py](../total_control/workspace/execution/run_artifacts.py) · 48 | R06/R10/R11；artifact 列表 → 字段规范与限制 → step artifacts | N07A 归一化保留报告run/step/attempt/host/hash/size/verified等元数据和精确空白正文；无新存储。旧artifact兼容保留，G06余项开放。 | `normalize_workspace_run_step_artifacts:9` |
 | [run_compare.py](../total_control/workspace/execution/run_compare.py) · 130 | R06/R10/R11；两次 run/指标 → 语义与节点差异比较 → compare payload | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_execution_run_compare_payload:9`；`metric:19` |
-| [run_delivery.py](../total_control/workspace/execution/run_delivery.py) · 185 | R06/R10/R11；包预期/step artifact → 路径匹配与完成度派生 → delivery closure | N03B2c1 inline-answer 无文件时 report.incomplete=true/既有 warning，不能因执行 done/指标就宣称报告交付。其他旧声明型判定仍是 G06，N07A 接本地正文验证。 | `_workspace_delivery_path_candidates:9`；`workspace_execution_run_delivery_closure:43` |
+| [run_delivery.py](../total_control/workspace/execution/run_delivery.py) · 187 | R06/R10/R11；包预期/step artifact → 路径匹配与完成度派生 → delivery closure | N07A 当前受管报告交付来自实物投影；缺失/损坏/写失败保持incomplete及具体原因，不改变Agent执行终态。旧声明型判断仍属G06。 | `_workspace_delivery_path_candidates:9`；`workspace_execution_run_delivery_closure:43` |
 | [run_events.py](../total_control/workspace/execution/run_events.py) · 324 | R06/R10/R11；事件/流摘要 → 裁剪、脱敏、计数 → run event/delta_evidence | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `_compact_run_event_text:8`；`_compact_run_event_payload:15` |
 | [run_export.py](../total_control/workspace/execution/run_export.py) · 341 | R06/R10/R11；run/关联任务 → 有界日志、artifact、manifest 组合 → JSON 导出 | 问题/修补关联 [G06](#g06)、[G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_run_export_manifest:18`；`workspace_run_export_readme:147` |
 | [run_records.py](../total_control/workspace/execution/run_records.py) · 248 | R06/R10/R11；完整 steps/历史 run → 状态/进度/规范化 → 兼容 run 记录 | N02 保留计划/attempt/意图字段，skipped 终结但未执行步骤仍计分母；简化相同分支，暂保护账本记录不被条数截断。关联 [G02](#g02)、[G09](#g09)。 | `make_workspace_execution_run_id:12`；`make_agent_execution_id:16`；`derive_workspace_execution_run_status:20` |
@@ -808,7 +823,7 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 
 | 文件 | 检查结论与解决方向 |
 | --- | --- |
-| [config/servers.toml](../config/servers.toml) | R01/R13；保留本地默认与 SSH 发现，属于非私密启动样例，不混入个人主机。 |
+| [config/servers.toml](../config/servers.toml) | R01/R10/R13；保留本地默认与SSH发现；N07A仅加report_output_dir注释示例，不含真实目录/凭据。 |
 | [config/user_servers.example.toml](../config/user_servers.example.toml) | R01/R13；保留覆盖模板；后续输入校验统一，实际用户覆盖仍忽略。 |
 | [config/secrets.example.toml](../config/secrets.example.toml) | R13；保留 SSH 密码格式示例；不等于推荐明文密码，真实 secrets 不入库。 |
 | [data/agent_definitions.json](../data/agent_definitions.json) | R03；保留公开 Agent 目录；与真实 adapter/Provider 绑定校验，关联 G10/G11。 |
@@ -820,5 +835,5 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 
 ### 台账完整性与维护
 
-正式代码台账包含 288 行，一文件一行；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
+正式代码台账包含 289 行，一文件一行；README.md同步真实能力/报告配置与API，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
 <!-- FILE_AUDIT_END -->

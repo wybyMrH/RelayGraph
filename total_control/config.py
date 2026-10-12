@@ -43,6 +43,7 @@ class AppConfig:
     idle_min_free_mib: int = 1024
     idle_max_gpu_util: int = 10
     execution_db_path: str = ""
+    report_output_dir: str = ""
     servers: list[ServerConfig] = field(default_factory=list)
 
 
@@ -139,6 +140,8 @@ def load_config(path: Path) -> AppConfig:
         idle_max_gpu_util=safe_int(app.get("idle_max_gpu_util"), 10),
         execution_db_path=str((path.parent / Path(str(app["execution_db_path"])).expanduser()).resolve())
         if app.get("execution_db_path") else "",
+        report_output_dir=str((path.parent / Path(str(app["report_output_dir"])).expanduser()).resolve())
+        if app.get("report_output_dir") else "",
     )
 
     seen: set[str] = set()

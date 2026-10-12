@@ -256,6 +256,16 @@ def handle_get(handler: Any, state: Any, parsed: Any) -> bool:
         except ValueError:
             handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
         return True
+    if parsed.path.startswith("/api/workspaces/") and len(parts) == 7 and parts[4] == "runs" and parts[6] == "report":
+        workspace_id = unquote(parts[3])
+        run_id = unquote(parts[5])
+        try:
+            handler.send_json(state.get_workspace_execution_report(workspace_id, run_id))
+        except ValueError:
+            handler.send_json({"error": "workspace not found"}, HTTPStatus.NOT_FOUND)
+        except KeyError:
+            handler.send_json({"error": "workspace execution run not found"}, HTTPStatus.NOT_FOUND)
+        return True
     if parsed.path.startswith("/api/workspaces/") and len(parts) == 7 and parts[4] == "runs" and parts[6] == "replay":
         workspace_id = unquote(parts[3])
         run_id = unquote(parts[5])

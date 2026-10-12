@@ -16,6 +16,7 @@ class RunPlan:
     executor_prefer: str = "auto"
     engine_version: str = "legacy-sequence/n02"
     schema_version: int = 1
+    report_output_root: str = ""
 
 
 @dataclass(slots=True)

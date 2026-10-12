@@ -4,7 +4,7 @@ RelayGraph 是一个本地研究与运维工作台，把 GPU 监控、远程任�
 
 已有能力包括本地/SSH 机器监控、tmux 任务与空闲 GPU 队列、rsync 传输、浏览器终端、工作区、模板与能力配置、Agent 执行、SSE 反馈、运行摘要回放和导出。异步工作流的等待/恢复与交付验证仍有已登记缺口；当前状态见[代码审查](docs/current-audit.md)，不要把模块存在当成整个闭环已验收。
 
-后端是 Python，HTTP 服务使用标准库；前端是静态 HTML/CSS/JavaScript，没有 Node 构建步骤。密钥加密依赖 cryptography，工作流推进使用 LangGraph core + SQLite。当前新工作流只接入单 Job 的持久受理、等待和重启核对，Job → Agent 仍待下一片；LiteLLM 仍为待验证候选。
+后端是 Python，HTTP 服务使用标准库；前端是静态 HTML/CSS/JavaScript，没有 Node 构建步骤。密钥加密依赖 cryptography，工作流推进使用 LangGraph core + SQLite。当前新工作流支持单 Job，以及一个本地 Job → 无工具报告 Agent 的等待和恢复；新报告可落盘并验证。更长链、Agent 子任务和 LiteLLM 仍待后续切片。
 
 ## 本地启动
 
@@ -48,9 +48,15 @@ config/ 默认只跟踪公开默认和 *.example.toml 模板，本机配置与�
 2. [当前问题与逐文件审查](docs/current-audit.md)。
 3. [下一阶段计划、技术复用与消融验证](docs/next-stage-plan.md)。
 
-开发规则见 [AGENTS.md](AGENTS.md)。N02/N03A 已接完整计划和稳定提交身份，N03B1/J1a/J1b 修正实际计划门禁及可选环境，B2a 补齐依赖。N03B2b 已接入单 Job 的 LangGraph 持久等待；旧同步推进器已删除。新工作流 POST 保存计划后返回，jobs 可以暂为空，调度器随后提交和核对；重复请求保留同一个 run/Job。当前多节点和 Agent 工作流会明确拒绝，可先选择只含一个 Job 的前缀；之前两节点 shell 链是旧路径的历史验收，当前不会回退运行。旧 N02 记录仍能查询/核对，未提交的旧节点不自动重放。
+开发规则见 [AGENTS.md](AGENTS.md)。N02/N03A 已接完整计划和稳定提交身份，N03B1/J1a/J1b 修正实际计划门禁及可选环境，B2a 补齐依赖。N03B2b/B2c1 已接入单 Job 和 Job → 无工具 eval.report Agent 的 LangGraph 持久等待；旧同步推进器已删除。新工作流 POST 保存计划后返回，jobs 可以暂为空，调度器随后提交和核对；重复请求保留同一个 run/Job。Agent 只消费本次 Job 的结果，前置失败/停止不调用模型。其他多节点计划明确拒绝；之前两节点 shell 链是旧路径的历史验收，当前不会回退运行。旧 N02 记录仍能查询/核对，未提交的旧节点不自动重放。
 
-检查点位于领域账本旁的 `<账本文件主名>-checkpoints.sqlite3`，沿用 config/ 中的 execution_db_path 确定目录，不新增配置源。损坏检查点会阻塞协调器并保留文件；已提交外部任务仍由原 Job 服务管理。单 Job 检查点丢失时可用冻结计划和稳定回执重新核对；无回执的未知提交不盲目重提，也不宣称任意外部进程 exactly-once。唯一下一片是 N03B2c：Job 成功后让一个 Agent 消费本次结果。Agent 控制、报告正文、远程文件、GPU 占用和传输继续分片推进。
+检查点位于领域账本旁的 `<账本文件主名>-checkpoints.sqlite3`，沿用 config/ 中的 execution_db_path 确定目录，不新增配置源。损坏检查点会阻塞协调器并保留文件；已提交外部任务仍由原 Job 服务管理。单 Job 检查点丢失时可用冻结计划和稳定回执重新核对；无回执的未知提交、未知 Agent 调用不盲目重放，也不宣称任意外部进程 exactly-once。
+
+N07A 为新建的上述报告链保存非空、验证通过且不超过 4000 字符的正文。可在本地 config/ 配置文件的 `[app]` 设置 `report_output_dir`；相对路径以该配置文件所在目录计算，默认使用执行账本旁的 `reports/`。目录在 run 创建时冻结，后改配置不会移动旧报告；正文文件属于私密运行数据，不提交。文件名由 run/step/attempt 身份生成，不覆盖已有不同内容，使用本地文件系统的硬链接原子发布；不支持该操作时明确报告写入失败。
+
+`GET /api/workspaces/{workspace_id}/runs/{run_id}/report` 读取绑定本次 attempt 的报告，返回 `report.content`、`file_verified`、`sha256`、`size_bytes` 和公开引用，不暴露存储目录、不接受任意文件路径。文件缺失或损坏返回 `content=null` 和不完整原因，不用原回答冒充文件。原回答和 Agent 执行终态仍保留，执行成功与交付完整分开。写入前/后进程退出可在重启时利用已保存回答继续交付，无须再次调用模型；已失败交付不自动重试。历史未冻结目录的 run 不自动补文件。长报告、旧工具的声明型写入和一般修复流程仍未完成。
+
+N13A/N13B1 已提供不重复的实时步骤和独立运行记录页；既有导出包含上述验证证据。唯一下一片是 **N07A-UI：独立报告阅读与交付状态界面**，后端文件能力通过不代表该阅读界面已完成。Agent 控制、远程文件、GPU 占用和传输继续分片推进。
 
 用户已清理并忽略 tests/；后续按功能切片生成本地验证，不上传脚本、执行结果或产物。dev_work/ 保存忽略的调查、PoC、浏览器/远程/Provider 验证。当前 N01 本地样机的运行方式见第三部分 2.4；正式应用仍按上面的启动命令运行。
 

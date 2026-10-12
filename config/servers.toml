@@ -5,6 +5,8 @@ idle_min_free_mib = 1024
 idle_max_gpu_util = 10
 # 可选：执行账本路径；相对路径以本配置文件所在目录为基准。
 # execution_db_path = "../data/execution.sqlite3"
+# 可选：新运行的本机报告目录；默认在执行账本旁的 reports/，提交时冻结。
+# report_output_dir = "../data/reports"
 
 [server_aliases]
 "local" = "本机"

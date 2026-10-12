@@ -587,7 +587,7 @@ class AgentsMixin:
         if report_only:
             answer = result["final_answer"]
             if len(answer) > 4000:
-                validation = {**validation, "status": "failed", "errors": ["Report exceeds the 4000-character inline limit; file storage is not implemented"]}
+                validation = {**validation, "status": "failed", "errors": ["Report exceeds this workflow's 4000-character limit; long-report delivery is not supported"]}
             if result["success"] and validation.get("status") != "ok":
                 result.update(success=False, error="; ".join(validation.get("errors", [])))
             result["output_validation"] = validation

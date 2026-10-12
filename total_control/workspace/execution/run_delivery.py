@@ -134,9 +134,10 @@ def workspace_execution_run_delivery_closure(
         if str(item.get("status") or "").strip() == "done"
     ]
     report_ready = bool(report_artifacts or (metrics and completed_report_steps))
-    inline_report_only = any(step.get("node_kind") == "eval.report"
-                             and step.get("output_value", {}).get("storage") == "inline-answer"
-                             and not step["output_value"].get("file_verified") for step in steps)
+    incomplete_reports = [step for step in steps if step.get("node_kind") == "eval.report"
+                          and step.get("output_value", {}).get("storage") == "inline-answer"
+                          and not step["output_value"].get("file_verified")]
+    inline_report_only = bool(incomplete_reports)
     if failed_report_steps:
         status = "failed"
     elif missing_expected:
@@ -174,7 +175,8 @@ def workspace_execution_run_delivery_closure(
         "report": {
             "status": report_status,
             "incomplete": inline_report_only,
-            "reason": "report_file_not_written_or_verified" if inline_report_only else "",
+            "reason": (incomplete_reports[0]["output_value"].get("report_file", {}).get("reason")
+                       or "report_file_not_written_or_verified") if inline_report_only else "",
             "report_command": report_command,
             "steps": report_steps[:6],
             "artifacts": copy.deepcopy(report_artifacts),

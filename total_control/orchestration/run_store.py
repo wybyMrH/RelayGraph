@@ -13,6 +13,7 @@ import sqlite3
 from typing import Any, Iterator
 
 from .types import RunPlan
+from ..infra.report_files import report_file_descriptor
 from ..utils import now_iso
 
 
@@ -224,6 +225,47 @@ class RunStore:
                 "WHERE run_id=? AND step_id=? AND attempt_no=? AND status='running' AND result_json='{}'",
                 (canonical_json(result), now_iso(), run_id, step_id, attempt_no),
             ).rowcount == 1
+
+    def prepare_report_file(self, run_id: str, step_id: str, attempt_no: int,
+                            descriptor: dict[str, Any]) -> dict[str, Any]:
+        """Record file intent after the successful answer is durable, before writing."""
+        with self._db(write=True) as db:
+            attempt = db.execute("SELECT status,result_json FROM attempts WHERE run_id=? AND step_id=? AND attempt_no=?",
+                                 (run_id, step_id, attempt_no)).fetchone()
+            if not attempt or attempt["status"] != "done":
+                raise RunConflictError("report file requires a persisted successful attempt")
+            row = db.execute("SELECT record_json,workspace_id FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            result = json.loads(attempt["result_json"])
+            output = result.get("output_value", {})
+            expected = report_file_descriptor(row["workspace_id"], run_id, step_id, f"a{attempt_no}", output.get("content"))
+            if (descriptor != expected or output.get("storage") != "inline-answer"
+                    or result.get("validation", {}).get("status") != "ok"):
+                raise RunConflictError("report file differs from persisted validated answer")
+            record = json.loads(row[0])
+            receipts = record.setdefault("report_files", {})
+            key = f"{step_id}/a{attempt_no}"
+            receipt = receipts.get(key)
+            if receipt:
+                if any(receipt.get(k) != v for k, v in descriptor.items()):
+                    raise RunConflictError("report file identity reused for a different answer")
+                return receipt
+            receipt = {**descriptor, "status": "prepared", "created_at": now_iso(),
+                       "verified_at": "", "error": ""}
+            receipts[key] = receipt
+            db.execute("UPDATE runs SET record_json=? WHERE run_id=?", (canonical_json(record), run_id))
+            return receipt
+
+    def finish_report_file(self, run_id: str, step_id: str, attempt_no: int, *, error: str = "") -> None:
+        with self._db(write=True) as db:
+            row = db.execute("SELECT record_json FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            record = json.loads(row[0])
+            receipt = record["report_files"][f"{step_id}/a{attempt_no}"]
+            if receipt["status"] != "prepared":
+                return  # Completed delivery evidence is never overwritten by a wakeup.
+            receipt.update(status="failed" if error else "verified", error=error,
+                           verified_at="" if error else now_iso())
+            record["updated_at"] = now_iso()
+            db.execute("UPDATE runs SET record_json=? WHERE run_id=?", (canonical_json(record), run_id))
 
     def prepare_submission(self, run_id: str, step_id: str, attempt_no: int, payload: dict[str, Any]) -> dict[str, Any]:
         key = f"{run_id}/{step_id}/a{attempt_no}/job"

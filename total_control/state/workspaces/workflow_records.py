@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import threading
+from pathlib import Path
 from typing import Any
 
 from ...orchestration.run_store import RunConflictError, RunStoreError, content_hash
@@ -11,6 +12,7 @@ from ...orchestration.job_coordinator import JOB_ENGINE_VERSION, REPORT_ENGINE_V
 from ...orchestration.types import RunPlan, ExecutionRunContext
 from ...workspace.automation.contracts_pkg.io import workspace_contract_output_key_for_node
 from .agent_runtime_safety import redact_runtime_observation_text
+from ...infra.report_files import ReportFileError, report_file_descriptor, report_file_view, publish_report_file
 from ...workspace.execution import (
     make_workspace_execution_run_id,
     normalize_workspace_execution_run,
@@ -60,6 +62,15 @@ class WorkflowRecordsMixin:
             if intent and intent["state"] in {"submitting", "reconciling"}:
                 status = "blocked"
                 result.update(runtime_status="reconciling", error=intent["error"] or "Job submission requires reconciliation")
+            if latest and plan.get("report_output_root") and node.get("kind") == "eval.report" and status == "done":
+                output = result.get("output_value", {})
+                if output.get("storage") == "inline-answer":
+                    descriptor = report_file_descriptor(workspace_id, run_id, planned["step_id"],
+                                                        f"a{latest['attempt_no']}", output.get("content"))
+                    receipt = evidence["record"].get("report_files", {}).get(f"{planned['step_id']}/a{latest['attempt_no']}")
+                    view = report_file_view(plan["report_output_root"], descriptor, receipt)
+                    output.update(file_verified=view["file_verified"], report_file={k: v for k, v in view.items() if k != "content"})
+                    result["artifacts"] = [{k: v for k, v in view.items() if v is not None}]
             steps.append(normalize_workspace_run_step({
                 **result, "index": planned["index"], "step_id": planned["step_id"],
                 "attempt_id": f"a{latest['attempt_no']}" if latest else "",
@@ -154,6 +165,8 @@ class WorkflowRecordsMixin:
             steps=[{"step_id": node["id"], "index": index, "executor": modes[index], "node": copy.deepcopy(node)}
                    for index, node in enumerate(nodes)],
             workspace_snapshot=snapshot, package_snapshot=copy.deepcopy(package_snapshot), executor_prefer=executor_prefer,
+            report_output_root=str(Path(self.config.report_output_dir) if self.config.report_output_dir
+                                   else self.execution_store.path.resolve().parent / "reports") if report_route_hash else "",
         )
         for step in plan.steps:
             if step["executor"] == "job":
@@ -241,6 +254,7 @@ class WorkflowRecordsMixin:
                           "error": "Agent invocation outcome unknown; automatic replay refused"}
                 self.execution_store.record_result(run_id, step["step_id"], number, result)
                 return result
+            self._publish_coordinated_report(run_id, step["step_id"], number, attempt["result"])
             return copy.deepcopy(attempt["result"])
         if source["status"] != "done":
             result = {"node_id": step["step_id"], "status": "skipped", "executor": "agent",
@@ -275,7 +289,26 @@ class WorkflowRecordsMixin:
             recorded["output_value"].update(run_id=run_id, node_id=step["step_id"], attempt_id=f"a{number}",
                                             agent_execution_id=execution_id, source=expected)
         self.execution_store.record_result(run_id, step["step_id"], number, recorded)
+        self._publish_coordinated_report(run_id, step["step_id"], number, recorded)
         return recorded
+
+    def _publish_coordinated_report(self, run_id: str, step_id: str, number: int, result: dict[str, Any]) -> None:
+        evidence = self.execution_store.read(run_id)
+        plan = evidence["plan"]
+        output = result.get("output_value", {})
+        if (not plan.get("report_output_root") or result.get("status") != "done"
+                or result.get("validation", {}).get("status") != "ok" or output.get("storage") != "inline-answer"):
+            return  # Legacy plans and invalid/failed answers are never migrated by a wakeup.
+        descriptor = report_file_descriptor(plan["workspace_id"], run_id, step_id, f"a{number}", output.get("content"))
+        receipt = self.execution_store.prepare_report_file(run_id, step_id, number, descriptor)
+        if receipt["status"] != "prepared":
+            return
+        error = ""
+        try:
+            publish_report_file(plan["report_output_root"], descriptor, output["content"])
+        except ReportFileError as exc:
+            error = exc.code
+        self.execution_store.finish_report_file(run_id, step_id, number, error=error)
 
     def advance_workflow_runs(self) -> None:
         """One serial graph worker; a model call must not block the Job monitor loop."""

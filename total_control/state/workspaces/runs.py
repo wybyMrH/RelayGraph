@@ -578,6 +578,21 @@ class RunsMixin:
         }
 
 
+    def get_workspace_execution_report(self, workspace_id: str, run_id: str) -> dict[str, Any]:
+        """Read the currently verified report file; never fall back to the inline answer."""
+        payload = self.get_workspace_execution_run(workspace_id, run_id)
+        step = next((item for item in payload["run"]["steps"] if item.get("node_kind") == "eval.report"), {})
+        report = step.get("output_value", {}).get("report_file")
+        if not isinstance(report, dict):
+            report = {"file_verified": False, "status": "incomplete", "content": None,
+                      "reason": "report_file_not_written_or_verified"}
+        else:
+            report = copy.deepcopy(report)
+            artifact = next((item for item in step.get("artifacts", []) if item.get("report_id") == report.get("report_id")), {})
+            report["content"] = artifact.get("content") if report.get("file_verified") else None
+        return {"workspace_id": payload["workspace_id"], "run_id": payload["run"]["id"],
+                "report": copy.deepcopy(report)}
+
     def get_workspace_execution_run_replay(self, workspace_id: str, run_id: str) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         run_id = str(run_id or "").strip()

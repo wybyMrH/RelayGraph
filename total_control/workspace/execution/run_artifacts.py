@@ -30,12 +30,19 @@ def normalize_workspace_run_step_artifacts(value: Any, current: Any = None) -> l
         summary = str(item.get("summary") or "").strip()
         if summary:
             normalized["summary"] = summary[:240]
-        content = str(item.get("content") or "").strip()
+        content = str(item.get("content") or "")
+        if not item.get("report_id"):
+            content = content.strip()
         if content:
             normalized["content"] = content[:4000]
         if item.get("node_id"):
             normalized["node_id"] = str(item.get("node_id") or "").strip()
         if item.get("node_kind"):
             normalized["node_kind"] = str(item.get("node_kind") or "").strip()
+        if item.get("report_id"):
+            for key in ("report_id", "run_id", "step_id", "attempt_id", "host_id", "sha256", "verified_at", "reason"):
+                normalized[key] = str(item.get(key) or "")
+            normalized["size_bytes"] = safe_int(item.get("size_bytes"), 0)
+            normalized["file_verified"] = bool(item.get("file_verified"))
         items.append(normalized)
     return workspace_dedupe_artifacts(items)[:24]
