@@ -224,7 +224,8 @@ def finalize_agent_executable_nodes(
         handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
         mode = str(handler.get("mode") or "").strip().lower()
         agent_id = str(handler.get("agent_id") or "").strip()
-        if mode != "agent" or not agent_id:
+        # Defaults may complete an unassigned Agent, but must preserve an explicit executor.
+        if mode not in {"human", "system"} and (mode != "agent" or not agent_id):
             handler = build_recommended_handler(kind, agent_defs)
         contract = workspace_io_contract_for_kind(kind, index)
         output_key = str(
