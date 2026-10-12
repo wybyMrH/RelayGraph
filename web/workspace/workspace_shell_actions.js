@@ -30,6 +30,15 @@
     element(callbacks, "workspaceLauncherPreviewBand")?.addEventListener("toggle", (event) => {
       call(callbacks, "syncLauncherPreview", Boolean(event.currentTarget?.open), event);
     });
+    element(callbacks, "workspaceRunReaderProjectSelect")?.addEventListener("change", (event) => {
+      if (value(event)) call(callbacks, "selectWorkspace", value(event), event);
+    });
+    element(callbacks, "workspaceRunReaderEditBtn")?.addEventListener("click", () => {
+      call(callbacks, "editWorkspaceInstance");
+    });
+    element(callbacks, "workspaceRunReaderBackBtn")?.addEventListener("click", () => {
+      call(callbacks, "returnToWorkspaceCockpit");
+    });
     element(callbacks, "workspaceTemplateSelect")?.addEventListener("change", (event) => {
       call(callbacks, "selectWorkspaceTemplate", value(event), event);
     });

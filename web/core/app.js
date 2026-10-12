@@ -292,6 +292,8 @@ const STORAGE_KEYS = {
   activityTab: "tc-activity-tab",
   workspaceTab: "tc-workspace-tab",
   workspaceMode: "tc-workspace-mode",
+  workspaceRunCompareBase: "tc-workspace-run-compare-base",
+  workspaceRunReplayOpen: "tc-workspace-run-replay-open",
   workspaceManageTab: "tc-workspace-manage-tab",
   serverSort: "tc-server-sort",
   serverOrder: "tc-server-order",
@@ -12281,7 +12283,7 @@ function workspaceAgentStreamTraceMarkup(records = []) {
   return workspaceAgentTraceApi().streamTraceMarkup?.(records, workspaceAgentTraceDeps()) || "";
 }
 
-function workspaceRunStepItemMarkup(step = {}, run = {}) {
+function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
   const jobId = String(step.job_id || "").trim();
   const childJobIds = (Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
     .map((item) => String(item || "").trim())
@@ -12358,6 +12360,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
         </div>
       `
     : "";
+  const detailKey = `${run.id || ""}:${step.step_id || nodeId || step.index}:inputs`;
   return `
     <article class="workspace-execution-run-step status-${escapeHtml(effectiveStatus)}${isAgent ? " executor-agent" : ""}${step._live_agent_synthetic ? " live-synthetic" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
       <div class="workspace-execution-run-step-head">
@@ -12375,9 +12378,13 @@ function workspaceRunStepItemMarkup(step = {}, run = {}) {
         ${executionMetaLine ? `<span>${escapeHtml(executionMetaLine)}</span>` : ""}
       </div>
       ${liveAgentLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(liveAgentLine)}</p>` : ""}
-      ${isAgent && mappedInputsLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(mappedInputsLine)}</p>` : ""}
+      ${isAgent && (mappedInputsLine || agentTrace) ? `
+        <details class="workspace-run-reader-evidence" data-reader-detail="${escapeHtml(detailKey)}"${options.openDetails?.has(detailKey) ? " open" : ""}>
+          <summary>输入与执行过程</summary>
+          ${mappedInputsLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(mappedInputsLine)}</p>` : ""}
+          ${agentTrace}
+        </details>` : ""}
       ${validationLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(validationLine)}</p>` : ""}
-      ${agentTrace}
       ${errorText ? `<p class="workspace-execution-run-step-error">${escapeHtml(errorText)}</p>` : ""}
       ${jobId ? `
         <div class="workspace-execution-run-step-actions">
@@ -12427,6 +12434,7 @@ function setWorkspaceRunCompareBaseId(runId = "", workspaceId = state.selectedWo
   if (id) store[key] = id;
   else delete store[key];
   state.ui.workspaceRunCompareBaseId = id;
+  saveStoredJson(STORAGE_KEYS.workspaceRunCompareBase, store);
 }
 
 function workspaceRunReplayCacheKey(workspaceId = state.selectedWorkspaceId, runId = "") {
@@ -12468,6 +12476,7 @@ function setWorkspaceRunReplayOpenRunId(runId = "", workspaceId = state.selected
   const store = workspaceRunReplayOpenStore();
   if (id) store[key] = id;
   else delete store[key];
+  saveStoredJson(STORAGE_KEYS.workspaceRunReplayOpen, store);
 }
 
 function workspaceRunReplayState(runId = "", workspaceId = state.selectedWorkspaceId) {
@@ -12513,7 +12522,7 @@ function workspaceRunEvidenceNoticeMarkup(run = {}) {
   return workspaceRunSummaryApi().evidenceNoticeMarkup?.(run, workspaceRunSummaryDeps()) || "";
 }
 
-function workspaceExecutionRunItemMarkup(run = {}) {
+function workspaceExecutionRunItemMarkup(run = {}, options = {}) {
   const steps = Array.isArray(run.steps) ? run.steps : [];
   const displaySteps = [...steps, ...workspaceLiveAgentSyntheticStepsForRun(run, steps)];
   const status = String(run.status || "pending");
@@ -12529,7 +12538,11 @@ function workspaceExecutionRunItemMarkup(run = {}) {
     : `<button class="secondary mini" type="button" data-action="set-workspace-run-compare-base" data-run-id="${escapeHtml(runId)}" title="把这次运行设为后续对比的基准">设基准</button>`;
   const exportAction = `<button class="secondary mini" type="button" data-action="download-workspace-run-export" data-run-id="${escapeHtml(runId)}" title="下载这次运行的结构化导出 JSON，包含回放、日志、产物和报告">导出</button>`;
   const replayState = workspaceRunReplayState(runId);
-  const replayAction = `<button class="secondary mini" type="button" data-action="toggle-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="${replayState.open ? "收起这次运行的回放预览" : "按需读取并展开这次运行的结构化回放预览"}">${replayState.open ? "收起" : "预览回放"}</button>`;
+  const replayLabel = replayState.open
+    ? (replayState.busy ? "加载中" : replayState.replay ? "收起" : "加载回放")
+    : "预览回放";
+  const replayAction = `<button class="secondary mini" type="button" data-action="toggle-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="${replayState.open && replayState.replay ? "收起这次运行的回放预览" : "按需读取并展开这次运行的结构化回放预览"}"${replayState.busy ? " disabled" : ""}>${replayLabel}</button>`;
+  const evidenceKey = `${runId}:evidence`;
   return `
     <article class="workspace-execution-run-item status-${escapeHtml(status)}" role="button" tabindex="0" data-run-id="${escapeHtml(runId)}" title="刷新这条执行记录的详情；若有关联任务则打开第一条任务日志">
       <div class="workspace-execution-run-item-head">
@@ -12547,13 +12560,16 @@ function workspaceExecutionRunItemMarkup(run = {}) {
         </div>
       </div>
       ${workspaceRunProgressMarkup(run)}
-      ${workspaceRunEvidenceNoticeMarkup(run)}
-      ${deliveryMarkup}
-      ${workspaceRunEventTimelineMarkup(run)}
       ${workspaceRunReplayPreviewMarkup(run)}
       <div class="workspace-execution-run-steps">
-        ${displaySteps.map((step) => workspaceRunStepItemMarkup(step, run)).join("")}
+        ${displaySteps.map((step) => workspaceRunStepItemMarkup(step, run, options)).join("")}
       </div>
+      <details class="workspace-run-reader-evidence" data-reader-detail="${escapeHtml(evidenceKey)}"${options.openDetails?.has(evidenceKey) ? " open" : ""}>
+        <summary>交付与事件记录</summary>
+        ${workspaceRunEvidenceNoticeMarkup(run)}
+        ${deliveryMarkup}
+        ${workspaceRunEventTimelineMarkup(run)}
+      </details>
     </article>
   `;
 }
@@ -12896,10 +12912,7 @@ function workspaceDetailArtifactsMarkup(artifacts = []) {
 }
 
 function clearWorkspaceMessage() {
-  const message = $("workspaceMessage");
-  if (!message) return;
-  message.textContent = "";
-  message.classList.remove("error");
+  setWorkspaceMessage("");
 }
 
 function setWorkspaceFormValues(data = {}) {
@@ -12979,9 +12992,6 @@ function syncWorkspaceProjectConfigDrawer(options = {}) {
 function workspaceModuleCardsConfig() {
   const workspace = selectedWorkspace();
   const formData = workspaceFormPayload();
-  const jobs = workspaceJobs();
-  const activeJobs = jobs.filter((job) => isJobActive(job)).length;
-  const failedJobs = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || ""))).length;
   const messages = Array.isArray(workspace?.chat) ? workspace.chat.length : 0;
   const enabledAgents = state.workspaceAgentsDraft.filter((agent) => agent.enabled !== false).length;
   const enabledTools = state.workspaceToolsDraft.filter((tool) => tool.enabled !== false).length;
@@ -13035,12 +13045,6 @@ function workspaceModuleCardsConfig() {
       title: "AI 配置",
       meta: `${state.providerProfiles.length} 个 profile`,
       detail: profile ? `${providerProfileLabel(profile)} · ${state.workspaceModelDraft.routing_mode === "agent_override" ? "允许 agent 覆盖" : "项目统一默认"}` : "先配置 provider、model 和路由策略。",
-    },
-    {
-      id: "runs",
-      title: "运行记录",
-      meta: `${jobs.length} 个任务 · ${activeJobs} 活跃`,
-      detail: failedJobs ? `${failedJobs} 个失败或停止，适合先看这里。` : "查看当前项目绑定的节点任务和输出。",
     },
   ];
 }
@@ -14474,13 +14478,17 @@ function renderWorkspaceAgentControls() {
 }
 
 function switchWorkspaceTab(tab, options = {}) {
+  if (tab === "runs") {
+    if (options.persist !== false) switchWorkspaceMode("runs");
+    return;
+  }
   const tabMap = {
     "config": "project",
   };
   const next = WORKSPACE_PROJECT_TABS.includes(tab) ? tab : (tabMap[tab] || "home");
   const changed = state.ui.workspaceTab !== next;
   state.ui.workspaceTab = next;
-  if (next !== "home" && state.ui.workspaceMode !== "manage") {
+  if (options.persist !== false && next !== "home" && state.ui.workspaceMode !== "manage") {
     state.ui.workspaceMode = "manage";
     saveStoredValue(STORAGE_KEYS.workspaceMode, "manage");
   }
@@ -14500,7 +14508,6 @@ function switchWorkspaceTab(tab, options = {}) {
   const agentsPanel = $("workspaceAgentsPanel");
   const toolsPanel = $("workspaceToolsPanel");
   const modelPanel = $("workspaceModelPanel");
-  const runsPanel = $("workspaceRunsPanel");
   const activePanel = {
     home: homePanel,
     project: projectPanel,
@@ -14509,14 +14516,12 @@ function switchWorkspaceTab(tab, options = {}) {
     agents: agentsPanel,
     tools: toolsPanel,
     model: modelPanel,
-    runs: runsPanel,
   }[next];
   const activeRevealTarget = {
     workflow: $("workspaceWorkflowSummary"),
     agents: $("workspaceAgentCoverageSummary"),
     tools: $("workspaceToolCatalogSummary"),
     model: $("workspaceModelRoutingSummary"),
-    runs: $("workspaceRunSummary"),
   }[next] || activePanel;
 
   if (homePanel) homePanel.hidden = next !== "home";
@@ -14526,13 +14531,12 @@ function switchWorkspaceTab(tab, options = {}) {
   if (agentsPanel) agentsPanel.hidden = next !== "agents";
   if (toolsPanel) toolsPanel.hidden = next !== "tools";
   if (modelPanel) modelPanel.hidden = next !== "model";
-  if (runsPanel) runsPanel.hidden = next !== "runs";
 
   $("workspaceProjectModulesPanel")?.classList.toggle("home-active", next === "home");
   setActiveTab("workspaceTabs", next);
   setActiveTab("workspaceModuleCards", next, "data-workspace-tab");
   if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceTab, next);
-  syncWorkspaceProjectConfigDrawer({ scroll: false });
+  renderWorkspaceModeSwitch();
   if (next !== "home" && activeRevealTarget && options.persist !== false && options.reveal !== false) {
     requestAnimationFrame(() => revealWorkspaceElement(activeRevealTarget, { block: "start" }));
   }
@@ -14551,6 +14555,11 @@ function workspaceConfigTabForTarget(targetId = "") {
 function openWorkspaceConfigDetail(targetId = "", options = {}) {
   const id = String(targetId || "").trim();
   const tab = options.tab || workspaceConfigTabForTarget(id);
+  if (tab === "runs") {
+    switchWorkspaceMode("runs");
+    requestAnimationFrame(() => revealWorkspacePanelTarget("workspaceRunsPanel", { block: "start" }));
+    return;
+  }
   switchWorkspaceTab(tab, { reveal: false });
   state.ui.workspaceProjectConfigOpen = true;
   saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "1");
@@ -15320,23 +15329,16 @@ function renderWorkspaceRuns() {
   const summary = $("workspaceRunSummary");
   const list = $("workspaceRunList");
   if (!meta || !summary || !list) return;
+  setSelectOptions($("workspaceRunReaderProjectSelect"), state.workspaces.map((item) => ({
+    value: item.id, label: item.name || item.id,
+  })), workspace?.id || "", "选择实例");
+  if ($("workspaceRunReaderEditBtn")) $("workspaceRunReaderEditBtn").disabled = !workspace?.id;
+  const openDetails = new Set(Array.from(list.querySelectorAll("details[data-reader-detail][open]"),
+    (item) => item.dataset.readerDetail));
   if (!workspace?.id) {
     meta.textContent = "未保存项目";
-    summary.innerHTML = `
-      <section class="workspace-run-overview status-draft">
-        <div class="workspace-run-overview-head">
-          <div>
-            <span>运行闭环摘要</span>
-            <strong>还没有保存实例</strong>
-            <em>先保存项目，运行记录才能绑定节点、输出、GPU 和执行包。</em>
-          </div>
-          <div class="workspace-run-overview-actions">
-            ${workspaceHomeActionButtonMarkup({ label: "保存项目", dataAction: "submit-workspace-form", tone: "primary", title: "保存当前项目实例、节点链、Agent、工具和 AI 路由草稿。" }, "保存当前项目。")}
-          </div>
-        </div>
-      </section>
-    `;
-    list.innerHTML = '<div class="empty">先保存项目，后续节点任务和执行日志才会绑定到这里。</div>';
+    summary.innerHTML = '<div class="empty">先选择一个已保存实例，或返回驾驶舱创建实例。</div>';
+    list.innerHTML = "";
     return;
   }
   const runs = workspaceExecutionRuns(workspace);
@@ -15347,8 +15349,6 @@ function renderWorkspaceRuns() {
   const activeCount = jobs.filter((job) => isJobActive(job)).length;
   const doneCount = jobs.filter((job) => String(job.status || "") === "done").length;
   const failedCount = jobs.filter((job) => ["failed", "stopped"].includes(String(job.status || ""))).length;
-  const latest = jobs[0] || null;
-  const blockedCount = jobs.filter((job) => ["blocked", "failed", "stopped"].includes(String(job.status || ""))).length;
   const status = latestRun?.status
     ? String(latestRun.status)
     : failedCount
@@ -15358,15 +15358,6 @@ function renderWorkspaceRuns() {
         : jobs.length
           ? "ready"
           : "draft";
-  const primaryAction = latest
-    ? { label: "打开最新输出", dataAction: "open-workspace-run", jobId: latest.id, tone: "primary", title: "打开最近一条运行记录的输出日志。" }
-    : { label: "运行工作流", dataAction: "run-selected-workspace", tone: "primary", title: "按当前节点链提交完整工作流；门禁失败时不会创建半截队列。" };
-  const secondaryAction = jobs.length
-    ? { label: "运行工作流", dataAction: "run-selected-workspace", tone: "secondary", title: "重新提交当前工作流。" }
-    : { label: "链路诊断", dataAction: "open-workspace-chain-inspect", tone: "secondary", title: "只读检查节点链、Agent 和资源策略。" };
-  const latestNodeTitle = latest ? String(latest.metadata?.node_title || latest.metadata?.node_kind || latest.kind || "任务") : "等待首次运行";
-  const latestServer = latest ? serverById(latest.server_id) : null;
-  const latestGpu = latest ? workspaceJobGpuLabel(latest) : "";
   const realtimeText = workspaceRealtimeStatusText();
   meta.textContent = [
     runs.length
@@ -15375,56 +15366,11 @@ function renderWorkspaceRuns() {
     realtimeText,
   ].filter(Boolean).join(" · ");
   summary.innerHTML = `
-    <section class="workspace-run-overview status-${escapeHtml(status)}">
-      <div class="workspace-run-overview-head">
-        <div>
-          <span>运行闭环摘要</span>
-          <strong>${escapeHtml(latestRun
-            ? `${workspaceRunKindLabel(latestRun.kind)} · ${latestRun.progress?.done || 0}/${latestRun.progress?.total || latestRun.steps?.length || 0} 步`
-            : `${jobs.length} 个任务 · ${activeCount} 活跃 · ${blockedCount} 阻塞`)}</strong>
-          <em>${escapeHtml(latestRun
-            ? `最近执行 ${fmtDate(latestRun.created_at || "") || "等待开始"} · ${zhStatus(latestRun.status || status)}`
-            : latest
-              ? `最近一次 ${fmtDate(latest.created_at || latest.started_at || "") || "等待开始"} · ${zhStatus(latest.status || "queued")}`
-              : "还没有运行记录，建议先从完整工作流或安全发现开始。")}</em>
-        </div>
-        <div class="workspace-run-overview-actions">
-          ${workspaceHomeActionButtonMarkup(primaryAction, "处理当前运行焦点。")}
-          ${workspaceHomeActionButtonMarkup(secondaryAction, "继续推进执行链。")}
-        </div>
-      </div>
-      <div class="workspace-run-summary-grid">
-        <article class="workspace-run-summary-card">
-          <span class="workspace-run-summary-label">总任务</span>
-          <strong>${jobs.length}</strong>
-          <span class="workspace-run-summary-meta">当前项目已绑定的节点执行</span>
-        </article>
-        <article class="workspace-run-summary-card">
-          <span class="workspace-run-summary-label">活跃中</span>
-          <strong>${activeCount}</strong>
-          <span class="workspace-run-summary-meta">等待、启动中、运行中</span>
-        </article>
-        <article class="workspace-run-summary-card">
-          <span class="workspace-run-summary-label">已完成</span>
-          <strong>${doneCount}</strong>
-          <span class="workspace-run-summary-meta">最近跑完的节点任务</span>
-        </article>
-        <article class="workspace-run-summary-card">
-          <span class="workspace-run-summary-label">异常</span>
-          <strong>${failedCount}</strong>
-          <span class="workspace-run-summary-meta">${latest ? `最近一次 ${fmtDate(latest.created_at || latest.started_at || "")}` : "还没有执行记录"}</span>
-        </article>
-      </div>
-      ${latestRun ? workspaceRunProgressMarkup(latestRun) : ""}
-      <div class="workspace-run-focus status-${escapeHtml(latest?.status || status)}">
-        <div>
-          <span>当前运行焦点</span>
-          <strong title="${escapeHtml(latest?.name || latestNodeTitle)}">${escapeHtml(latest?.name || latestNodeTitle)}</strong>
-          <em>${escapeHtml(latest ? `${latestNodeTitle} · ${latestServer?.name || latest.server_id || "未分配服务器"}${latestGpu ? ` · ${latestGpu}` : ""}` : "还没有任务输出。")}</em>
-        </div>
-        <p title="${escapeHtml(latest?.error || latest?.command_display || latest?.command || "运行后这里会显示最近输出、错误或复跑入口。")}">${escapeHtml(latest?.error || latest?.command_display || latest?.command || "运行后这里会显示最近输出、错误或复跑入口。")}</p>
-      </div>
-    </section>
+    <div class="workspace-run-reader-summary" aria-label="当前实例运行摘要">
+      <strong>${escapeHtml(workspace.name || "当前实例")}</strong>
+      <span>${escapeHtml(`${runs.length} 次执行，${jobs.length} 个任务；${activeCount} 活跃，${doneCount} 完成，${failedCount} 失败或停止`)}</span>
+      <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+    </div>
   `;
   if (!runs.length && !jobs.length) {
     list.innerHTML = '<div class="empty">当前项目还没有绑定任务。可以从工作流运行节点，或者把运行节点填入执行面板后提交。</div>';
@@ -15433,7 +15379,7 @@ function renderWorkspaceRuns() {
   if (runs.length) {
     const filterMarkup = workspaceRunFilterBarMarkup(runs, filteredRuns);
     list.innerHTML = filteredRuns.length
-      ? `${filterMarkup}${filteredRuns.slice(0, 12).map((run) => workspaceExecutionRunItemMarkup(run)).join("")}`
+      ? `${filterMarkup}${filteredRuns.slice(0, 12).map((run) => workspaceExecutionRunItemMarkup(run, { openDetails })).join("")}`
       : `${filterMarkup}<div class="empty">没有匹配的运行记录。可以重置筛选，或换一个状态、节点、Job/Agent ID。</div>`;
     return;
   }
@@ -19819,11 +19765,12 @@ function renderWorkspaces() {
 }
 
 function switchWorkspaceMode(mode) {
-  const next = ["use", "manage"].includes(String(mode || "")) ? String(mode) : "use";
+  const next = ["use", "runs", "manage"].includes(String(mode || "")) ? String(mode) : "use";
   const changed = state.ui.workspaceMode !== next;
   state.ui.workspaceMode = next;
   if (changed) markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.workspaceMode, next);
+  if (next === "runs") renderWorkspaceRuns();
   renderWorkspaceWorkbench();
 }
 
@@ -20397,6 +20344,7 @@ function renderWorkspaceUseChat() {
 function renderWorkspaceModeSwitch() {
   const mode = state.ui.workspaceMode || "use";
   $("workspaceUseModePanel")?.toggleAttribute("hidden", mode !== "use");
+  $("workspaceRunsPanel")?.toggleAttribute("hidden", mode !== "runs");
   $("workspaceManageModePanel")?.toggleAttribute("hidden", mode !== "manage");
   $("workspaceProjectModulesPanel")?.toggleAttribute("hidden", mode !== "manage");
   syncWorkspaceProjectConfigDrawer();
@@ -23198,10 +23146,12 @@ async function removeProviderProfile(profileId) {
 }
 
 function setWorkspaceMessage(text, isError = false) {
-  const message = $("workspaceMessage");
-  if (!message) return;
-  message.textContent = text || "";
-  message.classList.toggle("error", Boolean(isError));
+  for (const id of ["workspaceMessage", "workspaceRunReaderMessage"]) {
+    const message = $(id);
+    if (!message) continue;
+    message.textContent = text || "";
+    message.classList.toggle("error", Boolean(isError));
+  }
 }
 
 async function copyTextToClipboard(text) {
@@ -23565,8 +23515,9 @@ function updatePollTimer(seconds) {
 
 function restoreStoredUiState() {
   state.selectedServer = loadStoredValue(STORAGE_KEYS.selectedServer, state.selectedServer || "");
-  state.selectedWorkspaceId = "";
-  removeStoredValue(STORAGE_KEYS.selectedWorkspace);
+  state.selectedWorkspaceId = loadStoredValue(STORAGE_KEYS.selectedWorkspace, "");
+  state.ui.workspaceRunCompareBaseByWorkspace = loadStoredJson(STORAGE_KEYS.workspaceRunCompareBase, {});
+  state.ui.workspaceRunReplayOpenByWorkspace = loadStoredJson(STORAGE_KEYS.workspaceRunReplayOpen, {});
   state.selectedWorkflowTemplateId = loadStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId || "");
   state.selectedGlobalAgentId = loadStoredValue(STORAGE_KEYS.selectedGlobalAgent, state.selectedGlobalAgentId || "");
   state.selectedGlobalToolId = loadStoredValue(STORAGE_KEYS.selectedGlobalTool, state.selectedGlobalToolId || "");
@@ -23576,6 +23527,12 @@ function restoreStoredUiState() {
   if (state.ui.activityTab === "output") state.ui.activityTab = "terminal";
   state.ui.workspaceTab = loadStoredValue(STORAGE_KEYS.workspaceTab, state.ui.workspaceTab || "home");
   state.ui.workspaceMode = loadStoredValue(STORAGE_KEYS.workspaceMode, state.ui.workspaceMode || "use");
+  if (state.ui.workspaceTab === "runs") {
+    state.ui.workspaceTab = "home";
+    state.ui.workspaceMode = "runs";
+    saveStoredValue(STORAGE_KEYS.workspaceTab, "home");
+    saveStoredValue(STORAGE_KEYS.workspaceMode, "runs");
+  }
   state.ui.workspaceManageTab = loadStoredValue(STORAGE_KEYS.workspaceManageTab, state.ui.workspaceManageTab || "templates");
   state.ui.workspaceProjectConfigOpen = loadStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, state.ui.workspaceProjectConfigOpen ? "1" : "0") === "1";
   state.ui.cockpitMonitorMode = loadStoredValue(STORAGE_KEYS.cockpitMonitorMode, state.ui.cockpitMonitorMode === false ? "0" : "1") !== "0";
@@ -23669,9 +23626,9 @@ function restoreWorkspaceUiSnapshot(snapshot = {}, options = {}) {
     state.ui.productTab = snapshot.productTab;
   }
   if ((force || !WORKSPACE_PROJECT_TABS.includes(state.ui.workspaceTab)) && WORKSPACE_PROJECT_TABS.includes(snapshot.workspaceTab)) {
-    state.ui.workspaceTab = snapshot.workspaceTab;
+    state.ui.workspaceTab = snapshot.workspaceTab === "runs" ? "home" : snapshot.workspaceTab;
   }
-  if ((force || !["use", "manage"].includes(state.ui.workspaceMode)) && ["use", "manage"].includes(snapshot.workspaceMode)) {
+  if ((force || !["use", "runs", "manage"].includes(state.ui.workspaceMode)) && ["use", "runs", "manage"].includes(snapshot.workspaceMode)) {
     state.ui.workspaceMode = snapshot.workspaceMode;
   }
   if ((force || !WORKSPACE_MANAGE_TABS.includes(state.ui.workspaceManageTab)) && WORKSPACE_MANAGE_TABS.includes(snapshot.workspaceManageTab)) {
@@ -25205,9 +25162,6 @@ function workspaceHeaderWheelTarget(target) {
   if (target.closest("#workspaceModelPanel .subsection-head, #workspaceModelPanel .workspace-provider-toolbar")) {
     return visibleScrollTarget("#providerProfileList", "#providerProfileEditor");
   }
-  if (target.closest("#workspaceRunsPanel .workspace-agent-toolbar")) {
-    return visibleScrollTarget("#workspaceRunList");
-  }
   if (target.closest(".workspace-side > .subsection-head")) {
     return visibleScrollTarget("#workspaceList") || document.querySelector(".workspace-scroll-shell");
   }
@@ -25503,6 +25457,9 @@ function bindEvents() {
   });
   window.WorkspaceShellActions?.bind?.({
     element: $,
+    selectWorkspace,
+    editWorkspaceInstance: () => switchWorkspaceTab("project"),
+    returnToWorkspaceCockpit: () => switchWorkspaceMode("use"),
     selectWorkspaceResourceServer: (next) => {
       if (state.ui.workspaceResourceServerId !== next) markWorkspaceUiInteraction();
       state.ui.workspaceResourceServerId = next;

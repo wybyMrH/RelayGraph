@@ -118,7 +118,10 @@
       return;
     }
     const current = fn(deps, "workspaceRunReplayOpenRunId", () => "")(workspace.id);
-    if (current === id) {
+    const key = fn(deps, "workspaceRunReplayCacheKey", () => "")(workspace.id, id);
+    const cache = fn(deps, "workspaceRunReplayCacheStore", () => ({}))();
+    if (key && appState(deps).ui.workspaceRunReplayBusyKey === key) return;
+    if (current === id && cache[key]) {
       fn(deps, "setWorkspaceRunReplayOpenRunId", () => {})("", workspace.id);
       fn(deps, "renderWorkspaceRunSurfaces", () => {})();
       return;
@@ -278,6 +281,7 @@
       }
       return true;
     }
+    if (event.target.closest("button, a, input, select, textarea, summary, [contenteditable='true']")) return false;
     const item = event.target.closest(".workspace-run-item[data-job-id]");
     if (item?.dataset.jobId) {
       void fn(deps, "showLog", async () => {})(item.dataset.jobId);

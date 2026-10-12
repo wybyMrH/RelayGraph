@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles/styles.css?v=20260909output" />
+    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b1" />
   </head>
   <body>
     <div class="shell">
@@ -370,6 +370,7 @@
           <div class="workspace-scroll-shell">
             <div id="workspaceModeSwitch" class="segmented-tabs workspace-mode-switch">
               <button class="tab-chip active" data-mode="use" type="button" title="进入自动化复现/部署驾驶舱：从目标输入、实例创建到执行链跟踪">驾驶舱</button>
+              <button class="tab-chip" data-mode="runs" type="button" title="查看当前实例的运行、步骤、日志和导出">运行记录</button>
               <button class="tab-chip" data-mode="manage" type="button" title="维护自动化能力底座：Starter Chain、Agent、工具和 AI 路由">配置中心</button>
             </div>
             <div class="workspace-mode-shell">
@@ -517,6 +518,24 @@
                   </div>
                 </details>
               </div>
+            </section>
+
+            <section id="workspaceRunsPanel" class="workspace-mode-panel workspace-run-reader" aria-labelledby="workspaceRunReaderTitle" hidden>
+              <header class="workspace-run-reader-header">
+                <div>
+                  <h4 id="workspaceRunReaderTitle">运行记录</h4>
+                  <p class="muted">查看这次执行到了哪一步，以及它产生的日志和结果。</p>
+                </div>
+                <div class="workspace-run-reader-controls">
+                  <label>当前实例<select id="workspaceRunReaderProjectSelect" aria-label="选择要查看运行记录的实例"></select></label>
+                  <button id="workspaceRunReaderEditBtn" class="secondary" type="button">编辑实例</button>
+                  <button id="workspaceRunReaderBackBtn" class="secondary" type="button">返回驾驶舱</button>
+                </div>
+              </header>
+              <p id="workspaceRunReaderMessage" class="form-message" role="status" aria-live="polite"></p>
+              <p id="workspaceRunMeta" class="workspace-run-reader-meta muted">尚未选择实例</p>
+              <div id="workspaceRunSummary" class="workspace-run-summary"></div>
+              <div id="workspaceRunList" class="workspace-run-list"></div>
             </section>
 
             <section id="workspaceManageModePanel" class="workspace-mode-panel" hidden>
@@ -850,7 +869,7 @@
               </section>
             </section>
             <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
-            <summary class="workspace-project-drawer-summary" title="展开配置中心里的实例快照配置、节点链、Agent、工具、AI 和运行记录编辑区">
+            <summary class="workspace-project-drawer-summary" title="展开配置中心里的实例快照配置、节点链、Agent、工具和 AI 编辑区">
               <span>
                 <strong>实例快照配置 / 高级编辑</strong>
                 <em id="workspaceProjectDrawerMeta">新工作区 · 概览 · 0 节点 · 0 Agent</em>
@@ -866,7 +885,6 @@
               <button class="tab-chip" data-tab="agents" type="button" title="编辑当前项目实例内的 Agent 角色、提示词和模型覆盖">Agent</button>
               <button class="tab-chip" data-tab="tools" type="button" title="注册工具、能力边界和 Agent allowlist">工具</button>
               <button class="tab-chip" data-tab="model" type="button" title="配置 Provider Profile、模型和路由策略">AI</button>
-              <button class="tab-chip" data-tab="runs" type="button" title="查看当前项目绑定的任务记录和输出入口">记录</button>
             </div>
             <section class="workspace-editor">
               <form id="workspaceForm" class="workspace-form" autocomplete="off">
@@ -1301,27 +1319,6 @@
                   </div>
                 </section>
 
-                <section id="workspaceRunsPanel" class="workspace-tab-panel" hidden>
-                  <div class="workspace-runs-panel">
-                    <div class="workspace-agent-toolbar">
-                      <div>
-                        <strong>运行记录</strong>
-                        <p class="muted">当前项目绑定的节点任务、最近状态和输出入口。</p>
-                      </div>
-                      <span id="workspaceRunMeta" class="muted">0 个任务</span>
-                    </div>
-                    <div id="workspaceRunSummary" class="workspace-run-summary"></div>
-                    <details id="workspaceRunDetails" class="workspace-home-collapse workspace-run-details-drawer">
-                      <summary>
-                        <strong>运行明细</strong>
-                        <span>任务列表、输出、停止、重试、复制和脚本入口。</span>
-                      </summary>
-                      <div class="workspace-home-collapse-body workspace-run-details-body">
-                        <div id="workspaceRunList" class="workspace-run-list"></div>
-                      </div>
-                    </details>
-                  </div>
-                </section>
               </form>
             </section>
             <section class="workspace-side">
@@ -1817,11 +1814,11 @@
     <script src="/workspace/workspace_run_summary.js?v=20260707runsummary"></script>
     <script src="/workspace/workspace_run_replay.js?v=20260706runreplaymodule"></script>
     <script src="/workspace/workspace_run_filter.js?v=20260706runfiltersplit"></script>
-    <script src="/workspace/workspace_run_detail_actions.js?v=20260707rundetailactions"></script>
+    <script src="/workspace/workspace_run_detail_actions.js?v=20261013n13b1"></script>
     <script src="/workspace/workspace_agent_trace.js?v=20260707agenttrace"></script>
     <script src="/workspace/workspace_agent_stream_state.js?v=20260707agentstreamstate"></script>
     <script src="/workspace/workspace_event_stream.js?v=20260707eventstream"></script>
-    <script src="/workspace/workspace_run_actions.js?v=20260707workspacerunactions"></script>
+    <script src="/workspace/workspace_run_actions.js?v=20261013n13b1"></script>
     <script src="/workspace/workspace_template_diff.js?v=20260706templatediffsplit"></script>
     <script src="/workspace/workspace_template_migration_actions.js?v=20260706templatemigrationactions"></script>
     <script src="/workspace/workspace_flow_canvas_controls.js?v=20260706flowcanvascontrols"></script>
@@ -1839,7 +1836,7 @@
     <script src="/workspace/workspace_action_surfaces.js?v=20260707actionsurfaces"></script>
     <script src="/workspace/workspace_workflow_submission.js?v=20261012submission"></script>
     <script src="/workspace/workspace_automation_actions.js?v=20261012submission"></script>
-    <script src="/workspace/workspace_shell_actions.js?v=20260707workspaceshellactions"></script>
+    <script src="/workspace/workspace_shell_actions.js?v=20261013n13b1"></script>
     <script src="/workspace/workspace_form_actions.js?v=20260707workspaceformactions"></script>
     <script src="/workspace/workspace_chat_normalizers.js?v=20260707chatnormalizers"></script>
     <script src="/workspace/workspace_chat_actions.js?v=20260707chatactions"></script>
@@ -1890,6 +1887,6 @@
     <script src="/transfer/transfer_progress_state.js?v=20260707transferprogressstate"></script>
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
-    <script src="/core/app.js?v=20261013n13a"></script>
+    <script src="/core/app.js?v=20261013n13b1"></script>
   </body>
 </html>

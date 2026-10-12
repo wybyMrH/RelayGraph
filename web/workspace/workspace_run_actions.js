@@ -43,7 +43,9 @@
 
   function handleRunListKeydown(event, callbacks = {}) {
     if (!["Enter", " "].includes(event.key)) return;
-    const item = eventTarget(event)?.closest(".workspace-run-item[data-job-id], .workspace-execution-run-item[data-run-id]");
+    const target = eventTarget(event);
+    const item = target?.closest(".workspace-run-item[data-job-id], .workspace-execution-run-item[data-run-id]");
+    if (target !== item) return;
     if (!item?.dataset.jobId && !item?.dataset.runId) return;
     call(callbacks, "consumeEvent", event);
     if (item.dataset.jobId) callAsync(callbacks, "openJobLog", item.dataset.jobId);
