@@ -56,10 +56,8 @@ def apply_workspace_automation_defaults_to_payload(
 
     env = updated.get("env") if isinstance(updated.get("env"), dict) else {}
     env_name = str(env.get("name") or "").strip()
-    if (force or not env_name) and workspace_default_name_seed(updated):
-        env_name = f"rg-{safe_id(workspace_default_name_seed(updated))}"[:64]
-        env["name"] = env_name
-        applied.append({"field": "env.name", "label": "环境名", "value": env_name})
+    # A generated name is neither a created environment nor a user selection.
+    # No configured environment means the host's existing shell environment.
     updated["env"] = env
 
     data_roots = infer_workspace_data_roots(updated, workspace_dir)

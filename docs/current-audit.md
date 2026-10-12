@@ -6,7 +6,7 @@
 
 当前正式代码台账覆盖 288 个文件：168 个后端 Python、118 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
-N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 推进尚未接入，G01/G02 续跑与 G09 检查点等缺口仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，未配环境仍会回填建议名的问题留给唯一下一片 N03J1b。
+N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 推进尚未接入，G01/G02 续跑与 G09 检查点等缺口仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。默认浏览器两节点 shell CPU 链已实测通过；协调器等待仍未接入。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -154,7 +154,7 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 ### G17 · P2 · 多层就绪、报告、调度与部署派生存在重叠
 
 - 对齐 R05/R06/R14，类别：重复设计候选，证据 E2/E3。
-- N03B1 按实际计划编译门禁和包，保留 warning 并允许提交；静态引用错误复用 workflow_contract。默认回填仍会自动产生未创建的环境名，N03J1a 已挡住实际激活失败后的命令；未创建环境名的回填仍归 G23；发现/预检投影仍可能建议无关数据/环境，未把所有视图统一为 ReadinessResult。
+- N03B1 按实际计划编译门禁和包，保留 warning 并允许提交；静态引用错误复用 workflow_contract。N03J1a 已挡住实际激活失败后的命令，N03J1b 已退出无配置环境名回填；发现/预检投影仍可能建议无关数据/环境，未把所有视图统一为 ReadinessResult。
 - cockpit/fsm 与 automation/advance、preflight、report、reproduction、deployment 各生成状态/门禁/下一步信息。部分是不同展示投影，不应因相似字段全删；但同一失败可能在多个结构分别派生，增加契约维护成本。
 - 方案：一个 ReadinessResult 和执行决策权威，其他视图只投影；对同一输入做删减前后等价比较。deployment 若不服务当前研究闭环，降为可选交付类型，不扩成通用部署平台。
 
@@ -194,13 +194,14 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 - 方案：按行为迁移测试所有权，复用隔离 fixtures；重复测试只有在证明同一输入/行为/失败模式已被覆盖后删除。helper 装配测试可精简，但路径、脱敏、幂等、保留、退出码与执行转移必须保留。正式文档收敛为三部分，旧本地计划退出规则来源；被用户清理的脚本需要时从 Git 历史读取有效断言，不恢复无用阶段组织。
 
 <a id="g23"></a>
-### G23 · P1 · 启动前置事实与环境默认混淆（失败屏障已修复，默认回填仍开放）
+### G23 · P1 · 启动前置事实与环境默认混淆（新运行两项已修复，旧配置/退出覆盖限制保留）
 
 - 对齐 R07/R13，类别：错误执行、伪成功，证据 E1/E2。
 - N03B1 补充真实 HTTP/tmux 复验：未配置 env 的两节点 CPU 链在 auto_apply=true 后生成 rg-* 环境名；两份日志均有 EnvironmentNameNotFound，计算和报告仍运行，Job/run 显示 done。功能产物虽存在，过程验收明确失败，不能计作默认路径完整通过。
 - 原 infra/shell_pkg/jobs.py.build_job_script 只设置 pipefail；cd 与 conda_bootstrap 的失败不阻止命令。N03J1a 在相同唯一入口检查前置状态，失败记录 prerequisite_failed 阶段及原非零 exit_code，原 monitor 得到 failed；真实缺 cwd/命名环境/路径环境三项均验证 payload=0。正常系统 Python 与已有 venv 保留。
 - 用户命令若直接执行 shell exit，会绕过既有尾部标记；本轮初始测试 exit 0 仍由 monitor 记为缺标记失败，不能算成功。这是退出标记覆盖限制，未在前置屏障切片扩成 trap/任意 shell 退出重构。
-- N03J1a 已完成 6 项真实 HTTP/tmux 和 7 项本地 shell 契约；G23 不因此整体关闭。唯一下一片 N03J1b 把可选环境建议与已配置环境分开，不自动把不存在的环境名当执行事实。分别验收、更新和提交，不一起混入协调器。
+- N03J1a 的 6 项真实 HTTP/tmux + 7 项 shell 契约已完成；N03J1b 再退出默认生成环境名的分支。真实 Chromium 默认运行按钮 → 两节点 shell CPU Job → 实物报告 → 服务重启/原键核对通过，未配数据、环境安装或 Provider；5 项默认配置契约及明确存在/不存在环境的真实入口也通过。
+- 新运行的前置失败/默认回填路径已修复；历史 rg-* 名无来源不能自动判为错误并清除，需用户通过正常实例编辑入口明确修改环境。shell 提前 exit 标记限制保留；不把两项小片写成 Job 全生命周期已无缺口。
 
 ## 3. 验证边界与阶段状态
 
@@ -263,7 +264,17 @@ auto_apply=true 的独立真实复验产物成功，但环境激活失败被吞�
 
 初始测试 payload 显式 shell exit 0 跳过原尾部标记，Job 被报为缺标记失败；原证据保留，本片不宣称解决任意 shell 提前退出。正常/非零退出验证改用实际 Python 子进程退出码，既覆盖目标也不删除前置失败断言。SSH 分支共享脚本入口但真实 SSH 未验证。config 中隔离本机配置、脚本、日志及实物只留本地，第一部分保持稳定。
 
-唯一下一片为 N03J1b：停止把未配置环境的推荐名自动送进 Job。N03J1a 现在会正确拒绝这种不存在环境；不能据此宣称默认运行已经正常可用。
+J1a 完成时下一片为 N03J1b；现已按独立小片完成默认路径，见下文。
+
+### N03J1b：可选环境默认（已完成）
+
+只改 cockpit/payload.py 的现有回填入口：删除无配置时生成 rg-* 环境名并写回 workspace/env_name 的分支。没有选环境就使用主机已有 shell 环境；显式工作区/节点环境继续传播，force 默认回填也不替换工作区明确环境名。不新造环境命名/管理组件，不修改历史 run 和未知来源的旧环境配置。
+
+实际浏览器正常可见运行按钮使用 auto_apply=true、apply_evidence=true、默认 auto：两节点 shell CPU 链通过，计算实物次数 1、报告平方值 49、无页面错误/激活失败。刷新后的服务重启原请求核对同一 run，不重新执行。正常路径只有 python3/tmux 和隔离 config 主机配置，没有临时建数据根、manifest、venv 或 Provider。另一次真实 HTTP 默认链通过；明确存在 venv 保留且 done/计数 1，明确不存在环境保留且 failed/计数 0。
+
+5 项本地配置契约通过，覆盖不生成名、重复应用稳定、明确环境在 force 时保留、旧 rg-* 不猜测删除、节点专有环境保留。compileall、链接/台账/敏感模式/diff 检查通过；根 pytest 无用例退出 5，未记通过。仍未验证 SSH/GPU/真实模型或 Job → Agent；旧配置修正必须显式。测试、截图、配置和原始证据仅在本地。
+
+唯一下一片 N03B2a 是运行依赖声明与干净安装验证；该片不接协调器。依赖可安装后再做 B2b 的受理/Job 等待，最后 B2c 的报告 Agent；每片有独立验收/提交，不能一次接完整 B2。
 
 ## 4. 逐文件台账的读法
 
@@ -497,7 +508,7 @@ auto_apply=true 的独立真实复验产物成功，但环境激活失败被吞�
 | [evidence.py](../total_control/workspace/cockpit/evidence.py) · 417 | R02/R04/R05；发现结果/现有字段 → 生成并应用有来源回填 → backfill plan/实例 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `apply_workspace_evidence_config_value:15`；`merge_workspace_evidence_config_values:29` |
 | [fsm.py](../total_control/workspace/cockpit/fsm.py) · 614 | R05/R06；检查与静态契约/包 → 共用阻塞投影 → cockpit/提交门禁 | N03B1 复用 workflow_contract 缺项，包错误优先显示真正计划阻塞；保留公共响应与旧建议投影，不另造解析器。关联 [G17](#g17)。 | `workspace_workflow_blocking_checks`；`workspace_execution_package_blocking_checks` |
 | [helpers.py](../total_control/workspace/cockpit/helpers.py) · 75 | R02/R04/R05；工作区/Job/字段 → 通用选择与参数解析 → 基础派生值 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_jobs_for_workspace:7`；`workspace_node_config_ready_status:19` |
-| [payload.py](../total_control/workspace/cockpit/payload.py) · 335 | R02/R04/R05；输入/Job/默认 → 回填与运行投影 → workspace | [G17](#g17)/[G23](#g23)：未配置环境也回填 rg-* 名，尚未创建就进入 Job；N03J1b 将建议与有效配置分离。本轮未改。 | `apply_workspace_automation_defaults_to_payload:19` |
+| [payload.py](../total_control/workspace/cockpit/payload.py) · 333 | R02/R05/R07；实例输入/显式环境 → 现有默认回填与运行投影 → workspace | N03J1b 退出 rg-* 默认执行名；5 项契约、真实默认 HTTP/浏览器、显式环境正常/失败通过。旧无来源配置不猜测清除；其他就绪展示仍见 [G17](#g17)。 | `apply_workspace_automation_defaults_to_payload:19` |
 | [scheduler.py](../total_control/workspace/cockpit/scheduler.py) · 451 | R02/R04/R05；资源快照/限制/偏好 → 候选评分与绑定建议 → scheduler selection | 问题/修补关联 [G13](#g13)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_status_age_seconds:11`；`workspace_host_resource_summary_for_scheduler:18` |
 
 ### total_control/workspace/execution
