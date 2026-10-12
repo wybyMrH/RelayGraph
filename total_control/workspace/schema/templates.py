@@ -330,11 +330,15 @@ def normalize_workflow_template(
     )
 
     agent_defs = agent_definitions if isinstance(agent_definitions, list) else workspace_default_agents()
+    source_nodes = [
+        item for item in (raw_nodes or [])
+        if isinstance(item, dict) and str(item.get("kind") or "").strip()
+    ] if isinstance(raw_nodes, list) and not use_default_chain else []
     explicit_executor_ids = {
-        str(item.get("id") or "").strip() for item in (raw_nodes or [])
-        if isinstance(item, dict) and isinstance(item.get("handler"), dict)
+        str(node["id"]) for item, node in zip(source_nodes, nodes)
+        if isinstance(item.get("handler"), dict)
         and str(item["handler"].get("mode") or "").strip().lower() in {"human", "system"}
-    } if isinstance(raw_nodes, list) else set()
+    }
     for node in nodes:
         if not isinstance(node, dict):
             continue
