@@ -145,13 +145,33 @@ def build_job_script(
         mkdir_line,
         exec_line,
         f"echo '[total-control] job {job['id']} started at '$(date '+%F %T')",
+        "total_control_finish() {",
+        "  code=$1",
+        "  echo '[total-control] finished at '$(date '+%F %T')",
+        '  echo "[total-control] exit_code=$code"',
+        '  exit "$code"',
+        "}",
     ]
     cwd = str(job.get("cwd") or "").strip()
     if cwd:
-        lines.append(f"cd {shlex.quote(cwd)}")
+        lines.extend([
+            f"cd {shlex.quote(cwd)} || {{",
+            "  code=$?",
+            "  echo '[total-control] prerequisite_failed=cwd'",
+            '  total_control_finish "$code"',
+            "}",
+        ])
     env_name = str(job.get("env_name") or "").strip()
     if env_name:
-        lines.append(conda_bootstrap(env_name, server.user if server else None))
+        lines.extend([
+            "{",
+            conda_bootstrap(env_name, server.user if server else None),
+            "} || {",
+            "  code=$?",
+            "  echo '[total-control] prerequisite_failed=environment'",
+            '  total_control_finish "$code"',
+            "}",
+        ])
     gpu_index = job.get("gpu_index")
     gpu_index_text = str(gpu_index).strip().lower() if gpu_index is not None else ""
     if gpu_index_text in {"none", "no_gpu", "cpu"}:
@@ -167,9 +187,7 @@ def build_job_script(
             f"echo {shlex.quote(display)}",
             command,
             "code=$?",
-            "echo '[total-control] finished at '$(date '+%F %T')",
-            'echo "[total-control] exit_code=$code"',
-            "exit $code",
+            'total_control_finish "$code"',
         ]
     )
     return "\n".join(lines)
