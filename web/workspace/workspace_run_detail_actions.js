@@ -211,6 +211,7 @@
   }
 
   function handleRunSurfaceClick(event, deps = {}) {
+    if (fn(deps, "handleReportClick", () => false)(event)) return true;
     const button = event.target.closest("[data-action]");
     if (button?.dataset.action === "reset-workspace-run-filters") {
       fn(deps, "consumeClick", () => {})(event);

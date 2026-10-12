@@ -213,15 +213,20 @@
     const report = delivery.report && typeof delivery.report === "object" ? delivery.report : {};
     const reportArtifacts = Array.isArray(report.artifacts) ? report.artifacts.filter((item) => item && typeof item === "object") : [];
     const reportStatus = String(report.status || "draft");
+    const managedReports = reportArtifacts.filter((artifact) => artifact.report_id);
+    const reportLabel = managedReports.length
+      ? (managedReports.every((artifact) => artifact.file_verified) && !report.incomplete ? "报告文件已核对" : "报告交付不完整")
+      : reportStatus === "ready" ? "报告就绪" : "报告待整理";
+    const legacyReports = reportArtifacts.filter((artifact) => !artifact.report_id);
     const text = [
       `${found}/${observed || found} 产物`,
       `${metricCount} 指标`,
-      reportStatus === "ready" ? "报告就绪" : "报告待整理",
+      reportLabel,
       missing ? `${missing} 预期未见` : "",
     ].filter(Boolean).join(" · ");
-    const reportMarkup = reportArtifacts.length ? `
+    const reportMarkup = legacyReports.length ? `
     <div class="workspace-run-report-artifacts">
-      ${reportArtifacts.slice(0, 3).map((artifact) => {
+      ${legacyReports.slice(0, 3).map((artifact) => {
         const path = String(artifact.resolved_path || artifact.path || "").trim();
         const summary = String(artifact.summary || artifact.content || "").trim();
         const title = [artifact.label || "报告", path, summary].filter(Boolean).join(" · ");

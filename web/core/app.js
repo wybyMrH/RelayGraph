@@ -206,6 +206,8 @@ const state = {
     workspaceRunReplayCache: {},
     workspaceRunReplayErrors: {},
     workspaceRunReplayBusyKey: "",
+    workspaceRunReportSelections: {},
+    workspaceRunReport: null,
     workspaceRunFilterStatus: "",
     workspaceRunFilterNodeKind: "",
     workspaceRunFilterJobId: "",
@@ -294,6 +296,7 @@ const STORAGE_KEYS = {
   workspaceMode: "tc-workspace-mode",
   workspaceRunCompareBase: "tc-workspace-run-compare-base",
   workspaceRunReplayOpen: "tc-workspace-run-replay-open",
+  workspaceRunReportSelections: "tc-workspace-run-report-selections",
   workspaceManageTab: "tc-workspace-manage-tab",
   serverSort: "tc-server-sort",
   serverOrder: "tc-server-order",
@@ -12391,6 +12394,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
           <button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(jobId)}" title="打开这一步的任务日志">打开日志</button>
         </div>
       ` : ""}
+      ${window.WorkspaceRunReport.entryMarkup(step, run, workspaceRunReportDeps())}
       ${childRuntimeActions}
       ${agentActions}
     </article>
@@ -15329,6 +15333,7 @@ function renderWorkspaceRuns() {
   const summary = $("workspaceRunSummary");
   const list = $("workspaceRunList");
   if (!meta || !summary || !list) return;
+  window.WorkspaceRunReport.sync(workspace, workspaceExecutionRuns(workspace), workspaceRunReportDeps());
   setSelectOptions($("workspaceRunReaderProjectSelect"), state.workspaces.map((item) => ({
     value: item.id, label: item.name || item.id,
   })), workspace?.id || "", "选择实例");
@@ -19770,7 +19775,10 @@ function switchWorkspaceMode(mode) {
   state.ui.workspaceMode = next;
   if (changed) markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.workspaceMode, next);
-  if (next === "runs") renderWorkspaceRuns();
+  if (next === "runs") {
+    if (changed) state.ui.workspaceRunReport = null; // Recheck the file when returning to its reader.
+    renderWorkspaceRuns();
+  }
   renderWorkspaceWorkbench();
 }
 
@@ -22862,10 +22870,23 @@ async function refreshOpenJobOutputTabs(options = {}) {
   }
 }
 
+function bindWorkspaceReportReader() {
+  $("workspaceRunReportPanel")?.addEventListener("click", handleWorkspaceRunSurfaceClick);
+}
+
 function workspaceRunDetailActionsApi() {
   return window.WorkspaceRunDetailActions && typeof window.WorkspaceRunDetailActions === "object"
     ? window.WorkspaceRunDetailActions
     : null;
+}
+
+function workspaceRunReportDeps() {
+  return {
+    ui: state.ui, selectedWorkspace, element: $, fetchJson, escapeHtml, fmtDate, zhStatus, formatBytes, consumeClick,
+    clearMessage: () => setWorkspaceMessage(""),
+    render: renderWorkspaceRuns,
+    saveSelections: (value) => saveStoredJson(STORAGE_KEYS.workspaceRunReportSelections, value),
+  };
 }
 
 function workspaceRunDetailActionDeps() {
@@ -22875,6 +22896,7 @@ function workspaceRunDetailActionDeps() {
     fetchJson,
     mergeWorkspaceRunDetailPayload,
     renderWorkspaceRunSurfaces,
+    handleReportClick: (event) => window.WorkspaceRunReport.handleClick(event, workspaceRunReportDeps()),
     showLog,
     setWorkspaceMessage,
     workspaceRunKindLabel,
@@ -23518,6 +23540,8 @@ function restoreStoredUiState() {
   state.selectedWorkspaceId = loadStoredValue(STORAGE_KEYS.selectedWorkspace, "");
   state.ui.workspaceRunCompareBaseByWorkspace = loadStoredJson(STORAGE_KEYS.workspaceRunCompareBase, {});
   state.ui.workspaceRunReplayOpenByWorkspace = loadStoredJson(STORAGE_KEYS.workspaceRunReplayOpen, {});
+  const reportSelections = loadStoredJson(STORAGE_KEYS.workspaceRunReportSelections, {});
+  state.ui.workspaceRunReportSelections = reportSelections && typeof reportSelections === "object" && !Array.isArray(reportSelections) ? reportSelections : {};
   state.selectedWorkflowTemplateId = loadStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId || "");
   state.selectedGlobalAgentId = loadStoredValue(STORAGE_KEYS.selectedGlobalAgent, state.selectedGlobalAgentId || "");
   state.selectedGlobalToolId = loadStoredValue(STORAGE_KEYS.selectedGlobalTool, state.selectedGlobalToolId || "");
@@ -23828,7 +23852,7 @@ async function loadStatus(force = false, options = {}) {
   const endpoint = force ? "/api/refresh" : "/api/status";
   const renderWorkspace = options.renderWorkspace ?? !state.ui.formsRestored;
   const workspaceSnapshot = renderWorkspace ? null : captureWorkspaceUiSnapshot();
-  const scrollSnapshot = renderWorkspace ? null : captureUiScrollSnapshot();
+  let scrollSnapshot = renderWorkspace ? null : captureUiScrollSnapshot();
   const requestId = state.ui.statusRequestSeq + 1;
   state.ui.statusRequestSeq = requestId;
   state.ui.statusBusyCount += 1;
@@ -23840,6 +23864,11 @@ async function loadStatus(force = false, options = {}) {
   try {
     const payload = await fetchJson(endpoint);
     if (requestId !== state.ui.statusRequestSeq) return;
+    // Report reading may move while the monitor request is in flight.
+    // Preserve the position just before repaint, rather than undoing that movement.
+    if (!renderWorkspace && state.ui.productTab === "workspace" && state.ui.workspaceMode === "runs" && state.ui.workspaceRunReport) {
+      scrollSnapshot = captureUiScrollSnapshot();
+    }
     applyStatusPayload(payload, { preserveWorkspaceUi: !renderWorkspace });
     if (workspaceSnapshot) restoreWorkspaceUiSnapshot(workspaceSnapshot, { force: true });
     // Provider/Profile data belongs to the workbench editor; monitor-only refresh should not disturb drafts.
@@ -23877,6 +23906,10 @@ async function loadStatus(force = false, options = {}) {
       renderWorkspaceWorkbench();
     } else if (state.ui.productTab === "workspace") {
       renderWorkspaceResourceSurfaces({ scope: "resource-only" });
+      // Monitor snapshots also refresh current file evidence without rebuilding configuration drafts.
+      if (state.ui.workspaceMode === "runs" && state.ui.workspaceRunReport) {
+        window.WorkspaceRunReport.sync(selectedWorkspace(), workspaceExecutionRuns(), workspaceRunReportDeps());
+      }
     }
     if (scrollSnapshot) restoreUiScrollSnapshot(scrollSnapshot);
     if (workspaceSnapshot) syncWorkspaceCollapsePanels(workspaceSnapshot);
@@ -25974,6 +26007,7 @@ function bindEvents() {
       }));
     },
   });
+  bindWorkspaceReportReader();
   window.WorkspaceRunActions?.bind?.({
     element: $,
     consumeEvent: consumeClick,

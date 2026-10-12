@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b1" />
+    <link rel="stylesheet" href="/styles/styles.css?v=20261013n07aui" />
   </head>
   <body>
     <div class="shell">
@@ -533,6 +533,7 @@
                 </div>
               </header>
               <p id="workspaceRunReaderMessage" class="form-message" role="status" aria-live="polite"></p>
+              <section id="workspaceRunReportPanel" class="workspace-report-reader" aria-labelledby="workspaceReportTitle" hidden></section>
               <p id="workspaceRunMeta" class="workspace-run-reader-meta muted">尚未选择实例</p>
               <div id="workspaceRunSummary" class="workspace-run-summary"></div>
               <div id="workspaceRunList" class="workspace-run-list"></div>
@@ -1811,10 +1812,11 @@
     <script src="/workflow-template/workflow_template_version_history.js?v=20260706versionhistorysplit"></script>
     <script src="/workflow-template/workflow_template_version_history_actions.js?v=20260707versionhistoryactions"></script>
     <script src="/workflow-template/template_review_actions.js?v=20260707templatereviewactions"></script>
-    <script src="/workspace/workspace_run_summary.js?v=20260707runsummary"></script>
+    <script src="/workspace/workspace_run_summary.js?v=20261013n07aui"></script>
     <script src="/workspace/workspace_run_replay.js?v=20260706runreplaymodule"></script>
     <script src="/workspace/workspace_run_filter.js?v=20260706runfiltersplit"></script>
-    <script src="/workspace/workspace_run_detail_actions.js?v=20261013n13b1"></script>
+    <script src="/workspace/workspace_run_report.js?v=20261013n07aui"></script>
+    <script src="/workspace/workspace_run_detail_actions.js?v=20261013n07aui"></script>
     <script src="/workspace/workspace_agent_trace.js?v=20260707agenttrace"></script>
     <script src="/workspace/workspace_agent_stream_state.js?v=20260707agentstreamstate"></script>
     <script src="/workspace/workspace_event_stream.js?v=20260707eventstream"></script>
@@ -1887,6 +1889,6 @@
     <script src="/transfer/transfer_progress_state.js?v=20260707transferprogressstate"></script>
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
-    <script src="/core/app.js?v=20261013n13b1"></script>
+    <script src="/core/app.js?v=20261013n07aui"></script>
   </body>
 </html>

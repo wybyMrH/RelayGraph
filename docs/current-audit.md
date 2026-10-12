@@ -4,11 +4,11 @@
 
 ## 1. 范围、证据等级与结论
 
-当前正式代码台账覆盖 289 个文件：169 个后端 Python、118 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
+当前正式代码台账覆盖 290 个文件：169 个后端 Python、119 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
 N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 已在 N03B2b 接入单 Job，N03B2c1 接入一个 Job → 无工具报告 Agent；G01 的更长混合链、G02 子任务续跑和 G09 剩余恢复边界仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。两节点 shell CPU 链是旧路径的历史验收；当前新计划仅接受单 Job 或 Job → 无工具 eval.report Agent，其他多节点计划明确拒绝。
 
-N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码仍为 289 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；唯一下一片 N07A-UI 报告阅读，仍不接 Agent 工具/子任务。
+N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码仍为 290 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；N07A-UI 已交付独立报告阅读与状态；唯一下一片 N16A 成功说明/错误字段区分，仍不接 Agent 工具/子任务。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -72,7 +72,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - N03B2c1 原有 ≤4000 字 inline-answer 仍作为不可覆盖的 attempt 执行证据。**N07A 已部分修复**：新 run 冻结受控本机报告目录，成功回答持久后登记 prepared 回执，再非覆盖发布文件并核对 UTF-8 字节/sha256；验证成功才令当前文件交付完整。文件交付失败不把已完成 Agent 改成失败，不丢原回答，也不再次调用模型。
 - 新增 GET `/api/workspaces/{workspace_id}/runs/{run_id}/report`，只读取该 run/attempt 的文件，返回正文、身份、摘要/字节数、验证状态与原因，不接收任意路径、不泄露物理目录。run/list/replay/export 复用同一验证投影；文件后来缺失/损坏时立即 incomplete、正文为 null，不回退 inline 冒充文件，历史 verified 回执不被改写。
 - 真实 HTTP/tmux→受控 Provider 链及可见导出通过；写前/写后硬退出均从已持久回答恢复，计算/模型各一次，发布后已有正确文件不重写。冲突与只读目录写入失败保留证据；空、4001 字、无效 JSON 拒绝，4000 中文字符/12000 字节通过。故障注入只在本地 wrapper；未验证真实 AI/远程/断电持久性。
-- G06 **仍开放**：旧 dispatcher 的声明型 report.write/artifact.write 有调用者，长报告未支持；旧 run 未冻结目录不自动补文件，failed 交付不自动修复。记录页目前有原有导出，没有专门的正文阅读布局；唯一下一片 N07A-UI 负责该界面，不能把 API 或本地展示页当成产品前端已交付。
+- G06 **仍开放**：旧 dispatcher 的声明型 report.write/artifact.write 有调用者，长报告未支持；旧 run 未冻结目录不自动补文件，failed 交付不自动修复。N07A-UI 已补齐可见报告入口、独立正文区和交付状态；正文仅从当前已验证GET读取，失败/缺失清正文，回到列表保持实例/run/筛选。旧inline仅作执行证据，不作为文件回退。
 - 方案：ArtifactStore 保存正文或受控文件，返回可验证引用；区分 declared/written/verified；正文超过限额显式拒绝或另存。执行结束和交付完整度独立展示。
 
 <a id="g07"></a>
@@ -219,7 +219,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R06/R12，类别：状态呈现错误，证据 E1/E2。
 - 本次 Chromium 实际点击运行 Job→报告链，后台始终两步、计算实物计数 1；页面从未绑定任务到 Job/Agent ID 的过程中，compute/report 各保留一份 pending 占位。正常结束时实时 DOM 有 4 行，既显示已完成又显示未运行；重新打开页面的完整快照恢复两行。
 - workspace_run_state_merge.js 的 stepMergeKey 优先 job_id/agent_execution_id，再退回 node_id+index；身份随绑定变化，mergeSteps 又追加旧 key，导致占位未退出。此前仅检查页面内存中的 run 终态或进度，没有断言实际 DOM 行数，未覆盖这个缺陷。
-- 方案：单独交付稳定 step/attempt 身份的合并修复，保留历史记录和实时事件边界；对待执行→绑定任务→终态、Agent 绑定及旧记录做真实浏览器验证。不能用强制刷新、隐藏重复行或删除测试来代替修复。N13A 已作为 N03B2c1 后的独立前端小片验收；新隔离实例正常/失败/重启的实时 DOM 均为两行。当时交接 N13B1；现其验收见 G26，当前下一片 N07A-UI。
+- 方案：单独交付稳定 step/attempt 身份的合并修复，保留历史记录和实时事件边界；对待执行→绑定任务→终态、Agent 绑定及旧记录做真实浏览器验证。不能用强制刷新、隐藏重复行或删除测试来代替修复。N13A 已作为 N03B2c1 后的独立前端小片验收；新隔离实例正常/失败/重启的实时 DOM 均为两行。当时交接 N13B1；现其验收见 G26，当前下一片 N16A。
 
 - N13A 实现：step_id 优先、node_id/index 兼容；绑定的 Job/Agent ID 不再改变计划步骤身份。单步 SSE 保留可选 step_id/attempt_id，未更新的另一计划步骤继续保留；新 attempt 不继承旧任务/输出/错误。已知节点冲突不合并；缺 attempt 的历史事件不能把已知 attempt 改绑到另一任务。没有新增通用版本协议，迟到完整 run 快照仍沿既有时间/终态保护。
 - app.js 的步骤 key/合并 fallback 已退出，原消费入口只委托唯一 helper；其他尚有消费者的投影 fallback 保留待 N13 后续收敛。历史真实旧 run 只读合并检查通过，未在本片重新执行旧任务。G25/G26 与无版本事件的一般排序不因本片关闭。
@@ -238,9 +238,9 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - **N13B1 已验收**：当前实例的运行列表、步骤详情、日志、回放、比较与导出从配置表单/抽屉移至顶层“运行记录”。驾驶舱同级入口直接到达，可选择实例、去编辑、返回；配置的旧记录页签/模块卡片与包住全部记录的 workspaceRunDetails 已退出，旧动作跳到同一个阅读区。复用唯一 run renderer/merger、现有日志与订阅，没有第二套推进器或轮询。无消费者的旧运行工具栏滚轮分支、workspace-runs-panel 单个选择器与卡片统计变量同步退出。
 - 原四张统计卡、最新任务/命令块改成文字摘要，计划步骤在主阅读顺序，次要输入过程、交付和事件按需展开。限定阅读区的样式修正了旧 grid 规则把按钮竖排造成的空白。原生 summary/按钮的点击和键盘不再误激活整行日志，展开状态在重绘中保留。
 - 本次基线复现刷新清除已选实例；现改为恢复并核对实例 ID，过期 ID 回到明确空状态。比较基准和回放选择只保存 ID，不保存日志/正文；刷新后的“加载回放”一次沿既有 API 获取正文。旧 runs 页签迁移落盘为规范值，避免以后每次刷新强制返回记录页。
-- **仍待处理**：配置中心的全局运行概览及其可见性刷新依然存在，交 N13B2；实例高级编辑本身的多层容器交 N13B3。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债、G25 源 error 红字继续开放；G06 当前报告文件已由N07A补齐，独立阅读界面和长报告仍待后片。
+- **仍待处理**：配置中心的全局运行概览及其可见性刷新依然存在，交 N13B2；实例高级编辑本身的多层容器交 N13B3。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债、G25 源 error 红字继续开放；G06 当前报告文件已由N07A补齐，独立阅读界面已由N07A-UI补齐，长报告仍待后片。
 - 新隔离实例的成功/退出7/真实服务重启/同实例第二次运行经过实际按钮、默认门禁、HTTP/tmux；实时两行，Job 启动增量各1，受控报告接口调用增量1/0/1/1。14项页面导航检查和5项边界检查通过；1440×900、1280×720、768×1024、390×844 阅读/返回与宽度核对，实际长名称、63583字符进程日志和显式注入的长HTTP错误有本地截图。受控 Provider 非真实模型，故障注入不算真实后端故障恢复。
-- 保留仍有调用者的配置概览 renderer/actions 和全站旧样式；不得凭相同 selector 删除。N07A 已完成本地报告文件，下一片独立 N07A-UI；B2/B3 另排，不把三个页面职责同时重构。
+- 保留仍有调用者的配置概览 renderer/actions 和全站旧样式；不得凭相同 selector 删除。N07A/N07A-UI 已分别完成本地文件与独立阅读；B2/B3 另排，不把三个页面职责同时重构。
 
 ## 3. 验证边界与阶段状态
 
@@ -381,7 +381,21 @@ compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动�
 
 过程限制：正常路径保留默认门禁/auto_apply，无 force、人工补终态/回执。受控本机模型接口只证明执行交接；硬退出由本地 wrapper 注入，无生产测试开关。最初两个契约失败分别是测试复用了同一attempt写不同内容（修正隔离身份）和循环链接错误分类（产品收紧分类）；不以删用例通过。发布后清理临时文件失败不掩盖已验证交付。历史计划无目录不迁移；failed交付不自动重试；失物不自动重建。原声明工具由 dispatcher/debug 消费，保留至后续迁移/对照，不宣称 G06 全部关闭。
 
-compileall 通过；根pytest无用例退出5，不计通过。本片不改前端、图推进器、Job入口或Provider协议。长报告/工具/子任务、真实AI/SSH/GPU、一般交付修复与各文件系统断电保证均排除。测试/配置/结果/静态展示只留本地 dev_work/artifacts/n07a/；原展示归档保留。第一部分稳定不改，唯一下一片 **N07A-UI**。
+compileall 通过；根pytest无用例退出5，不计通过。本片不改前端、图推进器、Job入口或Provider协议。长报告/工具/子任务、真实AI/SSH/GPU、一般交付修复与各文件系统断电保证均排除。测试/配置/结果/静态展示只留本地 dev_work/artifacts/n07a/；原展示归档保留。第一部分稳定不改；当时下一片N07A-UI，现已验收如下。
+
+### N07A-UI：本次报告的独立阅读区（已验收）
+
+对应G06/R10/R12。运行记录的报告步骤提供“阅读报告 / 查看报告状态”，打开后正文区与列表互为独立子视图，不再套入配置或步骤折叠。顶部返回/重新核对/原导出，执行状态与文件交付状态分开，一层可选文件身份/摘要/大小证据。frontend-design继续指导任务布局，沿用本机字体/颜色，无新前端框架、外部字体或装饰卡片。
+
+单一workspace_run_report控制器显式接收UI/选择/API/DOM依赖；只有workspace→run选择ID落浏览器存储，正文短期留内存。请求按workspace/run/attempt及请求身份核对，切换/关闭/离开模式后丢弃迟到响应；新失效快照清正文。相同快照不重建正文DOM，原生证据展开保持；加载失败清旧正文，不以inline回退。受管report_id在旧交付摘要中不再重复正文，legacy无report_id展示因仍有消费者而保留。
+
+实际验收：4条真实浏览器可见运行链（正常、计算退出7、运行时重启、同实例再运行），Job本次增量各1、受控报告接口1/0/1/1，阅读/返回/重新核对/原导出均实际点击；另1条真实“打开等待报告→服务重启及页面刷新→自动显示已核对正文”链，重发原POST同run，计算/接口各1、正文textContent与API精确一致。11项隔离组件契约覆盖首换行/空白/转义、同attempt与新attempt失效、迟到/离开、身份不符、无文件状态及选择只存ID；它们不冒充产品任务验收。
+
+15项浏览器边界覆盖真实损坏/缺失/冲突/只读目录无正文、键盘焦点和同快照DOM、刷新保留选择、跨配置返回、断网清正文/重试、注入长HTTP错误、迟到真实A响应不能覆盖B、实物删除后可见刷新清正文，以及4000中文字在1440×900、1280×720、768×1024、390×844的布局。真实N13B1历史run在当前服务重启后仍不补文件/不重放，实物计数和接口记录不变。119脚本引用唯一/顺序、396静态ID和4个相关JS语法通过；compileall通过，根pytest无用例退出5，不计通过。第一部分不变。
+
+过程发现与修正：首轮旧display覆盖hidden让列表仍可见，已用reader直系hidden限定修复；loadStatus原resource-only分支拿到新workspaces但未重画报告，已接同一sync，实际可见刷新后清正文复验通过，未加轮询。首轮失败场景脚本强求观察5秒running而漏看，核对真实退出7/报告skipped后修观察条件，原失败证据保留说明，不延长命令/改终态；历史脚本误用全局selector撞隐藏摘要，改为作用域选择。文件变化本身不新增SSE事件/文件watch，接收新快照或点击重新核对后以实物为准；首次只等待无事件的删除观察未通过，不冒记通过。正文精确保留、焦点恢复和native toggle后的首次相同快照不重建由实际检查确认。
+
+补验390×844真实滚轮到4000字正文中段、末端和文件证据，以及长HTTP错误中段/末端均通过。原长元素截图受祖先裁剪，改用实际视口截图；真实滚动还发现loadStatus请求前的旧scroll快照覆盖在途阅读位置，现仅当前报告/工作台resource-only响应后重取位置、沿用原同步恢复，延迟真实刷新响应期间wheel前后位置保持验收通过。阅读区无横向溢出且正文无局部高度/滚动限制；全站侧栏仍占首屏较多，继续G26后续，不在本片改导航。真实AI/SSH/GPU、长报告、一般交付修复仍未实现或未验证。脚本/配置/结果/截图/静态成果页仅本地dev_work/artifacts/n07aui/，旧归档保留。G06仅当前报告读取界面补齐，G25仍真实显示，唯一下一片 **N16A**。
 
 ## 4. 逐文件台账的读法
 
@@ -659,7 +673,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1892 | R12/R14；浏览器加载 → UI 壳与脚本顺序 → 产品入口 | N13B1 顶层运行记录迁出表单/抽屉；删除旧记录页签/模块容器，相关脚本/样式缓存引用同步，118脚本顺序及唯一ID通过。 | 文件整体/公开入口 |
+| [index.html](../web/index.html) · 1894 | R12/R14；浏览器加载 → UI 壳与脚本顺序 → 产品入口 | N07A-UI新增独立报告peer容器，helper在detail actions/app前装配、缓存版本同步；119脚本引用/396静态ID通过，无新配置嵌套。 | 文件整体/公开入口 |
 
 ### web/config-center
 
@@ -681,7 +695,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26501 | R12；注入存储/HTTP/client ID → 装配共用工作流提交组件 → 原动作控制器 | N13B1 单一阅读区装配与旧 runs 跳转；恢复实例/比较/回放选择ID、规范化旧页签迁移；摘要去重复，G15/G25与全局概览保留。 | `renderWorkspaceRuns`；`switchWorkspaceMode`；`restoreStoredUiState` |
+| [app.js](../web/core/app.js) · 26535 | R12；注入存储/HTTP/client ID → 装配共用工作流提交组件 → 原动作控制器 | N07A-UI仅接报告选择/显式依赖/动作与reader装配；监控局部快照同步同一报告控制器、不重画配置；当前报告读取消除在途刷新旧scroll回跳。仅ID持久化；N13A/N13B1边界保留，G15/G25余项开放。 | `renderWorkspaceRuns`；`switchWorkspaceMode`；`restoreStoredUiState` |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 70 | R12；用户事件/注入依赖 → 顶层导航动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`query:12` |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch、浏览器存储与表单状态 → 派生状态/界面结果 | 契约/维护关联 [G19](#g19)；消费后端结果，随所属切片收敛。 | `loadStoredValue:7`；`saveStoredValue:15` |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |
@@ -718,7 +732,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [styles.css](../web/styles/styles.css) · 23092 | R12/R14；界面类名/视口 → 层叠与响应式布局 → 视觉样式 | N13B1 仅新增阅读区作用域布局：文本摘要、横排动作、证据间距、四视口无阅读区横溢；全站侧栏及样式债仍归G26/G15，旧规则未无证删除。 | 阅读区作用域/响应式规则 |
+| [styles.css](../web/styles/styles.css) · 23120 | R12/R14；界面类名/视口 → 层叠与响应式布局 → 视觉样式 | N07A-UI仅添加阅读区限定排版、主内容自然滚动/换行与reader直系hidden规则；4视口及手机正文/错误真实滚动通过。G15全站样式债/G26手机侧栏保留，不凭重复selector删除。 | 阅读区作用域/响应式规则 |
 
 ### web/transfer
 
@@ -804,11 +818,12 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [workspace_node_catalog.js](../web/workspace/workspace_node_catalog.js) · 422 | R02/R06/R09/R12；页面数据/注入依赖 → 实例节点默认/归一化/顺序链 → 派生状态/界面结果 | 契约/维护关联 [G10](#g10)、[G14](#g14)；消费后端结果，随所属切片收敛。 | `workspaceNodeMeta:48`；`workspaceNodeLabel:53` |
 | [workspace_node_run_state.js](../web/workspace/workspace_node_run_state.js) · 76 | R02/R06/R09/R12；页面数据/注入依赖 → 节点执行方式和运行内容 → 派生状态/界面结果 | 契约/维护关联 [G10](#g10)；消费后端结果，随所属切片收敛。 | `workspaceNodeSupportsAgentRun:32`；`workspaceNodeSupportsJobRun:39` |
 | [workspace_run_actions.js](../web/workspace/workspace_run_actions.js) · 85 | R02/R06/R09/R12；用户事件/注入依赖 → 运行列表和筛选交互动作路由 → 回调/API 请求 | N13B1 键盘只激活聚焦的整行本身；原生按钮/summary保留自身动作，Enter/Space与无多余日志请求通过。 | `handleRunListKeydown` |
-| [workspace_run_detail_actions.js](../web/workspace/workspace_run_detail_actions.js) · 309 | R02/R06/R09/R12；用户事件/注入依赖 → 详情、回放、比较、导出动作动作路由 → 回调/API 请求 | N13B1 显式动作先分派，原生交互后代不误开整行日志；恢复回放一次加载，busy去重；日志/导出引用通过，G06/G20仍开放。 | `handleRunSurfaceClick`；`toggleRunReplay` |
+| [workspace_run_detail_actions.js](../web/workspace/workspace_run_detail_actions.js) · 310 | R02/R06/R09/R12；用户事件/注入依赖 → 详情、回放、比较、导出动作动作路由 → 回调/API 请求 | N07A-UI报告动作先分派，沿用原导出与日志；阅读不触发整行默认日志/执行。N13B1原生事件边界保留，G20余项开放。 | `handleRunSurfaceClick`；`toggleRunReplay` |
 | [workspace_run_filter.js](../web/workspace/workspace_run_filter.js) · 195 | R02/R06/R09/R12；页面数据/注入依赖 → 运行筛选条件 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:22`；`normalizeFilters:26` |
 | [workspace_run_replay.js](../web/workspace/workspace_run_replay.js) · 220 | R02/R06/R09/R12；页面数据/注入依赖 → 摘要回放展示 → 派生状态/界面结果 | 契约/维护关联 [G20](#g20)；消费后端结果，随所属切片收敛。 | `escapeFor:13`；`compactFor:17` |
+| [workspace_run_report.js](../web/workspace/workspace_run_report.js) · 188 | R10/R12；run/attempt与API正文/文件元数据 → 有身份的读取、失效与布局 → 独立报告阅读视图 | N07A-UI唯一阅读控制器，显式依赖，无正文持久缓存/轮询；11组件契约、真实主链/15边界/历史读取通过。正文失败清空、旧响应丢弃；文件watch与修复不在本片。 | `statusInfo`；`entryMarkup`；`load`；`sync`；`handleClick` |
 | [workspace_run_state_merge.js](../web/workspace/workspace_run_state_merge.js) · 380 | R02/R06/R09/R12；页面数据/注入依赖 → HTTP/SSE run/step 版本合并 → 派生状态/界面结果 | N13A/G24 已修复：计划身份稳定、SSE 保留 step/attempt、新 attempt 隔离旧数据；20 契约/真实 DOM 三例两行通过。G02/G20 其他边界仍保留。 | `defaultTimestampMs:17`；`timestampMs:22` |
-| [workspace_run_summary.js](../web/workspace/workspace_run_summary.js) · 260 | R02/R06/R09/R12；页面数据/注入依赖 → 运行进度/交付摘要 → 派生状态/界面结果 | 契约/维护关联 [G02](#g02)、[G06](#g06)；消费后端结果，随所属切片收敛。 | `escapeFor:17`；`statusFor:21` |
+| [workspace_run_summary.js](../web/workspace/workspace_run_summary.js) · 265 | R02/R06/R09/R12；页面数据/注入依赖 → 运行进度/交付摘要 → 派生状态/界面结果 | N07A-UI受管报告按file_verified/incomplete说明交付，退出重复正文摘要；legacy无report_id仍有消费者，保留原摘要。不修一般旧声明语义，G06余项开放。 | `escapeFor:17`；`statusFor:21` |
 | [workspace_shell_actions.js](../web/workspace/workspace_shell_actions.js) · 55 | R02/R06/R09/R12；用户事件/注入依赖 → 工作区视图/页签交互动作路由 → 回调/API 请求 | N13B1 接实例选择、编辑与返回驾驶舱回调，复用原状态入口；实际跨页/跨实例/刷新验证通过。 | `bind` |
 | [workspace_template_diff.js](../web/workspace/workspace_template_diff.js) · 282 | R02/R06/R09/R12；页面数据/注入依赖 → 模板/实例差异 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:13`；`diffStatusLabel:17` |
 | [workspace_template_migration_actions.js](../web/workspace/workspace_template_migration_actions.js) · 174 | R02/R06/R09/R12；用户事件/注入依赖 → 模板迁移动作动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `selectedWorkspace:8`；`cachedDiff:12` |
@@ -835,5 +850,5 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 ### 台账完整性与维护
 
-正式代码台账包含 289 行，一文件一行；README.md同步真实能力/报告配置与API，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
+正式代码台账包含 290 行，一文件一行；README.md同步真实能力/报告配置与API，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
 <!-- FILE_AUDIT_END -->

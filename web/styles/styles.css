@@ -23090,3 +23090,31 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   .workspace-run-reader .workspace-execution-run-item { padding: 12px; }
   .workspace-run-reader .workspace-execution-run-item-actions { justify-content: start; }
 }
+
+/* Current report reading is a peer of the run list, never a configuration drawer. */
+.workspace-report-reader { min-width: 0; padding: 20px 0; }
+.workspace-report-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.workspace-report-toolbar > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace-report-heading { margin: 24px 0 18px; overflow-wrap: anywhere; }
+.workspace-report-heading h3 { font-size: 20px; line-height: 1.5; margin: 0 0 8px; }
+.workspace-report-heading p { color: var(--muted); font-size: 13px; margin: 0; }
+.workspace-report-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 14px 0; border-block: 1px solid var(--border); font-size: 13px; overflow-wrap: anywhere; }
+.workspace-report-notice p { flex-basis: 100%; margin: 0; line-height: 1.7; }
+.workspace-report-status { font-size: 13px; font-weight: 600; }
+.workspace-report-status.status-ready { color: var(--ok); }
+.workspace-report-status.status-warning { color: var(--warn); }
+.workspace-report-status.status-waiting { color: var(--muted); }
+.workspace-report-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 8px; }
+.workspace-report-reader .workspace-report-body { max-width: 72ch; margin: 28px auto; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 15px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; max-height: none; overflow: visible; }
+.workspace-report-evidence { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--border); }
+.workspace-report-evidence summary { color: var(--muted); font-size: 13px; cursor: pointer; padding: 6px 0; }
+.workspace-report-evidence dl { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 8px 18px; font-size: 12px; line-height: 1.7; }
+.workspace-report-evidence dt { color: var(--muted); }
+.workspace-report-evidence dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .workspace-report-toolbar { align-items: start; }
+  .workspace-report-heading { margin-top: 20px; }
+  .workspace-report-evidence dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .workspace-report-evidence dd { margin-bottom: 8px; }
+}
+.workspace-run-reader > [hidden] { display: none; }
