@@ -300,6 +300,8 @@
         runtime_status: String(step.runtime_status || "").trim(),
         runtime_side_effect: String(step.runtime_side_effect || "").trim(),
         agent_execution_id: String(step.agent_execution_id || "").trim(),
+        detail: String(step.detail || "").trim(),
+        recorded_error: String(step.recorded_error || "").trim(),
         error: String(step.error || "").trim(),
       };
     }

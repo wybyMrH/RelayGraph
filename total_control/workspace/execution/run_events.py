@@ -78,6 +78,8 @@ def _compact_run_event_payload(payload: Any, *, event_type: str = "") -> dict[st
             "status": str(step.get("status") or "").strip(),
             "job_id": str(step.get("job_id") or "").strip(),
             "agent_execution_id": str(step.get("agent_execution_id") or "").strip(),
+            "detail": _compact_run_event_text(step.get("detail"), 500),
+            "recorded_error": _compact_run_event_text(step.get("recorded_error"), 500),
             "error": _compact_run_event_text(step.get("error"), 500),
         }
 

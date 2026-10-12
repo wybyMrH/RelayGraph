@@ -148,6 +148,23 @@ def workspace_agent_runtime_refs(agent_steps: Any, trace_events: Any) -> dict[st
     }
 
 
+def _agent_failure_signals(payload: dict[str, Any], validation: dict[str, Any]) -> bool:
+    failure_statuses = {"failed", "error", "blocked", "stopped", "timeout", "cancelled", "unknown", "reconciling"}
+    if (payload.get("timed_out") or payload.get("cancelled")
+            or str(validation.get("status") or "") in failure_statuses
+            or validation.get("errors")
+            or str(payload.get("runtime_status") or "") in failure_statuses
+            or payload.get("invocation_state") in ("unknown", "claimed")
+            or str(payload.get("runtime_side_effect") or "") in failure_statuses):
+        return True
+    for key in ("agent_steps", "trace_events"):
+        for item in payload.get(key, []) if isinstance(payload.get(key), list) else []:
+            if isinstance(item, dict) and (item.get("error") or str(item.get("status") or "") in failure_statuses
+                                          or str(item.get("runtime_status") or "") in failure_statuses):
+                return True
+    return False
+
+
 def normalize_workspace_run_step(
     value: Any,
     *,
@@ -207,6 +224,17 @@ def normalize_workspace_run_step(
         }
     completed_at = payload.get("completed_at") if "completed_at" in payload else current.get("completed_at")
     error = payload.get("error") if "error" in payload else current.get("error")
+    same_attempt = not (payload.get("attempt_id") and current.get("attempt_id")
+                        and payload["attempt_id"] != current["attempt_id"])
+    detail = str(payload.get("detail", current.get("detail", "") if same_attempt else "") or "").strip()
+    recorded_error = str(payload.get("recorded_error", current.get("recorded_error", "") if same_attempt else "") or "").strip()
+    executor = str(payload.get("executor") or current.get("executor") or "job").strip() or "job"
+    # Only this exact legacy automatic success message is known to be misfiled.
+    # Preserve its original value; ledger attempt results and historical events stay untouched.
+    known_legacy_detail = (not detail and not recorded_error) or (detail == error and recorded_error == error)
+    if (executor == "agent" and status == "done" and error == "agent node executed" and "detail" not in payload and known_legacy_detail
+            and not _agent_failure_signals({**current, **payload}, validation)):
+        detail, recorded_error, error = error, error, ""
     return {
         "index": index,
         "step_id": str(payload.get("step_id") or current.get("step_id") or ""),
@@ -215,7 +243,7 @@ def normalize_workspace_run_step(
         "node_id": str(payload.get("node_id") or current.get("node_id") or "").strip(),
         "node_kind": str(payload.get("node_kind") or current.get("node_kind") or "").strip(),
         "node_title": str(payload.get("node_title") or current.get("node_title") or payload.get("node_kind") or current.get("node_kind") or "").strip(),
-        "executor": str(payload.get("executor") or current.get("executor") or "job").strip() or "job",
+        "executor": executor,
         "job_id": str(payload.get("job_id") or current.get("job_id") or "").strip(),
         "child_job_ids": child_job_ids,
         "child_run_ids": child_run_ids,
@@ -260,6 +288,8 @@ def normalize_workspace_run_step(
         "status": status,
         "started_at": str(payload.get("started_at") or current.get("started_at") or "").strip(),
         "completed_at": str(completed_at or "").strip(),
+        "detail": detail,
+        "recorded_error": recorded_error,
         "error": str(error or "").strip(),
     }
 
@@ -315,6 +345,10 @@ def workspace_run_step_from_agent(
     validation = payload.get("validation") if isinstance(payload.get("validation"), dict) else {}
     timed_out = bool(payload.get("timed_out"))
     cancelled = bool(payload.get("cancelled"))
+    detail = str(payload.get("detail") or "").strip()
+    error = str(payload.get("error") or payload.get("reason") or "").strip()
+    if not error and (step_status != "done" or _agent_failure_signals(payload, validation)):
+        error = detail
     raw_meta = payload.get("agent_meta") if isinstance(payload.get("agent_meta"), dict) else {}
     agent_meta = {
         "model": str(raw_meta.get("model") or "").strip(),
@@ -354,6 +388,7 @@ def workspace_run_step_from_agent(
             "status": step_status,
             "started_at": timestamp,
             "completed_at": timestamp,
-            "error": str(payload.get("reason") or payload.get("detail") or "").strip(),
+            "detail": detail,
+            "error": error,
         }
     )

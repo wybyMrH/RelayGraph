@@ -50,6 +50,8 @@ def workspace_execution_run_timeline(run: dict[str, Any]) -> list[dict[str, Any]
                 "output_key": str(step.get("output_key") or "").strip(),
                 "started_at": str(step.get("started_at") or "").strip(),
                 "completed_at": str(step.get("completed_at") or "").strip(),
+                "detail": str(step.get("detail") or "").strip(),
+                "recorded_error": str(step.get("recorded_error") or "").strip(),
                 "error": str(step.get("error") or "").strip(),
                 "artifact_count": len([item for item in artifacts if isinstance(item, dict)]),
                 "trace_event_count": len([item for item in trace_events if isinstance(item, dict)]),

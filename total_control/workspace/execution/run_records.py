@@ -231,6 +231,8 @@ def workspace_execution_run_snapshot(run: dict[str, Any]) -> tuple[str, tuple[tu
             (
                 str(step.get("status") or ""),
                 str(step.get("error") or ""),
+                str(step.get("detail") or ""),
+                str(step.get("recorded_error") or ""),
                 str(step.get("artifact_count") or ""),
                 json.dumps(step.get("artifacts") if isinstance(step.get("artifacts"), list) else [], sort_keys=True, ensure_ascii=True),
                 json.dumps(step.get("resources") if isinstance(step.get("resources"), dict) else {}, sort_keys=True, ensure_ascii=True),
