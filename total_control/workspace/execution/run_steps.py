@@ -255,6 +255,8 @@ def normalize_workspace_run_step(
         "timed_out": bool(payload.get("timed_out")) if payload.get("timed_out") is not None else bool(current.get("timed_out")),
         "cancelled": bool(payload.get("cancelled")) if payload.get("cancelled") is not None else bool(current.get("cancelled")),
         "agent_meta": _normalize_agent_meta(payload.get("agent_meta"), current.get("agent_meta")),
+        "output_value": copy.deepcopy(payload.get("output_value") if isinstance(payload.get("output_value"), dict)
+                                      else current.get("output_value", {})),
         "status": status,
         "started_at": str(payload.get("started_at") or current.get("started_at") or "").strip(),
         "completed_at": str(completed_at or "").strip(),
@@ -338,6 +340,7 @@ def workspace_run_step_from_agent(
             "runtime_side_effect": runtime_refs.get("runtime_side_effect", ""),
             "agent_execution_id": str(payload.get("agent_execution_id") or "").strip(),
             "output_key": str(payload.get("output_key") or "").strip(),
+            "output_value": copy.deepcopy(payload.get("output_value", {})),
             "artifact_count": len([item for item in artifacts if isinstance(item, dict)]),
             "artifacts": [item for item in artifacts if isinstance(item, dict)][:24],
             "resources": payload.get("resources") if isinstance(payload.get("resources"), dict) else {},

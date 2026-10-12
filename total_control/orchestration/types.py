@@ -36,6 +36,7 @@ class StepResult:
     timed_out: bool = False
     cancelled: bool = False
     agent_meta: dict[str, Any] = field(default_factory=dict)
+    output_value: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -66,6 +67,8 @@ class StepResult:
             payload["cancelled"] = True
         if self.agent_meta:
             payload["agent_meta"] = dict(self.agent_meta)
+        if self.output_value:
+            payload["output_value"] = dict(self.output_value)
         return payload
 
 

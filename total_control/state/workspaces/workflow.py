@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
-from ..registry_pkg.provider_profiles import provider_profile_health
+from ..registry_pkg.provider_profiles import provider_profile_health, provider_route_hash
 from ...orchestration.run_store import content_hash
 
 
@@ -269,12 +269,15 @@ class WorkflowMixin:
         if not any(mode != "skip" for mode in planned_modes):
             raise ValueError("workspace has no runnable steps")
 
-        if len(nodes) != 1 or planned_modes != ["job"]:
+        single_job = len(nodes) == 1 and planned_modes == ["job"]
+        job_report = (len(nodes) == 2 and planned_modes == ["job", "agent"]
+                      and nodes[1].get("kind") == "eval.report")
+        if not (single_job or job_report):
             raise WorkspaceWorkflowReadinessError(
-                "当前持久工作流仅支持一个 Job；多节点及 Agent 链等待后续切片接入。",
+                "当前持久工作流支持一个 Job，或一个 Job → 无工具报告 Agent。",
                 blocked_checks=[{"id": "workflow_plan_not_supported", "status": "blocked",
-                                 "title": "工作流类型尚未接入", "detail": "请选择一个 Job 节点运行。",
-                                 "action": "使用运行至节点选择单个 Job，或等待混合链接入。"}],
+                                 "title": "工作流类型尚未接入", "detail": "请选择单 Job 或 Job → eval.report Agent。",
+                                 "action": "使用受支持的计划；其他混合链待后续切片。"}],
                 workspace=self.workspace_public_payload(workspace), applied=applied,
                 evidence_applied=evidence_applied,
             )
@@ -366,6 +369,30 @@ class WorkflowMixin:
             provider_profiles_snapshot,
             executor_prefer,
         )
+        report_route_hash = ""
+        if job_report and not agent_execution_checks:
+            report_node = nodes[1]
+            agent = next(item for item in workspace["agents"]
+                         if item["id"] == report_node["handler"]["agent_id"])
+            contract = workspace_io_contract_for_kind("eval.report", 1)
+            mapping = workspace_io_input_mapping(report_node, contract, 1)
+            upstream_key = workspace_contract_output_key_for_node(nodes[0], 0)
+            consumes_current = any(
+                source == "$prev.output" or source.startswith("$prev.output.")
+                or source == f"$context.outputs.{upstream_key}"
+                or source.startswith(f"$context.outputs.{upstream_key}.")
+                for source in mapping.values()
+            )
+            if parse_tag_list(agent.get("tools", [])) or not consumes_current:
+                agent_execution_checks.append({
+                    "id": "report_agent_scope_not_supported", "status": "blocked",
+                    "title": "报告 Agent 配置超出当前切片", "node_id": report_node["id"],
+                    "detail": "报告 Agent 需 tools=[]，并映射 $prev.output 或当前 Job 的输出。当前执行仅调用模型一次。",
+                    "action": "使用独立无工具报告 Agent；保留当前结果映射，工具/子任务等待后续支持。",
+                })
+            route = workspace_model_route_for_agent(workspace.get("model", {}), agent)
+            profile = next(item for item in provider_profiles_snapshot if item["id"] == route["effective_profile_id"])
+            report_route_hash = provider_route_hash(profile)
         if agent_execution_checks:
             with self.lock:
                 payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
@@ -379,7 +406,7 @@ class WorkflowMixin:
 
         run_summary = (
             f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
-            if until_node_id else "工作流 · 1 Job"
+            if until_node_id else "工作流 · 1 Job → 报告 Agent" if job_report else "工作流 · 1 Job"
         )
         initial_package = workspace_execution_bundle_result(automation, [])
         if until_node_id:
@@ -393,6 +420,7 @@ class WorkflowMixin:
             workspace, nodes, planned_modes, initial_package,
             request_id=request_id, request_hash=request_hash, summary=run_summary, executor_prefer=executor_prefer,
             job_payloads=job_payloads,
+            report_route_hash=report_route_hash,
         )
         run_id = str(run.get("id") or "").strip()
         if not created:

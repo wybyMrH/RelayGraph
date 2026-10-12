@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
@@ -152,6 +153,7 @@ class AgentExecutor:
         event_callback: Callable[[str, dict[str, Any]], None] | None = None,
         timeout_seconds: float | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        single_call: bool = False,
     ):
         """Initialize agent executor.
 
@@ -165,6 +167,7 @@ class AgentExecutor:
             event_callback: Optional fine-grained trace event callback (event_type, payload)
             timeout_seconds: Optional wall-clock budget across the whole loop.
             cancel_check: Optional callable returning True when the run should abort.
+            single_call: Report-only mode; one model call, no fallback or tools.
         """
         self.agent = agent
         self.llm_client = llm_client
@@ -177,6 +180,9 @@ class AgentExecutor:
         self.max_iterations = int(configured) if configured not in (None, "") else 10
         self.timeout_seconds = float(timeout_seconds) if timeout_seconds not in (None, "") else None
         self.cancel_check = cancel_check
+        self.single_call = single_call
+        if single_call:
+            self.max_iterations = 1
 
     def _get_tool_by_id(self, tool_id: str) -> dict[str, Any] | None:
         """Get tool definition by ID."""
@@ -257,6 +263,7 @@ class AgentExecutor:
             AgentExecutionResult with the execution trace and result
         """
         start_time = datetime.now()
+        report_started = time.monotonic()
         steps: list[AgentStep] = []
         total_tokens = 0
 
@@ -318,7 +325,9 @@ class AgentExecutor:
                     cancelled=True,
                     model=last_model,
                 )
-            if self.timeout_seconds is not None and (datetime.now() - start_time).total_seconds() > self.timeout_seconds:
+            elapsed = (time.monotonic() - report_started if self.single_call
+                       else (datetime.now() - start_time).total_seconds())
+            if self.timeout_seconds is not None and elapsed > self.timeout_seconds:
                 return AgentExecutionResult(
                     success=False,
                     final_answer="",
@@ -359,10 +368,24 @@ class AgentExecutor:
                     )
 
                 response = self.llm_client.chat_stream(messages, on_delta=on_stream_delta)
-                if not response.success and not response.content:
+                if not self.single_call and not response.success and not response.content:
                     response = self.llm_client.chat(messages)
             else:
                 response = self.llm_client.chat(messages)
+
+            # The report-only path permits one provider call and no tool effects.
+            # Recheck after the blocking call; a late answer is not a successful run.
+            if self.single_call:
+                cancelled = bool(self.cancel_check and self.cancel_check())
+                elapsed = time.monotonic() - report_started
+                timed_out = self.timeout_seconds is not None and elapsed > self.timeout_seconds
+                if cancelled or timed_out:
+                    return AgentExecutionResult(
+                        success=False, final_answer="", steps=steps, total_tokens=total_tokens,
+                        error="agent cancelled" if cancelled else "agent deadline exceeded",
+                        cancelled=cancelled, timed_out=timed_out, execution_time_ms=elapsed * 1000,
+                        max_iterations=self.max_iterations, model=getattr(response, "model", ""),
+                    )
 
             if not response.success:
                 return AgentExecutionResult(
@@ -384,6 +407,14 @@ class AgentExecutor:
 
             # Check if we have a final answer (no tool call)
             tool_call = self._parse_tool_call(response.content)
+
+            if self.single_call and tool_call:
+                return AgentExecutionResult(
+                    success=False, final_answer="", steps=steps, total_tokens=total_tokens,
+                    error="single-call report does not permit tool calls",
+                    execution_time_ms=(time.monotonic() - report_started) * 1000,
+                    max_iterations=self.max_iterations, model=last_model,
+                )  # Do not publish raw arguments or create a tool trace for this mode.
 
             if not tool_call:
                 # No tool call = final answer

@@ -214,6 +214,17 @@ class RunStore:
             db.execute("UPDATE attempts SET status=?,result_json=?,updated_at=? WHERE run_id=? AND step_id=? AND attempt_no=?",
                        (status, encoded, now_iso(), run_id, step_id, attempt_no))
 
+    def claim_agent_invocation(self, run_id: str, step_id: str, attempt_no: int, execution_id: str) -> bool:
+        """Persist intent before a model call. An occupied claim is never replay permission."""
+        result = {"node_id": step_id, "status": "running", "executor": "agent",
+                  "agent_execution_id": execution_id, "invocation_state": "claimed"}
+        with self._db(write=True) as db:
+            return db.execute(
+                "UPDATE attempts SET result_json=?,updated_at=? "
+                "WHERE run_id=? AND step_id=? AND attempt_no=? AND status='running' AND result_json='{}'",
+                (canonical_json(result), now_iso(), run_id, step_id, attempt_no),
+            ).rowcount == 1
+
     def prepare_submission(self, run_id: str, step_id: str, attempt_no: int, payload: dict[str, Any]) -> dict[str, Any]:
         key = f"{run_id}/{step_id}/a{attempt_no}/job"
         digest = content_hash(payload)

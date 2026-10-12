@@ -180,6 +180,7 @@ def run_agent_node(
         status=status,
         executor="agent",
         output_key=output_key,
+        output_value=output_value if isinstance(output_value, dict) else {},
         artifacts=[item for item in artifacts if isinstance(item, dict)],
         mapped_inputs=summarize_mapped_inputs(resolved_inputs),
         detail=(

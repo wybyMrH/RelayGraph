@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import copy
+import threading
 from typing import Any
 
-from ...orchestration.run_store import RunConflictError, RunStoreError
-from ...orchestration.job_coordinator import JOB_ENGINE_VERSION
-from ...orchestration.types import RunPlan
+from ...orchestration.run_store import RunConflictError, RunStoreError, content_hash
+from ...orchestration.job_coordinator import JOB_ENGINE_VERSION, REPORT_ENGINE_VERSION, GRAPH_ENGINE_VERSIONS
+from ...orchestration.types import RunPlan, ExecutionRunContext
+from ...workspace.automation.contracts_pkg.io import workspace_contract_output_key_for_node
+from .agent_runtime_safety import redact_runtime_observation_text
 from ...workspace.execution import (
     make_workspace_execution_run_id,
     normalize_workspace_execution_run,
@@ -15,6 +18,7 @@ from ...workspace.execution import (
     normalize_workspace_run_step,
     refresh_workspace_execution_run,
     workspace_run_step_from_job,
+    workspace_run_step_from_agent,
 )
 
 
@@ -126,12 +130,16 @@ class WorkflowRecordsMixin:
         self, workspace: dict[str, Any], nodes: list[dict[str, Any]], modes: list[str],
         package_snapshot: dict[str, Any], *, request_id: str, request_hash: str, summary: str,
         executor_prefer: str, job_payloads: dict[str, dict[str, Any]],
+        report_route_hash: str = "",
     ) -> tuple[dict[str, Any], bool]:
         snapshot = {key: copy.deepcopy(value) for key, value in workspace.items()
                     if key not in {"runs", "chat", "execution", "automation", "updated_at"}}
+        snapshot["nodes"] = copy.deepcopy(nodes)
         planned_run_id = make_workspace_execution_run_id()
         frozen_payloads = copy.deepcopy(job_payloads)
         for index, node in enumerate(nodes):
+            if modes[index] != "job":
+                continue
             payload = frozen_payloads[node["id"]]
             payload["wait_for_idle"] = True
             payload["metadata"].update(execution_run_id=planned_run_id, step_index=index, workflow_index=index)
@@ -141,13 +149,17 @@ class WorkflowRecordsMixin:
                                            workflow_until_node_title=scope["target_node_title"],
                                            workflow_until_node_kind=scope["target_node_kind"])
         plan = RunPlan(
-            run_id=planned_run_id, workspace_id=workspace["id"], engine_version=JOB_ENGINE_VERSION,
+            run_id=planned_run_id, workspace_id=workspace["id"],
+            engine_version=REPORT_ENGINE_VERSION if report_route_hash else JOB_ENGINE_VERSION,
             steps=[{"step_id": node["id"], "index": index, "executor": modes[index], "node": copy.deepcopy(node)}
                    for index, node in enumerate(nodes)],
             workspace_snapshot=snapshot, package_snapshot=copy.deepcopy(package_snapshot), executor_prefer=executor_prefer,
         )
         for step in plan.steps:
-            step["job_payload"] = frozen_payloads[step["step_id"]]
+            if step["executor"] == "job":
+                step["job_payload"] = frozen_payloads[step["step_id"]]
+            else:
+                step.update(provider_route_hash=report_route_hash, invocation_mode="single-call-no-tools")
         run_id, created = self.execution_store.create(plan, request_id=request_id, request_hash=request_hash, summary=summary)
         with self.lock:
             current = self.workspace_by_id(workspace["id"])
@@ -166,8 +178,9 @@ class WorkflowRecordsMixin:
     def submit_coordinated_job(self, run_id: str) -> str:
         evidence = self.execution_store.read(run_id)
         plan = evidence["plan"]
-        if (plan["engine_version"] != JOB_ENGINE_VERSION or len(plan["steps"]) != 1
-                or plan["steps"][0]["executor"] != "job"):
+        expected_modes = (["job", "agent"] if plan["engine_version"] == REPORT_ENGINE_VERSION else ["job"])
+        if (plan["engine_version"] not in GRAPH_ENGINE_VERSIONS
+                or [item["executor"] for item in plan["steps"]] != expected_modes):
             raise RunConflictError("coordinator cannot execute this plan")
         step = plan["steps"][0]
         self.begin_workflow_step(run_id, step["node"], step["index"])
@@ -184,7 +197,23 @@ class WorkflowRecordsMixin:
         with self.lock:
             job = self._job_for_submission(intent, evidence["plan"]["workspace_id"])
             if job and job["id"] == job_id and intent["external_ref"] == job_id:
-                return workspace_run_step_from_job(copy.deepcopy(job), step["index"])
+                job = copy.deepcopy(job)
+                result = workspace_run_step_from_job(job, step["index"])
+                if evidence["plan"]["engine_version"] == REPORT_ENGINE_VERSION and result["status"] == "done":
+                    log = self.job_log_payload(job, offset=0, max_bytes=8192)
+                    result["output_value"] = {
+                        "run_id": run_id, "node_id": step["step_id"], "attempt_id": f"a{attempt['attempt_no']}",
+                        "job_id": job_id, "host_id": job["server_id"], "status": "done",
+                        "output_key": workspace_contract_output_key_for_node(step["node"], step["index"]),
+                        "artifact_manifest": {"items": copy.deepcopy(result["artifacts"]),
+                                              "verification": "Job declarations; files not verified by this handoff"},
+                        "log": redact_runtime_observation_text(log.get("log", "")),
+                        "log_evidence": {key: log.get(key) for key in (
+                            "mode", "exists", "offset", "next_offset", "file_size", "byte_count", "skipped_bytes", "error",
+                        )},
+                        "log_truncated": bool(log.get("truncated") or log.get("next_offset", 0) < log.get("file_size", 0)),
+                    }
+                return result
         return {"index": step["index"], "node_id": step["step_id"], "job_id": job_id,
                 "status": "blocked", "runtime_status": "reconciling",
                 "error": "Job receipt unavailable; automatic resubmission refused"}
@@ -192,16 +221,82 @@ class WorkflowRecordsMixin:
     def record_coordinated_job(self, run_id: str, result: dict[str, Any]) -> None:
         self.record_workflow_steps(run_id, [result])
 
+    def execute_coordinated_report(self, run_id: str) -> dict[str, Any]:
+        """Graph callback; consume this attempt only, persist claim before any model call."""
+        evidence = self.execution_store.read(run_id)
+        plan = evidence["plan"]
+        if plan["engine_version"] != REPORT_ENGINE_VERSION or len(plan["steps"]) != 2:
+            raise RunConflictError("report callback cannot execute this plan")
+        upstream, step = plan["steps"]
+        source = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == upstream["step_id"])
+        inputs = {"plan_hash": evidence["plan_hash"], "source_step_id": upstream["step_id"],
+                  "source_attempt_id": f"a{source['attempt_no']}", "source_result_hash": content_hash(source["result"]),
+                  "input_mapping": copy.deepcopy(step["node"].get("input_mapping", {}))}
+        number = self.execution_store.begin_attempt(run_id, step["step_id"], inputs=inputs)
+        attempt = next(item for item in self.execution_store.read(run_id)["attempts"]
+                       if item["step_id"] == step["step_id"] and item["attempt_no"] == number)
+        if attempt["result"]:
+            if attempt["result"].get("invocation_state") == "claimed":
+                result = {**attempt["result"], "status": "blocked", "invocation_state": "unknown",
+                          "error": "Agent invocation outcome unknown; automatic replay refused"}
+                self.execution_store.record_result(run_id, step["step_id"], number, result)
+                return result
+            return copy.deepcopy(attempt["result"])
+        if source["status"] != "done":
+            result = {"node_id": step["step_id"], "status": "skipped", "executor": "agent",
+                      "reason": "upstream_not_successful", "error": "Job failed or stopped; report Agent was not invoked"}
+            self.execution_store.record_result(run_id, step["step_id"], number, result)
+            return result
+        output = copy.deepcopy(source["result"].get("output_value", {}))
+        expected = {"run_id": run_id, "node_id": upstream["step_id"], "attempt_id": f"a{source['attempt_no']}",
+                    "job_id": source["result"]["job_id"]}
+        if not output or any(output.get(key) != value for key, value in expected.items()):
+            raise RunConflictError("current Job output provenance unavailable; history fallback refused")
+        if not output.get("log_evidence", {}).get("exists") or output["log_evidence"].get("error"):
+            result = {"node_id": step["step_id"], "status": "blocked", "executor": "agent",
+                      "invocation_state": "not_started", "error": "Current Job log unavailable; history fallback refused"}
+            self.execution_store.record_result(run_id, step["step_id"], number, result)
+            return result
+        execution_id = f"{run_id}:{step['step_id']}:a{number}"
+        if not self.execution_store.claim_agent_invocation(run_id, step["step_id"], number, execution_id):
+            raise RunConflictError("Agent invocation already claimed; automatic replay refused")
+        context = ExecutionRunContext(
+            workspace_id=plan["workspace_id"], run_id=run_id, kind="workflow", step_index=1,
+            outputs={output["output_key"]: output}, previous_output=output,
+        )
+        result = self.execute_workspace_agent_node(
+            plan["workspace_id"], copy.deepcopy(step["node"]), run_context=context,
+            frozen_workspace=copy.deepcopy(plan["workspace_snapshot"]), execution_id=execution_id,
+            expected_route_hash=step["provider_route_hash"], report_only=True,
+        )
+        recorded = workspace_run_step_from_agent(step["node"], result, step["index"])
+        recorded.update(agent_execution_id=execution_id, invocation_state="recorded")
+        if recorded.get("output_value"):
+            recorded["output_value"].update(run_id=run_id, node_id=step["step_id"], attempt_id=f"a{number}",
+                                            agent_execution_id=execution_id, source=expected)
+        self.execution_store.record_result(run_id, step["step_id"], number, recorded)
+        return recorded
+
     def advance_workflow_runs(self) -> None:
-        """Scheduler-owned wakeups; each run is isolated and checked through the Job adapter."""
+        """One serial graph worker; a model call must not block the Job monitor loop."""
+        if self.stop_event.is_set() or (self.workflow_wake_thread and self.workflow_wake_thread.is_alive()):
+            return
+        self.workflow_wake_thread = threading.Thread(target=self._advance_workflow_runs, daemon=True,
+                                                     name="relaygraph-workflow-wake")
+        self.workflow_wake_thread.start()
+
+    def _advance_workflow_runs(self) -> None:
+        """Scheduler-owned wakeup batch; the graph is still the sole step coordinator."""
         from ...orchestration.run_store import RunBusyError
 
         with self.lock:
             identities = [(workspace["id"], run_id) for workspace in self.workspaces
                           for run_id in self.execution_store.run_ids(workspace["id"])]
         for workspace_id, run_id in identities:
+            if self.stop_event.is_set():
+                return
             evidence = self.execution_store.read(run_id)
-            if evidence["plan"]["engine_version"] != JOB_ENGINE_VERSION:
+            if evidence["plan"]["engine_version"] not in GRAPH_ENGINE_VERSIONS:
                 continue
             try:
                 with self.lock:

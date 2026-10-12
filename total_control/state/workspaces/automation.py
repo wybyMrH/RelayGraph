@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
-from ...orchestration.job_coordinator import JOB_ENGINE_VERSION
+from ...orchestration.job_coordinator import GRAPH_ENGINE_VERSIONS
 
 class AutomationMixin:
     def advance_workspace_automation(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -40,7 +40,7 @@ class AutomationMixin:
             ]
             public_workspace = self.workspace_public_payload(current)
             active_runs = [run for run in public_workspace.get("runs", [])
-                           if run.get("execution_plan", {}).get("engine_version") == JOB_ENGINE_VERSION
+                           if run.get("execution_plan", {}).get("engine_version") in GRAPH_ENGINE_VERSIONS
                            and run.get("status") not in {"done", "failed", "stopped"}]
 
         if active_jobs or active_runs:

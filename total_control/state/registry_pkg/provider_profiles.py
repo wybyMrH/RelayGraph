@@ -6,6 +6,14 @@ from typing import Any
 
 from ...constants_pkg.provider_catalog import PROVIDER_CATALOG, provider_catalog_by_id
 from ...secrets_crypto import decrypt_secret
+from ...orchestration.run_store import content_hash
+
+
+def provider_route_hash(profile: dict[str, Any]) -> str:
+    """Detect route edits without persisting credentials or credential fingerprints."""
+    return content_hash({key: profile.get(key) for key in (
+        "id", "kind", "provider", "base_url", "models", "key_required",
+    )})
 
 
 def normalized_provider_base_url(value: Any) -> str:

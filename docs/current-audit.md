@@ -6,9 +6,9 @@
 
 当前正式代码台账覆盖 288 个文件：168 个后端 Python、118 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
-N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 已在 N03B2b 接入单 Job，G01/G02 的混合链续跑和 G09 的剩余恢复边界仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。两节点 shell CPU 链是旧路径的历史验收；当前新多节点计划明确拒绝，单 Job 协调器等待已实测。
+N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 已在 N03B2b 接入单 Job，N03B2c1 接入一个 Job → 无工具报告 Agent；G01 的更长混合链、G02 子任务续跑和 G09 剩余恢复边界仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。两节点 shell CPU 链是旧路径的历史验收；当前新计划仅接受单 Job 或 Job → 无工具 eval.report Agent，其他多节点计划明确拒绝。
 
-N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码仍为 288 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；唯一下一片为 N03B2c 的 Job → Agent 本次结果交接。
+N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码仍为 288 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；唯一下一片为 N07A 的当前报告正文落盘与验证，仍不接 Agent 工具/子任务。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -24,9 +24,9 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 ### G01 · P1 · Job → Agent 无完成屏障
 
 - 对齐 R06/R09，类别：能力缺口、执行风险，证据 E1。
-- 原 workflow_runner.py.run_workflow_sequence 提交 Job 后继续遍历，后续 Agent 没有等待 previous_job_id；本次输出也没有进入 previous_step_output。N03B2b 已删除该同步推进路径，新工作流暂只接受一个 Job。
+- 原 workflow_runner.py.run_workflow_sequence 提交 Job 后继续遍历，后续 Agent 没有等待 previous_job_id；本次输出也没有进入 previous_step_output。N03B2b 已删除该同步推进路径；N03B2c1 在同一图接入一个 Job → 无工具报告 Agent。
 - 复现 run.command → eval.report(Agent)：Job 返回 queued 时报告 Agent 已被调用，previous_output=None。输入门禁可能改为阻塞，但仍不是等待后续跑。
-- N03B2b 已接 LangGraph + SQLite 的单 Job 等待与恢复；Job → Agent 的本次输出交接尚未接入，混合链明确拒绝，本问题保持开放，不能用限制范围宣称已解决。
+- N03B2c1 已实测 Job 成功后才调用一个无工具 eval.report Agent；失败/停止跳过 Agent。本次 output_value 绑定 run/step/attempt/Job，带最多 8192 字节日志及截断证据；原引用内核解析 $prev/$context，不合入工作区历史 outputs。该最小链的屏障/结果交接已完成；Agent 带工具、更长链和子任务仍不支持，G01 不整体关闭。
 - 方案：协调器持久记录 waiting_on，在任务成功且本次输出可用后推进；失败/停止传播。不要往 HTTP 请求里加轮询 sleep。验收 Job → Agent、Job → Agent → Job，确认报告读取本次结果。
 
 <a id="g02"></a>
@@ -52,6 +52,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R09，类别：控制风险，证据 E1。
 - agent_executor.py:303–407 只在循环开头检查；Provider 返回后可直接 success 或继续工具副作用。llm_client 使用独立网络超时，未消费 Agent 剩余预算。
 - 复现总预算 10ms，假 Provider 30ms 后返回并设置取消信号，结果 success=True、timed_out=False、cancelled=False。
+- N03B2c1 仅对单次无工具报告启用单调时钟和调用后检查，并禁用 stream 失败后的第二次 fallback；真实延迟响应及取消 HTTP 验收通过，取消请求时仍显示 running，返回后才记失败/停止。网络调用不能立即中断，通用多轮 Agent 及网络剩余预算未解决，G04 保持开放。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
 <a id="g05"></a>
@@ -68,6 +69,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R10/R11，类别：能力缺口、语义误导，证据 E1/E2。
 - workspace_mutations.py:78–143 不写文件，content >4000 时仅保留 240 字符 summary；dispatcher 的 report.write 仍返回 written。4001 字符临时目录复现：无文件、无正文。
 - run_delivery.py 根据 artifact 的 exists/status 等声明判断 observed；report_ready 可由报告条目存在推导，不能单独作为实际文件可取的证明。此处未做真实远程文件验收。
+- N03B2c1 报告回答不走 apply_final_answer_output/artifact.write/report.write；≤4000 字回答保存为 attempt 的 inline-answer 证据，无 artifact、file_verified=false，交付闭包 report.incomplete=true/status=warning。超过 4000 字显式失败，不把截断摘要当正文；JSON 无法解析也失败。没有落盘报告，通用旧声明路径仍存在，G06 未关闭。下一片 N07A 只保存并验证这条链的本地正文。
 - 方案：ArtifactStore 保存正文或受控文件，返回可验证引用；区分 declared/written/verified；正文超过限额显式拒绝或另存。执行结束和交付完整度独立展示。
 
 <a id="g07"></a>
@@ -91,7 +93,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 
 - 对齐 R06/R11/R13，类别：恢复能力缺口、持久化风险，证据 E2/E3。
 - persistence.py 保存 jobs/workspaces 等独立 JSON；utils.write_json 可原子替换单文件，但不能对多文件与 tmux 副作用提供事务。read_json 在 JSON 损坏时返回默认值，可能把损坏误当首次初始化。agent_runtime.py 取消注册仅在内存。
-- N02 的真实 workflow 入口已接 RunStore/提交适配器，先存意图、排队回执再公开。N03B2b 已接入单 Job 的 LangGraph interrupt/恢复，复用 run 锁和原 create_job；图检查点绑定 run_id/plan_hash，attempt 记录核对事实，查询不自行判完成。检查点只读检查通过才交给 saver 写入；损坏保留并 blocked。没有回执的提交保持 reconciling，不自动重提；丢失检查点只对这一片冻结单 Job 计划通过稳定回执核对恢复，不套用到旧 Agent。混合链、取消传播、多实例队列及启动未知窗口仍开放。
+- N02 的真实 workflow 入口已接 RunStore/提交适配器，先存意图、排队回执再公开。N03B2b 已接入单 Job 的 LangGraph interrupt/恢复，复用 run 锁和原 create_job；图检查点绑定 run_id/plan_hash，attempt 记录核对事实，查询不自行判完成。检查点只读检查通过才交给 saver 写入；损坏保留并 blocked。没有回执的提交保持 reconciling，不自动重提；丢失检查点只对这一片冻结单 Job 计划通过稳定回执核对恢复，不套用到旧 Agent。N03B2c1 延续 B2b engine/submit-observe-wait 节点，实际旧版等待检查点可恢复；新报告先在 attempts 表 CAS claim，持久 execution_id，未知调用 blocked、不自动重放，已记录结果复用。真实硬退出覆盖 claim/response/result/pending-writes 窗口及缺检查点恢复；next 为空但 tasks 有 pending writes 时继续结算，不能误判结束。取消传播、多实例队列及启动未知窗口仍开放。
 - 普通 create_job 仍非通用幂等 API，不能绕过适配器。现有 Provider 密钥与主密钥仍在 data/，兼容迁移归 N00E。
 - N02 新增存储 schema/hash 校验、损坏记录明确报错、单机 run 文件锁；当前只支持一个服务负责 JSON Job 队列。新账本 run/Job 回执暂受保护，不被 JSON 条数裁剪；事务归档与孤立账本处理待 N14。
 - N03 真实过程复验发现 start_job 可让旧调度快照再次启动已 running/终态 Job：一份 compute 回执对应 count=2。N03J0 仅收紧启动状态门禁；30 秒启动占用及跨进程未知窗口仍待处理，不能用提交去重证明进程一定只启动一次。
@@ -282,6 +284,14 @@ J1b 交付时下一片是 B2a；B2a/B2b 现已分别完成（第三部分 2.10/2
 
 ### N03B2b：单 Job 持久受理与等待（已完成）
 
+以下记录 B2b 当时的交付边界；B2c1 当前能力见下一节。
+
+以下记录 B2b 当时的交付边界；B2c1 当前能力见下一节。
+
+以下记录 B2b 当时的交付边界；B2c1 当前能力见下一节。
+
+以下记录 B2b 当时的交付边界；B2c1 当前能力见下一节。
+
 POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 run；jobs 可以暂为空。原 scheduler 唯一唤醒 LangGraph 的 submit → observe → interrupt/wait 图，仍通过 N02 适配器提交原 Job 队列。终态由真实 Job 事实写入 attempt，查询/JSON/SSE 不越过协调器判完成。图检查点绑定 run_id/plan_hash，数据库在领域账本旁；没有新配置源或第二个 Job 生命周期。自动推进入口还检查已受理但无 Job 的新 run，返回 watch/active_run_ids；真实默认 2 秒调度窗口下 /run 后立即 /advance 只有原计划的一个 Job，没有新增发现任务或暂停调度器。驾驶舱通用建议仍有 G17 的投影收敛工作，不在本片重做。
 
 旧 workflow_runner.py、唯一调用者的回调装配和同步 for 路径、闲置失败回调及聚合导入已删除。新多节点/Agent 工作流返回明确不支持，单 Job 前缀仍过原硬门禁；这是过渡能力边界，不把 G01/G02 关闭。旧 14f87a3 实际 HTTP 生成的 legacy run 在新服务仍查询/核对原 Job、执行计数 1，engine 不改写，也未创建新图；不自动重放未提交旧节点或 Agent。
@@ -291,6 +301,20 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 过程发现保留：首次本地断言把 running 误认为命令已写文件，改为等待真实实物；系统测试解释器缺 SQLite saver，另建公开依赖+pytest 的开发 venv；损坏注入首次被 SQLite 遗留 WAL 影响原文件，因此新增 saver 写入前只读检查，再复验通过。正常路径没有替身、force、手填终态或补记录；故障 wrapper 仅在隔离状态里硬退出/损坏文件，恢复均用原服务命令。根 pytest 无用例退出 5，不算通过；compileall/相关 JS 语法通过。
 
 仍未实现 Job 输出进入 Agent、子任务续跑、Agent 预算/取消、报告正文；没有真实 SSH/GPU/模型验收。检查点缺失恢复仅适用于本片冻结单 Job；B2c 不能照搬为 Agent 从头重放。单机一个服务、启动未知窗口和保留/检查点增长边界仍见 G09/N14；全库损坏会阻塞使用该库的图，不影响独立 Job 服务核对。脚本、截图、结果、旧版隔离 checkout、配置和数据库均只存本地。
+
+### N03B2c1：一个 Job → 无工具报告 Agent（已完成）
+
+只扩展原协调器，新增 engine `langgraph-job-report/n03b2c1`；单 Job 仍使用 `langgraph-job/n03b2b`。冻结完整两步计划、所选节点/实例/Agent 和非密钥 Provider 路由 hash；等待期间修改实例不会改本次执行，也不会被冻结副本写回覆盖。Provider 模型/endpoint 改变则拒绝执行，凭据不复制到计划。旧 B2b 检查点沿原节点恢复，没有新建第二推进器或自动重放旧 Agent。
+
+Job 成功后，当前 attempt 保存 output_value：run_id/node_id/attempt_id/job_id/host_id、受限日志、文件大小/偏移/省略字节及截断标记、当前 Job 的 artifact_manifest 声明（不声称验证其中实物）。原引用解析器消费这些输入；报告只允许 tools=[]，一次模型请求，无 stream→普通请求 fallback，无工具/子任务。引用缺失/日志不可用不改用同名历史输出。失败/停止前置使报告 skipped，模型请求 0。
+
+Agent claim 在模型调用前事务落盘；服务重启时有 claim 无结果变成 unknown/blocked；已有结果直接复用。图结果未落盘前断电仍保留 attempt 证据；检查点缺失按 Job 回执和 Agent claim 核对，不能当作从头自动调用模型的许可。单个后台图唤醒线程串行处理工作流，原 scheduler 继续监控 Job；慢 Provider 不占住 Job 监控循环，其他工作流图仍可能等待这个串行线程。服务退出不会保证撤回已发出的网络请求。
+
+实际通过：5 项真实 HTTP/tmux/受控 Provider 主链；7 项历史输出、冻结实例、路由变更、503/无 fallback、长回答、JSON、截断/脱敏边界；4 项真实硬退出窗口及两次缺检查点核对；4 项不关硬门禁的拒绝场景；2 项真实延迟/取消；1 项慢报告期间独立真实 Job 继续监控；实际 898ef12 创建的 B2b 等待检查点升级恢复；Chromium 可见默认按钮可启动，页面收到 running→done、2/2 快照，报告交付仍 incomplete（未逐项断言状态 DOM 文案）；8 项单 Job HTTP 回归和 17 项本地契约；受控 Provider 返回工具 JSON 时明确失败，工具轨迹/子 Job 均为 0，公开记录不含合成敏感参数。受控 Provider 仅证明编排，不证明真实模型质量/供应商可用。
+
+过程审查发现并修正：pending writes 不能当图结束；模型等待不能占用监控线程；独立监督发现无工具报告仍可能生成意外工具 JSON 的参数轨迹，现已在生成工具步骤、事件和副作用前拒绝，并复验公开记录不含原始参数。测试辅助错误也保留：失败状态先可见但报告 skipped 尚未提交，检查器改为等待完整计划的步骤状态；兼容脚本批量换目录误换 engine 字符串，修正本地断言；独立 Job 验证误把 gpu_policy 当直接 API 的 CPU 选择参数，使用原 gpu_index=none 后正常通过，没有关闭资源门禁。报告输入 artifact_manifest 来自本次 Job 的声明字段，不为通过测试塞一份无关历史 manifest。
+
+compileall 通过；根 pytest 无用例退出 5，不计通过；新增/改动源码、API 字段与台账/文档范围复核见本地交接。没有改前端脚本/加载顺序，浏览器仍单独实测。只保存 inline 回答证据，不落盘报告文件；一般 Agent deadline/网络预算、子任务、长报告、SSH/GPU/传输及真实模型未完成或未验证。规格不变，测试/配置/日志/结果/截图/旧版 checkout 全部本地忽略。唯一下一片见 N07A。
 
 ## 4. 逐文件台账的读法
 
@@ -305,7 +329,7 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/__init__.py) · 5 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [agent_executor.py](../total_control/agent_executor.py) · 480 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | 问题/修补关联 [G04](#g04)、[G11](#g11)、[G21](#g21)；按登记方案处理，不另建平行服务。 | `_tool_side_effect:31`；`_metadata_value:39` |
+| [agent_executor.py](../total_control/agent_executor.py) · 511 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；普通多轮路径保持，G04/G21 未关闭。 | `_tool_side_effect:31`；`_metadata_value:39` |
 | [agent_runtime.py](../total_control/agent_runtime.py) · 49 | R09；execution_id/取消请求 → 进程内注册与信号 → active/cancel 检查 | 问题/修补关联 [G04](#g04)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `register_agent_cancel:20`；`cancel_agent_run:30` |
 | [compat.py](../total_control/compat.py) · 21 | R14；公开门面名/默认实现 → 查询 override → 兼容调用入口 | 问题/修补关联 [G16](#g16)；按登记方案处理，不另建平行服务。 | `public_api_override:7`；`public_api_value:17` |
 | [config.py](../total_control/config.py) · 332 | R01/R13；config/ TOML/SSH 配置 → 合并主机与本机路径参数 → AppConfig/ServerConfig | N02 新增 execution_db_path，以配置目录解析相对路径；默认沿 DATA_DIR，真实密钥布局不迁移；其余关联 [G19](#g19)。 | `ServerConfig:18`；`AppConfig:40`；`load_secrets:49` |
@@ -372,10 +396,10 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/orchestration/__init__.py) · 20 | R06/R09；节点执行/输入类型 → 公开导出 → 单节点兼容入口 | N03B2b 退出 WorkflowRunner 等同步推进导出；保留已有节点执行消费者。 | 文件整体/公开入口 |
 | [input_mapping.py](../total_control/orchestration/input_mapping.py) · 296 | R05/R09；引用/上下文/模型输出 → 解析映射与 JSON 输出校验 → 输入值/输出证据 | N00C 改为导入唯一取值内核；前缀/缺失/历史输出规则仍关联 [G10](#g10)，未整体统一。 | `_is_mapping_ref:11`；`resolve_input_mapping_ref:16` |
-| [node_runner.py](../total_control/orchestration/node_runner.py) · 211 | R06/R09；节点/执行上下文 → 选择 Agent/Job、Agent 失败校验 → StepResult | 问题/修补关联 [G01](#g01)、[G02](#g02)、[G04](#g04)；按登记方案处理，不另建平行服务。 | `_node_handler_mode:51`；`_node_agent_id:56` |
-| [run_store.py](../total_control/orchestration/run_store.py) · 294 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N02 新增；不推进工作流、不执行 Job；保护不可变计划/终态证据，结果不明不盲重提。单服务队列/保留边界见 2.5；关联 [G03](#g03)、[G09](#g09)。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
-| [types.py](../total_control/orchestration/types.py) · 86 | R06/R09/R11；计划/结果/上下文 → RunPlan/StepResult/ExecutionRunContext → 类型化边界 | N02 RunPlan 经领域库序列化/校验/hash 后冻结；不把 Python 可变对象当持久快照。关联 [G02](#g02)、[G09](#g09)。 | `RunPlan:8`；`StepResult:22`；`ExecutionRunContext:73` |
-| [job_coordinator.py](../total_control/orchestration/job_coordinator.py) · 110 | R06/R11/R13；run/冻结计划、Job 回调 → 持久图/暂停、去重唤醒与身份检查 → attempt 事实及检查点 | N03B2b 唯一新工作流推进器；不执行 shell、不推进旧 engine；损坏只读拒绝。仅单 Job，G01/G02 混合链仍待接入。 | `JobCoordinator`；`advance`；`_validate_checkpoint` |
+| [node_runner.py](../total_control/orchestration/node_runner.py) · 212 | R06/R09；节点/执行上下文 → 选择 Agent/Job、Agent 失败校验 → StepResult | 共用原 Agent 执行入口/映射和失败规则；N03B2c1 传递 output_value 到持久 step，不自建模型或推进循环。G02/G04 仍开放。 | `_node_handler_mode:51`；`_node_agent_id:56` |
+| [run_store.py](../total_control/orchestration/run_store.py) · 305 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N03B2c1 在原 attempts 表增加 Agent 原子 claim，无第二提交表/schema 迁移；execution_id/未知窗口可核对，终态仍不可覆盖。G09 启动/保留风险未关闭。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
+| [types.py](../total_control/orchestration/types.py) · 89 | R06/R09/R11；计划/结果/上下文 → RunPlan/StepResult/ExecutionRunContext → 类型化边界 | N02 RunPlan 仍经领域库冻结；N03B2c1 StepResult 追加可选 output_value，承载本次报告证据，不把回答当实物。 | `RunPlan:8`；`StepResult:22`；`ExecutionRunContext:73` |
+| [job_coordinator.py](../total_control/orchestration/job_coordinator.py) · 126 | R06/R11/R13；run/冻结计划、Job 回调 → 持久图/暂停、去重唤醒与身份检查 → attempt 事实及检查点 | N03B2c1 在唯一图加报告节点，保留 B2b 节点/engine；pending writes 有任务但 next 为空仍结算。Job/Agent 副作用由领域适配器核对，其他链不支持。 | `JobCoordinator`；`advance`；`_validate_checkpoint` |
 | [workspace_mutations.py](../total_control/orchestration/workspace_mutations.py) · 143 | R02/R10；节点/配置或 artifact 内容 → 修改工作区内存快照 → 配置/产物元数据 | 问题/修补关联 [G06](#g06)；按登记方案处理，不另建平行服务。 | `find_workspace_node:29`；`apply_workflow_edit:45` |
 
 ### total_control/state
@@ -384,7 +408,7 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/state/__init__.py) · 20 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | `TotalControlState:16` |
 | [_deps.py](../total_control/state/_deps.py) · 40 | R14；上层模块/公共符号 → 星号聚合依赖 → 子包可见依赖 | 结构风险；改显式依赖前先锁定 monkeypatch 与兼容调用。 | 文件整体/公开入口 |
-| [base.py](../total_control/state/base.py) · 228 | R06/R13/R14；配置/持久数据 → 账本/回执核对、唯一图适配及后台启动 → 单机状态 | N03B2b 组合一个 JobCoordinator；复用原账本路径/Job 服务，legacy 不重放。Provider/JSON 剩余风险见 G09/G21。 | `_dedupe_provider_profiles:8`；`_agent_definitions_need_writeback:44`；`BaseMixin:60` |
+| [base.py](../total_control/state/base.py) · 230 | R06/R13/R14；配置/持久数据 → 账本/回执核对、唯一图适配及后台启动 → 单机状态 | N03B2c1 组合同一个 JobCoordinator/报告回调与单个串行后台唤醒线程；监控线程不等待模型，legacy 不重放。G09/G21 剩余风险保持。 | `_dedupe_provider_profiles:8`；`_agent_definitions_need_writeback:44`；`BaseMixin:60` |
 | [files.py](../total_control/state/files.py) · 741 | R04/R11；浏览/清理请求 → 文件与保留引用管理 → 文件/存储响应 | N02 暂保护账本 run 和回执，防止 JSON 裁剪后重新出现或失去幂等依据；事务归档待 N14。其他关联 [G07](#g07)、[G09](#g09)、[G20](#g20)。 | `_runtime_state_run_job_ids:18`；`_runtime_state_workspace_run_closure:22`；`FilesMixin:47` |
 | [jobs.py](../total_control/state/jobs.py) · 4 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [monitoring.py](../total_control/state/monitoring.py) · 114 | R01/R12；探针/查询 → 刷新完整计划投影、组合工作区状态 → status/cockpit | N02 读取领域账本和 Job 事实形成只读投影，不执行恢复副作用；派生冗余仍关联 [G17](#g17)。 | `MonitoringMixin:5` |
@@ -426,7 +450,7 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/state/registry_pkg/__init__.py) · 1 | R03/R05/R11；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [execution_overview.py](../total_control/state/registry_pkg/execution_overview.py) · 325 | R03/R05/R11；全局 run/Job/筛选 → 引用匹配与分页投影 → 只读执行概览 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `execution_overview_status_group:10`；`execution_overview_search_text:19` |
-| [provider_profiles.py](../total_control/state/registry_pkg/provider_profiles.py) · 192 | R03/R05/R11；Profile/目录/保存版本 → 合并、健康与脱敏 → 有效/公开 Profile | 问题/修补关联 [G21](#g21)；按登记方案处理，不另建平行服务。 | `normalized_provider_base_url:11`；`provider_catalog_public_payload:15` |
+| [provider_profiles.py](../total_control/state/registry_pkg/provider_profiles.py) · 200 | R03/R05/R11；Profile/目录/保存版本 → 合并、健康与脱敏 → 有效/公开 Profile | N03B2c1 用非密钥路由 hash 检测 endpoint/model 变化，密钥/密钥指纹均不复制到计划；协议/私密存储仍按 G21/G09 后续处理。 | `normalized_provider_base_url:11`；`provider_catalog_public_payload:15` |
 | [provider_route_health.py](../total_control/state/registry_pkg/provider_route_health.py) · 162 | R03/R05/R11；工作区/Agent/Profile → 检查路由缺口 → 诊断问题列表 | 问题/修补关联 [G21](#g21)；按登记方案处理，不另建平行服务。 | `build_provider_route_health:8`；`add_issue:35` |
 | [tool_definitions.py](../total_control/state/registry_pkg/tool_definitions.py) · 22 | R03/R05/R11；工具引用变化 → 重写 Agent allowlist → 更新后的定义 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `rewrite_agent_tool_reference:8` |
 | [tool_testing.py](../total_control/state/registry_pkg/tool_testing.py) · 73 | R03/R05/R11；工具/安全测试参数 → 判定副作用并受限执行 → safe-test 结果 | 问题/修补关联 [G11](#g11)；按登记方案处理，不另建平行服务。 | `run_tool_definition_safe_test:12` |
@@ -442,8 +466,8 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 | [agent_runtime_inputs.py](../total_control/state/workspaces/agent_runtime_inputs.py) · 100 | R05/R06/R09；映射/节点位置/历史输出 → 检查运行时引用 → refs/blockers | 问题/修补关联 [G10](#g10)、[G01](#g01)；按登记方案处理，不另建平行服务。 | `_agent_node_runtime_input_refs:10` |
 | [agent_runtime_observation.py](../total_control/state/workspaces/agent_runtime_observation.py) · 156 | R05/R06/R09；子 Job/run id/观察限额 → 等待与读取受限快照 → runtime observation | 问题/修补关联 [G02](#g02)、[G04](#g04)；按登记方案处理，不另建平行服务。 | `workspace_tool_observe_options:9`；`workspace_tool_job_snapshot:35` |
 | [agent_runtime_safety.py](../total_control/state/workspaces/agent_runtime_safety.py) · 327 | R05/R06/R09；命令/观测文本 → 允许诊断边界与密钥脱敏 → 拒绝原因/安全文本 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `redact_runtime_observation_text:18`；`workspace_tool_command_block_reason:29` |
-| [agents.py](../total_control/state/workspaces/agents.py) · 846 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | 问题/修补关联 [G04](#g04)、[G09](#g09)、[G11](#g11)、[G12](#g12)；按登记方案处理，不另建平行服务。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
-| [automation.py](../total_control/state/workspaces/automation.py) · 138 | R06/R12；用户推进请求/权威 run 与 Job 投影 → 活跃运行保护、发现/受理命令 → watch/blocked/run 反馈 | N03B2b 补已受理但未创建 Job 的窗口保护；未知/活跃新 run 不另开发现任务，追加 active_run_ids。真实默认入口通过；不推进已有图，G17 建议投影仍待收敛。 | `AutomationMixin:8`；`advance_workspace_automation:9` |
+| [agents.py](../total_control/state/workspaces/agents.py) · 887 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | N03B2c1 共用现有映射/AgentExecutor，冻结工作区不合历史 outputs/不写回实例，报告不调用声明型 artifact 写入；返回有界 inline 证据。debug 旧路径保留，G04/G06 未关闭。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
+| [automation.py](../total_control/state/workspaces/automation.py) · 138 | R06/R12；用户推进请求/权威 run 与 Job 投影 → 活跃运行保护、发现/受理命令 → watch/blocked/run 反馈 | 受理窗口 watch 保护同时涵盖 B2b/B2c1；当前运行未完成或未知时不另开发现任务。不是图推进入口，G17 建议投影仍开放。 | `AutomationMixin:8`；`advance_workspace_automation:9` |
 | [chat.py](../total_control/state/workspaces/chat.py) · 902 | R09/R12；聊天/反思/流请求 → 路由、Agent、消息更新 → 聊天与事件 | 问题/修补关联 [G05](#g05)、[G04](#g04)、[G21](#g21)；按登记方案处理，不另建平行服务。 | `ChatMixin:7`；`_chat_agent_execution_trace:33` |
 | [crud.py](../total_control/state/workspaces/crud.py) · 365 | R02；工作区与迁移请求 → 创建/更新/模板差异与草稿 → 工作区快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `CrudMixin:7`；`workspace_by_id:8` |
 | [debug.py](../total_control/state/workspaces/debug.py) · 181 | R05/R06/R09；Agent 定义/样例 → 组装调试上下文与有效配置 → debug/execution | 问题/修补关联 [G11](#g11)、[G21](#g21)；按登记方案处理，不另建平行服务。 | `DebugMixin:7`；`debug_agent_definition:8` |
@@ -451,8 +475,8 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 | [discovery.py](../total_control/state/workspaces/discovery.py) · 162 | R05/R06/R09；工作区/发现节点 → 创建受控发现 Job 链 → 发现任务/run | 问题/修补关联 [G12](#g12)；按登记方案处理，不另建平行服务。 | `DiscoveryMixin:7`；`run_workspace_discovery:8` |
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 461 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)；按登记方案处理，不另建平行服务。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 650 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N02 新工作流先写所属 attempt，再复用既有事件/响应；不以局部步骤替换完整计划。历史 JSON 分支保留，关联 [G02](#g02)、[G03](#g03)、[G09](#g09)。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
-| [workflow.py](../total_control/state/workspaces/workflow.py) · 404 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N03B2b 删除同步遍历/回调装配；仅单 Job 或单 Job 前缀，新 mixed 明确拒绝。原引用/命令/主机硬门禁保留，G01/G02 开放。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 292 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N03B2b 复用 N02 内核，不另建提交账本；未知回执只核对，错误投影 blocked；legacy 只读，旧失败回调退出。G09 剩余边界不关闭。 | `WorkflowRecordsMixin:21` |
+| [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N03B2c1 仅支持单 Job 或 Job→无工具 eval.report Agent；原命令/主机/引用门禁保留，冻结路由 hash；其他计划明确拒绝，无同步 runner 回退。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 387 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N03B2c1 冻结两步计划、捕获本次有界输出、复用原解析/Agent 执行；先 claim 后调用，未知阻塞、已记结果复用。单后台图唤醒线程，Job 服务/提交账本保持唯一。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 
@@ -540,15 +564,15 @@ POST /run 先保存完整单 Job 计划及冻结 payload，再返回可查询 ru
 | [paths.py](../total_control/workspace/execution/paths.py) · 217 | R06/R10/R11；路径/Job/日志快照 → 安全 probe 与有界尾部选择 → 路径/日志证据 | 问题/修补关联 [G12](#g12)、[G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_config_values:7`；`compact_workspace_command:22` |
 | [run_artifacts.py](../total_control/workspace/execution/run_artifacts.py) · 41 | R06/R10/R11；artifact 列表 → 字段规范与限制 → step artifacts | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `normalize_workspace_run_step_artifacts:9` |
 | [run_compare.py](../total_control/workspace/execution/run_compare.py) · 130 | R06/R10/R11；两次 run/指标 → 语义与节点差异比较 → compare payload | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_execution_run_compare_payload:9`；`metric:19` |
-| [run_delivery.py](../total_control/workspace/execution/run_delivery.py) · 177 | R06/R10/R11；包预期/step artifact → 路径匹配与完成度派生 → delivery closure | 问题/修补关联 [G06](#g06)；按登记方案处理，不另建平行服务。 | `_workspace_delivery_path_candidates:9`；`workspace_execution_run_delivery_closure:43` |
+| [run_delivery.py](../total_control/workspace/execution/run_delivery.py) · 185 | R06/R10/R11；包预期/step artifact → 路径匹配与完成度派生 → delivery closure | N03B2c1 inline-answer 无文件时 report.incomplete=true/既有 warning，不能因执行 done/指标就宣称报告交付。其他旧声明型判定仍是 G06，N07A 接本地正文验证。 | `_workspace_delivery_path_candidates:9`；`workspace_execution_run_delivery_closure:43` |
 | [run_events.py](../total_control/workspace/execution/run_events.py) · 324 | R06/R10/R11；事件/流摘要 → 裁剪、脱敏、计数 → run event/delta_evidence | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `_compact_run_event_text:8`；`_compact_run_event_payload:15` |
 | [run_export.py](../total_control/workspace/execution/run_export.py) · 341 | R06/R10/R11；run/关联任务 → 有界日志、artifact、manifest 组合 → JSON 导出 | 问题/修补关联 [G06](#g06)、[G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_run_export_manifest:18`；`workspace_run_export_readme:147` |
 | [run_records.py](../total_control/workspace/execution/run_records.py) · 248 | R06/R10/R11；完整 steps/历史 run → 状态/进度/规范化 → 兼容 run 记录 | N02 保留计划/attempt/意图字段，skipped 终结但未执行步骤仍计分母；简化相同分支，暂保护账本记录不被条数截断。关联 [G02](#g02)、[G09](#g09)。 | `make_workspace_execution_run_id:12`；`make_agent_execution_id:16`；`derive_workspace_execution_run_status:20` |
-| [run_refresh.py](../total_control/workspace/execution/run_refresh.py) · 284 | R06/R10/R11；计划/attempt 与旧 Job/子 run → 按 engine 区分只读投影 → 当前 run | N03B2b 图管理记录只按协调器已持久 attempt 得出状态；禁止查询绕过图屏障。旧记录仍沿原 Job 身份检查/投影，G02 未完成。 | `_workspace_child_run_status:22`；`_workspace_child_run_error:29`；`_workspace_agent_child_runtime_status:44` |
+| [run_refresh.py](../total_control/workspace/execution/run_refresh.py) · 284 | R06/R10/R11；计划/attempt 与旧 Job/子 run → 按 engine 区分只读投影 → 当前 run | B2b/B2c1 图记录只读持久 attempt；查询/SSE 不独立推进 Job 或 Agent。legacy 只读兼容分支保留，G02 未关闭。 | `_workspace_child_run_status:22`；`_workspace_child_run_error:29`；`_workspace_agent_child_runtime_status:44` |
 | [run_refs.py](../total_control/workspace/execution/run_refs.py) · 194 | R06/R10/R11；run/step 引用 → 去重、闭包与归属过滤 → 关联 Job/子 run | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `_unique_run_ref_list:11`；`workspace_run_step_job_ids:20` |
 | [run_replay.py](../total_control/workspace/execution/run_replay.py) · 169 | R06/R10/R11；run/关联 Job → 组装历史时间线 → 摘要回放 | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_execution_run_timeline:19`；`workspace_execution_run_replay_run_summary:63` |
 | [run_state.py](../total_control/workspace/execution/run_state.py) · 103 | R06/R10/R11；节点/Job → 按最近 Job 派生节点执行状态 → 执行面板状态 | 问题/修补关联 [G01](#g01)、[G02](#g02)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `derive_workspace_execution_state:10` |
-| [run_steps.py](../total_control/workspace/execution/run_steps.py) · 356 | R06/R10/R11；Job/Agent/计划结果 → 状态、资源、引用规范化 → 持久/公开 step | N02 追加 step_id/attempt_id/submission_state，保留现有证据字段；其他关联 [G02](#g02)、[G03](#g03)、[G06](#g06)。 | `workspace_run_step_status_from_job:18`；`_normalize_agent_meta:33`；`normalize_workspace_run_step_resources:45` |
+| [run_steps.py](../total_control/workspace/execution/run_steps.py) · 359 | R06/R10/R11；Job/Agent/计划结果 → 状态、资源、引用规范化 → 持久/公开 step | N03B2c1 保留可选 output_value 到公开 step/回放；Job 当前输出和报告正文证据均绑定具体 attempt；原资源/引用字段保持。 | `workspace_run_step_status_from_job:18`；`_normalize_agent_meta:33`；`normalize_workspace_run_step_resources:45` |
 | [runs.py](../total_control/workspace/execution/runs.py) · 77 | R06/R10/R11；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [trace.py](../total_control/workspace/execution/trace.py) · 246 | R06/R10/R11；节点/绑定 Job → 汇总产物、资源与轨迹 → 节点 trace | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_node_artifacts:20`；`workspace_node_resources:97` |
 

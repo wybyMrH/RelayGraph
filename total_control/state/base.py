@@ -72,7 +72,9 @@ class BaseMixin:
         self.workflow_coordinator = JobCoordinator(self.execution_store, JobCoordinatorCallbacks(
             submit=self.submit_coordinated_job, observe=self.observe_coordinated_job,
             record=self.record_coordinated_job,
+            report=self.execute_coordinated_report,
         ))
+        self.workflow_wake_thread: threading.Thread | None = None
         raw_tool_definitions = read_json(TOOL_DEFINITIONS_PATH, [])
         self.tool_definitions: list[dict[str, Any]] = normalize_global_tool_definitions(raw_tool_definitions)
         self.tool_definitions, default_tools_applied = backfill_default_tool_definitions(

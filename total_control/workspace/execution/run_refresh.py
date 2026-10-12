@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
-from ...orchestration.job_coordinator import JOB_ENGINE_VERSION
+from ...orchestration.job_coordinator import GRAPH_ENGINE_VERSIONS
 from .run_records import (
     derive_workspace_execution_run_progress,
     derive_workspace_execution_run_status,
@@ -181,7 +181,7 @@ def refresh_workspace_execution_run(
     steps = run.get("steps") if isinstance(run.get("steps"), list) else []
     # Graph-managed attempts are recorded by the coordinator. Query/SSE projections
     # cannot infer completion independently from live Jobs and skip a graph barrier.
-    if run.get("execution_plan", {}).get("engine_version") == JOB_ENGINE_VERSION:
+    if run.get("execution_plan", {}).get("engine_version") in GRAPH_ENGINE_VERSIONS:
         return normalize_workspace_execution_run({
             **run, "status": "blocked" if run.get("submission_error") else derive_workspace_execution_run_status(steps),
             "progress": derive_workspace_execution_run_progress(steps),

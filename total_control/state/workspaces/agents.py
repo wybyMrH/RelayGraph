@@ -410,6 +410,9 @@ class AgentsMixin:
         max_iterations: int | None = None,
         timeout_seconds: float | None = None,
         run_id: str = "",
+        execution_id: str = "",
+        expected_route_hash: str = "",
+        report_only: bool = False,
     ) -> dict[str, Any]:
         workspace_id = str(workspace.get("id") or "").strip()
         execution_run_id = str(run_id or "").strip()
@@ -441,7 +444,11 @@ class AgentsMixin:
                 "error": "Provider profile not found",
                 "final_answer": "",
             }
-        from ..registry_pkg.provider_profiles import provider_profile_health
+        from ..registry_pkg.provider_profiles import provider_profile_health, provider_route_hash
+
+        if expected_route_hash and provider_route_hash(profile) != expected_route_hash:
+            return {"success": False, "error": "Provider route changed since acceptance; create a new run",
+                    "final_answer": ""}
 
         health = provider_profile_health(profile)
         if not health.get("ready"):
@@ -462,9 +469,9 @@ class AgentsMixin:
             tid for tid in parse_tag_list(agent.get("tools", []))
             if tid in tool_map
         ]
-        allowed_tools = [tool_map[tid] for tid in allowed_tool_ids]
+        allowed_tools = [] if report_only else [tool_map[tid] for tid in allowed_tool_ids]
         llm_client = LLMClient(profile)
-        tool_executor = create_workspace_tool_executor(
+        tool_executor = None if report_only else create_workspace_tool_executor(
             workspace,
             statuses=copy.deepcopy(self.statuses),
             jobs=copy.deepcopy(self.jobs),
@@ -475,12 +482,14 @@ class AgentsMixin:
         agent_config = dict(agent)
         if max_iterations is not None:
             agent_config = {**agent_config, "max_iterations": max_iterations}
-        execution_id = make_agent_execution_id()
+        execution_id = execution_id or make_agent_execution_id()
         cancel_check = register_agent_cancel(execution_id)
         node_kind = str(requested_node_kind or (node or {}).get("kind") or "").strip()
         trace_events: list[dict[str, Any]] = []
 
         def on_agent_event(event_type: str, event_payload: dict[str, Any]) -> None:
+            if report_only and event_type.endswith(".delta"):
+                return  # Publish the validated, redacted final report once it is available.
             if isinstance(event_payload, dict) and event_payload:
                 trace_events.append(copy.deepcopy(event_payload))
             self.publish_event(
@@ -536,10 +545,11 @@ class AgentsMixin:
             tools=allowed_tools,
             tool_executor=tool_executor,
             step_callback=on_agent_step,
-            token_callback=on_agent_delta,
+            token_callback=None if report_only else on_agent_delta,
             event_callback=on_agent_event,
             timeout_seconds=timeout_seconds,
             cancel_check=cancel_check,
+            single_call=report_only,
         )
         handler = (node or {}).get("handler") if isinstance((node or {}).get("handler"), dict) else {}
         effective_output_key = str(output_key or handler.get("output_key") or (node or {}).get("output_key") or "").strip()
@@ -565,13 +575,27 @@ class AgentsMixin:
         result = execution_result.to_dict()
         result["id"] = execution_id
         result["trace_events"] = normalize_agent_trace_events(trace_events)
+        if report_only:
+            result["final_answer"] = redact_runtime_observation_text(result["final_answer"])
+            result["error"] = redact_runtime_observation_text(result.get("error", ""))
         validation = validate_agent_output(
             output_key=effective_output_key,
             output_format=effective_output_format,
-            final_answer=execution_result.final_answer,
+            final_answer=result["final_answer"],
         )
         result["output_validation"] = validation
-        if execution_result.success and isinstance(node, dict):
+        if report_only:
+            answer = result["final_answer"]
+            if len(answer) > 4000:
+                validation = {**validation, "status": "failed", "errors": ["Report exceeds the 4000-character inline limit; file storage is not implemented"]}
+            if result["success"] and validation.get("status") != "ok":
+                result.update(success=False, error="; ".join(validation.get("errors", [])))
+            result["output_validation"] = validation
+            result["artifacts"] = []  # An answer is evidence, never a claimed written file.
+            if result["success"]:
+                result["output_value"] = {"content": answer, "format": effective_output_format,
+                                          "storage": "inline-answer", "file_verified": False}
+        elif execution_result.success and isinstance(node, dict):
             if effective_output_key and not collect_agent_step_output(workspace, node, output_key=effective_output_key)[1]:
                 apply_final_answer_output(
                     workspace,
@@ -586,7 +610,7 @@ class AgentsMixin:
             if output_value:
                 result["output_value"] = output_value
         self.publish_event(
-            "agent.completed" if execution_result.success else "agent.failed",
+            "agent.completed" if result["success"] else "agent.failed",
             workspace_id=workspace_id,
             run_id=execution_run_id,
             agent_execution_id=execution_id,
@@ -607,6 +631,10 @@ class AgentsMixin:
         *,
         run_context: ExecutionRunContext | None = None,
         input_text: str = "",
+        frozen_workspace: dict[str, Any] | None = None,
+        execution_id: str = "",
+        expected_route_hash: str = "",
+        report_only: bool = False,
     ) -> StepResult:
         workspace_id = str(workspace_id or "").strip()
         node = copy.deepcopy(node) if isinstance(node, dict) else {}
@@ -628,7 +656,7 @@ class AgentsMixin:
             current = self.workspace_by_id(workspace_id)
             if not current:
                 raise ValueError("workspace not found")
-            workspace = copy.deepcopy(current)
+            workspace = copy.deepcopy(frozen_workspace if frozen_workspace is not None else current)
             tools = normalize_workspace_tools(workspace.get("tools"), existing=workspace.get("tools"))
             tool_ids = [str(item.get("id") or "").strip() for item in tools if isinstance(item, dict) and str(item.get("id") or "").strip()]
             agents = normalize_workspace_agents(workspace.get("agents"), existing=workspace.get("agents"), tool_ids=tool_ids)
@@ -655,7 +683,8 @@ class AgentsMixin:
         automation = workspace.get("automation") if isinstance(workspace.get("automation"), dict) else {}
         execution_context = automation.get("execution_context") if isinstance(automation.get("execution_context"), dict) else {}
         persisted_outputs = execution_context.get("outputs") if isinstance(execution_context.get("outputs"), dict) else {}
-        context_outputs = {**copy.deepcopy(persisted_outputs), **copy.deepcopy(context.outputs)}
+        context_outputs = (copy.deepcopy(context.outputs) if frozen_workspace is not None
+                           else {**copy.deepcopy(persisted_outputs), **copy.deepcopy(context.outputs)})
         node_config = node.get("config") if isinstance(node.get("config"), dict) else {}
         mapped_inputs = resolve_mapped_inputs(
             input_mapping,
@@ -692,6 +721,13 @@ class AgentsMixin:
                     "input_refs": copy.deepcopy(input_refs),
                 },
             )
+        if report_only and not input_text:
+            # The upstream log is already bounded with explicit completeness fields.
+            # Avoid the generic preview compactor silently shrinking model evidence.
+            input_text = "Analyze this run's supplied Job result. Return the report as your final answer. " \
+                         "No tools or file writes are available. Disclose incomplete evidence.\n" + json.dumps(
+                             {"goal": input_data.get("goal_text", ""), "mapped_inputs": mapped_inputs,
+                              "node_config": node_config}, ensure_ascii=False)
         if not input_text:
             goal_text = str(input_data.get("goal_text") or "").strip()
             input_text = build_agent_node_input_text(
@@ -717,6 +753,9 @@ class AgentsMixin:
                 max_iterations=max_iterations,
                 timeout_seconds=timeout_seconds,
                 run_id=context.run_id,
+                execution_id=execution_id,
+                expected_route_hash=expected_route_hash,
+                report_only=report_only,
             )
             return {"execution": execution}
 
@@ -728,6 +767,8 @@ class AgentsMixin:
             mapped_inputs=mapped_inputs,
             input_text=input_text,
         )
+        if frozen_workspace is not None:
+            return step_result  # Frozen execution cannot overwrite an edited live instance.
         with self.lock:
             index = next((idx for idx, item in enumerate(self.workspaces) if item.get("id") == workspace_id), -1)
             if index < 0:
