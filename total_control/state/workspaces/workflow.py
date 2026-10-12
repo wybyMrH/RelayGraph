@@ -91,11 +91,16 @@ def _workspace_agent_execution_checks(
     for node in nodes:
         if not isinstance(node, dict):
             continue
-        if resolve_node_executor_mode(node, executor_prefer) != "agent":
-            continue
         kind = str(node.get("kind") or "").strip()
         handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
         agent_id = str(handler.get("agent_id") or "").strip()
+        if (executor_prefer not in {"job", "skip"} and kind in AGENT_EXECUTABLE_KINDS
+                and str(handler.get("mode") or "").strip().lower() == "agent" and not agent_id):
+            add_check(node, "agent_handler_not_configured", "Agent 节点未完成绑定",
+                      "已选择 Agent 执行但没有 agent_id。", "绑定可用 Agent 或明确改为 system/human。")
+            continue
+        if resolve_node_executor_mode(node, executor_prefer) != "agent":
+            continue
         node_title = str(node.get("title") or kind or "Agent 节点").strip()
         if kind not in AGENT_EXECUTABLE_KINDS:
             add_check(
@@ -273,12 +278,6 @@ class WorkflowMixin:
             if isinstance(apply_evidence_raw, str)
             else bool(apply_evidence_raw)
         )
-        allow_incomplete_package_raw = requested_payload.get("allow_incomplete_execution_package", False)
-        allow_incomplete_package = (
-            allow_incomplete_package_raw.strip().lower() in {"1", "true", "yes", "on"}
-            if isinstance(allow_incomplete_package_raw, str)
-            else bool(allow_incomplete_package_raw)
-        )
         executor_mode_raw = str(requested_payload.get("executor_mode") or requested_payload.get("prefer") or "auto").strip().lower()
         executor_prefer = executor_mode_raw if executor_mode_raw in {"auto", "job", "agent", "skip"} else "auto"
         applied: list[dict[str, Any]] = []
@@ -330,30 +329,35 @@ class WorkflowMixin:
         if not nodes:
             raise ValueError("workspace has no executable nodes")
 
-        runtime_workspace = apply_workspace_job_runtime(workspace, jobs_snapshot)
+        # Compile the actual prefix, not later nodes or their historical failures.
+        planned_workspace = copy.deepcopy(workspace)
+        planned_workspace["nodes"] = copy.deepcopy(nodes)
+        for planned_node in planned_workspace["nodes"]:
+            if resolve_node_executor_mode(planned_node, executor_prefer) == "job":
+                # Projection only: honor this request's actual executor without
+                # changing the instance's configured handler or frozen source.
+                planned_node["handler"] = {**(planned_node.get("handler") or {}), "mode": "system"}
+        runtime_workspace = apply_workspace_job_runtime(planned_workspace, jobs_snapshot)
         execution = derive_workspace_execution_state(runtime_workspace, jobs_snapshot)
         automation = derive_workspace_automation_state(runtime_workspace, execution, statuses_snapshot)
         workflow_checks = workspace_workflow_blocking_checks(automation)
         requires_execution_package = workspace_nodes_require_execution_package(nodes)
-        if until_node_id and not requires_execution_package:
-            workflow_checks = []
-        package_checks = (
-            workspace_execution_package_blocking_checks(
-                automation,
-                full_workflow=requires_execution_package or not until_node_id,
-            )
-            if not allow_incomplete_package
-            else []
+        # Warnings no longer block a package; the legacy incomplete-package
+        # option therefore cannot be used to bypass its actual hard errors.
+        package_checks = workspace_execution_package_blocking_checks(
+            automation,
+            full_workflow=requires_execution_package or not until_node_id,
         )
+        input_checks = [check for check in workflow_checks if check.get("id") == "workflow_input_reference"]
         if force:
-            blocked_checks = package_checks
+            blocked_checks = [*package_checks, *input_checks]
         else:
             blocked_checks = [
                 *workflow_checks,
                 *package_checks,
                 *_workspace_env_prepare_failure_checks(execution),
             ]
-        if blocked_checks and not force:
+        if blocked_checks:
             with self.lock:
                 payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
             raise WorkspaceWorkflowReadinessError(
@@ -363,22 +367,15 @@ class WorkflowMixin:
                 applied=applied,
                 evidence_applied=evidence_applied,
             )
-        if blocked_checks and force:
-            with self.lock:
-                payload_workspace = self.workspace_public_payload(self.workspace_by_id(workspace_id) or workspace)
-            raise WorkspaceWorkflowReadinessError(
-                workspace_readiness_message(blocked_checks),
-                blocked_checks=blocked_checks,
-                workspace=payload_workspace,
-                applied=applied,
-                evidence_applied=evidence_applied,
-            )
-
         invalid_checks: list[dict[str, Any]] = []
         for node in nodes:
-            if resolve_node_executor_mode(node, executor_prefer) != "job":
-                continue
             try:
+                config = node.get("config") if isinstance(node.get("config"), dict) else {}
+                requested_server = str(config.get("server_id") or "auto").strip()
+                if requested_server != "auto" and not self.server_by_id(requested_server):
+                    raise ValueError(f"unknown server: {requested_server}")
+                if resolve_node_executor_mode(node, executor_prefer) != "job":
+                    continue
                 job_payload = self.workspace_node_job_payload(workspace, node, automation=automation)
                 if requires_execution_package:
                     invalid_checks.extend(

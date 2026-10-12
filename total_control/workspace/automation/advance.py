@@ -297,16 +297,16 @@ def derive_workspace_automation_state(
         )
     ]
 
-    required_kinds = ["path.resolve", "dataset.find", "env.infer", "gpu.allocate", "run.command", "artifact.collect"]
-    missing_kinds = [kind for kind in required_kinds if not workspace_has_node_kind(workspace, kind)]
+    executable = [node for node in nodes if isinstance(node, dict)
+                  and str(node.get("kind") or "").strip() in WORKSPACE_EXECUTABLE_NODE_KINDS]
     checks.append(
         workspace_automation_check(
             "starter_chain",
             "节点链",
-            "ready" if not missing_kinds else "blocked",
-            f"{len(nodes)} 个节点" if not missing_kinds else "Starter Chain 不完整",
-            "已覆盖路径、数据、环境、GPU、运行、产物闭环。" if not missing_kinds else "缺少 " + ", ".join(missing_kinds),
-            "回配置中心恢复默认链或补齐缺失节点。",
+            "ready" if executable else "blocked",
+            f"{len(executable)} 个可执行节点" if executable else "没有可执行节点",
+            "按当前节点检查依赖；发现、环境、GPU 和产物节点只在计划需要时配置。",
+            "添加本次需要执行的节点并补齐其配置。",
         )
     )
 
@@ -320,7 +320,7 @@ def derive_workspace_automation_state(
             continue
         executable_nodes += 1
         handler = node.get("handler") if isinstance(node.get("handler"), dict) else {}
-        if str(handler.get("mode") or "agent").strip() != "human" and not str(handler.get("agent_id") or "").strip():
+        if str(handler.get("mode") or "human").strip().lower() == "agent" and not str(handler.get("agent_id") or "").strip():
             missing_handlers += 1
     checks.append(
         workspace_automation_check(
@@ -416,12 +416,13 @@ def derive_workspace_automation_state(
     )
 
     run_command = str(run_config.get("run_command") or "").strip()
+    has_run = workspace_has_node_kind(workspace, "run.command")
     checks.append(
         workspace_automation_check(
             "run",
             "运行命令",
-            "ready" if run_command else "blocked",
-            "运行命令已设置" if run_command else "缺 run command",
+            "ready" if run_command or not has_run else "blocked",
+            "本计划不含运行命令节点" if not has_run else "运行命令已设置" if run_command else "缺 run command",
             compact_workspace_command(run_command) if run_command else "没有可提交的训练、推理、部署或 smoke test 命令。",
             "补 run.command 的命令，或者让 Agent 从 README/脚本中推断。",
             node_kind="run.command",
@@ -498,6 +499,7 @@ def derive_workspace_automation_state(
         resource_orchestration,
         dataset_discovery,
         execution_context,
+        workflow_contract=workflow_contract,
     )
     report = derive_workspace_automation_report(workspace, execution, checks, evidence, run_plan, status_counts)
     evidence_backfill = derive_workspace_evidence_backfill_plan(workspace, execution, resource_orchestration)

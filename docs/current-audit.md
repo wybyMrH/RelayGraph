@@ -6,7 +6,7 @@
 
 当前正式代码台账覆盖 288 个文件：168 个后端 Python、118 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
-N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 推进尚未接入，G01/G02 续跑与 G09 检查点等缺口仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。
+N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 推进尚未接入，G01/G02 续跑与 G09 检查点等缺口仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23，启动前置失败仍可被记为成功，优先单独修复。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -107,7 +107,7 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 
 - 对齐 R03，类别：能力缺口、语义误导，证据 E2。
 - repo.search 汇集 query/roots/hints，未实际搜索仓库；log.read 返回最新日志入口而非正文；notify.user 返回载荷，schedule.plan 是 dry_run。gpu.allocate 的实际 callback 返回 plan_only=True、persisted=False，并不写绑定；旧本地文档“已绑定”不准确。
-- N02 的真实入口检查还发现：完整 CPU 工作流也被固定 Starter Chain 要求加入 dataset.find/env.infer/gpu.allocate；这些节点不是任意最小链的实际依赖。N03 需要按当前计划校验，不通过强制模式或伪造节点验收。
+- N02 发现完整 CPU 工作流被固定 Starter Chain 要求加入 dataset.find/env.infer/gpu.allocate；N03B1 已退出这条固定必需路径，正常两节点 shell CPU 链无需这些节点或 Provider。实际声明的数据依赖仍校验，命令、显式主机和引用错误仍拒绝；工具建议/真实执行标签问题保持开放。
 - AgentExecutor 缺少 tool_executor 时返回 [Simulated]，若当生产路径使用可能让模型把模拟当真实。自定义工具 CRUD 也不等于自动产生适配器。
 - 方案：能力目录明确执行级别与真实 adapter_id；无适配器只能配置/诊断，不能进入可执行包。建议型工具保留并如实命名，不必为每个名字补大型实现；验证调用方确实需要正文/通知后再开发。
 
@@ -154,6 +154,7 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 ### G17 · P2 · 多层就绪、报告、调度与部署派生存在重叠
 
 - 对齐 R05/R06/R14，类别：重复设计候选，证据 E2/E3。
+- N03B1 按实际计划编译门禁和包，保留 warning 并允许提交；静态引用错误复用 workflow_contract。默认回填仍会自动产生未创建的环境名，实际激活失败不挡命令（G23 已复现）；发现/预检投影仍可能建议无关数据/环境，未把所有视图统一为 ReadinessResult。
 - cockpit/fsm 与 automation/advance、preflight、report、reproduction、deployment 各生成状态/门禁/下一步信息。部分是不同展示投影，不应因相似字段全删；但同一失败可能在多个结构分别派生，增加契约维护成本。
 - 方案：一个 ReadinessResult 和执行决策权威，其他视图只投影；对同一输入做删减前后等价比较。deployment 若不服务当前研究闭环，降为可选交付类型，不扩成通用部署平台。
 
@@ -191,6 +192,14 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 - 对齐全部需求，类别：验证缺口、历史维护冗余，证据 E1/E2。
 - 历史阶段测试和本地 smoke 已由用户清理；源码中的 G01–G06 关键交接缺口仍在。N01 有隔离引擎样机验证，但正式工作流尚未接入，不能作为生产生命周期已验收的证明。后续按切片生成本地验证，不能用没有脚本代替通过。
 - 方案：按行为迁移测试所有权，复用隔离 fixtures；重复测试只有在证明同一输入/行为/失败模式已被覆盖后删除。helper 装配测试可精简，但路径、脱敏、幂等、保留、退出码与执行转移必须保留。正式文档收敛为三部分，旧本地计划退出规则来源；被用户清理的脚本需要时从 Git 历史读取有效断言，不恢复无用阶段组织。
+
+<a id="g23"></a>
+### G23 · P1 · Job 启动前置失败后仍执行命令并呈现成功
+
+- 对齐 R07/R13，类别：错误执行、伪成功，证据 E1/E2。
+- N03B1 补充真实 HTTP/tmux 复验：未配置 env 的两节点 CPU 链在 auto_apply=true 后生成 rg-* 环境名；两份日志均有 EnvironmentNameNotFound，计算和报告仍运行，Job/run 显示 done。功能产物虽存在，过程验收明确失败，不能计作默认路径完整通过。
+- infra/shell_pkg/jobs.py.build_job_script 只设置 pipefail；cd 与 conda_bootstrap 的失败没有阻止后续命令，最终标记只取用户命令退出码。缺 cwd 的类似路径为静态发现，本轮尚未真实复现。
+- 拆成两个小片：N03J1a 先让启动前置失败阻止 payload，并通过原退出标记/监控得到 failed；N03J1b 再把可选环境建议与已配置环境分开，不自动把不存在的环境名当执行事实。分别验收、更新和提交，不一起混入协调器。
 
 ## 3. 验证边界与阶段状态
 
@@ -234,6 +243,16 @@ N01 的场景检查、依赖锁文件、硬退出恢复记录和本地 CPU 实�
 正常验收走真实 HTTP、门禁、调度器与 tmux；重复请求需要显式稳定 request_id，N02 当时客户端未携带该键，现已由 N03A 接入两个直接运行入口，其余操作仍按第三部分 2.6 的边界处理。故障注入只用于异常/硬退出边界，正常路径不修改终态、不关闭门禁。测试脚本、真实执行结果、超时排查与消融记录均在本地 dev_work/n02/，不提交远端。
 
 N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续跑，也不证明任意外部副作用 exactly-once。默认完整链的冗余节点、非必要目录扫描和单机保留策略仍如实登记，不能拿完整链成功掩盖最小入口缺口。
+
+### N03B1：实际计划门禁（已完成）
+
+提交检查和执行包使用实际可执行节点/所选前缀。固定 Starter Chain 必需项、system/human 的无关 Agent 要求、无条件数据根要求已退出；保留声明的数据需求，推断出的无关目录不能替代它。包脚本只保留当前节点的命令预览并按计划排序，warning 不再等于不可执行。Job 的命令/主机 payload 和真实 Agent 的绑定/路由仍逐节点检查。请求显式 executor_mode=job 时仅改变本次计划投影，不改实例的 Agent 绑定；另一个真实 HTTP 检查已验证该兼容行为。
+
+显式非法引用与 Agent 必需输入缺失由已有 workflow_contract 校验进入门禁和包缺项；未消费的自动 shell 映射只作预览警告，shell 的输入仍以实际命令配置为准。保留既有 schema 和历史查询；旧 allow_incomplete_execution_package 不再绕过硬错误，重复请求仍先核对冻结 run。这里未统一所有引用解析，也不证明 Job → Agent 屏障。
+
+实际通过 20 项真实 HTTP/tmux 场景和 11 项静态/配置契约：两节点 CPU 计算与 shell 报告、重复/重启请求、前缀隔离、缺命令、未知主机、非法引用、缺 Agent/路由、缺声明数据及兼容参数硬门禁；完整旧链仍可提交。正常最小链用 auto_apply=false，只有隔离本地主机、已有 python3/tmux，没有造数据目录/Provider/环境安装或手填记录。完整旧链的现有 venv 和数据目录属于该旧链显式配置；不是最小链依赖。根 pytest 因无远端测试返回退出码 5，不记通过；实际本地 11 项 pytest 返回 0。
+
+auto_apply=true 的独立真实复验产物成功，但环境激活失败被吞，过程复验退出码 1（G23）。不把它归为正常路径通过，也不把无浏览器/SSH/GPU/真实模型验证写成通过。测试脚本/结果、日志、配置和调查保存在忽略的本地目录；唯一下一片 N03J1a。
 
 ## 4. 逐文件台账的读法
 
@@ -302,7 +321,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [command.py](../total_control/infra/shell_pkg/command.py) · 94 | R01/R07；命令/超时/密码模式 → subprocess 或 PTY 执行 → CompletedProcess | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `_run_command_impl:23`；`run_command:32` |
 | [gpu.py](../total_control/infra/shell_pkg/gpu.py) · 327 | R01/R07；主机列表/探测配置 → nvidia-smi 与连接采集 → GPU 状态快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `gpu_activity_state:28`；`_collect_server_impl:51` |
 | [host.py](../total_control/infra/shell_pkg/host.py) · 486 | R01/R07；系统文件/远程探针 → CPU/内存/磁盘/网络解析 → 主机资源 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `parse_csv_lines:24`；`parse_meminfo:32` |
-| [jobs.py](../total_control/infra/shell_pkg/jobs.py) · 175 | R01/R07；任务参数/环境 → 生成激活和退出标记脚本 → shell Job 脚本 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `parse_smoke_peak_mib:20`；`render_task_template:35` |
+| [jobs.py](../total_control/infra/shell_pkg/jobs.py) · 175 | R07/R13；任务参数/cwd/环境 → 启动脚本和退出标记 → shell Job | [G23](#g23) E1：环境激活失败后用户命令仍运行并退出 0；cwd 失败同类路径为 E2。唯一下一片 N03J1a 给前置失败留下非零退出事实；本轮未改。 | `conda_bootstrap:90`；`build_job_script:128` |
 | [probe.py](../total_control/infra/shell_pkg/probe.py) · 44 | R01/R07；主机检查项 → 生成/判定远程探针 → 能力检查结果 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `remote_check_script:23`；`server_check_ok:27` |
 | [process.py](../total_control/infra/shell_pkg/process.py) · 61 | R01/R07；PID/ps 输出 → 本地或远程查进程 → 进程元信息 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `ps_lookup_local:22`；`ps_lookup_remote:28` |
 | [ssh.py](../total_control/infra/shell_pkg/ssh.py) · 109 | R01/R07；ServerConfig/命令 → SSH 参数与连通性检查 → 远程命令结果 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `_ssh_command_impl:22`；`ssh_command:29` |
@@ -394,7 +413,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [discovery.py](../total_control/state/workspaces/discovery.py) · 162 | R05/R06/R09；工作区/发现节点 → 创建受控发现 Job 链 → 发现任务/run | 问题/修补关联 [G12](#g12)；按登记方案处理，不另建平行服务。 | `DiscoveryMixin:7`；`run_workspace_discovery:8` |
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 461 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)；按登记方案处理，不另建平行服务。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 650 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N02 新工作流先写所属 attempt，再复用既有事件/响应；不以局部步骤替换完整计划。历史 JSON 分支保留，关联 [G02](#g02)、[G03](#g03)、[G09](#g09)。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
-| [workflow.py](../total_control/state/workspaces/workflow.py) · 534 | R05/R06/R09；启动请求/工作区 → 门禁、request 去重、先存完整计划、调用 runner → 原响应与执行证据 | N02 移除失败整表覆盖，重复 request 返回旧 run；尚不负责异步等待。关联 [G01](#g01)、[G02](#g02)、[G03](#g03)、[G09](#g09)。 | `_workspace_env_prepare_failure_checks:10`；`_workspace_agent_execution_checks:40`；`WorkflowMixin:187` |
+| [workflow.py](../total_control/state/workspaces/workflow.py) · 531 | R05/R06/R09；启动请求/实际前缀 → 门禁、完整计划与提交 → 原响应及执行证据 | N03B1 只编译选中计划；显式未知主机提前拒绝，静态引用硬错误不可绕过，退出无调用者的 incomplete 包绕过及重复报错分支；等待仍关联 [G01](#g01)。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
 | [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 222 | R06/R11/R13；计划/结果/Job 回执 → 注册/追加、稳定提交与核对、完整投影 → 领域证据/API 兼容 | N02 新增唯一账本桥接适配器；Job 身份核对共用一个函数，只经原 create_job 排队。不把查询当推进，未知结果保留 reconciling；关联 [G03](#g03)、[G09](#g09)。 | `WorkflowRecordsMixin:20` |
 
 ### total_control/tools
@@ -433,7 +452,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/workspace/automation/__init__.py) · 202 | R05/R06；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [_deps.py](../total_control/workspace/automation/_deps.py) · 17 | R05/R06；上层模块/公共符号 → 星号聚合依赖 → 子包可见依赖 | 结构风险；改显式依赖前先锁定 monkeypatch 与兼容调用。 | 文件整体/公开入口 |
-| [advance.py](../total_control/workspace/automation/advance.py) · 591 | R05/R06；工作区/派生状态 → FSM 与 playbook 组合 → 自动推进建议 | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_advance_from_fsm:24`；`resolve_workspace_advance_bundle:36` |
+| [advance.py](../total_control/workspace/automation/advance.py) · 593 | R05/R06；实际节点/派生状态 → 门禁与包组合 → 自动化投影 | N03B1 不再强制六类 Starter 节点，system/human 不要求 Agent；固定发现建议仍待 [G17](#g17)，默认环境问题见 [G23](#g23)。 | `derive_workspace_automation_state` |
 | [bundle.py](../total_control/workspace/automation/bundle.py) · 647 | R05/R06；命令/目标/证据 → 生成脚本、标识、包门禁 → ExecutionPackage | 问题/修补关联 [G10](#g10)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `make_execution_package_id:11`；`make_stable_execution_package_id:16` |
 | [contracts.py](../total_control/workspace/automation/contracts.py) · 2 | R05/R06；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [core.py](../total_control/workspace/automation/core.py) · 61 | R05/R06；检查字段/状态 → 统一基础检查项 → 带优先级 readiness item | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_execution_node_by_kind:6`；`workspace_automation_check:15` |
@@ -442,9 +461,9 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [helpers.py](../total_control/workspace/automation/helpers.py) · 21 | R05/R06；列表/限额 → 压缩显示条目 → 紧凑列表 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `compact_contract_items:10` |
 | [preflight.py](../total_control/workspace/automation/preflight.py) · 593 | R05/R06；工作区/资源/执行 → 汇总预检与资源编排 → 缺口和建议 | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_execution_readiness_step:7`；`workspace_resource_item:36` |
 | [report.py](../total_control/workspace/automation/report.py) · 458 | R05/R06；自动化各投影 → 汇总高亮/门禁/行动 → 操作报告 | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_report_highlight:9`；`workspace_report_next_action:17` |
-| [reproduction.py](../total_control/workspace/automation/reproduction.py) · 759 | R05/R06；源/环境/数据/资源建议 → 冻结执行目标与来源 → reproduction manifest | N02 CPU 目标与 provenance 共用 none 值，修复真实门禁冲突；未实现 GPU claim，关联 [G13](#g13)、[G17](#g17)。 | `workspace_reproduction_manifest_item:16`；`workspace_reproduction_intent:43`；`derive_workspace_reproduction_manifest:73` |
-| [run_plan.py](../total_control/workspace/automation/run_plan.py) · 191 | R05/R06；节点/配置 → 顺序阶段与命令摘要 → run plan | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_run_node_phase:6`；`workspace_run_phase_label:21` |
-| [topology.py](../total_control/workspace/automation/topology.py) · 391 | R05/R06；Agent/工具/Profile/节点 → 绑定与路由缺口检查 → agent topology | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_model_route_for_agent:9`；`workspace_agent_topology_gap:43` |
+| [reproduction.py](../total_control/workspace/automation/reproduction.py) · 791 | R05/R06；计划/声明数据/静态输入 → 范围内脚本与包缺项 → execution bundle | N03B1 仅有消费者的命令预览进入包；warning 可提交，声明数据与输入硬错误保留；未统一多同-kind/远程读取，关联 [G10](#g10)、[G12](#g12)、[G17](#g17)。 | `derive_workspace_reproduction_manifest` |
+| [run_plan.py](../total_control/workspace/automation/run_plan.py) · 195 | R05/R06；节点执行方式/配置 → 阶段和命令摘要 → run plan | N03B1 复用 executor resolver，Agent 报告不强求 shell report_command；实际路由/输入仍由提交门禁校验。 | `workspace_node_command_summary_for_plan`；`derive_workspace_run_plan` |
+| [topology.py](../total_control/workspace/automation/topology.py) · 391 | R03/R05/R06；节点执行方式/Agent/工具 → 有效绑定和路由缺口 → topology | N03B1 仅 Agent 模式进入 Agent 绑定/路由缺口；system/human 不借虚拟绑定过门禁，其余投影收敛待 [G17](#g17)。 | `derive_workspace_agent_topology` |
 
 ### total_control/workspace/automation/contracts_pkg
 
@@ -454,7 +473,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [context.py](../total_control/workspace/automation/contracts_pkg/context.py) · 351 | R05/R06；节点/输出/映射 → 解析并汇总上下文契约 → 输入/输出状态 | N00C 通过别名复用 context_refs；展示就绪语义仍由本文件处理，关联 [G10](#g10)。 | `workspace_node_workflow_contract_metadata:16`；`workspace_context_value_present:84` |
 | [io.py](../total_control/workspace/automation/contracts_pkg/io.py) · 226 | R05/R06；节点类型/映射 → I/O 默认和引用静态校验 → refs/gaps | 问题/修补关联 [G10](#g10)；按登记方案处理，不另建平行服务。 | `workspace_io_contract_for_kind:12`；`workspace_node_config_signal:24` |
 | [orchestration.py](../total_control/workspace/automation/contracts_pkg/orchestration.py) · 225 | R05/R06；节点契约/拓扑缺口 → 按阶段分车道 → 编排展示契约 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_orchestration_gap_matches_node:12`；`workspace_orchestration_status:29` |
-| [workflow.py](../total_control/workspace/automation/contracts_pkg/workflow.py) · 221 | R05/R06；工作区/执行状态 → 合成节点 I/O 契约 → workflow contract | 问题/修补关联 [G10](#g10)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `derive_workspace_workflow_contract:25` |
+| [workflow.py](../total_control/workspace/automation/contracts_pkg/workflow.py) · 229 | R05/R06；实际节点/映射/执行方式 → 复用静态引用校验 → workflow contract | N03B1 保留显式非法引用；Agent 要求声明输入完整，shell 默认映射是未消费预览，不能误当必需 Agent 输入。静态/运行时规则统一仍待 [G10](#g10)。 | `derive_workspace_workflow_contract` |
 
 ### total_control/workspace/cockpit
 
@@ -465,9 +484,9 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [commands.py](../total_control/workspace/cockpit/commands.py) · 56 | R02/R04/R05；仓库/配置/资源 → 规则推断 setup/run/GPU → 命令与候选建议 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `infer_workspace_setup_command:7`；`infer_workspace_run_command:20` |
 | [discovery.py](../total_control/workspace/cockpit/discovery.py) · 386 | R02/R04/R05；输入路径/数据线索 → 目录推断与根验证 → discovery plan/bundle | 问题/修补关联 [G12](#g12)；按登记方案处理，不另建平行服务。 | `workspace_path_like_values:10`；`workspace_project_path_score:34` |
 | [evidence.py](../total_control/workspace/cockpit/evidence.py) · 417 | R02/R04/R05；发现结果/现有字段 → 生成并应用有来源回填 → backfill plan/实例 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `apply_workspace_evidence_config_value:15`；`merge_workspace_evidence_config_values:29` |
-| [fsm.py](../total_control/workspace/cockpit/fsm.py) · 595 | R02/R04/R05；执行、包、阻塞项 → 状态机决定下一步 → cockpit/next_action | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_nodes_require_execution_package:12`；`attach_workspace_cockpit:20` |
+| [fsm.py](../total_control/workspace/cockpit/fsm.py) · 614 | R05/R06；检查与静态契约/包 → 共用阻塞投影 → cockpit/提交门禁 | N03B1 复用 workflow_contract 缺项，包错误优先显示真正计划阻塞；保留公共响应与旧建议投影，不另造解析器。关联 [G17](#g17)。 | `workspace_workflow_blocking_checks`；`workspace_execution_package_blocking_checks` |
 | [helpers.py](../total_control/workspace/cockpit/helpers.py) · 75 | R02/R04/R05；工作区/Job/字段 → 通用选择与参数解析 → 基础派生值 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_jobs_for_workspace:7`；`workspace_node_config_ready_status:19` |
-| [payload.py](../total_control/workspace/cockpit/payload.py) · 335 | R02/R04/R05；实例输入/Job/默认 → 规范化与运行数据投影 → 公开工作区 | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `apply_workspace_automation_defaults_to_payload:19`；`apply_workspace_job_runtime:133` |
+| [payload.py](../total_control/workspace/cockpit/payload.py) · 335 | R02/R04/R05；输入/Job/默认 → 回填与运行投影 → workspace | [G17](#g17)/[G23](#g23)：未配置环境也回填 rg-* 名，尚未创建就进入 Job；N03J1b 将建议与有效配置分离。本轮未改。 | `apply_workspace_automation_defaults_to_payload:19` |
 | [scheduler.py](../total_control/workspace/cockpit/scheduler.py) · 451 | R02/R04/R05；资源快照/限制/偏好 → 候选评分与绑定建议 → scheduler selection | 问题/修补关联 [G13](#g13)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_status_age_seconds:11`；`workspace_host_resource_summary_for_scheduler:18` |
 
 ### total_control/workspace/execution

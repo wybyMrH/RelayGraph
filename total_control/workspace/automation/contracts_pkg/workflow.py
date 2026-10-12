@@ -30,6 +30,8 @@ def derive_workspace_workflow_contract(
     run_plan: dict[str, Any],
     agent_topology: dict[str, Any],
 ) -> dict[str, Any]:
+    from ....orchestration.node_runner import resolve_node_executor_mode
+
     nodes = workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []
     execution_nodes = {
         str(item.get("id") or ""): item
@@ -90,11 +92,17 @@ def derive_workspace_workflow_contract(
         required_inputs = workspace_required_input_names(contract)
         input_refs = workspace_contract_input_refs(input_mapping, index, output_catalog, previous_outputs)
         has_explicit_mapping = workspace_has_explicit_input_mapping(node)
+        executor_mode = resolve_node_executor_mode(node)
         if not has_explicit_mapping:
             workspace_apply_auto_input_mapping_fallbacks(input_mapping, input_refs)
+            if executor_mode == "job":
+                for ref in input_refs:
+                    if ref.get("status") == "blocked":
+                        ref["status"] = "warning"
+                        ref["detail"] = "自动引用预览不可用；shell Job 的实际输入由命令与节点配置组装。"
         unmapped_required_inputs = (
             workspace_unmapped_required_inputs(input_mapping, contract)
-            if has_explicit_mapping
+            if has_explicit_mapping and executor_mode == "agent"
             else []
         )
         missing_inputs = [

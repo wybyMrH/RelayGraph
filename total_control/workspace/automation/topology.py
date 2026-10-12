@@ -163,7 +163,7 @@ def derive_workspace_agent_topology(workspace: dict[str, Any], run_plan: dict[st
                 }
             )
 
-        if mode != "human" and not agent_id:
+        if mode == "agent" and not agent_id:
             missing_agent_count += 1
             add_gap(
                 stage,
@@ -179,7 +179,7 @@ def derive_workspace_agent_topology(workspace: dict[str, Any], run_plan: dict[st
                 ),
             )
             continue
-        if not agent_id:
+        if mode != "agent" or not agent_id:
             continue
         if not agent:
             add_gap(

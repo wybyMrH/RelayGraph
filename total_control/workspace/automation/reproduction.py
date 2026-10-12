@@ -79,8 +79,11 @@ def derive_workspace_reproduction_manifest(
     resource_orchestration: dict[str, Any],
     dataset_discovery: dict[str, Any],
     execution_context: dict[str, Any],
+    *,
+    workflow_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from ..cockpit.discovery import derive_workspace_dataset_discovery_plan, workspace_dataset_discovery_bundle_command
+    from ..cockpit.fsm import workspace_workflow_blocking_checks
 
     source = workspace.get("source") if isinstance(workspace.get("source"), dict) else {}
     inputs = workspace.get("inputs") if isinstance(workspace.get("inputs"), dict) else {}
@@ -126,7 +129,6 @@ def derive_workspace_reproduction_manifest(
         if isinstance(item, dict):
             status_value = str(item.get("status") or "hint").strip() or "hint"
             root_counts[status_value] = root_counts.get(status_value, 0) + 1
-    dataset_has_verified_root = bool(root_counts.get("verified") or root_counts.get("found"))
     artifact_paths = workspace_config_values(artifact_config.get("artifact_paths"))
     metric_paths = workspace_config_values(artifact_config.get("metric_paths")) + workspace_config_values(eval_config.get("metric_paths"))
     setup_command = str(env_prepare_config.get("setup_command") or "").strip()
@@ -150,6 +152,23 @@ def derive_workspace_reproduction_manifest(
         for node in nodes
         if isinstance(node, dict) and str(node.get("kind") or "").strip()
     }
+    has_run = "run.command" in node_by_kind
+    # A discovery step may run before data exists. A consuming run must not.
+    dataset_required = has_run and bool(
+        data_roots or dataset_hints
+        or any(
+            ref.get("name") in {"dataset_profile", "data_roots", "dataset_root"}
+            and str(ref.get("source") or "").strip() not in {"", "$input"}
+            for step in execution_context.get("step_results", []) if step.get("node_kind") == "run.command"
+            for ref in step.get("resolved_inputs", [])
+        )
+    )
+    # Inferred/global roots cannot prove the explicitly requested dataset exists.
+    declared_roots = set(data_roots + dataset_hints)
+    dataset_has_verified_root = any(
+        item.get("path") in declared_roots and item.get("status") in {"verified", "found"}
+        for item in root_verification if isinstance(item, dict)
+    )
     source_node_id = next(
         (
             str(node.get("id") or "").strip()
@@ -370,12 +389,24 @@ def derive_workspace_reproduction_manifest(
             env=command_env,
         ),
     ]
+    # These are command previews, not an additional workflow plan. Include only
+    # previews with a selected consumer, in that consumer's plan order.
+    node_order = {str(node.get("id") or ""): index for index, node in enumerate(nodes) if isinstance(node, dict)}
+    bundle_steps = sorted(
+        [step for step in bundle_steps if step["node_id"] in node_order],
+        key=lambda step: node_order[step["node_id"]],
+    )
     path_node_id = node_by_kind.get("path.resolve", "") or node_by_kind.get("repo.clone", "")
     env_node_id = node_by_kind.get("env.prepare", "") or node_by_kind.get("env.infer", "")
     gpu_node_id = node_by_kind.get("gpu.allocate", "")
     run_node_id = node_by_kind.get("run.command", "")
     artifact_node_id = node_by_kind.get("artifact.collect", "") or node_by_kind.get("eval.report", "")
     bundle_missing = []
+    for check in workspace_workflow_blocking_checks({"workflow_contract": workflow_contract or {}}):
+        bundle_missing.append(workspace_execution_bundle_missing_item(
+            "input_reference", check["label"], "blocked", check["detail"],
+            node_kind=check["node_kind"], node_id=check["node_id"],
+        ))
     if not workspace_dir:
         bundle_missing.append(
             workspace_execution_bundle_missing_item(
@@ -390,7 +421,7 @@ def derive_workspace_reproduction_manifest(
                 target_id="workspaceExecutionDetail",
             )
         )
-    if not run_command:
+    if has_run and not run_command:
         bundle_missing.append(
             workspace_execution_bundle_missing_item(
                 "run_command",
@@ -404,7 +435,7 @@ def derive_workspace_reproduction_manifest(
                 target_id="workspaceExecutionDetail",
             )
         )
-    if not dataset_has_verified_root:
+    if dataset_required and not dataset_has_verified_root:
         hint_count = len(dataset_queries) + len(dataset_roots) + len(dataset_sources) + len(dataset_hints)
         bundle_missing.append(
             workspace_execution_bundle_missing_item(
@@ -423,7 +454,7 @@ def derive_workspace_reproduction_manifest(
                 target_id="workspaceExecutionDetail",
             )
         )
-    if not setup_command:
+    if env_node_id and not setup_command:
         bundle_missing.append(
             workspace_execution_bundle_missing_item(
                 "setup_command",
@@ -437,7 +468,7 @@ def derive_workspace_reproduction_manifest(
                 target_id="workspaceExecutionDetail",
             )
         )
-    if not artifact_paths and not metric_paths:
+    if artifact_node_id and not artifact_paths and not metric_paths:
         bundle_missing.append(
             workspace_execution_bundle_missing_item(
                 "artifact_paths",
@@ -539,7 +570,8 @@ def derive_workspace_reproduction_manifest(
             "detail": "让系统按当前执行包、门禁和证据决定下一步。",
             "node_id": run_node_id,
         }
-    ready_to_execute = bundle_status == "ready" and str(run_plan.get("status") or "") == "ready"
+    # Warnings are visible evidence limits, not hard prerequisites.
+    ready_to_execute = bundle_status != "blocked" and not run_blocking
     target_gpu_index = "none" if gpu_policy.lower() in {"cpu", "none", "no_gpu"} else recommended_gpu_index or "auto"
     bundle_target = {
         "mode": intent["mode"],

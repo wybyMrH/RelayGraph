@@ -38,12 +38,29 @@ def attach_workspace_cockpit(
 def workspace_workflow_blocking_checks(automation: dict[str, Any]) -> list[dict[str, Any]]:
     hard_gate_ids = {"starter_chain", "agents", "run"}
     checks = automation.get("checks") if isinstance(automation.get("checks"), list) else []
-    return [
+    blocked = [
         check for check in checks
         if isinstance(check, dict)
         and str(check.get("id") or "") in hard_gate_ids
         and str(check.get("status") or "") in {"blocked", "failed"}
     ]
+    contract = automation.get("workflow_contract") if isinstance(automation.get("workflow_contract"), dict) else {}
+    for node in contract.get("nodes", []):
+        missing = node.get("missing_inputs") or []
+        if not missing:
+            continue
+        blocked.append({
+            "id": "workflow_input_reference",
+            "label": str(node.get("title") or node.get("kind") or "输入引用"),
+            "status": "blocked",
+            "title": "节点输入契约未通过",
+            "detail": "；".join(str(item.get("detail") or item.get("code") or "缺少输入") for item in missing),
+            "action": "补齐输入映射，只引用本次计划中的前置输出。",
+            "node_id": str(node.get("id") or ""),
+            "node_kind": str(node.get("kind") or ""),
+            "missing_inputs": copy.deepcopy(missing),
+        })
+    return blocked
 
 def workspace_execution_package_blocking_checks(
     automation: dict[str, Any],
@@ -61,9 +78,11 @@ def workspace_execution_package_blocking_checks(
         item for item in missing
         if isinstance(item, dict) and str(item.get("status") or "") == "blocked"
     ]
-    first = blocked[0] if blocked else (missing[0] if missing else {})
+    run_plan = automation.get("run_plan") if isinstance(automation.get("run_plan"), dict) else {}
+    plan_blockers = run_plan.get("blocking") if isinstance(run_plan.get("blocking"), list) else []
+    first = blocked[0] if blocked else (plan_blockers[0] if plan_blockers else (missing[0] if missing else {}))
     fix = first.get("fix_action") if isinstance(first.get("fix_action"), dict) else {}
-    detail = str(first.get("action") or first.get("label") or "补齐执行包缺项后再提交完整工作流。").strip()
+    detail = str(first.get("detail") or first.get("action") or first.get("label") or "补齐执行包缺项后再提交完整工作流。").strip()
     return [{
         "id": "execution_package",
         "label": "执行包",

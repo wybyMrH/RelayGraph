@@ -44,6 +44,8 @@ def workspace_node_required_tool_id(kind: str) -> str:
     }.get(str(kind or "").strip(), "")
 
 def workspace_node_command_summary_for_plan(workspace: dict[str, Any], node: dict[str, Any]) -> tuple[str, str]:
+    from ...orchestration.node_runner import resolve_node_executor_mode
+
     kind = str(node.get("kind") or "").strip()
     config = node.get("config") if isinstance(node.get("config"), dict) else {}
     workspace_dir = str(config.get("workspace_dir") or workspace.get("workspace_dir") or "").strip()
@@ -82,6 +84,8 @@ def workspace_node_command_summary_for_plan(workspace: dict[str, Any], node: dic
         metrics = workspace_config_values(config.get("metric_paths"))
         return (f"{len(paths)} 条产物路径 · {len(metrics)} 条指标路径", "ready" if paths or metrics else "warning")
     if kind == "eval.report":
+        if resolve_node_executor_mode(node) == "agent":
+            return ("由报告 Agent 生成；提交时校验模型路由和输入引用", "ready")
         command = str(config.get("report_command") or "").strip()
         metrics = workspace_config_values(config.get("metric_paths"))
         if command:
