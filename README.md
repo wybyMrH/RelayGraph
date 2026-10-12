@@ -8,16 +8,23 @@ RelayGraph 是一个本地研究与运维工作台，把 GPU 监控、远程任�
 
 ## 本地启动
 
-适用环境为 Linux/WSL；终端与任务功能依赖 Unix PTY、SSH、tmux 等能力。项目声明 Python 3.11+，当前审查环境为 Python 3.13；干净环境的依赖清单和兼容矩阵仍待 N00A 补齐。
+适用环境为 Linux/WSL，Python 目标为 3.11+。当前已在独立 Python 3.12.3、3.13.5 环境完成安装、依赖检查、正式 HTTP 启动和 SQLite 检查点跨进程读写；3.11 尚未运行验证。
 
-创建自己的 Python 环境后，先安装当前必要依赖：
+在仓库根目录创建并激活隔离环境，再安装唯一运行依赖清单（下面的环境放在仓库外）：
 
 ```bash
-python -m pip install cryptography
+python3 -m venv ../relaygraph-venv
+source ../relaygraph-venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip check
 python -m total_control.server --host 127.0.0.1 --port 8765
 ```
 
-浏览器打开 `http://127.0.0.1:8765`。`nvidia-smi` 用于 GPU 监控；远程任务和传输需要 `ssh`、`tmux`、`rsync`，目标主机按所用功能安装相应工具。默认监听本机，现有接口可执行命令，不应直接开放为公共服务。
+Debian/Ubuntu 如果提示缺少 ensurepip，需要先安装与 Python 版本匹配的 venv 系统包（例如 python3-venv 或 python3.12-venv）。本轮 3.12 遇到该问题，先在隔离环境补齐 pip 后才完成安装，未把环境准备算成产品恢复能力。无对应平台 wheel 时，依赖的源码安装可能还需要编译工具；当前没有验证离线安装。
+
+[requirements.txt](requirements.txt) 固定一起验证过的三个直接依赖版本：cryptography 49.0.0、LangGraph 1.2.7、SQLite saver 3.1.1。间接依赖由 pip 解析，这不是全依赖锁文件。本轮解析出 44 个运行包；LangGraph 带入 LangChain core、LangSmith 等依赖，生产协调器仍待接入。项目没有启用外部 tracing，但上游可受 LANGSMITH_/LANGCHAIN_ 环境变量或 tracing 上下文影响；本轮验证显式关闭 tracing。pytest、Playwright、PyTorch 和 LiteLLM 均不属于当前运行清单，开发时按切片另行准备。
+
+浏览器打开 `http://127.0.0.1:8765`。系统工具按功能准备：本地任务需要 tmux；远程连接需要 ssh，任务目标主机需要 tmux；传输需要相应端的 rsync；GPU 监控需要目标主机的 nvidia-smi。CPU 路径不要求 GPU 工具。默认监听本机，现有接口可执行命令，不应直接开放为公共服务。
 
 ## 配置与数据
 
@@ -41,7 +48,7 @@ config/ 默认只跟踪公开默认和 *.example.toml 模板，本机配置与�
 2. [当前问题与逐文件审查](docs/current-audit.md)。
 3. [下一阶段计划、技术复用与消融验证](docs/next-stage-plan.md)。
 
-开发规则见 [AGENTS.md](AGENTS.md)。N02 已加入完整计划、attempt 和提交记录；N03A 已让两个直接运行入口在同一标签页刷新/未知失败后复用原提交身份。N03B1 已完成实际计划门禁；N03J1a 已阻止工作目录/环境初始化失败后的执行；N03J1b 已退出未配置环境的虚构执行名。默认浏览器两节点 CPU/shell 报告链已通过。唯一下一片是 N03B2a 运行依赖与干净安装，再接 Job → Agent 等待恢复、失败证据、Agent 控制和报告正文，再扩到统一远程文件、GPU 占用和工作流传输。
+开发规则见 [AGENTS.md](AGENTS.md)。N02 已加入完整计划、attempt 和提交记录；N03A 已让两个直接运行入口在同一标签页刷新/未知失败后复用原提交身份。N03B1 已完成实际计划门禁；N03J1a 已阻止工作目录/环境初始化失败后的执行；N03J1b 已退出未配置环境的虚构执行名。默认浏览器两节点 CPU/shell 报告链已通过。N03B2a 已完成运行依赖与干净安装；唯一下一片是 N03B2b，先交付单 Job 的持久受理、等待和重启核对，再独立接 Job → Agent。Agent 控制、报告正文、统一远程文件、GPU 占用和工作流传输仍按后续切片推进。
 
 用户已清理并忽略 tests/；后续按功能切片生成本地验证，不上传脚本、执行结果或产物。dev_work/ 保存忽略的调查、PoC、浏览器/远程/Provider 验证。当前 N01 本地样机的运行方式见第三部分 2.4；正式应用仍按上面的启动命令运行。
 

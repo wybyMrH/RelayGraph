@@ -1,0 +1,6 @@
+# RelayGraph runtime: Python 3.11+ on Linux/WSL.
+# Direct versions validated together; transitive packages are resolved by pip.
+# Cryptography: Apache-2.0 OR BSD-3-Clause. LangGraph packages: MIT.
+cryptography==49.0.0
+langgraph==1.2.7
+langgraph-checkpoint-sqlite==3.1.1
