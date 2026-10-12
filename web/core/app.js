@@ -22310,40 +22310,9 @@ function shouldKeepExistingWorkspaceRun(existing = {}, incoming = {}) {
   return false;
 }
 
-function workspaceRunStepMergeKey(step = {}, index = 0) {
-  const api = workspaceRunStateMergeApi();
-  if (typeof api?.stepMergeKey === "function") return api.stepMergeKey(step, index);
-  const source = step && typeof step === "object" ? step : {};
-  const jobId = String(source.job_id || "").trim();
-  if (jobId) return `job:${jobId}`;
-  const agentExecutionId = String(source.agent_execution_id || "").trim();
-  if (agentExecutionId) return `agent:${agentExecutionId}`;
-  const nodeId = String(source.node_id || "").trim();
-  if (nodeId) return `node:${nodeId}:${String(source.index ?? index)}`;
-  return `index:${String(source.index ?? index)}`;
-}
-
 function mergeWorkspaceRunSteps(existingSteps = [], incomingSteps = []) {
-  const api = workspaceRunStateMergeApi();
-  if (typeof api?.mergeSteps === "function") return api.mergeSteps(existingSteps, incomingSteps);
-  const existingItems = Array.isArray(existingSteps) ? existingSteps : [];
-  const incomingItems = Array.isArray(incomingSteps) ? incomingSteps : [];
-  if (!incomingItems.length) return existingItems.slice();
-  const existingByKey = new Map(
-    existingItems.map((step, index) => [workspaceRunStepMergeKey(step, index), step]),
-  );
-  const seen = new Set();
-  const merged = incomingItems.map((step, index) => {
-    const key = workspaceRunStepMergeKey(step, index);
-    seen.add(key);
-    const previous = existingByKey.get(key);
-    return previous && typeof previous === "object" ? { ...previous, ...step } : step;
-  });
-  existingItems.forEach((step, index) => {
-    const key = workspaceRunStepMergeKey(step, index);
-    if (!seen.has(key)) merged.push(step);
-  });
-  return merged.sort((a, b) => Number(a?.index ?? 0) - Number(b?.index ?? 0));
+  // The required script is loaded before app.js; do not maintain a second merger.
+  return workspaceRunStateMergeApi().mergeSteps(existingSteps, incomingSteps);
 }
 
 function mergeWorkspaceRunSnapshot(existing = {}, incoming = {}) {

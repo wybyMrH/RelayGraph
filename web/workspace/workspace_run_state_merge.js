@@ -108,33 +108,64 @@
 
   function stepMergeKey(step = {}, index = 0) {
     const source = step && typeof step === "object" ? step : {};
+    const stepId = String(source.step_id || "").trim();
+    if (stepId) return `step:${stepId}`;
+    const nodeId = String(source.node_id || "").trim();
+    if (nodeId) return `node:${nodeId}:${String(source.index ?? index)}`;
     const jobId = String(source.job_id || "").trim();
     if (jobId) return `job:${jobId}`;
     const agentExecutionId = String(source.agent_execution_id || "").trim();
     if (agentExecutionId) return `agent:${agentExecutionId}`;
-    const nodeId = String(source.node_id || "").trim();
-    if (nodeId) return `node:${nodeId}:${String(source.index ?? index)}`;
     return `index:${String(source.index ?? index)}`;
+  }
+
+  function sameStep(left = {}, leftIndex = 0, right = {}, rightIndex = 0) {
+    const leftStep = String(left.step_id || "").trim();
+    const rightStep = String(right.step_id || "").trim();
+    const leftNode = String(left.node_id || "").trim();
+    const rightNode = String(right.node_id || "").trim();
+    if (leftNode && rightNode && leftNode !== rightNode) return false;
+    if (leftStep && rightStep) return leftStep === rightStep;
+    if (leftNode && rightNode) {
+      return String(left.index ?? leftIndex) === String(right.index ?? rightIndex);
+    }
+    // Legacy records may identify a step only by its external task.
+    for (const field of ["job_id", "agent_execution_id"]) {
+      if (left[field] && right[field] && left[field] === right[field]) return true;
+    }
+    return stepMergeKey(left, leftIndex) === stepMergeKey(right, rightIndex);
   }
 
   function mergeSteps(existingSteps = [], incomingSteps = []) {
     const existingItems = Array.isArray(existingSteps) ? existingSteps : [];
     const incomingItems = Array.isArray(incomingSteps) ? incomingSteps : [];
     if (!incomingItems.length) return existingItems.slice();
-    const existingByKey = new Map(
-      existingItems.map((step, index) => [stepMergeKey(step, index), step]),
-    );
-    const seen = new Set();
+    const remaining = existingItems.map((step, index) => ({ step, index }));
     const merged = incomingItems.map((step, index) => {
-      const key = stepMergeKey(step, index);
-      seen.add(key);
-      const previous = existingByKey.get(key);
-      return previous && typeof previous === "object" ? { ...previous, ...step } : step;
+      const matches = remaining.filter((item) => sameStep(item.step, item.index, step, index));
+      matches.forEach((item) => remaining.splice(remaining.indexOf(item), 1));
+      const previous = matches.at(-1)?.step;
+      if (!previous) return step;
+      const previousAttempt = String(previous.attempt_id || "").trim();
+      const nextAttempt = String(step.attempt_id || "").trim();
+      // The row represents the current attempt; older evidence lives in run.attempts.
+      // Never carry a previous attempt's task, output or error into a new attempt.
+      if (nextAttempt && nextAttempt !== previousAttempt) return { ...step };
+      const taskChanged = ["job_id", "agent_execution_id"].some(
+        (field) => previous[field] && step[field] && previous[field] !== step[field],
+      );
+      if (taskChanged) {
+        // An unversioned legacy event cannot rebind a known attempt to another task.
+        if (previousAttempt) return previous;
+        return { ...step };
+      }
+      const combined = { ...previous, ...step };
+      for (const field of ["step_id", "attempt_id"]) {
+        if (!String(step[field] || "").trim() && previous[field]) combined[field] = previous[field];
+      }
+      return combined;
     });
-    existingItems.forEach((step, index) => {
-      const key = stepMergeKey(step, index);
-      if (!seen.has(key)) merged.push(step);
-    });
+    remaining.forEach(({ step }) => merged.push(step));
     return merged.sort((a, b) => Number(a?.index ?? 0) - Number(b?.index ?? 0));
   }
 
@@ -250,6 +281,8 @@
     const step = source.step && typeof source.step === "object" ? source.step : {};
     if (step.node_id || step.node_kind || step.job_id || step.agent_execution_id) {
       compact.step = {
+        ...(step.step_id !== undefined ? { step_id: String(step.step_id || "").trim() } : {}),
+        ...(step.attempt_id !== undefined ? { attempt_id: String(step.attempt_id || "").trim() } : {}),
         index: Number(step.index || 0),
         node_id: String(step.node_id || "").trim(),
         node_kind: String(step.node_kind || "").trim(),
