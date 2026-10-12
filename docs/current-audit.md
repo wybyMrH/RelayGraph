@@ -4,9 +4,9 @@
 
 ## 1. 范围、证据等级与结论
 
-当前正式代码台账覆盖 287 个文件：168 个后端 Python、117 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
+当前正式代码台账覆盖 288 个文件：168 个后端 Python、118 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
-N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 推进尚未接入，G01/G02 续跑与 G09 检查点等缺口仍开放，G03 的新工作流失败覆盖路径已退出。
+N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 推进尚未接入，G01/G02 续跑与 G09 检查点等缺口仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -91,6 +91,7 @@ N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合�
 - N01 已选择 LangGraph 持久 checkpoint + 领域 SQLite 账本；N02 的真实 workflow 入口已接入 RunStore 和 Job 提交适配器，先存意图、保存排队回执再公开、绑定引用，重启按稳定键核对。无法确认时进入 reconciling，不自动重提；LangGraph checkpoint 与取消/恢复尚未生产接入。普通 create_job 仍非通用幂等 API，不能绕过适配器。现有 Provider 密钥与主密钥仍在 data/，按用户配置目录要求的兼容迁移归 N00E。
 - N02 新增存储 schema/hash 校验、损坏记录明确报错、单机 run 文件锁；当前只支持一个服务负责 JSON Job 队列。新账本 run/Job 回执暂受保护，不被 JSON 条数裁剪；事务归档与孤立账本处理待 N14。
 - N03 真实过程复验发现 start_job 可让旧调度快照再次启动已 running/终态 Job：一份 compute 回执对应 count=2。N03J0 仅收紧启动状态门禁；30 秒启动占用及跨进程未知窗口仍待处理，不能用提交去重证明进程一定只启动一次。
+- N03A 已验收：两个直接运行入口共用浏览器提交身份，稳定键延续 N02，刷新/未知失败不自动生成新键。真实联调及限制见第三部分 2.6；不关闭 G01 等待恢复。
 - 方案：N03 落实已选的单一推进权威，复用已有计划/attempt/幂等键与核对适配器。配置目录仍可 JSON。坏文件隔离与版本迁移另设小切片，不能一次迁移全部历史。
 
 <a id="g10"></a>
@@ -230,7 +231,7 @@ N01 的场景检查、依赖锁文件、硬退出恢复记录和本地 CPU 实�
 
 删除了两条“单条失败覆盖整个 run”的路径，合并提交与启动核对的 Job 身份检查，去掉相同结果反复写库和同一调用内的重复投影读取；保留有实际消费者的旧 runner 与历史 run 读取，N03 接入新推进器时退出新 run 的同步循环职责。
 
-正常验收走真实 HTTP、门禁、调度器与 tmux；重复请求需要显式稳定 request_id，客户端尚未携带该键的限制已记录。故障注入只用于异常/硬退出边界，正常路径不修改终态、不关闭门禁。测试脚本、真实执行结果、超时排查与消融记录均在本地 dev_work/n02/，不提交远端。
+正常验收走真实 HTTP、门禁、调度器与 tmux；重复请求需要显式稳定 request_id，N02 当时客户端未携带该键，现已由 N03A 接入两个直接运行入口，其余操作仍按第三部分 2.6 的边界处理。故障注入只用于异常/硬退出边界，正常路径不修改终态、不关闭门禁。测试脚本、真实执行结果、超时排查与消融记录均在本地 dev_work/n02/，不提交远端。
 
 N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续跑，也不证明任意外部副作用 exactly-once。默认完整链的冗余节点、非必要目录扫描和单机保留策略仍如实登记，不能拿完整链成功掩盖最小入口缺口。
 
@@ -509,7 +510,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1894 | R12/R14；浏览器加载 → 界面壳、DOM id 与脚本顺序 → 产品入口 | N00D 更新样式缓存版本；静态脚本加载顺序保持。 | 文件整体/公开入口 |
+| [index.html](../web/index.html) · 1895 | R12/R14；浏览器加载 → UI 壳与脚本顺序 → 产品入口 | N03A 在 automation actions/app 之前加载共用提交组件，更新相关缓存版本；不重画 UI。 | 文件整体/公开入口 |
 
 ### web/config-center
 
@@ -531,7 +532,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26570 | R12；页面数据/注入依赖 → 应用组合、共享状态和跨界面编排 → 派生状态/界面结果 | N00D 优先显示 Job.error，避免传输旧进度覆盖失败；组合根过重仍关联 [G15](#g15)。 | `markWorkspaceUiInteraction:280`；`workspaceFlowCanvasControlsApi:341` |
+| [app.js](../web/core/app.js) · 26575 | R12；注入存储/HTTP/client ID → 装配共用工作流提交组件 → 原动作控制器 | N03A 仅装配提交身份依赖，不在组合根复制请求账本；其余组合根过重关联 [G15](#g15)。 | `workspaceAutomationActionDeps:25360` |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 70 | R12；用户事件/注入依赖 → 顶层导航动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`query:12` |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch、浏览器存储与表单状态 → 派生状态/界面结果 | 契约/维护关联 [G19](#g19)；消费后端结果，随所属切片收敛。 | `loadStoredValue:7`；`saveStoredValue:15` |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |
@@ -634,7 +635,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [workspace_agent_stream_state.js](../web/workspace/workspace_agent_stream_state.js) · 286 | R02/R06/R09/R12；页面数据/注入依赖 → Agent 实时输出缓冲 → 派生状态/界面结果 | 契约/维护关联 [G04](#g04)、[G05](#g05)；消费后端结果，随所属切片收敛。 | `appState:8`；`selectedWorkspaceId:13` |
 | [workspace_agent_tool_actions.js](../web/workspace/workspace_agent_tool_actions.js) · 166 | R02/R06/R09/R12；用户事件/注入依赖 → 实例 Agent/工具编辑交互动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`eventTarget:12` |
 | [workspace_agent_trace.js](../web/workspace/workspace_agent_trace.js) · 218 | R02/R06/R09/R12；页面数据/注入依赖 → Agent 工具与事件轨迹 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:17`；`compactFor:21` |
-| [workspace_automation_actions.js](../web/workspace/workspace_automation_actions.js) · 885 | R02/R06/R09/R12；用户事件/注入依赖 → 自动推进/运行/反馈编排动作路由 → 回调/API 请求 | 契约/维护关联 [G01](#g01)、[G02](#g02)、[G17](#g17)；消费后端结果，随所属切片收敛。 | `appState:8`；`element:15` |
+| [workspace_automation_actions.js](../web/workspace/workspace_automation_actions.js) · 898 | R06/R11/R12；两个直接运行动作 → 共用提交身份、原忙碌控制与反馈 → HTTP/run/日志 | N03A 退出两份直接 POST 运行代码，区分已提交后的 UI/日志失败与未知提交；自动推进/发现/单节点仍沿原入口。关联 [G01](#g01)、[G09](#g09)、[G17](#g17)。 | `workflowErrorMessage:212`；`runWorkspaceToNode:312`；`runWorkspaceWorkflow:375` |
 | [workspace_catalog_data.js](../web/workspace/workspace_catalog_data.js) · 564 | R02/R06/R09/R12；页面数据/注入依赖 → 节点/能力静态目录 → 派生状态/界面结果 | 契约/维护关联 [G10](#g10)；消费后端结果，随所属切片收敛。 | `deepClone:538`；`clone:546` |
 | [workspace_chat_actions.js](../web/workspace/workspace_chat_actions.js) · 61 | R02/R06/R09/R12；用户事件/注入依赖 → 聊天/反思动作动作路由 → 回调/API 请求 | 契约/维护关联 [G05](#g05)；消费后端结果，随所属切片收敛。 | `element:8`；`eventTarget:12` |
 | [workspace_chat_normalizers.js](../web/workspace/workspace_chat_normalizers.js) · 84 | R02/R06/R09/R12；页面数据/注入依赖 → 聊天与反思字段规范 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `normalizeWorkspaceContextReflection:16`；`normalizeWorkspaceChatMessage:45` |
@@ -663,6 +664,7 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 | [workspace_template_diff.js](../web/workspace/workspace_template_diff.js) · 282 | R02/R06/R09/R12；页面数据/注入依赖 → 模板/实例差异 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:13`；`diffStatusLabel:17` |
 | [workspace_template_migration_actions.js](../web/workspace/workspace_template_migration_actions.js) · 174 | R02/R06/R09/R12；用户事件/注入依赖 → 模板迁移动作动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `selectedWorkspace:8`；`cachedDiff:12` |
 | [workspace_tool_catalog.js](../web/workspace/workspace_tool_catalog.js) · 93 | R02/R06/R09/R12；页面数据/注入依赖 → 实例工具分类/健康/副作用显示 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `workspaceToolById:22`；`workspaceToolLabel:26` |
+| [workspace_workflow_submission.js](../web/workspace/workspace_workflow_submission.js) · 89 | R06/R11/R12；工作区/固定范围参数、存储/HTTP/client ID → 提交前持久身份/确认/重发 → 本次 run 或待核对错误 | N03A 新增唯一浏览器直接运行提交组件；sessionStorage 同标签页刷新恢复，未知错误不换键、损坏/不可用不发请求。不推进流程、不猜终态；作用边界见第三部分 2.6。 | `validArguments:6`；`sameArguments:13`；`submit:18` |
 
 ### 本地验证与历史文件
 
@@ -683,5 +685,5 @@ N02 不证明 Job → Agent 已正确等待，不证明 Agent 子任务自动续
 
 ### 台账完整性与维护
 
-正式代码台账包含 287 行，一文件一行；配置/公开数据/验证入口 8 行；本地 N01 样机另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
+正式代码台账包含 288 行，一文件一行；配置/公开数据/验证入口 8 行；本地 N01 样机另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
 <!-- FILE_AUDIT_END -->

@@ -41,7 +41,7 @@ config/ 默认只跟踪公开默认和 *.example.toml 模板，本机配置与�
 2. [当前问题与逐文件审查](docs/current-audit.md)。
 3. [下一阶段计划、技术复用与消融验证](docs/next-stage-plan.md)。
 
-开发规则见 [AGENTS.md](AGENTS.md)。N02 已加入完整计划、attempt 和提交记录；当前优先级是 N03 的 Job → Agent 等待恢复、失败证据、Agent 控制和报告正文，再扩到统一远程文件、GPU 占用和工作流传输。
+开发规则见 [AGENTS.md](AGENTS.md)。N02 已加入完整计划、attempt 和提交记录；N03A 已让两个直接运行入口在同一标签页刷新/未知失败后复用原提交身份。当前只推进 N03B1 的实际计划门禁，再接 Job → Agent 等待恢复、失败证据、Agent 控制和报告正文，再扩到统一远程文件、GPU 占用和工作流传输。
 
 用户已清理并忽略 tests/；后续按功能切片生成本地验证，不上传脚本、执行结果或产物。dev_work/ 保存忽略的调查、PoC、浏览器/远程/Provider 验证。当前 N01 本地样机的运行方式见第三部分 2.4；正式应用仍按上面的启动命令运行。
 

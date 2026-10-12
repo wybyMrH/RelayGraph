@@ -211,7 +211,12 @@
 
   function workflowErrorMessage(error) {
     const blocked = Array.isArray(error?.payload?.blocked_checks) ? error.payload.blocked_checks : [];
-    if (!blocked.length) return error?.message || "工作流提交失败";
+    if (!blocked.length) {
+      const message = error?.message || "工作流提交失败";
+      return error?.workflowSubmissionPending
+        ? `${message} 提交结果尚未确认；重试同一操作会核对原运行，刷新页面后也会保留此提交。`
+        : message;
+    }
     const applied = Array.isArray(error?.payload?.applied) ? error.payload.applied.length : 0;
     const prefix = applied ? `已先回填 ${applied} 项建议/发现，但` : "";
     const labels = blocked
@@ -317,16 +322,14 @@
     if (!beginAutomationAction("run-workspace-to-selected-node", {}, deps)) return;
     const nodeTitle = node.title || fn(deps, "workspaceNodeLabel", (kind) => String(kind || ""))(node.kind);
     setMessage(`正在从起点运行到“${nodeTitle}”...`);
+    let confirmedRunId = "";
     try {
-      const payload = await fn(deps, "fetchJson", async () => ({}))(`/api/workspaces/${encodeValue(deps, workspace.id)}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          auto_apply: false,
-          apply_evidence: false,
-          until_node_id: node.id,
-        }),
+      const payload = await deps.submitWorkspaceWorkflow(workspace.id, {
+        auto_apply: false,
+        apply_evidence: false,
+        until_node_id: node.id,
       });
+      confirmedRunId = payload.run_id;
       const mergedWorkspace = fn(deps, "mergeWorkspaceExecutionResultPayload", () => null)(workspace.id, payload);
       if (mergedWorkspace) {
         fn(deps, "selectWorkspace", () => {})(mergedWorkspace.id, {
@@ -341,12 +344,18 @@
       const applied = Array.isArray(payload.applied) ? payload.applied.length : 0;
       const scope = payload.execution_package?.scope;
       const target = scope?.target_node_title || nodeTitle;
-      setMessage(`已提交到“${target}”，创建 ${created} 个前置执行节点${applied ? ` · 先回填 ${applied} 项` : ""}。`);
+      setMessage(payload.replayed
+        ? `已核对原运行 ${payload.run_id}，目标“${target}”，关联 ${created} 个前置执行节点。`
+        : `已提交到“${target}”，创建 ${created} 个前置执行节点${applied ? ` · 先回填 ${applied} 项` : ""}。`);
       if (payload.jobs?.[0]?.id) {
         await fn(deps, "loadStatus", async () => {})(true, { renderWorkspace: true });
         await fn(deps, "showLog", async () => {})(payload.jobs[0].id);
       }
     } catch (error) {
+      if (confirmedRunId) {
+        setMessage(`运行 ${confirmedRunId} 已提交，但界面或日志更新失败：${error?.message || error}。请刷新查看运行记录。`, true);
+        return;
+      }
       const mergedWorkspace = fn(deps, "mergeWorkspaceExecutionResultPayload", () => null)(workspace.id, error?.payload || {});
       if (mergedWorkspace) {
         fn(deps, "selectWorkspace", () => {})(mergedWorkspace.id, {
@@ -374,12 +383,10 @@
     const selectedExecutionNodeId = state.selectedWorkspaceExecutionNodeId;
     if (!beginAutomationAction("run-selected-workspace", {}, deps)) return;
     setMessage("正在整理建议/发现并提交整条工作流...");
+    let confirmedRunId = "";
     try {
-      const payload = await fn(deps, "fetchJson", async () => ({}))(`/api/workspaces/${encodeValue(deps, workspace.id)}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auto_apply: true, apply_evidence: true }),
-      });
+      const payload = await deps.submitWorkspaceWorkflow(workspace.id, { auto_apply: true, apply_evidence: true });
+      confirmedRunId = payload.run_id;
       const mergedWorkspace = fn(deps, "mergeWorkspaceExecutionResultPayload", () => null)(workspace.id, payload);
       if (mergedWorkspace) {
         fn(deps, "selectWorkspace", () => {})(mergedWorkspace.id, {
@@ -397,12 +404,18 @@
       const packageText = executionPackage.status
         ? ` · 执行包 ${executionPackage.status}${script.summary ? ` · ${script.summary}` : ""}`
         : "";
-      setMessage(`已提交工作流，创建 ${created} 个执行节点${applied ? ` · 先回填 ${applied} 项` : ""}${packageText}。`);
+      setMessage(payload.replayed
+        ? `已核对原运行 ${payload.run_id}，关联 ${created} 个执行节点${packageText}。`
+        : `已提交工作流，创建 ${created} 个执行节点${applied ? ` · 先回填 ${applied} 项` : ""}${packageText}。`);
       if (payload.jobs?.[0]?.id) {
         await fn(deps, "loadStatus", async () => {})(true, { renderWorkspace: true });
         await fn(deps, "showLog", async () => {})(payload.jobs[0].id);
       }
     } catch (error) {
+      if (confirmedRunId) {
+        setMessage(`运行 ${confirmedRunId} 已提交，但界面或日志更新失败：${error?.message || error}。请刷新查看运行记录。`, true);
+        return;
+      }
       const mergedWorkspace = fn(deps, "mergeWorkspaceExecutionResultPayload", () => null)(workspace.id, error?.payload || {});
       if (mergedWorkspace) {
         fn(deps, "selectWorkspace", () => {})(mergedWorkspace.id, {

@@ -25396,6 +25396,11 @@ function workspaceAutomationActionDeps() {
     renderWorkspaceWorkbench,
     selectedWorkspace,
     fetchJson,
+    submitWorkspaceWorkflow: (workspaceId, args) => window.WorkspaceWorkflowSubmission.submit(workspaceId, args, {
+      storage: () => window.sessionStorage,
+      makeClientId,
+      fetchJson,
+    }),
     encodeURIComponent,
     mergeWorkspaceExecutionResultPayload,
     upsertWorkspaceInState,
