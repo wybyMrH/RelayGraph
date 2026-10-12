@@ -83,12 +83,10 @@
       String(step.agent_execution_id || "").trim() ? `agent ${step.agent_execution_id}` : "",
       String(step.output_key || "").trim(),
     ].filter(Boolean);
-    const error = String(step.error || "").trim();
     return {
       title: `${Number(step.index || 0) + 1}. ${title}`,
       meta: compactFor(deps, bits.join(" · "), 150),
       status: String(step.status || "pending").trim(),
-      error: compactFor(deps, error, 180),
     };
   }
 
@@ -145,10 +143,15 @@
       const stepStatus = String(step.status || "").trim();
       return step.linked
         || ["failed", "blocked", "stopped"].includes(stepStatus)
+        || String(step.error || "").trim()
         || Number(step.child_job_ref_count || 0) > 0
         || Number(step.child_run_ref_count || 0) > 0;
     });
-    const visibleSteps = highlightedSteps.slice(0, 4).map((step) => stepLine(step, deps));
+    const notedSteps = replayTimeline.filter((step) => !highlightedSteps.includes(step) && options.hasStepNotes?.(step));
+    const visibleSteps = [...highlightedSteps, ...notedSteps].slice(0, 4).map((step) => ({
+      ...stepLine(step, deps),
+      notes: options.renderStepNotes?.(step) || "",
+    }));
     const linkedJobs = (Array.isArray(replay.linked_jobs) ? replay.linked_jobs : [])
       .filter((item) => item && typeof item === "object")
       .slice(0, 4);
@@ -184,7 +187,7 @@
                 <strong>${escapeFor(deps, item.title)}</strong>
                 ${item.status ? `<span>${escapeFor(deps, statusFor(deps, item.status))}</span>` : ""}
                 ${item.meta ? `<em title="${escapeFor(deps, item.meta)}">${escapeFor(deps, item.meta)}</em>` : ""}
-                ${item.error ? `<p title="${escapeFor(deps, item.error)}">${escapeFor(deps, item.error)}</p>` : ""}
+                ${item.notes}
               </li>
             `).join("")}
           </ol>

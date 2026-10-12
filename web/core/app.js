@@ -12306,7 +12306,6 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     ? liveStatus
     : status;
   const runtimeStatus = String(step.runtime_status || (liveAgentRecord?.status ? workspaceLiveAgentStatus(liveAgentRecord) : "") || "").trim();
-  const errorText = String(step.error || "").trim();
   const mappedInputsLine = isAgent ? workspaceMappedInputsCompactLine(step.mapped_inputs || [], 2) : "";
   const outputKey = String(step.output_key || "").trim();
   const nodeId = String(step.node_id || "").trim();
@@ -12388,7 +12387,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
           ${agentTrace}
         </details>` : ""}
       ${validationLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(validationLine)}</p>` : ""}
-      ${errorText ? `<p class="workspace-execution-run-step-error">${escapeHtml(errorText)}</p>` : ""}
+      ${window.WorkspaceRunStepNotes.markup(step, { escapeHtml }, { runId: run.id, surface: "list", openDetails: options.openDetails })}
       ${jobId ? `
         <div class="workspace-execution-run-step-actions">
           <button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(jobId)}" title="打开这一步的任务日志">打开日志</button>
@@ -12511,7 +12510,7 @@ function workspaceRunReplayCountSummary(replay = {}) {
   return { stepCount: 0, linkedRunCount: 0, linkedJobCount: 0, eventCount: 0, deltaCount: 0 };
 }
 
-function workspaceRunReplayPreviewMarkup(run = {}) {
+function workspaceRunReplayPreviewMarkup(run = {}, options = {}) {
   const runId = String(run.id || "").trim();
   const replayState = workspaceRunReplayState(runId);
   if (!window.WorkspaceRunReplay?.previewMarkup) return "";
@@ -12519,6 +12518,10 @@ function workspaceRunReplayPreviewMarkup(run = {}) {
     run,
     replayState,
     ...workspaceRunReplayDeps(),
+    hasStepNotes: window.WorkspaceRunStepNotes.hasNotes,
+    renderStepNotes: (step) => window.WorkspaceRunStepNotes.markup(step, { escapeHtml }, {
+      runId: step.replay_run_id || runId, surface: "replay", openDetails: options.openDetails,
+    }),
   });
 }
 
@@ -12564,7 +12567,7 @@ function workspaceExecutionRunItemMarkup(run = {}, options = {}) {
         </div>
       </div>
       ${workspaceRunProgressMarkup(run)}
-      ${workspaceRunReplayPreviewMarkup(run)}
+      ${workspaceRunReplayPreviewMarkup(run, options)}
       <div class="workspace-execution-run-steps">
         ${displaySteps.map((step) => workspaceRunStepItemMarkup(step, run, options)).join("")}
       </div>
@@ -15340,6 +15343,8 @@ function renderWorkspaceRuns() {
   if ($("workspaceRunReaderEditBtn")) $("workspaceRunReaderEditBtn").disabled = !workspace?.id;
   const openDetails = new Set(Array.from(list.querySelectorAll("details[data-reader-detail][open]"),
     (item) => item.dataset.readerDetail));
+  const focusedOrigin = document.activeElement?.closest(".workspace-run-step-origin[data-reader-detail]");
+  const focusedOriginKey = focusedOrigin && list.contains(focusedOrigin) ? focusedOrigin.dataset.readerDetail : null;
   if (!workspace?.id) {
     meta.textContent = "未保存项目";
     summary.innerHTML = '<div class="empty">先选择一个已保存实例，或返回驾驶舱创建实例。</div>';
@@ -15386,6 +15391,10 @@ function renderWorkspaceRuns() {
     list.innerHTML = filteredRuns.length
       ? `${filterMarkup}${filteredRuns.slice(0, 12).map((run) => workspaceExecutionRunItemMarkup(run, { openDetails })).join("")}`
       : `${filterMarkup}<div class="empty">没有匹配的运行记录。可以重置筛选，或换一个状态、节点、Job/Agent ID。</div>`;
+    if (focusedOriginKey) {
+      Array.from(list.querySelectorAll(".workspace-run-step-origin[data-reader-detail]"))
+        .find((item) => item.dataset.readerDetail === focusedOriginKey)?.querySelector("summary")?.focus({ preventScroll: true });
+    }
     return;
   }
   list.innerHTML = jobs.slice(0, 24).map((job) => {

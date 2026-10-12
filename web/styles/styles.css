@@ -23118,3 +23118,25 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   .workspace-report-evidence dd { margin-bottom: 8px; }
 }
 .workspace-run-reader > [hidden] { display: none; }
+
+/* Step notes share semantics in the current run and its replay. */
+.workspace-run-step-notes { min-width: 0; display: grid; gap: 6px; }
+.workspace-run-replay-steps .workspace-run-step-notes { grid-column: 1 / -1; }
+.workspace-run-step-notes > p,
+.workspace-run-step-notes .workspace-run-step-origin > p {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+}
+.workspace-run-step-notes .workspace-run-step-description,
+.workspace-run-step-notes .workspace-run-step-origin,
+.workspace-run-step-notes .workspace-run-step-origin > p { color: var(--muted); }
+.workspace-run-step-notes .workspace-execution-run-step-error { color: #b42318; }
+.workspace-run-step-origin { min-width: 0; font-size: 12px; line-height: 1.6; }
+.workspace-run-step-origin > summary { cursor: pointer; padding: 4px 0; }
+.workspace-run-step-origin > p + p { margin-top: 6px; }
