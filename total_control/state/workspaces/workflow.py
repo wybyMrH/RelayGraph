@@ -190,70 +190,6 @@ def _workspace_agent_execution_checks(
 
 
 class WorkflowMixin:
-    def workflow_runner_callbacks(
-        self,
-        workspace_id: str,
-        automation: dict[str, Any] | None = None,
-        run_id: str = "",
-    ) -> WorkflowRunnerCallbacks:
-        workspace_id = str(workspace_id or "").strip()
-        automation_snapshot = automation if isinstance(automation, dict) else {}
-
-        def refresh_workspace() -> dict[str, Any]:
-            with self.lock:
-                current = self.workspace_by_id(workspace_id)
-                return copy.deepcopy(current) if current else {}
-
-        def execute_agent_node(
-            ws_id: str,
-            node: dict[str, Any],
-            run_context: ExecutionRunContext,
-        ) -> StepResult:
-            return self.execute_workspace_agent_node(ws_id, node, run_context=run_context)
-
-        def build_job_payload(
-            workspace: dict[str, Any],
-            node: dict[str, Any],
-            *,
-            previous_job_id: str = "",
-            automation: dict[str, Any] | None = None,
-        ) -> dict[str, Any]:
-            return self.workspace_node_job_payload(
-                workspace,
-                node,
-                previous_job_id=previous_job_id,
-                automation=automation if isinstance(automation, dict) else automation_snapshot,
-            )
-
-        def create_workspace_job(payload: dict[str, Any]) -> dict[str, Any]:
-            return self.submit_workflow_job(payload) if run_id else self.create_job(payload, publish_events=False)
-
-        def record_run_steps(
-            run_id: str,
-            steps: list[dict[str, Any]],
-            jobs: list[dict[str, Any]],
-        ) -> dict[str, Any]:
-            return self.update_workspace_execution_run_steps(
-                workspace_id,
-                str(run_id or "").strip(),
-                steps=steps,
-                jobs=jobs,
-            )
-
-        return WorkflowRunnerCallbacks(
-            refresh_workspace=refresh_workspace,
-            execute_agent_node=execute_agent_node,
-            build_job_payload=build_job_payload,
-            create_job=create_workspace_job,
-            step_from_job=workspace_run_step_from_job,
-            step_from_agent=workspace_run_step_from_agent,
-            executable_node_kinds=WORKSPACE_EXECUTABLE_NODE_KINDS,
-            record_run_steps=record_run_steps,
-            on_step_start=(lambda node, index: self.begin_workflow_step(run_id, node, index)) if run_id else None,
-            on_step_error=(lambda node, index, error: self.fail_workflow_step(run_id, node, index, error)) if run_id else None,
-        )
-
-
     def run_workspace_workflow(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         workspace_id = str(workspace_id or "").strip()
         requested_payload = payload if isinstance(payload, dict) else {}
@@ -329,6 +265,20 @@ class WorkflowMixin:
         if not nodes:
             raise ValueError("workspace has no executable nodes")
 
+        planned_modes = [resolve_node_executor_mode(node, executor_prefer) for node in nodes]
+        if not any(mode != "skip" for mode in planned_modes):
+            raise ValueError("workspace has no runnable steps")
+
+        if len(nodes) != 1 or planned_modes != ["job"]:
+            raise WorkspaceWorkflowReadinessError(
+                "当前持久工作流仅支持一个 Job；多节点及 Agent 链等待后续切片接入。",
+                blocked_checks=[{"id": "workflow_plan_not_supported", "status": "blocked",
+                                 "title": "工作流类型尚未接入", "detail": "请选择一个 Job 节点运行。",
+                                 "action": "使用运行至节点选择单个 Job，或等待混合链接入。"}],
+                workspace=self.workspace_public_payload(workspace), applied=applied,
+                evidence_applied=evidence_applied,
+            )
+
         # Compile the actual prefix, not later nodes or their historical failures.
         planned_workspace = copy.deepcopy(workspace)
         planned_workspace["nodes"] = copy.deepcopy(nodes)
@@ -368,6 +318,7 @@ class WorkflowMixin:
                 evidence_applied=evidence_applied,
             )
         invalid_checks: list[dict[str, Any]] = []
+        job_payloads: dict[str, dict[str, Any]] = {}
         for node in nodes:
             try:
                 config = node.get("config") if isinstance(node.get("config"), dict) else {}
@@ -377,6 +328,7 @@ class WorkflowMixin:
                 if resolve_node_executor_mode(node, executor_prefer) != "job":
                     continue
                 job_payload = self.workspace_node_job_payload(workspace, node, automation=automation)
+                job_payloads[node["id"]] = job_payload
                 if requires_execution_package:
                     invalid_checks.extend(
                         workspace_execution_package_runtime_binding_checks(
@@ -425,21 +377,9 @@ class WorkflowMixin:
                 evidence_applied=evidence_applied,
             )
 
-        planned_modes = [resolve_node_executor_mode(node, executor_prefer) for node in nodes]
-        if not any(mode != "skip" for mode in planned_modes):
-            raise ValueError("workspace has no runnable steps")
-
-        initial_agent_count = sum(1 for node in nodes if resolve_node_executor_mode(node, executor_prefer) == "agent")
         run_summary = (
             f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
-            if until_node_id
-            else (
-                f"混合工作流 · {initial_agent_count} agent · {max(len(nodes) - initial_agent_count, 0)} job"
-                if initial_agent_count and len(nodes) - initial_agent_count
-                else f"Agent 工作流 · {initial_agent_count} 步"
-                if initial_agent_count
-                else f"完整工作流 · {len(nodes)} 步"
-            )
+            if until_node_id else "工作流 · 1 Job"
         )
         initial_package = workspace_execution_bundle_result(automation, [])
         if until_node_id:
@@ -452,80 +392,13 @@ class WorkflowMixin:
         run, created = self.register_planned_workflow_run(
             workspace, nodes, planned_modes, initial_package,
             request_id=request_id, request_hash=request_hash, summary=run_summary, executor_prefer=executor_prefer,
+            job_payloads=job_payloads,
         )
         run_id = str(run.get("id") or "").strip()
         if not created:
             return self.replay_workflow_response(workspace_id, run_id)
-        workflow_runner = WorkflowRunner(self.workflow_runner_callbacks(workspace_id, automation, run_id))
-        try:
-            with self.execution_store.run_lock(run_id):
-                sequence_result = workflow_runner.run(
-                    workspace_id,
-                    nodes,
-                    workspace,
-                    executor_prefer=executor_prefer,
-                    automation=automation,
-                    until_node_id=until_node_id,
-                    target_node=target_node,
-                    run_id=run_id,
-                )
-        except Exception as exc:
-            self.execution_store.fail_run(run_id, str(exc))
-            self.update_workspace_execution_run_steps(
-                workspace_id,
-                run_id,
-                package_snapshot=initial_package,
-            )
-            raise
-        jobs = sequence_result.jobs
-        run_steps = sequence_result.run_steps
-        agent_step_count = sequence_result.agent_step_count
-
-        if not run_steps:
-            self.execution_store.fail_run(run_id, "workspace has no runnable steps")
-            self.update_workspace_execution_run_steps(
-                workspace_id,
-                run_id,
-                package_snapshot=initial_package,
-            )
-            raise ValueError("workspace has no runnable steps")
-
-        final_summary = (
-            f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
-            if until_node_id
-            else (
-                f"混合工作流 · {agent_step_count} agent · {len(jobs)} job"
-                if agent_step_count and jobs
-                else f"Agent 工作流 · {agent_step_count} 步"
-                if agent_step_count
-                else f"完整工作流 · {len(jobs)} 步"
-            )
-        )
-        execution_package = workspace_execution_bundle_result(automation, jobs)
-        if until_node_id:
-            execution_package["scope"] = {
-                "mode": "run_to_node",
-                "target_node_id": until_node_id,
-                "target_node_title": str((target_node or {}).get("title") or "").strip(),
-                "target_node_kind": str((target_node or {}).get("kind") or "").strip(),
-            }
-        run = self.update_workspace_execution_run_steps(
-            workspace_id,
-            run_id,
-            jobs=jobs,
-            steps=run_steps,
-            summary=final_summary,
-            package_snapshot=execution_package,
-        )
-        with self.lock:
-            refreshed_workspace = self.workspace_by_id(workspace_id) or workspace
-            payload_workspace = self.workspace_public_payload(refreshed_workspace)
-        return {
-            "workspace": payload_workspace,
-            "jobs": jobs,
-            "run": run,
-            "run_id": run_id,
-            "applied": applied,
-            "evidence_applied": evidence_applied,
-            "execution_package": execution_package,
-        }
+        # Acceptance contains a durable complete plan, not a claim that a Job is done.
+        # The existing scheduler is the only caller that advances the new graph.
+        response = self.replay_workflow_response(workspace_id, run_id)
+        response.update(applied=applied, evidence_applied=evidence_applied, replayed=False)
+        return response

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
+from ...orchestration.job_coordinator import JOB_ENGINE_VERSION
 from .run_records import (
     derive_workspace_execution_run_progress,
     derive_workspace_execution_run_status,
@@ -178,6 +179,13 @@ def refresh_workspace_execution_run(
     runs_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     steps = run.get("steps") if isinstance(run.get("steps"), list) else []
+    # Graph-managed attempts are recorded by the coordinator. Query/SSE projections
+    # cannot infer completion independently from live Jobs and skip a graph barrier.
+    if run.get("execution_plan", {}).get("engine_version") == JOB_ENGINE_VERSION:
+        return normalize_workspace_execution_run({
+            **run, "status": "blocked" if run.get("submission_error") else derive_workspace_execution_run_status(steps),
+            "progress": derive_workspace_execution_run_progress(steps),
+        }, existing=run)
     refreshed_steps: list[dict[str, Any]] = []
     step_job_ids: set[str] = set()
     for step in steps:

@@ -346,7 +346,7 @@
       const target = scope?.target_node_title || nodeTitle;
       setMessage(payload.replayed
         ? `已核对原运行 ${payload.run_id}，目标“${target}”，关联 ${created} 个前置执行节点。`
-        : `已提交到“${target}”，创建 ${created} 个前置执行节点${applied ? ` · 先回填 ${applied} 项` : ""}。`);
+        : `已受理到“${target}”，计划 ${payload.run?.execution_plan?.steps?.length ?? created} 个节点，已关联 ${created} 个 Job${applied ? ` · 先回填 ${applied} 项` : ""}。`);
       if (payload.jobs?.[0]?.id) {
         await fn(deps, "loadStatus", async () => {})(true, { renderWorkspace: true });
         await fn(deps, "showLog", async () => {})(payload.jobs[0].id);
@@ -406,7 +406,7 @@
         : "";
       setMessage(payload.replayed
         ? `已核对原运行 ${payload.run_id}，关联 ${created} 个执行节点${packageText}。`
-        : `已提交工作流，创建 ${created} 个执行节点${applied ? ` · 先回填 ${applied} 项` : ""}${packageText}。`);
+        : `已受理工作流 ${payload.run_id}，计划 ${payload.run?.execution_plan?.steps?.length ?? created} 个节点，已关联 ${created} 个 Job${applied ? ` · 先回填 ${applied} 项` : ""}${packageText}。`);
       if (payload.jobs?.[0]?.id) {
         await fn(deps, "loadStatus", async () => {})(true, { renderWorkspace: true });
         await fn(deps, "showLog", async () => {})(payload.jobs[0].id);

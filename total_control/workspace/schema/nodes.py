@@ -212,7 +212,7 @@ def finalize_agent_executable_nodes(
     nodes: list[dict[str, Any]],
     agent_definitions: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Ensure agent-backed nodes have handler, output_key and input_mapping for WorkflowRunner."""
+    """Ensure agent-backed nodes have handler, output_key and input_mapping for workflow execution."""
     agent_defs = agent_definitions if isinstance(agent_definitions, list) else workspace_default_agents()
     finalized = copy.deepcopy(nodes)
     for index, node in enumerate(finalized):

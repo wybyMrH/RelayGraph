@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._deps import *  # noqa: F403
+from ...orchestration.job_coordinator import JOB_ENGINE_VERSION
 
 class AutomationMixin:
     def advance_workspace_automation(self, workspace_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -38,16 +39,21 @@ class AutomationMixin:
                 )
             ]
             public_workspace = self.workspace_public_payload(current)
+            active_runs = [run for run in public_workspace.get("runs", [])
+                           if run.get("execution_plan", {}).get("engine_version") == JOB_ENGINE_VERSION
+                           and run.get("status") not in {"done", "failed", "stopped"}]
 
-        if active_jobs:
+        if active_jobs or active_runs:
             decision = workspace_cockpit_decision_from_public_workspace(public_workspace)
             return {
                 "action": "watch",
-                "message": "已有任务在队列或运行中，先观察当前执行。",
+                "message": "已有任务在队列或运行中，先观察当前执行。" if active_jobs
+                           else "工作流已受理或正在核对，先观察当前运行。",
                 "decision": decision,
                 "workspace": public_workspace,
                 "jobs": [],
                 "active_job_ids": [str(job.get("id") or "").strip() for job in active_jobs if str(job.get("id") or "").strip()],
+                "active_run_ids": [run["id"] for run in active_runs],
             }
 
         if failed_jobs and not force_run:

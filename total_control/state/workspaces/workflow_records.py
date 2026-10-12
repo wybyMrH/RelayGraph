@@ -6,14 +6,15 @@ import copy
 from typing import Any
 
 from ...orchestration.run_store import RunConflictError, RunStoreError
+from ...orchestration.job_coordinator import JOB_ENGINE_VERSION
 from ...orchestration.types import RunPlan
-from ...utils import now_iso
 from ...workspace.execution import (
     make_workspace_execution_run_id,
     normalize_workspace_execution_run,
     normalize_workspace_execution_runs,
     normalize_workspace_run_step,
     refresh_workspace_execution_run,
+    workspace_run_step_from_job,
 )
 
 
@@ -74,6 +75,8 @@ class WorkflowRecordsMixin:
             "package_snapshot": evidence["record"].get("package_snapshot", plan["package_snapshot"]),
             "execution_plan": {key: copy.deepcopy(plan[key]) for key in ("schema_version", "engine_version", "steps")},
             "plan_hash": evidence["plan_hash"], "attempts": public_attempts, "submissions": public_submissions,
+            "updated_at": max([existing.get("updated_at", ""), evidence["record"].get("updated_at", ""),
+                               *(item["updated_at"] for item in attempts)]),
         })
         projected = refresh_workspace_execution_run(record, {job["id"]: job for job in self.jobs},
                                                      {item["id"]: item for item in workspace.get("runs", [])})
@@ -122,16 +125,29 @@ class WorkflowRecordsMixin:
     def register_planned_workflow_run(
         self, workspace: dict[str, Any], nodes: list[dict[str, Any]], modes: list[str],
         package_snapshot: dict[str, Any], *, request_id: str, request_hash: str, summary: str,
-        executor_prefer: str,
+        executor_prefer: str, job_payloads: dict[str, dict[str, Any]],
     ) -> tuple[dict[str, Any], bool]:
         snapshot = {key: copy.deepcopy(value) for key, value in workspace.items()
                     if key not in {"runs", "chat", "execution", "automation", "updated_at"}}
+        planned_run_id = make_workspace_execution_run_id()
+        frozen_payloads = copy.deepcopy(job_payloads)
+        for index, node in enumerate(nodes):
+            payload = frozen_payloads[node["id"]]
+            payload["wait_for_idle"] = True
+            payload["metadata"].update(execution_run_id=planned_run_id, step_index=index, workflow_index=index)
+            scope = package_snapshot.get("scope", {})
+            if scope.get("mode") == "run_to_node":
+                payload["metadata"].update(workflow_phase="run_to_node", workflow_until_node_id=scope["target_node_id"],
+                                           workflow_until_node_title=scope["target_node_title"],
+                                           workflow_until_node_kind=scope["target_node_kind"])
         plan = RunPlan(
-            run_id=make_workspace_execution_run_id(), workspace_id=workspace["id"],
+            run_id=planned_run_id, workspace_id=workspace["id"], engine_version=JOB_ENGINE_VERSION,
             steps=[{"step_id": node["id"], "index": index, "executor": modes[index], "node": copy.deepcopy(node)}
                    for index, node in enumerate(nodes)],
             workspace_snapshot=snapshot, package_snapshot=copy.deepcopy(package_snapshot), executor_prefer=executor_prefer,
         )
+        for step in plan.steps:
+            step["job_payload"] = frozen_payloads[step["step_id"]]
         run_id, created = self.execution_store.create(plan, request_id=request_id, request_hash=request_hash, summary=summary)
         with self.lock:
             current = self.workspace_by_id(workspace["id"])
@@ -146,6 +162,69 @@ class WorkflowRecordsMixin:
         if created:
             self.publish_event("run.created", workspace_id=workspace["id"], run_id=run_id, payload={"run": run})
         return run, created
+
+    def submit_coordinated_job(self, run_id: str) -> str:
+        evidence = self.execution_store.read(run_id)
+        plan = evidence["plan"]
+        if (plan["engine_version"] != JOB_ENGINE_VERSION or len(plan["steps"]) != 1
+                or plan["steps"][0]["executor"] != "job"):
+            raise RunConflictError("coordinator cannot execute this plan")
+        step = plan["steps"][0]
+        self.begin_workflow_step(run_id, step["node"], step["index"])
+        return self.submit_workflow_job(copy.deepcopy(step["job_payload"]))["id"]
+
+    def observe_coordinated_job(self, run_id: str, job_id: str) -> dict[str, Any]:
+        evidence = self.execution_store.read(run_id)
+        step = evidence["plan"]["steps"][0]
+        attempt = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == step["step_id"])
+        if attempt["status"] in self.execution_store.TERMINAL:
+            return copy.deepcopy(attempt["result"])
+        intent = next(item for item in evidence["submissions"] if item["step_id"] == step["step_id"]
+                      and item["attempt_no"] == attempt["attempt_no"])
+        with self.lock:
+            job = self._job_for_submission(intent, evidence["plan"]["workspace_id"])
+            if job and job["id"] == job_id and intent["external_ref"] == job_id:
+                return workspace_run_step_from_job(copy.deepcopy(job), step["index"])
+        return {"index": step["index"], "node_id": step["step_id"], "job_id": job_id,
+                "status": "blocked", "runtime_status": "reconciling",
+                "error": "Job receipt unavailable; automatic resubmission refused"}
+
+    def record_coordinated_job(self, run_id: str, result: dict[str, Any]) -> None:
+        self.record_workflow_steps(run_id, [result])
+
+    def advance_workflow_runs(self) -> None:
+        """Scheduler-owned wakeups; each run is isolated and checked through the Job adapter."""
+        from ...orchestration.run_store import RunBusyError
+
+        with self.lock:
+            identities = [(workspace["id"], run_id) for workspace in self.workspaces
+                          for run_id in self.execution_store.run_ids(workspace["id"])]
+        for workspace_id, run_id in identities:
+            evidence = self.execution_store.read(run_id)
+            if evidence["plan"]["engine_version"] != JOB_ENGINE_VERSION:
+                continue
+            try:
+                with self.lock:
+                    self.reconcile_workflow_submissions(workspace_id, run_id)
+                evidence = self.execution_store.read(run_id)
+                if any(item["state"] == "reconciling" for item in evidence["submissions"]):
+                    continue  # Unknown side effects require facts, not another graph retry.
+                changed = self.workflow_coordinator.advance(run_id)
+                if evidence["error"]:
+                    self.execution_store.fail_run(run_id, "")
+                    changed = True
+            except RunBusyError:
+                continue
+            except Exception as exc:  # Keep evidence; never fall back to another runner.
+                error = "Workflow coordinator unavailable; retained state requires reconciliation"
+                if evidence["error"] == error:
+                    continue
+                print(f"[total-control] workflow {run_id} coordinator error: {exc}", flush=True)
+                # The existing error column is diagnostic; new graph projections show blocked.
+                self.execution_store.fail_run(run_id, error)
+                changed = True
+            if changed:
+                self.update_workspace_execution_run_steps(workspace_id, run_id)
 
     def record_workflow_steps(self, run_id: str, steps: list[dict[str, Any]]) -> None:
         evidence = self.execution_store.read(run_id)
@@ -168,15 +247,6 @@ class WorkflowRecordsMixin:
             "input_mapping": copy.deepcopy(node.get("input_mapping", {})),
             "previous_planned_step_id": plan["steps"][index - 1]["step_id"] if index else "",
         })
-
-    def fail_workflow_step(self, run_id: str, node: dict[str, Any], index: int, error: Exception) -> None:
-        evidence = self.execution_store.read(run_id)
-        attempt = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == node["id"])
-        if attempt["status"] not in self.execution_store.TERMINAL:
-            self.execution_store.record_result(run_id, node["id"], attempt["attempt_no"], {
-                "index": index, "node_id": node["id"], "status": "failed",
-                "completed_at": now_iso(), "error": str(error),
-            })
 
     def submit_workflow_job(self, payload: dict[str, Any]) -> dict[str, Any]:
         if payload.get("wait_for_idle") is not True:

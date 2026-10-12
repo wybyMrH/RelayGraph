@@ -363,6 +363,7 @@ emit({
             try:
                 self.refresh_status()
                 self.monitor_jobs()
+                self.advance_workflow_runs()
                 self.maybe_auto_cleanup_runtime_storage()
             except Exception as exc:  # noqa: BLE001 - background loop must keep running.
                 print(f"[total-control] scheduler error: {exc}", flush=True)

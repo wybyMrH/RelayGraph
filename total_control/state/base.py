@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ._deps import *  # noqa: F403
 from ..orchestration.run_store import RunStore
+from ..orchestration.job_coordinator import JobCoordinator, JobCoordinatorCallbacks
 
 
 def _dedupe_provider_profiles(profiles: list[Any]) -> tuple[list[dict[str, Any]], bool]:
@@ -68,6 +69,10 @@ class BaseMixin:
         self.last_refreshed_at = ""
         self.jobs: list[dict[str, Any]] = read_json(JOBS_PATH, [])
         self.execution_store = RunStore(Path(self.config.execution_db_path) if self.config.execution_db_path else DATA_DIR / "execution.sqlite3")
+        self.workflow_coordinator = JobCoordinator(self.execution_store, JobCoordinatorCallbacks(
+            submit=self.submit_coordinated_job, observe=self.observe_coordinated_job,
+            record=self.record_coordinated_job,
+        ))
         raw_tool_definitions = read_json(TOOL_DEFINITIONS_PATH, [])
         self.tool_definitions: list[dict[str, Any]] = normalize_global_tool_definitions(raw_tool_definitions)
         self.tool_definitions, default_tools_applied = backfill_default_tool_definitions(
