@@ -23229,7 +23229,11 @@ function updatePollTimer(seconds) {
   if (state.ui.pollIntervalMs === ms && state.pollTimer) return;
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.ui.pollIntervalMs = ms;
-  state.pollTimer = setInterval(() => loadStatus(false), ms);
+  state.pollTimer = setInterval(() => {
+    // Keep a slow status/initial form load from being invalidated by its own next poll.
+    // Explicit refreshes still enter loadStatus and retain the request sequence guard.
+    if (state.ui.statusBusyCount === 0) void loadStatus(false);
+  }, ms);
 }
 
 function restoreStoredUiState() {
