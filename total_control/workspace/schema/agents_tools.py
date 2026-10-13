@@ -66,7 +66,7 @@ def normalize_workspace_tool(
     implemented = bool(registry_meta.get("implemented", False)) if registry_meta else False
     if registry_meta and "implemented" in base:
         implemented = bool(base.get("implemented"))
-    return {
+    result = {
         "id": tool_id,
         "label": label,
         "category": category,
@@ -81,6 +81,14 @@ def normalize_workspace_tool(
         "enabled": bool(base.get("enabled", True)),
         "notes": str(base.get("notes") or "").strip(),
     }
+    # Template tools may carry source timestamps. Keep those from the stored
+    # identity; they are not editable fields or this instance's revision.
+    if str(previous.get("id") or "").strip() == tool_id:
+        for key in ("created_at", "updated_at"):
+            timestamp = previous.get(key)
+            if isinstance(timestamp, str) and timestamp.strip():
+                result[key] = timestamp
+    return result
 
 def normalize_workspace_tools(
     value: Any,
