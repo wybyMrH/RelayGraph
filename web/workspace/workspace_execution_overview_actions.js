@@ -24,7 +24,7 @@
     } else if (button.dataset.action === "reset-execution-overview-filters") {
       fn(callbacks, "resetFilters", () => {})();
     } else if (button.dataset.action === "open-overview-workspace") {
-      fn(callbacks, "openWorkspace", () => {})(button.dataset.workspaceId || "");
+      fn(callbacks, "openWorkspace", () => {})(button.dataset.workspaceId || "", { runId: button.dataset.runId || "", jobId: button.dataset.jobId || "" });
     }
   }
 
@@ -44,13 +44,24 @@
   }
 
   function bind(callbacks = {}) {
-    element(callbacks, "workspaceManageRunsPanel")?.addEventListener("click", (event) => handlePanelClick(event, callbacks));
+    element(callbacks, "workspaceRunScopeSwitch")?.addEventListener("click", (event) => {
+      const button = eventTarget(event)?.closest("[data-scope]");
+      if (button) fn(callbacks, "setScope", () => {})(button.dataset.scope);
+    });
+    for (const id of ["workspaceRunFocusNotice", "workspaceRunList"]) {
+      element(callbacks, id)?.addEventListener("click", (event) => {
+        const action = eventTarget(event)?.closest("[data-action]")?.dataset.action;
+        if (action === "clear-run-focus") fn(callbacks, "clearFocus", () => {})();
+        if (action === "retry-run-focus") fn(callbacks, "retryFocus", () => {})();
+      });
+    }
+    element(callbacks, "workspaceExecutionOverviewPanel")?.addEventListener("click", (event) => handlePanelClick(event, callbacks));
     element(callbacks, "workspaceExecutionOverviewSearch")?.addEventListener("input", (event) => handleSearchInput(event, callbacks));
     element(callbacks, "workspaceExecutionOverviewStatusFilter")?.addEventListener("change", (event) => handleStatusChange(event, callbacks));
     element(callbacks, "workspaceExecutionOverviewKindFilter")?.addEventListener("change", (event) => handleKindChange(event, callbacks));
   }
 
-  window.ConfigCenterExecutionOverviewActions = {
+  window.WorkspaceExecutionOverviewActions = {
     bind,
     handleKindChange,
     handlePanelClick,

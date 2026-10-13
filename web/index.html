@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles/styles.css?v=20261013n16aui" />
+    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b2" />
   </head>
   <body>
     <div class="shell">
@@ -527,16 +527,67 @@
                   <p class="muted">查看这次执行到了哪一步，以及它产生的日志和结果。</p>
                 </div>
                 <div class="workspace-run-reader-controls">
+                  <div id="workspaceRunReaderInstanceControls" class="workspace-run-reader-instance-controls">
                   <label>当前实例<select id="workspaceRunReaderProjectSelect" aria-label="选择要查看运行记录的实例"></select></label>
                   <button id="workspaceRunReaderEditBtn" class="secondary" type="button">编辑实例</button>
+                  </div>
                   <button id="workspaceRunReaderBackBtn" class="secondary" type="button">返回驾驶舱</button>
                 </div>
               </header>
+              <div id="workspaceRunScopeSwitch" class="segmented-tabs workspace-run-scope" role="group" aria-label="运行记录范围">
+                <button class="tab-chip active" type="button" data-scope="instance" aria-pressed="true">当前实例</button>
+                <button class="tab-chip" type="button" data-scope="all" aria-pressed="false">全部实例</button>
+              </div>
               <p id="workspaceRunReaderMessage" class="form-message" role="status" aria-live="polite"></p>
+              <section id="workspaceExecutionOverviewPanel" class="workspace-global-runs" aria-label="全部实例运行记录" hidden>
+                <div class="workspace-global-runs-body">
+                  <header class="workspace-global-runs-head">
+                    <div>
+                      <strong>全部实例运行记录</strong>
+                      <span class="muted">查看所有实例的运行；点击记录阅读对应结果。进入时刷新，其他实例变化可手动刷新。</span>
+                    </div>
+                    <button class="secondary mini" type="button" data-action="refresh-execution-overview" title="刷新全局运行和任务概览">刷新</button>
+                  </header>
+                  <div id="workspaceExecutionOverviewSummary" class="workspace-global-runs-summary"></div>
+                  <div class="workspace-execution-overview-filters">
+                    <input id="workspaceExecutionOverviewSearch" aria-label="搜索全部实例运行" placeholder="搜索实例、运行、任务或主机" />
+                    <select id="workspaceExecutionOverviewStatusFilter" title="按运行状态分组筛选">
+                      <option value="">全部状态</option>
+                      <option value="active">活跃中</option>
+                      <option value="done">已完成</option>
+                      <option value="failed">失败/停止</option>
+                    </select>
+                    <select id="workspaceExecutionOverviewKindFilter" title="按记录类型筛选">
+                      <option value="all">运行和任务</option>
+                      <option value="runs">只看运行</option>
+                      <option value="jobs">只看任务</option>
+                    </select>
+                    <button class="secondary mini" type="button" data-action="reset-execution-overview-filters" title="清空全局运行筛选">重置</button>
+                    <span id="workspaceExecutionOverviewFilterMeta" class="muted">全部记录</span>
+                  </div>
+                  <section id="workspaceExecutionOverviewRunSection" class="workspace-global-runs-section">
+                    <header class="workspace-global-runs-section-head">
+                      <strong>工作流运行</strong>
+                      <span>按更新时间倒序，点击定位这次运行</span>
+                    </header>
+                    <div id="workspaceExecutionOverviewRunList" class="workspace-global-run-list"></div>
+                  </section>
+                  <section id="workspaceExecutionOverviewJobSection" class="workspace-global-runs-section">
+                    <header class="workspace-global-runs-section-head">
+                      <strong>队列任务</strong>
+                      <span>受控队列任务，只读展示当前状态</span>
+                    </header>
+                    <div id="workspaceExecutionOverviewJobList" class="workspace-global-run-list"></div>
+                  </section>
+                </div>
+              </section>
+              <div id="workspaceRunInstancePanel">
+              <div id="workspaceRunFocusNotice" class="workspace-run-focus-notice" hidden></div>
               <section id="workspaceRunReportPanel" class="workspace-report-reader" aria-labelledby="workspaceReportTitle" hidden></section>
               <p id="workspaceRunMeta" class="workspace-run-reader-meta muted">尚未选择实例</p>
               <div id="workspaceRunSummary" class="workspace-run-summary"></div>
               <div id="workspaceRunList" class="workspace-run-list"></div>
+              </div>
             </section>
 
             <section id="workspaceManageModePanel" class="workspace-mode-panel" hidden>
@@ -545,7 +596,6 @@
                 <button class="tab-chip" data-tab="agents" type="button" title="维护全局 Agent 角色、提示词、工具 allowlist 和模型覆盖">Agent</button>
                 <button class="tab-chip" data-tab="tools" type="button" title="维护工具注册表，控制 Agent 可以使用哪些真实动作">工具</button>
                 <button class="tab-chip" data-tab="ai" type="button" title="维护 Provider Profile、模型路由和模板默认聊天 Agent">AI</button>
-                <button class="tab-chip" data-tab="runs" type="button" title="只读查看全局运行与任务，跳回对应驾驶舱处理">全局运行</button>
                 <button class="tab-chip" data-tab="inspect" type="button" title="链路门禁诊断：节点链、I/O 交接、缺口与门禁（只读检查，编辑请回各配置页）">链路诊断</button>
               </div>
               <section id="workspaceManageOverviewSection" class="workspace-manage-overview">
@@ -776,49 +826,6 @@
                     <div id="manageProviderProfileList" class="workspace-template-list"></div>
                   </aside>
                   <section id="manageAiEditor" class="workspace-template-studio"></section>
-                </div>
-              </section>
-
-              <section id="workspaceManageRunsPanel" class="workspace-manage-panel" hidden>
-                <div class="workspace-chain-inspect-shell">
-                  <header class="workspace-chain-inspect-head">
-                    <div>
-                      <strong>全局运行总览</strong>
-                      <span class="muted">只读查看所有实例的 run/job 状态；处理动作回到对应驾驶舱和运行记录。</span>
-                    </div>
-                    <button class="secondary mini" type="button" data-action="refresh-execution-overview" title="刷新全局运行和任务概览">刷新</button>
-                  </header>
-                  <div id="workspaceManageRunSummary" class="workspace-chain-inspect-summary"></div>
-                  <div class="workspace-execution-overview-filters">
-                    <input id="workspaceExecutionOverviewSearch" placeholder="搜索实例 / run / job / server" />
-                    <select id="workspaceExecutionOverviewStatusFilter" title="按运行状态分组筛选">
-                      <option value="">全部状态</option>
-                      <option value="active">活跃中</option>
-                      <option value="done">已完成</option>
-                      <option value="failed">失败/停止</option>
-                    </select>
-                    <select id="workspaceExecutionOverviewKindFilter" title="按记录类型筛选">
-                      <option value="all">Runs + Jobs</option>
-                      <option value="runs">只看 Runs</option>
-                      <option value="jobs">只看 Jobs</option>
-                    </select>
-                    <button class="secondary mini" type="button" data-action="reset-execution-overview-filters" title="清空全局运行筛选">重置</button>
-                    <span id="workspaceExecutionOverviewFilterMeta" class="muted">全部记录</span>
-                  </div>
-                  <section class="workspace-chain-inspect-block">
-                    <header class="workspace-chain-inspect-block-head">
-                      <strong>Runs</strong>
-                      <span>按更新时间倒序，点击可打开所属实例驾驶舱</span>
-                    </header>
-                    <div id="workspaceManageRunList" class="workspace-run-list"></div>
-                  </section>
-                  <section class="workspace-chain-inspect-block">
-                    <header class="workspace-chain-inspect-block-head">
-                      <strong>Jobs</strong>
-                      <span>受控队列任务，只读展示当前状态</span>
-                    </header>
-                    <div id="workspaceManageJobList" class="workspace-run-list"></div>
-                  </section>
                 </div>
               </section>
 
@@ -1783,7 +1790,7 @@
     <script src="/config-center/config_center_tool_actions.js?v=20260707toolactions"></script>
     <script src="/config-center/config_center_ai_renderer.js?v=20260707airenderer"></script>
     <script src="/config-center/config_center_provider_actions.js?v=20260707provideractions"></script>
-    <script src="/config-center/config_center_execution_overview_actions.js?v=20260707executionoverviewactions"></script>
+    <script src="/workspace/workspace_execution_overview_actions.js?v=20261013n13b2"></script>
     <script src="/workflow-template/workflow_template_draft.js?v=20260707templatedraftsplit"></script>
     <script src="/workflow-template/workflow_template_state.js?v=20260707templatestatesplit"></script>
     <script src="/workflow-template/workflow_template_node_mutations.js?v=20260707templatenodemutations"></script>
@@ -1828,7 +1835,7 @@
     <script src="/workspace/workspace_focus_navigation.js?v=20260803focusnavigation"></script>
     <script src="/workspace/workspace_flow_tool_state.js?v=20260707flowtoolstate"></script>
     <script src="/workspace/workspace_node_run_state.js?v=20260707noderunstate"></script>
-    <script src="/workspace/workspace_catalog_data.js?v=20260803catalogdata"></script>
+    <script src="/workspace/workspace_catalog_data.js?v=20261013n13b2"></script>
     <script src="/workspace/workspace_node_catalog.js?v=20260707nodecatalog"></script>
     <script src="/workspace/workspace_tool_catalog.js?v=20260707toolcatalog"></script>
     <script src="/workspace/workspace_defaults.js?v=20260707workspacedefaults"></script>
@@ -1847,8 +1854,8 @@
     <script src="/workspace/workspace_agent_tool_actions.js?v=20260707agenttoolactions"></script>
     <script src="/core/app_status_actions.js?v=20260707appstatusactions"></script>
     <script src="/workspace/workspace_execution_lane_rail.js?v=20260706lanerailsplit"></script>
-    <script src="/workspace/workspace_execution_overview.js?v=20260706executionoverviewmodule"></script>
-    <script src="/config-center/config_center_execution_overview_renderer.js?v=20260707executionoverviewrenderer"></script>
+    <script src="/workspace/workspace_execution_overview.js?v=20261013n13b2"></script>
+    <script src="/workspace/workspace_execution_overview_renderer.js?v=20261013n13b2"></script>
     <script src="/workspace/workspace_run_state_merge.js?v=20261013n16a"></script>
     <script src="/core/status_labels.js?v=20260707statuslabels"></script>
     <script src="/core/display_formatters.js?v=20260707displayformatters"></script>
@@ -1890,6 +1897,6 @@
     <script src="/transfer/transfer_progress_state.js?v=20260707transferprogressstate"></script>
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
-    <script src="/core/app.js?v=20261013n16aui"></script>
+    <script src="/core/app.js?v=20261013n13b2"></script>
   </body>
 </html>

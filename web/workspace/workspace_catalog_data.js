@@ -2,7 +2,7 @@
   "use strict";
 
   const WORKSPACE_PROJECT_TABS = ["home", "project", "workflow", "chat", "agents", "tools", "model", "runs"];
-  const WORKSPACE_MANAGE_TABS = ["templates", "agents", "tools", "ai", "runs", "inspect"];
+  const WORKSPACE_MANAGE_TABS = ["templates", "agents", "tools", "ai", "inspect"];
 
   const WORKSPACE_JOB_EXECUTABLE_KINDS = new Set([
     "repo.clone",

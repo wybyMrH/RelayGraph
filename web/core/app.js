@@ -196,7 +196,10 @@ const state = {
     workspaceEventGapNotice: "",
     workspaceEventGapAt: 0,
     executionOverviewRefreshTimer: null,
-    executionOverviewRefreshBusy: false,
+    executionOverviewRequestSeq: 0,
+    executionOverviewLoading: false,
+    workspaceRunScope: "instance",
+    workspaceRunFocus: null,
     workspaceStreamRenderQueued: false,
     workspaceStreamRenderTimer: null,
     workspaceAgentEvents: {},
@@ -294,6 +297,9 @@ const STORAGE_KEYS = {
   activityTab: "tc-activity-tab",
   workspaceTab: "tc-workspace-tab",
   workspaceMode: "tc-workspace-mode",
+  workspaceRunScope: "tc-workspace-run-scope",
+  workspaceRunFocus: "tc-workspace-run-focus",
+  executionOverviewFilters: "tc-execution-overview-filters",
   workspaceRunCompareBase: "tc-workspace-run-compare-base",
   workspaceRunReplayOpen: "tc-workspace-run-replay-open",
   workspaceRunReportSelections: "tc-workspace-run-report-selections",
@@ -823,7 +829,7 @@ function workspaceCatalogDataValue(name, fallback) {
 }
 
 const WORKSPACE_PROJECT_TABS = workspaceCatalogDataValue("WORKSPACE_PROJECT_TABS", ["home", "project", "workflow", "chat", "agents", "tools", "model", "runs"]);
-const WORKSPACE_MANAGE_TABS = workspaceCatalogDataValue("WORKSPACE_MANAGE_TABS", ["templates", "agents", "tools", "ai", "runs", "inspect"]);
+const WORKSPACE_MANAGE_TABS = workspaceCatalogDataValue("WORKSPACE_MANAGE_TABS", ["templates", "agents", "tools", "ai", "inspect"]);
 
 const WORKSPACE_JOB_EXECUTABLE_KINDS = new Set(workspaceCatalogDataValue("WORKSPACE_JOB_EXECUTABLE_KINDS", [
   "repo.clone",
@@ -2539,50 +2545,39 @@ async function loadProviderProfiles(options = {}) {
 }
 
 async function loadExecutionOverview(options = {}) {
+  if (!executionOverviewPanelVisible()) return null;
+  const filters = executionOverviewFilters();
+  const request = ++state.ui.executionOverviewRequestSeq;
+  state.ui.executionOverviewLoading = true;
+  renderExecutionOverview();
+  let payload;
   try {
-    const params = new URLSearchParams();
-    const filters = executionOverviewFilters();
-    params.set("limit", String(Math.max(1, Math.min(200, Number(options.limit || 80)))));
+    const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(200, Number(options.limit || 80)))) });
     if (filters.query) params.set("query", filters.query);
     if (filters.status) params.set("status", filters.status);
-    if (filters.kind && filters.kind !== "all") params.set("kind", filters.kind);
-    state.executionOverview = await fetchJson(`/api/execution-overview?${params.toString()}`);
+    if (filters.kind !== "all") params.set("kind", filters.kind);
+    payload = await fetchJson(`/api/execution-overview?${params.toString()}`);
   } catch (error) {
-    state.executionOverview = {
-      runs: [],
-      jobs: [],
-      summary: {},
-      result: {},
-      error: error.message || String(error),
-    };
+    payload = { runs: [], jobs: [], summary: {}, result: {}, filters, error: error.message || String(error) };
   }
-  if (options.render !== false) {
-    renderManageRunsModule();
-    renderWorkspaceManageOverview();
-  }
-  return state.executionOverview;
+  if (request !== state.ui.executionOverviewRequestSeq || !executionOverviewPanelVisible()
+    || !workspaceExecutionOverviewModule().filtersMatch(filters, executionOverviewFilters())) return null;
+  state.executionOverview = payload;
+  state.ui.executionOverviewLoading = false;
+  renderExecutionOverview();
+  return payload;
 }
 
 function executionOverviewPanelVisible() {
-  return state.ui.productTab === "workspace"
-    && state.ui.workspaceMode === "manage"
-    && state.ui.workspaceManageTab === "runs";
+  return state.ui.productTab === "workspace" && state.ui.workspaceMode === "runs" && state.ui.workspaceRunScope === "all";
 }
 
 function scheduleExecutionOverviewRefresh(delayMs = 700) {
   if (!executionOverviewPanelVisible()) return;
-  if (state.ui.executionOverviewRefreshTimer) {
-    clearTimeout(state.ui.executionOverviewRefreshTimer);
-  }
-  state.ui.executionOverviewRefreshTimer = setTimeout(async () => {
+  clearTimeout(state.ui.executionOverviewRefreshTimer);
+  state.ui.executionOverviewRefreshTimer = setTimeout(() => {
     state.ui.executionOverviewRefreshTimer = null;
-    if (!executionOverviewPanelVisible() || state.ui.executionOverviewRefreshBusy) return;
-    state.ui.executionOverviewRefreshBusy = true;
-    try {
-      await loadExecutionOverview({ render: true });
-    } finally {
-      state.ui.executionOverviewRefreshBusy = false;
-    }
+    if (executionOverviewPanelVisible()) void loadExecutionOverview();
   }, Math.max(100, Number(delayMs) || 700));
 }
 
@@ -10682,7 +10677,6 @@ function workspaceManageOverviewCards() {
   const templateProfile = providerProfileById(draft?.model?.provider_profile_id || "");
   const configuredProfiles = configuredProviderProfiles(profiles);
   const providerHealth = providerRouteHealthStatus();
-  const executionSummary = state.executionOverview?.summary || {};
   return [
     {
       tab: "templates",
@@ -10719,20 +10713,6 @@ function workspaceManageOverviewCards() {
           ? "Profile 已就绪，可在模板 AI 路由中设默认"
           : "先新增 Provider Profile 并填写模型",
       state: providerHealth.effective_status || (configuredProfiles.length ? "ready" : profiles.length ? "blocked" : "draft"),
-    },
-    {
-      tab: "runs",
-      label: "全局运行",
-      title: `${Number(executionSummary.run_count || 0)} runs`,
-      detail: `${Number(executionSummary.job_count || state.jobs.length || 0)} jobs · ${Number(executionSummary.active_run_count || 0)} 活跃 run · ${Number(executionSummary.active_job_count || 0)} 活跃 job`,
-      next: Number(executionSummary.failed_run_count || 0) || Number(executionSummary.failed_job_count || 0)
-        ? "有失败/停止记录，点进去回到对应实例处理"
-        : "只读总览，具体操作回到驾驶舱",
-      state: Number(executionSummary.failed_run_count || 0) || Number(executionSummary.failed_job_count || 0)
-        ? "warning"
-        : Number(executionSummary.active_run_count || 0) || Number(executionSummary.active_job_count || 0)
-          ? "running"
-          : "ready",
     },
     {
       tab: "inspect",
@@ -10776,14 +10756,6 @@ function workspaceManageFocusSummary(tab = state.ui.workspaceManageTab || "templ
       action: configured.length
         ? (firstIssue ? providerHealthIssueLabel(firstIssue) : "模板默认 Profile 和聊天 Agent 可在 AI 路由页设置；已有 Profile 即可用于实例。")
         : "先新增 DeepSeek / OpenAI 等 Provider Profile，再绑定到模板或项目。",
-    };
-  }
-  if (tab === "runs") {
-    const summary = state.executionOverview?.summary || {};
-    return {
-      title: "运行层只做全局只读观察",
-      detail: `${Number(summary.run_count || 0)} 条 run · ${Number(summary.job_count || state.jobs.length || 0)} 个 job · ${Number(summary.active_job_count || 0)} 个任务活跃。`,
-      action: "这里不直接停止/重试；点击记录会回到所属实例驾驶舱。",
     };
   }
   if (tab === "inspect") {
@@ -14486,7 +14458,7 @@ function renderWorkspaceAgentControls() {
 
 function switchWorkspaceTab(tab, options = {}) {
   if (tab === "runs") {
-    if (options.persist !== false) switchWorkspaceMode("runs");
+    if (options.persist !== false) { setWorkspaceRunScope("instance"); switchWorkspaceMode("runs"); }
     return;
   }
   const tabMap = {
@@ -14563,6 +14535,7 @@ function openWorkspaceConfigDetail(targetId = "", options = {}) {
   const id = String(targetId || "").trim();
   const tab = options.tab || workspaceConfigTabForTarget(id);
   if (tab === "runs") {
+    setWorkspaceRunScope("instance");
     switchWorkspaceMode("runs");
     requestAnimationFrame(() => revealWorkspacePanelTarget("workspaceRunsPanel", { block: "start" }));
     return;
@@ -15330,7 +15303,81 @@ function resetWorkspaceRunFilters() {
   renderWorkspaceRuns();
 }
 
+function setWorkspaceRunScope(scope) {
+  const next = scope === "all" ? "all" : "instance";
+  const changed = state.ui.workspaceRunScope !== next;
+  state.ui.workspaceRunScope = next;
+  if (changed) markWorkspaceUiInteraction();
+  saveStoredValue(STORAGE_KEYS.workspaceRunScope, next);
+  if (next === "all") state.ui.workspaceRunReport = null;
+  renderWorkspaceRuns();
+  if (changed && executionOverviewPanelVisible() && !state.ui.executionOverviewLoading) void loadExecutionOverview();
+}
+
+function renderWorkspaceRunScope() {
+  const all = state.ui.workspaceRunScope === "all";
+  $("workspaceExecutionOverviewPanel")?.toggleAttribute("hidden", !all);
+  $("workspaceRunInstancePanel")?.toggleAttribute("hidden", all);
+  $("workspaceRunReaderInstanceControls")?.toggleAttribute("hidden", all);
+  document.querySelectorAll("#workspaceRunScopeSwitch [data-scope]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.scope === state.ui.workspaceRunScope);
+    button.setAttribute("aria-pressed", String(button.dataset.scope === state.ui.workspaceRunScope));
+  });
+  if (!executionOverviewPanelVisible()) {
+    clearTimeout(state.ui.executionOverviewRefreshTimer);
+    state.ui.executionOverviewRefreshTimer = null;
+    state.ui.executionOverviewRequestSeq += 1;
+    state.ui.executionOverviewLoading = false;
+  }
+}
+
+function clearWorkspaceRunFocus() {
+  state.ui.workspaceRunFocus = null;
+  saveStoredJson(STORAGE_KEYS.workspaceRunFocus, null);
+  renderWorkspaceRuns();
+}
+
+function loadFocusedWorkspaceRun(focus) {
+  if (!focus || focus.phase !== "idle") return;
+  focus.phase = "loading";
+  Promise.resolve().then(async () => {
+    if (state.ui.workspaceRunFocus !== focus || state.selectedWorkspaceId !== focus.workspaceId) return;
+    try {
+      const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(focus.workspaceId)}/runs/${encodeURIComponent(focus.runId)}`);
+      if (state.ui.workspaceRunFocus !== focus || state.selectedWorkspaceId !== focus.workspaceId) return;
+      if (payload.run?.id !== focus.runId || (payload.workspace_id && payload.workspace_id !== focus.workspaceId)) {
+        throw new Error("返回的记录与所选运行不一致。");
+      }
+      mergeWorkspaceRunDetailPayload(focus.workspaceId, payload);
+      focus.phase = "loaded";
+      focus.error = "";
+    } catch (error) {
+      if (state.ui.workspaceRunFocus !== focus || state.selectedWorkspaceId !== focus.workspaceId) return;
+      focus.phase = "error";
+      focus.error = error.message || String(error);
+    }
+    renderWorkspaceRuns();
+    requestAnimationFrame(() => {
+      if (!focus.focusPending || state.ui.workspaceRunFocus !== focus
+        || state.selectedWorkspaceId !== focus.workspaceId || state.ui.productTab !== "workspace"
+        || state.ui.workspaceMode !== "runs" || state.ui.workspaceRunScope !== "instance") return;
+      focus.focusPending = false;
+      if (document.activeElement !== document.body) return;
+      const target = focus.phase === "error"
+        ? $("workspaceRunList")?.querySelector("[data-action='retry-run-focus']")
+        : Array.from($("workspaceRunList")?.querySelectorAll("[data-run-id]") || [])
+          .find((item) => item.dataset.runId === focus.runId);
+      target?.focus({ preventScroll: true });
+    });
+  }).finally(() => {
+    // An abandoned read must be retryable when returning to this workspace.
+    if (focus.phase === "loading") focus.phase = "idle";
+  });
+}
+
 function renderWorkspaceRuns() {
+  renderWorkspaceRunScope();
+  if (state.ui.workspaceRunScope === "all") { renderExecutionOverview(); return; }
   const workspace = selectedWorkspace();
   const meta = $("workspaceRunMeta");
   const summary = $("workspaceRunSummary");
@@ -15352,7 +15399,25 @@ function renderWorkspaceRuns() {
     return;
   }
   const runs = workspaceExecutionRuns(workspace);
-  const filteredRuns = filterWorkspaceExecutionRuns(runs);
+  const focus = state.ui.workspaceRunFocus?.workspaceId === workspace.id ? state.ui.workspaceRunFocus : null;
+  const focusedRun = focus ? runs.find((run) => run.id === focus.runId) : null;
+  const focusRoot = $("workspaceRunFocusNotice");
+  if (focusRoot) {
+    focusRoot.hidden = !focus;
+    focusRoot.innerHTML = focus ? `<span>所选运行 ${escapeHtml(focus.runId)}</span>
+      <button class="secondary mini" type="button" data-action="clear-run-focus">显示该实例全部记录</button>` : "";
+  }
+  if (focus && !focusedRun && focus.phase === "loaded") focus.phase = "idle";
+  if (focus && (!focusedRun || focus.phase !== "loaded")) {
+    loadFocusedWorkspaceRun(focus);
+    meta.textContent = focus.phase === "error" ? "未能读取所选运行" : "正在定位所选运行";
+    summary.textContent = "";
+    list.innerHTML = focus.phase === "error"
+      ? `<div class="empty">无法读取所选运行：${escapeHtml(focus.error || "记录可能已删除或服务暂不可用。")}<button class="secondary mini" type="button" data-action="retry-run-focus">重新读取</button></div>`
+      : '<div class="empty" role="status">正在读取所选运行…</div>';
+    return;
+  }
+  const filteredRuns = focus ? [focusedRun] : filterWorkspaceExecutionRuns(runs);
   const runFilterActiveCount = workspaceRunFilterActiveCount();
   const latestRun = runs[0] || null;
   const jobs = workspaceJobs();
@@ -16068,6 +16133,8 @@ function switchProductTab(tab, options = {}) {
   updateProductHeaderTitle(next);
 
   if (options.persist !== false) saveStoredValue(STORAGE_KEYS.productTab, next);
+  renderWorkspaceRunScope();
+  if (changed && executionOverviewPanelVisible() && !state.ui.executionOverviewLoading) void loadExecutionOverview();
 }
 
 function renderOverview() {
@@ -19789,15 +19856,20 @@ function switchWorkspaceMode(mode) {
     renderWorkspaceRuns();
   }
   renderWorkspaceWorkbench();
+  if (changed && executionOverviewPanelVisible() && !state.ui.executionOverviewLoading) void loadExecutionOverview();
 }
 
 function switchWorkspaceManageTab(tab) {
+  if (String(tab || "") === "runs") { // Known legacy navigation, redirected to the sole current page.
+    setWorkspaceRunScope("all");
+    switchWorkspaceMode("runs");
+    return;
+  }
   const next = normalizeWorkspaceManageTab(tab);
   const changed = state.ui.workspaceManageTab !== next;
   state.ui.workspaceManageTab = next;
   if (changed) markWorkspaceUiInteraction();
   saveStoredValue(STORAGE_KEYS.workspaceManageTab, next);
-  if (next === "runs") void loadExecutionOverview({ render: true });
   if (next === "inspect" && state.selectedWorkspaceId) {
     void refreshWorkspaceTemplateDiff(state.selectedWorkspaceId, { quiet: true });
   }
@@ -20359,6 +20431,7 @@ function renderWorkspaceUseChat() {
 }
 
 function renderWorkspaceModeSwitch() {
+  renderWorkspaceRunScope();
   const mode = state.ui.workspaceMode || "use";
   $("workspaceUseModePanel")?.toggleAttribute("hidden", mode !== "use");
   $("workspaceRunsPanel")?.toggleAttribute("hidden", mode !== "runs");
@@ -21140,117 +21213,12 @@ function workspaceExecutionOverviewModule() {
     : null;
 }
 
-function executionOverviewStatusClass(status = "") {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.statusClass === "function") return module.statusClass(status);
-  const value = String(status || "pending");
-  if (["done", "ready", "completed"].includes(value)) return "ready";
-  if (["running", "queued", "starting", "pending"].includes(value)) return "running";
-  if (["failed", "blocked", "stopped"].includes(value)) return "blocked";
-  return "draft";
-}
-
-function executionOverviewStatusGroup(status = "") {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.statusGroup === "function") return module.statusGroup(status);
-  const value = String(status || "pending").trim().toLowerCase();
-  if (["done", "ready", "completed", "success", "succeeded"].includes(value)) return "done";
-  if (["failed", "blocked", "stopped", "cancelled", "canceled"].includes(value)) return "failed";
-  if (["running", "queued", "starting", "pending"].includes(value)) return "active";
-  return "active";
-}
-
 function executionOverviewFilters() {
   const kind = String(state.ui.executionOverviewKind || "all");
   return {
     query: String(state.ui.executionOverviewQuery || "").trim().toLowerCase(),
     status: String(state.ui.executionOverviewStatus || "").trim(),
     kind: ["all", "runs", "jobs"].includes(kind) ? kind : "all",
-  };
-}
-
-function normalizeExecutionOverviewFilters(filters = {}) {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.normalizeFilters === "function") return module.normalizeFilters(filters);
-  const source = filters && typeof filters === "object" ? filters : {};
-  const kind = String(source.kind || "all").trim();
-  return {
-    query: String(source.query || "").trim().toLowerCase(),
-    status: String(source.status || "").trim(),
-    kind: ["all", "runs", "jobs"].includes(kind) ? kind : "all",
-  };
-}
-
-function executionOverviewFiltersMatch(a = {}, b = {}) {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.filtersMatch === "function") return module.filtersMatch(a, b);
-  const left = normalizeExecutionOverviewFilters(a);
-  const right = normalizeExecutionOverviewFilters(b);
-  return left.query === right.query && left.status === right.status && left.kind === right.kind;
-}
-
-function backendFilteredExecutionOverviewItems(runs = [], jobs = [], filters = executionOverviewFilters()) {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.backendFilteredItems === "function") return module.backendFilteredItems(runs, jobs, filters);
-  const normalized = normalizeExecutionOverviewFilters(filters);
-  const showRuns = normalized.kind !== "jobs";
-  const showJobs = normalized.kind !== "runs";
-  return {
-    runs: showRuns ? (Array.isArray(runs) ? runs : []) : [],
-    jobs: showJobs ? (Array.isArray(jobs) ? jobs : []) : [],
-    showRuns,
-    showJobs,
-  };
-}
-
-function executionOverviewRecordSearchText(record = {}, type = "") {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.recordSearchText === "function") return module.recordSearchText(record, type);
-  const progress = record.progress && typeof record.progress === "object" ? record.progress : {};
-  return [
-    type,
-    record.id,
-    record.run_id,
-    record.execution_run_id,
-    record.job_id,
-    record.workspace_id,
-    record.workspace_name,
-    record.summary,
-    record.kind,
-    record.status,
-    record.server_id,
-    record.node_id,
-    record.agent_id,
-    record.agent_execution_id,
-    Array.isArray(record.job_ids) ? record.job_ids.join(" ") : "",
-    Array.isArray(record.agent_execution_ids) ? record.agent_execution_ids.join(" ") : "",
-    Array.isArray(record.node_ids) ? record.node_ids.join(" ") : "",
-    Array.isArray(record.node_kinds) ? record.node_kinds.join(" ") : "",
-    Array.isArray(record.server_ids) ? record.server_ids.join(" ") : "",
-    progress.done,
-    progress.total,
-    progress.percent,
-  ].map((item) => String(item || "").toLowerCase()).join(" ");
-}
-
-function executionOverviewRecordMatches(record = {}, type = "run", filters = executionOverviewFilters()) {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.recordMatches === "function") return module.recordMatches(record, type, filters);
-  if (filters.status && executionOverviewStatusGroup(record.status) !== filters.status) return false;
-  if (filters.query && !executionOverviewRecordSearchText(record, type).includes(filters.query)) return false;
-  return true;
-}
-
-function filteredExecutionOverviewItems(runs = [], jobs = [], filters = executionOverviewFilters()) {
-  const module = workspaceExecutionOverviewModule();
-  if (typeof module?.filteredItems === "function") return module.filteredItems(runs, jobs, filters);
-  const showRuns = filters.kind !== "jobs";
-  const showJobs = filters.kind !== "runs";
-  return {
-    runs: showRuns ? runs.filter((run) => executionOverviewRecordMatches(run, "run", filters)) : [],
-    jobs: showJobs ? jobs.filter((job) => executionOverviewRecordMatches(job, "job", filters)) : [],
-    showRuns,
-    showJobs,
   };
 }
 
@@ -21285,66 +21253,48 @@ function resetExecutionOverviewFilters() {
   state.ui.executionOverviewQuery = "";
   state.ui.executionOverviewStatus = "";
   state.ui.executionOverviewKind = "all";
-  renderManageRunsModule();
-  void loadExecutionOverview({ render: true });
+  saveStoredJson(STORAGE_KEYS.executionOverviewFilters, executionOverviewFilters());
+  void loadExecutionOverview();
 }
 
-function openWorkspaceFromExecutionOverview(workspaceId, options = {}) {
+async function openWorkspaceFromExecutionOverview(workspaceId, options = {}) {
   const id = String(workspaceId || "").trim();
-  if (!id) return;
-  selectWorkspace(id, { persist: true, refreshCockpit: true });
-  switchWorkspaceMode("use");
-  switchWorkspaceTab("home", { reveal: false });
-  if (options.nodeId) {
-    state.selectedWorkspaceExecutionNodeId = String(options.nodeId || "").trim();
-    renderWorkspaceExecutionDetail();
+  const runId = String(options.runId || "").trim();
+  const jobId = String(options.jobId || "").trim();
+  if (jobId && !runId) { await showLog(jobId); return; }
+  if (!id || !workspaceById(id)) {
+    if (jobId) await showLog(jobId);
+    else setWorkspaceMessage("所属实例已不可用，无法定位这次运行。请刷新全部实例记录。", true);
+    return;
   }
-  requestAnimationFrame(() => {
-    revealWorkspacePanelTarget("workspaceExecutionBoard", { block: "start" });
+  selectWorkspace(id, { persist: true, refreshCockpit: false });
+  if (runId) {
+    clearWorkspaceRunFilterState();
+    // Persist only identity; the authoritative record is fetched through the existing merger.
+    state.ui.workspaceRunFocus = { workspaceId: id, runId, phase: "idle", focusPending: true };
+    saveStoredJson(STORAGE_KEYS.workspaceRunFocus, { workspaceId: id, runId });
+    delete state.ui.workspaceRunReportSelections[id];
+    saveStoredJson(STORAGE_KEYS.workspaceRunReportSelections, state.ui.workspaceRunReportSelections);
+  }
+  setWorkspaceRunScope("instance");
+  switchWorkspaceMode("runs");
+  if (jobId) await showLog(jobId);
+  else requestAnimationFrame(() => {
+    revealWorkspacePanelTarget("workspaceRunsPanel", { block: "start" });
   });
 }
 
-function configCenterExecutionOverviewRendererApi() {
-  return window.ConfigCenterExecutionOverviewRenderer || {};
-}
-
-function configCenterExecutionOverviewRendererDeps() {
+function executionOverviewRendererDeps() {
   return {
-    backendFilteredExecutionOverviewItems,
-    element: $,
-    escapeHtml,
-    executionOverview: () => state.executionOverview,
-    executionOverviewFilters,
-    executionOverviewFiltersMatch,
-    executionOverviewStatusClass,
-    filteredExecutionOverviewItems,
-    fmtDate,
-    syncExecutionOverviewFilterControls,
-    workspaceExecutionOverviewModule,
-    workspaceRunKindLabel,
-    workspaceStatusLabel,
-    zhStatus,
+    element: $, escapeHtml, executionOverview: () => state.executionOverview,
+    executionOverviewFilters, loading: () => state.ui.executionOverviewLoading,
+    syncExecutionOverviewFilterControls, overviewModule: workspaceExecutionOverviewModule(),
+    fmtDate, workspaceRunKindLabel, workspaceStatusLabel, zhStatus,
   };
 }
 
-function manageRunOverviewItemMarkup(run = {}) {
-  return configCenterExecutionOverviewRendererApi().manageRunOverviewItemMarkup?.(
-    run,
-    configCenterExecutionOverviewRendererDeps(),
-  );
-}
-
-function manageJobOverviewItemMarkup(job = {}) {
-  return configCenterExecutionOverviewRendererApi().manageJobOverviewItemMarkup?.(
-    job,
-    configCenterExecutionOverviewRendererDeps(),
-  );
-}
-
-function renderManageRunsModule() {
-  return configCenterExecutionOverviewRendererApi().renderManageRunsModule?.(
-    configCenterExecutionOverviewRendererDeps(),
-  );
+function renderExecutionOverview() {
+  window.WorkspaceExecutionOverviewRenderer.render(executionOverviewRendererDeps());
 }
 
 function renderWorkspaceWorkbench() {
@@ -21354,9 +21304,10 @@ function renderWorkspaceWorkbench() {
   renderManageAgentModule();
   renderManageToolModule();
   renderManageAiModule();
-  renderManageRunsModule();
+  renderExecutionOverview();
   renderWorkspaceChainInspectPanel();
   renderWorkspaceManageOverview();
+  if (executionOverviewPanelVisible() && !state.executionOverview && !state.ui.executionOverviewLoading) void loadExecutionOverview();
 }
 
 async function deleteWorkspace(workspaceId) {
@@ -23567,6 +23518,22 @@ function restoreStoredUiState() {
     saveStoredValue(STORAGE_KEYS.workspaceMode, "runs");
   }
   state.ui.workspaceManageTab = loadStoredValue(STORAGE_KEYS.workspaceManageTab, state.ui.workspaceManageTab || "templates");
+  state.ui.workspaceRunScope = loadStoredValue(STORAGE_KEYS.workspaceRunScope, "instance") === "all" ? "all" : "instance";
+  const focus = loadStoredJson(STORAGE_KEYS.workspaceRunFocus, null);
+  state.ui.workspaceRunFocus = focus?.workspaceId && focus?.runId
+    ? { workspaceId: String(focus.workspaceId), runId: String(focus.runId), phase: "idle" } : null;
+  const overviewFilters = workspaceExecutionOverviewModule().normalizeFilters(loadStoredJson(STORAGE_KEYS.executionOverviewFilters, {}));
+  state.ui.executionOverviewQuery = overviewFilters.query;
+  state.ui.executionOverviewStatus = overviewFilters.status;
+  state.ui.executionOverviewKind = overviewFilters.kind;
+  if (state.ui.workspaceManageTab === "runs") {
+    state.ui.workspaceManageTab = "templates";
+    state.ui.workspaceMode = "runs";
+    state.ui.workspaceRunScope = "all";
+    saveStoredValue(STORAGE_KEYS.workspaceManageTab, "templates");
+    saveStoredValue(STORAGE_KEYS.workspaceMode, "runs");
+    saveStoredValue(STORAGE_KEYS.workspaceRunScope, "all");
+  }
   state.ui.workspaceProjectConfigOpen = loadStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, state.ui.workspaceProjectConfigOpen ? "1" : "0") === "1";
   state.ui.cockpitMonitorMode = loadStoredValue(STORAGE_KEYS.cockpitMonitorMode, state.ui.cockpitMonitorMode === false ? "0" : "1") !== "0";
   state.ui.workspaceUseIntakeOpen = loadStoredValue(STORAGE_KEYS.workspaceUseIntakeOpen, state.ui.workspaceUseIntakeOpen ? "1" : "0") === "1";
@@ -25896,24 +25863,40 @@ function bindEvents() {
       updateSelectedProviderProfile((profile) => ({ ...profile, [key]: value || "" }));
     },
   });
-  window.ConfigCenterExecutionOverviewActions?.bind?.({
+  document.addEventListener("focusin", () => {
+    // Any subsequent focus movement belongs to the user, not the pending navigation.
+    if (state.ui.workspaceRunFocus) state.ui.workspaceRunFocus.focusPending = false;
+  });
+  window.WorkspaceExecutionOverviewActions.bind({
     element: $,
     openWorkspace: openWorkspaceFromExecutionOverview,
+    setScope: setWorkspaceRunScope,
+    clearFocus: clearWorkspaceRunFocus,
+    retryFocus: () => {
+      if (state.ui.workspaceRunFocus) {
+        state.ui.workspaceRunFocus.phase = "idle";
+        state.ui.workspaceRunFocus.focusPending = true;
+      }
+      renderWorkspaceRuns();
+    },
     refreshOverview: () => loadExecutionOverview({ render: true }),
     resetFilters: resetExecutionOverviewFilters,
     setKind: (value) => {
       state.ui.executionOverviewKind = value || "all";
-      renderManageRunsModule();
+      saveStoredJson(STORAGE_KEYS.executionOverviewFilters, executionOverviewFilters());
+      renderExecutionOverview();
       scheduleExecutionOverviewRefresh(100);
     },
     setQuery: (value) => {
       state.ui.executionOverviewQuery = value || "";
-      renderManageRunsModule();
+      saveStoredJson(STORAGE_KEYS.executionOverviewFilters, executionOverviewFilters());
+      renderExecutionOverview();
       scheduleExecutionOverviewRefresh(300);
     },
     setStatus: (value) => {
       state.ui.executionOverviewStatus = value || "";
-      renderManageRunsModule();
+      saveStoredJson(STORAGE_KEYS.executionOverviewFilters, executionOverviewFilters());
+      renderExecutionOverview();
       scheduleExecutionOverviewRefresh(100);
     },
   });
