@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b2" />
+    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b3a" />
   </head>
   <body>
     <div class="shell">
@@ -372,6 +372,7 @@
               <button class="tab-chip active" data-mode="use" type="button" title="进入自动化复现/部署驾驶舱：从目标输入、实例创建到执行链跟踪">驾驶舱</button>
               <button class="tab-chip" data-mode="runs" type="button" title="查看当前实例的运行、步骤、日志和导出">运行记录</button>
               <button class="tab-chip" data-mode="manage" type="button" title="维护自动化能力底座：Starter Chain、Agent、工具和 AI 路由">配置中心</button>
+              <button id="workspaceEditInstanceBtn" class="tab-chip" type="button" aria-pressed="false">实例编辑</button>
             </div>
             <div class="workspace-mode-shell">
 
@@ -523,7 +524,7 @@
             <section id="workspaceRunsPanel" class="workspace-mode-panel workspace-run-reader" aria-labelledby="workspaceRunReaderTitle" hidden>
               <header class="workspace-run-reader-header">
                 <div>
-                  <h4 id="workspaceRunReaderTitle">运行记录</h4>
+                  <h4 id="workspaceRunReaderTitle" tabindex="-1">运行记录</h4>
                   <p class="muted">查看这次执行到了哪一步，以及它产生的日志和结果。</p>
                 </div>
                 <div class="workspace-run-reader-controls">
@@ -876,20 +877,18 @@
                 </div>
               </section>
             </section>
-            <details id="workspaceProjectConfigDrawer" class="workspace-project-drawer">
-            <summary class="workspace-project-drawer-summary" title="展开配置中心里的实例快照配置、节点链、Agent、工具和 AI 编辑区">
-              <span>
-                <strong>实例快照配置 / 高级编辑</strong>
-                <em id="workspaceProjectDrawerMeta">新工作区 · 概览 · 0 节点 · 0 Agent</em>
-              </span>
-              <span class="workspace-project-drawer-state" aria-hidden="true"></span>
-            </summary>
-            <div id="workspaceProjectModulesPanel" class="workspace-grid workspace-project-modules">
+            <section id="workspaceInstanceEditorPanel" class="workspace-mode-panel workspace-instance-editor" aria-labelledby="workspaceTitleDisplay" hidden>
+              <header class="workspace-instance-editor-header">
+                <div><h4 id="workspaceTitleDisplay" tabindex="-1">实例编辑</h4><p id="workspaceEditorIdentity" class="muted"></p></div>
+                <button id="workspaceEditorReturnBtn" class="secondary" type="button">返回原页面</button>
+              </header>
+              <p id="workspaceEditorSource" class="workspace-editor-source muted"></p>
+              <p class="workspace-editor-note">保存用于之后的执行，已提交运行仍使用原快照。当前接口尚未提供配置版本号。</p>
+              <p class="workspace-editor-note">未保存修改仅保留在当前页面；刷新或切换实例可能丢失，请先保存。</p>
+              <div id="workspaceProjectModulesPanel" class="workspace-instance-editor-body">
             <div id="workspaceTabs" class="segmented-tabs workspace-tabs">
-              <button class="tab-chip active" data-tab="home" type="button" title="查看项目状态、执行准备、资源调度和最近运行">概览</button>
               <button class="tab-chip" data-tab="project" type="button" title="编辑项目基础信息、输入来源、运行偏好和目录环境">项目</button>
               <button class="tab-chip" data-tab="workflow" type="button" title="编辑可见执行链、节点交接、运行入口和资源策略">工作流</button>
-              <button class="tab-chip" data-tab="chat" type="button" title="围绕当前项目补充上下文、追问或沉淀对话">对话</button>
               <button class="tab-chip" data-tab="agents" type="button" title="编辑当前项目实例内的 Agent 角色、提示词和模型覆盖">Agent</button>
               <button class="tab-chip" data-tab="tools" type="button" title="注册工具、能力边界和 Agent allowlist">工具</button>
               <button class="tab-chip" data-tab="model" type="button" title="配置 Provider Profile、模型和路由策略">AI</button>
@@ -897,141 +896,12 @@
             <section class="workspace-editor">
               <form id="workspaceForm" class="workspace-form" autocomplete="off">
                 <input id="workspaceIdInput" name="workspace_id" type="hidden" />
-                <section class="workspace-hero">
-                  <div>
-                    <div class="workspace-eyebrow">Project Workspace</div>
-                    <h4 id="workspaceTitleDisplay">新工作区</h4>
-                    <p id="workspaceSummaryMeta" class="muted">保存后会把对话、工作流、Agent 配置和 AI 路由一起挂到当前项目。</p>
-                  </div>
-                  <div class="button-row workspace-actions">
-                    <button class="primary" type="submit" title="保存当前项目实例、节点链、Agent、工具和 AI 路由草稿">保存项目</button>
-                    <button id="workspaceRunFlowBtn" class="secondary" type="button" title="按当前节点链提交完整工作流；门禁失败时不会创建半截队列">运行工作流</button>
-                    <button id="workspaceResetBtn" class="secondary" type="button" title="清空当前表单并回到新的草稿项目">新建空白</button>
-                    <button id="workspaceFillJobBtn" class="secondary" type="button" title="把当前运行节点的命令、目录、环境和 GPU 策略填入执行面板">填入执行面板</button>
-                  </div>
-                </section>
-                <section class="workspace-module-band">
-                  <div class="subsection-head">
-                    <strong>工作台模块</strong>
-                    <span class="muted">每个模块只负责一类操作，避免所有配置堆在一起。</span>
-                  </div>
-                  <div id="workspaceModuleCards" class="workspace-module-grid"></div>
-                </section>
-                <p id="workspaceMessage" class="form-message"></p>
-
-                <section id="workspaceHomePanel" class="workspace-tab-panel">
-                  <div class="workspace-home-grid">
-                    <section class="workspace-section workspace-home-cockpit-section">
-                      <div class="subsection-head">
-                        <strong>自动化驾驶舱</strong>
-                        <span class="muted">默认只回答当前阶段、下一步和阻塞原因。</span>
-                      </div>
-                      <div id="workspaceHomeDecision" class="workspace-home-decision"></div>
-                      <details class="workspace-home-collapse workspace-home-status-details">
-                        <summary>
-                          <strong>启动包与预检细节</strong>
-                          <span>启动包、执行包、数据集、资源和 Agent 状态。</span>
-                        </summary>
-                        <div class="workspace-home-collapse-body">
-                          <div id="workspaceHomeCockpit" class="workspace-home-cockpit"></div>
-                          <div id="workspaceHomePreflight" class="workspace-home-preflight"></div>
-                        </div>
-                      </details>
-                    </section>
-
-                    <section class="workspace-section workspace-home-flow-section" hidden>
-                      <div class="subsection-head">
-                        <strong>执行链进度</strong>
-                        <span class="muted">驾驶舱执行看板已展示链路；此处保留给项目抽屉诊断。</span>
-                      </div>
-                      <div id="workspaceHomeFlow" class="workspace-home-flow"></div>
-                    </section>
-
-                    <section class="workspace-section">
-                      <div class="subsection-head">
-                        <strong>最近运行</strong>
-                        <span class="muted">先看当前项目最近绑定的任务和状态。</span>
-                      </div>
-                      <div id="workspaceHomeRuns" class="workspace-home-run-list"></div>
-                    </section>
-
-                    <details class="workspace-home-collapse workspace-home-advanced-section">
-                      <summary>
-                        <strong>项目资料和建议</strong>
-                        <span>默认先看上下文摘要；概览、建议、简报和入口按需展开。</span>
-                      </summary>
-                      <div class="workspace-home-collapse-body">
-                        <div id="workspaceHomeContext" class="workspace-home-context"></div>
-                        <details class="workspace-home-collapse workspace-home-context-details">
-                          <summary>
-                            <strong>资料明细</strong>
-                            <span>项目概览、下一步建议、简报和低频入口。</span>
-                          </summary>
-                          <div class="workspace-home-collapse-body">
-                            <section class="workspace-section">
-                              <div class="subsection-head">
-                                <strong>项目概览</strong>
-                                <span class="muted">先看当前项目状态，再进入具体模块。</span>
-                              </div>
-                              <div id="workspaceHomeSummary" class="workspace-home-summary-grid"></div>
-                            </section>
-                            <section class="workspace-section">
-                              <div class="subsection-head">
-                                <strong>下一步建议</strong>
-                                <span class="muted">按当前资料和运行状态收口到最该做的动作。</span>
-                              </div>
-                              <div id="workspaceHomeActions" class="workspace-home-actions"></div>
-                            </section>
-                            <section class="workspace-section">
-                              <div class="subsection-head">
-                                <strong>项目摘要</strong>
-                                <span class="muted">目标、输入来源、目录、环境和模型路由。</span>
-                              </div>
-                              <div id="workspaceHomeBrief" class="workspace-home-brief"></div>
-                            </section>
-                            <section class="workspace-section">
-                              <div class="subsection-head">
-                                <strong>快捷入口</strong>
-                                <span class="muted">按你的工作节奏切到编辑、执行或排查。</span>
-                              </div>
-                              <div id="workspaceHomeQuickLinks" class="workspace-home-quick-grid"></div>
-                            </section>
-                          </div>
-                        </details>
-                      </div>
-                    </details>
-
-                    <details class="workspace-home-collapse workspace-home-advanced-section">
-                      <summary>
-                        <strong>门禁、资源和分层</strong>
-                        <span>执行准备、资源调度、数据/环境/GPU 和 Agent/Tool/AI。</span>
-                      </summary>
-                      <div class="workspace-home-collapse-body">
-                        <section class="workspace-section">
-                          <div class="subsection-head">
-                            <strong>执行准备清单</strong>
-                            <span class="muted">把发现、回填、门禁、完整运行和产物回收串成一条可解释链。</span>
-                          </div>
-                          <div id="workspaceHomeReadiness" class="workspace-home-readiness"></div>
-                        </section>
-                        <section class="workspace-section">
-                          <div class="subsection-head">
-                            <strong>资源/数据/环境/GPU 调度</strong>
-                            <span class="muted">看工作目录、数据集、环境、GPU、运行入口和产物是否能串起来。</span>
-                          </div>
-                          <div id="workspaceHomeResources" class="workspace-home-resources"></div>
-                        </section>
-                        <section class="workspace-section">
-                          <div class="subsection-head">
-                            <strong>Agent / Tool / AI 分层</strong>
-                            <span class="muted">看每个阶段由谁接手、能用什么工具、走哪个模型路由。</span>
-                          </div>
-                          <div id="workspaceHomeTopology" class="workspace-home-topology"></div>
-                        </section>
-                      </div>
-                    </details>
-                  </div>
-                </section>
+                <div class="workspace-instance-editor-save">
+                  <button class="primary" type="submit">保存实例</button>
+                  <button id="workspaceResetBtn" class="secondary" type="button">新建空白</button>
+                  <span id="workspaceSummaryMeta" class="muted"></span>
+                </div>
+                <p id="workspaceMessage" class="form-message" role="status" aria-live="polite"></p>
 
                 <section id="workspaceProjectPanel" class="workspace-tab-panel" hidden>
                   <div class="workspace-overview-grid">
@@ -1329,24 +1199,8 @@
 
               </form>
             </section>
-            <section class="workspace-side">
-              <div class="subsection-head">
-                <strong>实例队列</strong>
-                <span id="workspaceProjectListMeta" class="muted">先看当前实例；列表按需展开</span>
               </div>
-              <div id="workspaceProjectQueue" class="workspace-project-queue"></div>
-              <details class="workspace-home-collapse workspace-project-list-details">
-                <summary>
-                  <strong>实例明细</strong>
-                  <span>已保存项目列表、选择和删除入口。</span>
-                </summary>
-                <div class="workspace-home-collapse-body">
-                  <div id="workspaceList" class="workspace-list"></div>
-                </div>
-              </details>
             </section>
-          </div>
-          </details>
           </div>
           </div>
         </section>
@@ -1782,7 +1636,7 @@
     <script src="/config-center/config_center_provider_profiles.js?v=20260706providerprofilesrules"></script>
     <script src="/core/app_runtime.js?v=20260803appruntime"></script>
     <script src="/config-center/config_center_diagnostics.js?v=20260706configdiagnosticsmodule"></script>
-    <script src="/core/app_navigation_actions.js?v=20260707appnavigationactions"></script>
+    <script src="/core/app_navigation_actions.js?v=20261013n13b3a"></script>
     <script src="/config-center/config_center_agent_health.js?v=20260706agenthealthmodule"></script>
     <script src="/config-center/config_center_agent_renderer.js?v=20260707agentrenderer"></script>
     <script src="/config-center/config_center_agent_actions.js?v=20260707agentactions"></script>
@@ -1827,12 +1681,12 @@
     <script src="/workspace/workspace_run_detail_actions.js?v=20261013n07aui"></script>
     <script src="/workspace/workspace_agent_trace.js?v=20260707agenttrace"></script>
     <script src="/workspace/workspace_agent_stream_state.js?v=20260707agentstreamstate"></script>
-    <script src="/workspace/workspace_event_stream.js?v=20260707eventstream"></script>
+    <script src="/workspace/workspace_event_stream.js?v=20261013n13b3a"></script>
     <script src="/workspace/workspace_run_actions.js?v=20261013n13b1"></script>
     <script src="/workspace/workspace_template_diff.js?v=20260706templatediffsplit"></script>
     <script src="/workspace/workspace_template_migration_actions.js?v=20260706templatemigrationactions"></script>
     <script src="/workspace/workspace_flow_canvas_controls.js?v=20260706flowcanvascontrols"></script>
-    <script src="/workspace/workspace_focus_navigation.js?v=20260803focusnavigation"></script>
+    <script src="/workspace/workspace_focus_navigation.js?v=20261013n13b3a"></script>
     <script src="/workspace/workspace_flow_tool_state.js?v=20260707flowtoolstate"></script>
     <script src="/workspace/workspace_node_run_state.js?v=20260707noderunstate"></script>
     <script src="/workspace/workspace_catalog_data.js?v=20261013n13b2"></script>
@@ -1843,10 +1697,10 @@
     <script src="/workspace/workspace_agent_catalog.js?v=20260707agentcatalog"></script>
     <script src="/workspace/workspace_model_provider_actions.js?v=20260707modelprovideractions"></script>
     <script src="/workspace/workspace_launcher_actions.js?v=20260707launcheractions"></script>
-    <script src="/workspace/workspace_action_surfaces.js?v=20260707actionsurfaces"></script>
+    <script src="/workspace/workspace_action_surfaces.js?v=20261013n13b3a"></script>
     <script src="/workspace/workspace_workflow_submission.js?v=20261012submission"></script>
     <script src="/workspace/workspace_automation_actions.js?v=20261012submission"></script>
-    <script src="/workspace/workspace_shell_actions.js?v=20261013n13b1"></script>
+    <script src="/workspace/workspace_shell_actions.js?v=20261013n13b3a"></script>
     <script src="/workspace/workspace_form_actions.js?v=20260707workspaceformactions"></script>
     <script src="/workspace/workspace_chat_normalizers.js?v=20260707chatnormalizers"></script>
     <script src="/workspace/workspace_chat_actions.js?v=20260707chatactions"></script>
@@ -1897,6 +1751,6 @@
     <script src="/transfer/transfer_progress_state.js?v=20260707transferprogressstate"></script>
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
-    <script src="/core/app.js?v=20261013n13b2"></script>
+    <script src="/core/app.js?v=20261013n13b3a"></script>
   </body>
 </html>

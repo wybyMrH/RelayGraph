@@ -88,7 +88,7 @@
     const id = String(targetId || "").trim();
     requestAnimationFrame(() => {
       const target = id ? elementById(deps, id) : null;
-      const fallback = elementById(deps, "workspaceExecutionBoard") || elementById(deps, "workspaceHomePanel") || elementById(deps, "workspaceProjectModulesPanel");
+      const fallback = elementById(deps, "workspaceExecutionBoard") || elementById(deps, "workspaceProjectModulesPanel");
       const element = target || fallback;
       if (!element) return;
       revealWorkspaceElement(element, options);
@@ -233,7 +233,7 @@
     ".subsection-head",
     ".workspace-mode-switch",
     ".workspace-tabs",
-    ".workspace-project-drawer-summary",
+    ".workspace-instance-editor-header",
     ".workspace-manage-toolbar",
     ".workspace-template-list-panel",
     ".workspace-template-seeds",
@@ -274,7 +274,7 @@
     if (target.closest("#workspaceHubPanel > .panel-head")) {
       return document.querySelector(".workspace-scroll-shell");
     }
-    if (target.closest("#workspaceModeSwitch, #workspaceManageTabs, #workspaceTabs, .workspace-project-drawer-summary")) {
+    if (target.closest("#workspaceModeSwitch, #workspaceManageTabs, #workspaceTabs, .workspace-instance-editor-header")) {
       return document.querySelector(".workspace-scroll-shell");
     }
     if (target.closest(".workspace-execution-workspace-head")) {

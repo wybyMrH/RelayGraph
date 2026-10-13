@@ -41,13 +41,6 @@
     bindClosest(callbacks, element(callbacks, "execTabs"), "[data-tab]", "switchExecTab", (button) => button.dataset.tab);
     bindClosest(callbacks, element(callbacks, "mainNav"), "[data-view]", "switchProductTab", (button) => button.dataset.view);
     bindClosest(callbacks, element(callbacks, "workspaceTabs"), "[data-tab]", "switchWorkspaceTab", (button) => button.dataset.tab);
-    bindClosest(
-      callbacks,
-      element(callbacks, "workspaceModuleCards"),
-      "[data-workspace-tab]",
-      "switchWorkspaceTab",
-      (button) => button.getAttribute("data-workspace-tab"),
-    );
     bindClosest(callbacks, element(callbacks, "workspaceModeSwitch"), "[data-mode]", "switchWorkspaceMode", (button) => button.dataset.mode);
     bindClosest(callbacks, element(callbacks, "workspaceManageTabs"), "[data-tab]", "switchWorkspaceManageTab", (button) => button.dataset.tab);
     bindClosest(

@@ -177,7 +177,7 @@ const state = {
     workspaceResourceRefreshBusy: false,
     workspaceResourceServerId: "",
     workspaceBackfillFocus: {},
-    workspaceProjectConfigOpen: false,
+    workspaceEditorReturn: null,
     cockpitMonitorMode: true,
     workspaceUseIntakeOpen: false,
     workspaceFlowZoom: 1,
@@ -318,7 +318,7 @@ const STORAGE_KEYS = {
   workspaceAgents: "tc-workspace-agents",
   workspaceTools: "tc-workspace-tools",
   workspaceModel: "tc-workspace-model",
-  workspaceProjectConfigOpen: "tc-workspace-project-config-open",
+  workspaceEditorReturn: "tc-workspace-editor-return",
   cockpitMonitorMode: "tc-cockpit-monitor-mode",
   workspaceUseIntakeOpen: "tc-workspace-use-intake-open",
   workspaceFlowZoom: "tc-workspace-flow-zoom",
@@ -3643,7 +3643,7 @@ function revealWorkspacePanelTarget(targetId = "", options = {}) {
   const id = String(targetId || "").trim();
   requestAnimationFrame(() => {
     const target = id ? $(id) : null;
-    const fallback = $("workspaceExecutionBoard") || $("workspaceHomePanel") || $("workspaceProjectModulesPanel");
+    const fallback = $("workspaceExecutionBoard") || $("workspaceProjectModulesPanel");
     const element = target || fallback;
     if (!element) return;
     revealWorkspaceElement(element, options);
@@ -4735,9 +4735,7 @@ function focusWorkspaceCockpitFromNextAction(workspace = selectedWorkspace()) {
   const focusNodeId = String(next?.focus_node_id || "").trim();
   switchWorkspaceMode("use");
   switchWorkspaceTab("home", { reveal: false });
-  state.ui.workspaceProjectConfigOpen = false;
-  saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "0");
-  syncWorkspaceProjectConfigDrawer({ scroll: false });
+
   revealWorkspacePanelTarget("workspaceExecutionBoard", { block: "start" });
   if (focusNodeId) {
     state.selectedWorkspaceExecutionNodeId = focusNodeId;
@@ -12941,117 +12939,13 @@ function workspaceHeaderMeta() {
   return parts.join(" · ");
 }
 
-function renderWorkspaceProjectDrawerMeta() {
-  const meta = $("workspaceProjectDrawerMeta");
-  if (!meta) return;
-  const formData = workspaceFormPayload();
-  const workspace = selectedWorkspace();
-  const tab = state.ui.workspaceTab || "home";
-  const tabLabel = workspaceModuleCardsConfig().find((item) => item.id === tab)?.title || "概览";
-  const workspaceName = String(formData.name || workspace?.name || "新工作区").trim() || "新工作区";
-  const nodeCount = state.workspaceNodesDraft.length;
-  const agentCount = state.workspaceAgentsDraft.length;
-  meta.textContent = `${workspaceName} · ${tabLabel} · ${nodeCount} 节点 · ${agentCount} Agent`;
-}
-
-function syncWorkspaceProjectConfigDrawer(options = {}) {
-  const drawer = $("workspaceProjectConfigDrawer");
-  if (!drawer) return;
-  const mode = state.ui.workspaceMode || "use";
-  const hidden = mode !== "manage";
-  drawer.toggleAttribute("hidden", hidden);
-  const shouldOpen = !hidden && Boolean(state.ui.workspaceProjectConfigOpen);
-  if (drawer.open !== shouldOpen) drawer.open = shouldOpen;
-  renderWorkspaceProjectDrawerMeta();
-  if (options.scroll && shouldOpen) {
-    requestAnimationFrame(() => drawer.scrollIntoView({ block: "start", behavior: "smooth" }));
-  }
-}
-
-function workspaceModuleCardsConfig() {
-  const workspace = selectedWorkspace();
-  const formData = workspaceFormPayload();
-  const messages = Array.isArray(workspace?.chat) ? workspace.chat.length : 0;
-  const enabledAgents = state.workspaceAgentsDraft.filter((agent) => agent.enabled !== false).length;
-  const enabledTools = state.workspaceToolsDraft.filter((tool) => tool.enabled !== false).length;
-  const toolCategories = new Set(state.workspaceToolsDraft.map((tool) => String(tool.category || "general"))).size;
-  const profile = providerProfileById(state.workspaceModelDraft.provider_profile_id);
-  const chatAgent = workspaceAgentById(state.workspaceModelDraft.chat_agent_id)?.name || "项目默认 Agent";
-  const sourceSummary = workspaceDraftSourceSummary(formData, workspace);
-  const referenceCount = parseLineList(formData.references || "").length || (Array.isArray(workspace?.references) ? workspace.references.length : 0);
-  const workspaceDir = String(formData.workspace_dir || workspace?.workspace_dir || "").trim() || "未设工作目录";
-  const envName = String(formData.env_name || workspace?.env?.name || "").trim() || "未设环境";
-  const statusValue = String(formData.status || workspace?.status || "draft");
-  return [
-    {
-      id: "home",
-      title: "概览",
-      meta: `${workspaceSourceTypeLabel(String(formData.source_type || workspace?.source?.type || "idea"))} · ${workspaceStatusLabel(statusValue)}`,
-      detail: String(formData.brief || sourceSummary || "先从这里确认目标、编排规模和最近运行。").trim() || "先从这里确认目标、编排规模和最近运行。",
-    },
-    {
-      id: "project",
-      title: "项目设置",
-      meta: `${referenceCount} 条参考 · ${workspaceDir}`,
-      detail: `${envName}${formData.schedule ? ` · ${String(formData.schedule).trim()}` : ""}`,
-    },
-    {
-      id: "workflow",
-      title: "工作流",
-      meta: `${state.workspaceNodesDraft.length} 个节点`,
-      detail: workspaceNodeRuntimeSummary(workspaceRunNode(state.workspaceNodesDraft)) || "把 repo、环境、运行和评估拆成可见节点。",
-    },
-    {
-      id: "chat",
-      title: "对话",
-      meta: `${messages} 条消息`,
-      detail: `当前路由 ${chatAgent}`,
-    },
-    {
-      id: "agents",
-      title: "Agent 管理",
-      meta: `${state.workspaceAgentsDraft.length} 个 agent · ${enabledAgents} 启用`,
-      detail: "角色、提示词、模型覆盖和工具边界。",
-    },
-    {
-      id: "tools",
-      title: "工具注册",
-      meta: `${state.workspaceToolsDraft.length} 个工具 · ${toolCategories} 类`,
-      detail: `${enabledTools} 个已启用工具可分配给不同 agent。`,
-    },
-    {
-      id: "model",
-      title: "AI 配置",
-      meta: `${state.providerProfiles.length} 个 profile`,
-      detail: profile ? `${providerProfileLabel(profile)} · ${state.workspaceModelDraft.routing_mode === "agent_override" ? "允许 agent 覆盖" : "项目统一默认"}` : "先配置 provider、model 和路由策略。",
-    },
-  ];
-}
-
 function renderWorkspaceHeader() {
   const formData = workspaceFormPayload();
   const title = String(formData.name || selectedWorkspace()?.name || "").trim() || "新工作区";
   const meta = workspaceHeaderMeta();
-  if ($("workspaceTitleDisplay")) $("workspaceTitleDisplay").textContent = title;
+  if ($("workspaceTitleDisplay")) $("workspaceTitleDisplay").textContent = `实例编辑：${title}`;
   if ($("workspaceSummaryMeta")) $("workspaceSummaryMeta").textContent = meta;
-  renderWorkspaceProjectDrawerMeta();
-}
-
-function renderWorkspaceModuleCards() {
-  const root = $("workspaceModuleCards");
-  if (!root) return;
-  root.innerHTML = workspaceModuleCardsConfig().map((item) => {
-    const active = item.id === state.ui.workspaceTab ? " active" : "";
-    return `
-      <button class="workspace-module-card${active}" type="button" data-workspace-tab="${escapeHtml(item.id)}" title="切换到${escapeHtml(item.title)}模块：${escapeHtml(item.detail)}">
-        <div class="workspace-module-card-head">
-          <strong>${escapeHtml(item.title)}</strong>
-          <span class="workspace-module-card-meta">${escapeHtml(item.meta)}</span>
-        </div>
-        <div class="workspace-module-card-detail" title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</div>
-      </button>
-    `;
-  }).join("");
+  renderWorkspaceEditorIdentity();
 }
 
 function defaultWorkspaceAgentDebugInput(agent = selectedWorkspaceAgent()) {
@@ -14397,42 +14291,6 @@ function workspaceHomeContextMarkup(workspace = selectedWorkspace(), formData = 
   `;
 }
 
-function renderWorkspaceHome() {
-  const workspace = selectedWorkspace();
-  const decision = $("workspaceHomeDecision");
-  const cockpit = $("workspaceHomeCockpit");
-  const preflight = $("workspaceHomePreflight");
-  const context = $("workspaceHomeContext");
-  const summary = $("workspaceHomeSummary");
-  const actions = $("workspaceHomeActions");
-  const brief = $("workspaceHomeBrief");
-  const flow = $("workspaceHomeFlow");
-  const readiness = $("workspaceHomeReadiness");
-  const resourcesPanel = $("workspaceHomeResources");
-  const topology = $("workspaceHomeTopology");
-  const runs = $("workspaceHomeRuns");
-  const quick = $("workspaceHomeQuickLinks");
-  if (!decision || !cockpit || !preflight || !context || !summary || !actions || !brief || !flow || !readiness || !resourcesPanel || !topology || !runs || !quick) return;
-  decision.innerHTML = workspaceCommandCenterMarkup(workspace, {
-    inputs: workspaceUseInputsPayload(),
-    template: selectedWorkflowTemplate(),
-    resources: workspaceUseResourceSummary(),
-    layout: "monitor",
-  });
-  cockpit.innerHTML = workspace?.id ? workspaceHomeCockpitCompactMarkup(workspace) : "";
-  preflight.innerHTML = workspace?.id ? workspaceHomePreflightMarkup(workspace) : "";
-  context.innerHTML = workspace?.id ? workspaceHomeContextCompactMarkup(workspace) : "";
-  summary.innerHTML = "";
-  actions.innerHTML = "";
-  brief.innerHTML = "";
-  flow.innerHTML = "";
-  readiness.innerHTML = "";
-  resourcesPanel.innerHTML = "";
-  topology.innerHTML = "";
-  runs.innerHTML = workspaceHomeRunsMarkup(workspace);
-  quick.innerHTML = "";
-}
-
 function setSelectOptions(select, options, selectedValue, emptyLabel = "") {
   if (!select) return;
   const items = emptyLabel ? [{ value: "", label: emptyLabel }, ...options] : options;
@@ -14456,31 +14314,65 @@ function renderWorkspaceAgentControls() {
   setSelectOptions($("workspaceModelProfileSelect"), modelOptions, state.workspaceModelDraft.provider_profile_id, "不指定 profile");
 }
 
+function rememberWorkspaceEditorReturn() {
+  state.ui.workspaceEditorReturn = {
+    mode: ["use", "runs", "manage"].includes(state.ui.workspaceMode) ? state.ui.workspaceMode : "use",
+    workspaceId: state.selectedWorkspaceId || "",
+  };
+  saveStoredJson(STORAGE_KEYS.workspaceEditorReturn, state.ui.workspaceEditorReturn);
+}
+
+function workspaceEditorReturnMode() {
+  const origin = state.ui.workspaceEditorReturn;
+  // A new/different instance must never be rebound to the origin's historical run.
+  return origin?.workspaceId === (state.selectedWorkspaceId || "") && ["use", "runs", "manage"].includes(origin.mode) ? origin.mode : "use";
+}
+
+function returnFromWorkspaceEditor() {
+  const mode = workspaceEditorReturnMode();
+  switchWorkspaceMode(mode);
+  requestAnimationFrame(() => {
+    const target = mode === "runs" ? $("workspaceRunReaderTitle") : document.querySelector(`#workspaceModeSwitch [data-mode="${mode || "use"}"]`);
+    target?.focus({ preventScroll: true });
+  });
+}
+
+function renderWorkspaceEditorIdentity() {
+  const workspace = selectedWorkspace();
+  const snapshot = workspace?.template_snapshot || {};
+  if ($("workspaceEditorIdentity")) $("workspaceEditorIdentity").textContent = workspace?.id ? `实例 ID：${workspace.id}` : "新实例草稿，保存后生成实例 ID。";
+  const template = snapshot.template_name || workspace?.template_name || snapshot.template_id || workspace?.template_id;
+  if ($("workspaceEditorSource")) $("workspaceEditorSource").textContent = template
+    ? `模板来源：${template}${snapshot.created_at ? `；实例模板快照建立于 ${fmtDate(snapshot.created_at)}` : "；未记录快照建立时间"}。全局模板更新不会自动改写本实例。`
+    : "手动配置实例；未绑定模板快照。";
+  const button = $("workspaceEditorReturnBtn");
+  if (button) button.textContent = workspaceEditorReturnMode() === "runs" ? "返回运行记录" : workspaceEditorReturnMode() === "manage" ? "返回配置中心" : "返回驾驶舱";
+}
+
 function switchWorkspaceTab(tab, options = {}) {
   if (tab === "runs") {
     if (options.persist !== false) { setWorkspaceRunScope("instance"); switchWorkspaceMode("runs"); }
     return;
   }
+  if (["home", "chat"].includes(tab) && options.persist !== false) {
+    switchWorkspaceMode("use");
+    if (tab === "chat") requestAnimationFrame(() => revealWorkspacePanelTarget("workspaceUseChat", { block: "start" }));
+    return;
+  }
   const tabMap = {
     "config": "project",
   };
-  const next = WORKSPACE_PROJECT_TABS.includes(tab) ? tab : (tabMap[tab] || "home");
+  const next = ["project", "workflow", "agents", "tools", "model"].includes(tab) ? tab : (tabMap[tab] || "project");
   const changed = state.ui.workspaceTab !== next;
   state.ui.workspaceTab = next;
-  if (options.persist !== false && next !== "home" && state.ui.workspaceMode !== "manage") {
-    state.ui.workspaceMode = "manage";
-    saveStoredValue(STORAGE_KEYS.workspaceMode, "manage");
+  const enteringEditor = options.persist !== false && state.ui.workspaceMode !== "edit";
+  if (enteringEditor) {
+    rememberWorkspaceEditorReturn();
+    state.ui.workspaceMode = "edit";
+    saveStoredValue(STORAGE_KEYS.workspaceMode, "edit");
   }
-  if (changed && options.persist !== false) markWorkspaceUiInteraction();
-  if (next === "home") {
-    state.ui.workspaceProjectConfigOpen = false;
-    if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "0");
-  } else {
-    state.ui.workspaceProjectConfigOpen = true;
-    if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "1");
-  }
+  if ((changed || enteringEditor) && options.persist !== false) markWorkspaceUiInteraction();
 
-  const homePanel = $("workspaceHomePanel");
   const projectPanel = $("workspaceProjectPanel");
   const workflowPanel = $("workspaceWorkflowPanel");
   const chatPanel = $("workspaceChatPanel");
@@ -14488,7 +14380,6 @@ function switchWorkspaceTab(tab, options = {}) {
   const toolsPanel = $("workspaceToolsPanel");
   const modelPanel = $("workspaceModelPanel");
   const activePanel = {
-    home: homePanel,
     project: projectPanel,
     workflow: workflowPanel,
     chat: chatPanel,
@@ -14503,7 +14394,6 @@ function switchWorkspaceTab(tab, options = {}) {
     model: $("workspaceModelRoutingSummary"),
   }[next] || activePanel;
 
-  if (homePanel) homePanel.hidden = next !== "home";
   if (projectPanel) projectPanel.hidden = next !== "project";
   if (workflowPanel) workflowPanel.hidden = next !== "workflow";
   if (chatPanel) chatPanel.hidden = next !== "chat";
@@ -14511,13 +14401,12 @@ function switchWorkspaceTab(tab, options = {}) {
   if (toolsPanel) toolsPanel.hidden = next !== "tools";
   if (modelPanel) modelPanel.hidden = next !== "model";
 
-  $("workspaceProjectModulesPanel")?.classList.toggle("home-active", next === "home");
   setActiveTab("workspaceTabs", next);
-  setActiveTab("workspaceModuleCards", next, "data-workspace-tab");
   if (options.persist !== false) saveStoredValue(STORAGE_KEYS.workspaceTab, next);
   renderWorkspaceModeSwitch();
+  if (enteringEditor) requestAnimationFrame(() => $("workspaceTitleDisplay")?.focus({ preventScroll: true }));
   if (next !== "home" && activeRevealTarget && options.persist !== false && options.reveal !== false) {
-    requestAnimationFrame(() => revealWorkspaceElement(activeRevealTarget, { block: "start" }));
+    requestAnimationFrame(() => revealWorkspaceElement(enteringEditor ? $("workspaceInstanceEditorPanel") : activeRevealTarget, { block: "start" }));
   }
 }
 
@@ -14541,12 +14430,10 @@ function openWorkspaceConfigDetail(targetId = "", options = {}) {
     return;
   }
   switchWorkspaceTab(tab, { reveal: false });
-  state.ui.workspaceProjectConfigOpen = true;
-  saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, "1");
-  syncWorkspaceProjectConfigDrawer({ scroll: false });
+
   const details = id ? $(id) : null;
   if (details) details.open = true;
-  const target = details || $(workspaceManagePanelId(tab)) || $("workspaceProjectConfigDrawer");
+  const target = details || $("workspaceInstanceEditorPanel");
   requestAnimationFrame(() => {
     if (target?.id) revealWorkspacePanelTarget(target.id, { block: options.block || "center" });
     else target?.scrollIntoView?.({ block: options.block || "center", behavior: "smooth" });
@@ -15506,13 +15393,10 @@ function renderWorkspaceRuns() {
 
 function renderWorkspaceRunSurfaces() {
   renderWorkspaceRuns();
-  renderWorkspaceHome();
 }
 
 function renderWorkspacePanels() {
   renderWorkspaceHeader();
-  renderWorkspaceModuleCards();
-  renderWorkspaceHome();
   renderWorkspaceNodeBuilder();
   renderWorkspaceAgents();
   renderWorkspaceTools();
@@ -15802,6 +15686,7 @@ function replacePrimarySourceNodeKind(sourceType) {
 }
 
 function clearWorkspaceForm() {
+  const wasEditing = state.ui.workspaceMode === "edit";
   // Use new defaultWorkspaceForm for smart defaults
   const defaults = defaultWorkspaceForm("repo");
   defaults.workspace_id = "";
@@ -15821,7 +15706,7 @@ function clearWorkspaceForm() {
   renderWorkspaces();
   renderWorkspacePanels();
   switchProductTab("workspace");
-  switchWorkspaceTab("home");
+  switchWorkspaceTab(wasEditing ? "project" : "home");
 }
 
 function workspacePayloadForSave() {
@@ -19687,111 +19572,13 @@ function workspaceItemCockpitSummary(workspace = {}) {
   ];
 }
 
-function workspaceProjectQueueMarkup(items = []) {
-  const workspaces = Array.isArray(items) ? items : [];
-  const selected = workspaces.find((workspace) => workspace.id === state.selectedWorkspaceId) || null;
-  const queueCounts = workspaces.reduce((acc, workspace) => {
-    const counts = workspace?.execution?.counts && typeof workspace.execution.counts === "object" ? workspace.execution.counts : {};
-    acc.active += Number(counts.running || 0) + Number(counts.queued || 0) + Number(counts.starting || 0);
-    acc.failed += Number(counts.failed || 0) + Number(counts.stopped || 0);
-    acc.done += Number(counts.done || 0);
-    if (String(workspace?.status || "") === "done") acc.finished += 1;
-    return acc;
-  }, { active: 0, failed: 0, done: 0, finished: 0 });
-  const status = queueCounts.failed ? "failed" : queueCounts.active ? "running" : workspaces.length ? "ready" : "draft";
-  const selectedAutomation = selected ? workspaceAutomationSummary(selected) : null;
-  const selectedExecution = selected?.execution && typeof selected.execution === "object" ? selected.execution : {};
-  const selectedNodes = Array.isArray(selectedExecution.nodes) ? selectedExecution.nodes : [];
-  const currentNode = selectedNodes.find((node) => node.id === selectedExecution.current_node_id) || selectedNodes[0] || null;
-  const selectedCounts = selectedExecution.counts && typeof selectedExecution.counts === "object" ? selectedExecution.counts : {};
-  const selectedActive = Number(selectedCounts.running || 0) + Number(selectedCounts.queued || 0) + Number(selectedCounts.starting || 0);
-  const selectedFailed = Number(selectedCounts.failed || 0) + Number(selectedCounts.stopped || 0);
-  const currentTitle = selected
-    ? selected.name || selected.id
-    : workspaces.length ? "等待选择实例" : "还没有保存实例";
-  const currentDetail = selected
-    ? [
-        currentNode ? `${currentNode.title || currentNode.kind} · ${workspaceStatusLabel(currentNode.status || "pending")}` : `${(selected.nodes || []).length} 节点`,
-        selectedActive ? `${selectedActive} 活跃` : selectedFailed ? `${selectedFailed} 异常` : `${Number(selectedCounts.done || 0)} 完成`,
-        selectedAutomation?.advance?.title || selectedAutomation?.summary || "",
-      ].filter(Boolean).join(" · ")
-    : workspaces.length
-      ? "尚未载入历史实例，启动器保持默认输入。"
-      : "先在驾驶舱创建实例，再让系统自动发现路径、数据、环境和 GPU。";
-  const primaryAction = selected
-    ? { label: "看驾驶舱", dataAction: "switch-workspace-tab", tab: "home", tone: "primary", title: "打开当前实例的驾驶舱、执行链和运行摘要。" }
-    : { label: "创建并发现", dataAction: "create-workspace-discover", tone: "primary", title: "创建实例并先运行安全发现链。" };
-  const secondaryAction = selected
-    ? { label: "运行记录", dataAction: "switch-workspace-tab", tab: "runs", tone: "secondary", title: "查看当前实例绑定任务、输出和重试入口。" }
-    : { label: "项目设置", dataAction: "switch-workspace-tab", tab: "project", tone: "secondary", title: "补齐目标、来源、目录和环境。" };
-  if (!workspaces.length) {
-    return `
-      <section class="workspace-project-queue-summary status-draft">
-        <div class="workspace-project-queue-head">
-          <span>实例队列</span>
-          <strong>0 个实例</strong>
-          <em>默认不展示空管理列表；先创建一条可自动发现的实例。</em>
-        </div>
-        <div class="workspace-project-queue-focus status-draft">
-          <div>
-            <span>当前实例</span>
-            <strong>${escapeHtml(currentTitle)}</strong>
-            <em>${escapeHtml(currentDetail)}</em>
-          </div>
-          <div class="workspace-project-queue-actions">
-            ${workspaceHomeActionButtonMarkup(primaryAction, currentDetail)}
-            ${workspaceHomeActionButtonMarkup(secondaryAction, currentDetail)}
-          </div>
-        </div>
-      </section>
-    `;
-  }
-  const chips = [
-    { label: "总实例", value: String(workspaces.length), status: "ready" },
-    { label: "活跃任务", value: String(queueCounts.active), status: queueCounts.active ? "running" : "ready" },
-    { label: "异常任务", value: String(queueCounts.failed), status: queueCounts.failed ? "failed" : "ready" },
-    { label: "完成任务", value: String(queueCounts.done), status: queueCounts.done ? "done" : "draft" },
-  ];
-  return `
-    <section class="workspace-project-queue-summary status-${escapeHtml(status)}">
-      <div class="workspace-project-queue-head">
-        <span>实例队列</span>
-        <strong>${escapeHtml(`${workspaces.length} 个实例 · ${queueCounts.active} 活跃 · ${queueCounts.failed} 异常`)}</strong>
-        <em>默认只看当前实例状态；完整列表在下方明细里展开。</em>
-      </div>
-      <div class="workspace-project-queue-grid">
-        ${chips.map((chip) => `
-          <article class="workspace-project-queue-chip status-${escapeHtml(chip.status)}">
-            <span>${escapeHtml(chip.label)}</span>
-            <strong>${escapeHtml(chip.value)}</strong>
-          </article>
-        `).join("")}
-      </div>
-      <div class="workspace-project-queue-focus status-${escapeHtml(selected?.status || status)}">
-        <div>
-          <span>当前实例</span>
-          <strong title="${escapeHtml(currentTitle)}">${escapeHtml(currentTitle)}</strong>
-          <em title="${escapeHtml(currentDetail)}">${escapeHtml(currentDetail)}</em>
-        </div>
-        <div class="workspace-project-queue-actions">
-          ${workspaceHomeActionButtonMarkup(primaryAction, currentDetail)}
-          ${workspaceHomeActionButtonMarkup(secondaryAction, currentDetail)}
-        </div>
-      </div>
-    </section>
-  `;
-}
-
 function renderWorkspaces() {
-  const list = $("workspaceList");
-  const queue = $("workspaceProjectQueue");
   const historyList = $("workspaceHistoryList");
   const count = $("workspaceCount");
-  const targets = [list, historyList].filter(Boolean);
+  const targets = [historyList].filter(Boolean);
   if (!targets.length || !count) return;
   const items = state.workspaces.slice();
   count.textContent = `${items.length} 个实例`;
-  if (queue) queue.innerHTML = workspaceProjectQueueMarkup(items);
   if (!items.length) {
     targets.forEach((target) => {
       target.innerHTML = '<div class="empty">还没有任务实例。先输入目标并基于模板创建一条实例快照。</div>';
@@ -19846,7 +19633,7 @@ function renderWorkspaces() {
 }
 
 function switchWorkspaceMode(mode) {
-  const next = ["use", "runs", "manage"].includes(String(mode || "")) ? String(mode) : "use";
+  const next = ["use", "runs", "manage", "edit"].includes(String(mode || "")) ? String(mode) : "use";
   const changed = state.ui.workspaceMode !== next;
   state.ui.workspaceMode = next;
   if (changed) markWorkspaceUiInteraction();
@@ -20436,8 +20223,11 @@ function renderWorkspaceModeSwitch() {
   $("workspaceUseModePanel")?.toggleAttribute("hidden", mode !== "use");
   $("workspaceRunsPanel")?.toggleAttribute("hidden", mode !== "runs");
   $("workspaceManageModePanel")?.toggleAttribute("hidden", mode !== "manage");
-  $("workspaceProjectModulesPanel")?.toggleAttribute("hidden", mode !== "manage");
-  syncWorkspaceProjectConfigDrawer();
+  $("workspaceInstanceEditorPanel")?.toggleAttribute("hidden", mode !== "edit");
+  $("workspaceProjectModulesPanel")?.toggleAttribute("hidden", mode !== "edit");
+  $("workspaceEditInstanceBtn")?.classList.toggle("active", mode === "edit");
+  $("workspaceEditInstanceBtn")?.setAttribute("aria-pressed", String(mode === "edit"));
+  renderWorkspaceEditorIdentity();
   document.querySelectorAll("#workspaceModeSwitch [data-mode]").forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
@@ -21482,7 +21272,6 @@ async function acceptWorkspaceChatContextReflection(button) {
     notify("已沉淀到补充上下文。");
     renderWorkspaceUseChat();
     renderWorkspaceChat();
-    renderWorkspaceHome();
   } catch (error) {
     notify(error.message || "沉淀上下文失败。", true);
   } finally {
@@ -21518,7 +21307,6 @@ async function dismissWorkspaceChatContextReflection(button) {
     notify("已忽略这条上下文建议。");
     renderWorkspaceUseChat();
     renderWorkspaceChat();
-    renderWorkspaceHome();
   } catch (error) {
     notify(error.message || "忽略上下文建议失败。", true);
   } finally {
@@ -22595,7 +22383,6 @@ function workspaceEventStreamDeps() {
     scheduleExecutionOverviewRefresh,
     renderWorkspaces,
     renderJobs,
-    renderWorkspaceHome,
     renderWorkspaceRuns,
     renderWorkspaceExecutionDetail,
     renderWorkspaceUseChat,
@@ -22665,7 +22452,6 @@ async function refreshWorkspaceCockpit(workspaceId = state.selectedWorkspaceId, 
     const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/cockpit`);
     const workspace = mergeWorkspaceCockpitPayload(id, payload);
     if (workspace && options.render !== false && state.selectedWorkspaceId === id) {
-      renderWorkspaceHome();
       renderWorkspaceRuns();
       renderWorkspaceExecutionDetail();
       renderWorkspaceUseMonitor(workspace);
@@ -23534,7 +23320,17 @@ function restoreStoredUiState() {
     saveStoredValue(STORAGE_KEYS.workspaceMode, "runs");
     saveStoredValue(STORAGE_KEYS.workspaceRunScope, "all");
   }
-  state.ui.workspaceProjectConfigOpen = loadStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, state.ui.workspaceProjectConfigOpen ? "1" : "0") === "1";
+
+  const editorOrigin = loadStoredJson(STORAGE_KEYS.workspaceEditorReturn, null);
+  state.ui.workspaceEditorReturn = editorOrigin && ["use", "runs", "manage"].includes(editorOrigin.mode)
+    ? { mode: editorOrigin.mode, workspaceId: String(editorOrigin.workspaceId || "") } : null;
+  if (loadStoredValue("tc-workspace-project-config-open", "0") === "1") {
+    if (state.ui.workspaceMode === "manage") {
+      state.ui.workspaceMode = "edit";
+      saveStoredValue(STORAGE_KEYS.workspaceMode, "edit");
+    }
+    saveStoredValue("tc-workspace-project-config-open", "0");
+  }
   state.ui.cockpitMonitorMode = loadStoredValue(STORAGE_KEYS.cockpitMonitorMode, state.ui.cockpitMonitorMode === false ? "0" : "1") !== "0";
   state.ui.workspaceUseIntakeOpen = loadStoredValue(STORAGE_KEYS.workspaceUseIntakeOpen, state.ui.workspaceUseIntakeOpen ? "1" : "0") === "1";
   state.ui.workspaceFlowZoom = Number(loadStoredValue(STORAGE_KEYS.workspaceFlowZoom, String(state.ui.workspaceFlowZoom || 1))) || 1;
@@ -23597,7 +23393,6 @@ function captureWorkspaceUiSnapshot() {
     workspaceTab: state.ui.workspaceTab,
     workspaceMode: state.ui.workspaceMode,
     workspaceManageTab: state.ui.workspaceManageTab,
-    workspaceProjectConfigOpen: Boolean(state.ui.workspaceProjectConfigOpen),
     cockpitMonitorMode: Boolean(state.ui.cockpitMonitorMode),
     previewBandOpen: Boolean($("workspaceLauncherPreviewBand")?.open),
     supportBandOpen: Boolean(document.querySelector(".workspace-use-support-band")?.open),
@@ -23628,14 +23423,11 @@ function restoreWorkspaceUiSnapshot(snapshot = {}, options = {}) {
   if ((force || !WORKSPACE_PROJECT_TABS.includes(state.ui.workspaceTab)) && WORKSPACE_PROJECT_TABS.includes(snapshot.workspaceTab)) {
     state.ui.workspaceTab = snapshot.workspaceTab === "runs" ? "home" : snapshot.workspaceTab;
   }
-  if ((force || !["use", "runs", "manage"].includes(state.ui.workspaceMode)) && ["use", "runs", "manage"].includes(snapshot.workspaceMode)) {
+  if ((force || !["use", "runs", "manage", "edit"].includes(state.ui.workspaceMode)) && ["use", "runs", "manage", "edit"].includes(snapshot.workspaceMode)) {
     state.ui.workspaceMode = snapshot.workspaceMode;
   }
   if ((force || !WORKSPACE_MANAGE_TABS.includes(state.ui.workspaceManageTab)) && WORKSPACE_MANAGE_TABS.includes(snapshot.workspaceManageTab)) {
     state.ui.workspaceManageTab = snapshot.workspaceManageTab;
-  }
-  if (typeof snapshot.workspaceProjectConfigOpen === "boolean") {
-    state.ui.workspaceProjectConfigOpen = Boolean(snapshot.workspaceProjectConfigOpen);
   }
   if (typeof snapshot.cockpitMonitorMode === "boolean") {
     state.ui.cockpitMonitorMode = Boolean(snapshot.cockpitMonitorMode);
@@ -24514,6 +24306,7 @@ async function submitWorkspace(event) {
   event.preventDefault();
   const message = $("workspaceMessage");
   const payload = workspacePayloadForSave();
+  const selectedAtSave = state.selectedWorkspaceId;
   message.textContent = payload.workspace_id ? "正在更新工作区..." : "正在保存工作区...";
   message.classList.remove("error");
   try {
@@ -24525,20 +24318,34 @@ async function submitWorkspace(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    persistFormState("workspaceForm");
-    await loadStatus(true, { renderWorkspace: true });
-    const workspace = response.workspace || workspaceById(payload.workspace_id) || selectedWorkspace();
-    if (workspace?.id) {
+    const workspace = response.workspace;
+    if (!workspace?.id || (payload.workspace_id && workspace.id !== payload.workspace_id)) {
+      throw new Error("保存响应与实例身份不一致，请重新核对。");
+    }
+    // The save receipt is authoritative; a global monitor refresh is not a save barrier.
+    state.ui.statusRequestSeq += 1; // Discard monitor snapshots requested before this receipt.
+    upsertWorkspaceInState(workspace);
+    if (state.selectedWorkspaceId === selectedAtSave && workspaceFormPayload().workspace_id === payload.workspace_id) {
       selectWorkspace(workspace.id, {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
       });
+      persistFormState("workspaceForm");
+      message.textContent = payload.workspace_id ? "工作区已更新。" : "工作区已保存。";
+    } else {
+      renderWorkspaces();
+      message.classList.remove("error");
+      message.textContent = `实例 ${workspace.name || workspace.id}（${workspace.id}）已保存；当前编辑内容保持不变。`;
     }
-    message.textContent = payload.workspace_id ? "工作区已更新。" : "工作区已保存。";
   } catch (error) {
-    message.textContent = error.message;
-    message.classList.add("error");
+    if (state.selectedWorkspaceId === selectedAtSave && workspaceFormPayload().workspace_id === payload.workspace_id) {
+      message.textContent = error.message;
+      message.classList.add("error");
+    } else {
+      message.textContent = `实例 ${payload.workspace_id || "新建草稿"} 保存未确认：${error.message}`;
+      message.classList.add("error");
+    }
   }
 }
 
@@ -25092,7 +24899,7 @@ const FORCE_ROUTED_WHEEL_SELECTOR = [
   ".subsection-head",
   ".workspace-mode-switch",
   ".workspace-tabs",
-  ".workspace-project-drawer-summary",
+  ".workspace-instance-editor-header",
   ".workspace-manage-toolbar",
   ".workspace-template-list-panel",
   ".workspace-template-seeds",
@@ -25141,7 +24948,7 @@ function workspaceHeaderWheelTarget(target) {
   if (target.closest("#workspaceHubPanel > .panel-head")) {
     return document.querySelector(".workspace-scroll-shell");
   }
-  if (target.closest("#workspaceModeSwitch, #workspaceManageTabs, #workspaceTabs, .workspace-project-drawer-summary")) {
+  if (target.closest("#workspaceModeSwitch, #workspaceManageTabs, #workspaceTabs, .workspace-instance-editor-header")) {
     return document.querySelector(".workspace-scroll-shell");
   }
   if (target.closest(".workspace-execution-workspace-head")) {
@@ -25468,24 +25275,18 @@ function bindEvents() {
     element: $,
     selectWorkspace,
     editWorkspaceInstance: () => switchWorkspaceTab("project"),
+    returnFromWorkspaceEditor,
     returnToWorkspaceCockpit: () => switchWorkspaceMode("use"),
     selectWorkspaceResourceServer: (next) => {
       if (state.ui.workspaceResourceServerId !== next) markWorkspaceUiInteraction();
       state.ui.workspaceResourceServerId = next;
       saveStoredValue(STORAGE_KEYS.workspaceResourceServer, state.ui.workspaceResourceServerId);
       renderWorkspaceCockpitOverview();
-      renderWorkspaceHome();
     },
     selectWorkspaceTemplate: (value) => {
       state.selectedWorkflowTemplateId = value || "";
       saveStoredValue(STORAGE_KEYS.selectedWorkflowTemplate, state.selectedWorkflowTemplateId);
       renderWorkspaceWorkbench();
-    },
-    setProjectConfigDrawerOpen: (open) => {
-      if (state.ui.workspaceProjectConfigOpen !== open) markWorkspaceUiInteraction();
-      state.ui.workspaceProjectConfigOpen = open;
-      saveStoredValue(STORAGE_KEYS.workspaceProjectConfigOpen, open ? "1" : "0");
-      renderWorkspaceProjectDrawerMeta();
     },
     syncLauncherPreview: (open) => {
       if (open) {

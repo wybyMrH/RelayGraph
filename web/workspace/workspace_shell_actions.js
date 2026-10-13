@@ -24,9 +24,8 @@
   }
 
   function bind(callbacks = {}) {
-    element(callbacks, "workspaceProjectConfigDrawer")?.addEventListener("toggle", (event) => {
-      call(callbacks, "setProjectConfigDrawerOpen", Boolean(event.currentTarget?.open), event);
-    });
+    element(callbacks, "workspaceEditInstanceBtn")?.addEventListener("click", () => call(callbacks, "editWorkspaceInstance"));
+    element(callbacks, "workspaceEditorReturnBtn")?.addEventListener("click", () => call(callbacks, "returnFromWorkspaceEditor"));
     element(callbacks, "workspaceLauncherPreviewBand")?.addEventListener("toggle", (event) => {
       call(callbacks, "syncLauncherPreview", Boolean(event.currentTarget?.open), event);
     });

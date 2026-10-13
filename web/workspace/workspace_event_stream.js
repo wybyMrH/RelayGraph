@@ -98,7 +98,6 @@
   function renderRealtimeSurfaces(deps = {}) {
     fn(deps, "renderWorkspaces", () => {})();
     fn(deps, "renderJobs", () => {})();
-    fn(deps, "renderWorkspaceHome", () => {})();
     fn(deps, "renderWorkspaceRuns", () => {})();
     fn(deps, "renderWorkspaceExecutionDetail", () => {})();
     fn(deps, "renderWorkspaceUseChat", () => {})();
