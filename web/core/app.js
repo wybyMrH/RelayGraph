@@ -15721,6 +15721,7 @@ function workspacePayloadForSave() {
   payload.nodes = deepClone(nodes, []);
   payload.links = workspaceLinksFromNodes(nodes);
   payload.references = parseLineList(payload.references || "");
+  payload.tools = deepClone(state.workspaceToolsDraft, []);
   payload.agents = deepClone(state.workspaceAgentsDraft, []);
   payload.model = deepClone(state.workspaceModelDraft, {});
   payload.chat = deepClone(selectedWorkspace()?.chat || [], []);
