@@ -299,7 +299,7 @@
       return visibleScrollTarget("#workspaceAgentList", "#workspaceAgentEditor");
     }
     if (target.closest("#workspaceToolsPanel .workspace-agent-toolbar")) {
-      return visibleScrollTarget("#workspaceToolList", "#workspaceToolEditor");
+      return document.querySelector(".workspace-scroll-shell");
     }
     if (target.closest("#workspaceModelPanel .subsection-head, #workspaceModelPanel .workspace-provider-toolbar")) {
       return visibleScrollTarget("#providerProfileList", "#providerProfileEditor");

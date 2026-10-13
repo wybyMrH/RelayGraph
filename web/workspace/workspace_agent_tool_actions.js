@@ -107,10 +107,9 @@
   }
 
   function bindToolList(callbacks = {}) {
-    element(callbacks, "workspaceToolList")?.addEventListener("click", (event) => {
+    element(callbacks, "workspaceToolList")?.addEventListener("change", (event) => {
       const target = eventTarget(event);
-      const button = target?.closest("[data-action='select-workspace-tool']");
-      if (button?.dataset.toolId) fn(callbacks, "selectTool", () => {})(button.dataset.toolId);
+      if (target?.matches("#workspaceToolSelect")) fn(callbacks, "selectTool", () => {})(target.value);
     });
   }
 

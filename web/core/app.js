@@ -1845,18 +1845,6 @@ function workspaceToolsByCategory(tools = state.workspaceToolsDraft) {
   }));
 }
 
-function workspaceToolSummary(tool) {
-  const api = workspaceToolCatalogApi();
-  if (api && typeof api.workspaceToolSummary === "function") return api.workspaceToolSummary(tool);
-  if (!tool) return "";
-  const parts = [
-    workspaceToolCategoryLabel(tool.category || "general"),
-    tool.capability || "read",
-  ];
-  if (tool.description) parts.push(tool.description);
-  return parts.join(" · ");
-}
-
 function workspaceDraftNormalizersApi() {
   return window.WorkspaceDraftNormalizers && typeof window.WorkspaceDraftNormalizers === "object"
     ? window.WorkspaceDraftNormalizers
@@ -2051,14 +2039,14 @@ function mergeRecommendedWorkspaceTools(options = {}) {
     .filter((tool) => !existing.has(tool.id))
     .map((tool) => deepClone(tool, tool));
   if (!missing.length) {
-    if (!options.silent) setWorkspaceMessage("推荐工具已经齐了。");
+    if (!options.silent) setWorkspaceMessage("当前草稿已包含全部推荐定义；这不代表工具执行能力已验证。");
     return 0;
   }
   setWorkspaceToolsDraft([...state.workspaceToolsDraft, ...missing], {
     render: options.render !== false,
     selectedToolId: state.selectedWorkspaceToolId,
   });
-  if (!options.silent) setWorkspaceMessage(`已补齐 ${missing.length} 个推荐工具。`);
+  if (!options.silent) setWorkspaceMessage(`已在当前草稿加入 ${missing.length} 条推荐定义，请点击“保存实例”保留修改。`);
   return missing.length;
 }
 
@@ -2399,6 +2387,11 @@ function addWorkspaceTool() {
   state.selectedWorkspaceToolId = tool.id;
   persistWorkspaceToolDrafts();
   renderWorkspaceTools();
+  const labelField = $("workspaceToolEditor")?.querySelector('[data-tool-field="label"]');
+  if (labelField && !labelField.closest("[hidden]")) {
+    labelField.focus({ preventScroll: true });
+    revealWorkspaceElement(labelField, { block: "center", behavior: "auto" });
+  }
 }
 
 function removeWorkspaceTool(toolId) {
@@ -2418,6 +2411,11 @@ function removeWorkspaceTool(toolId) {
     renderWorkspaceTools();
     renderWorkspaceAgents();
   });
+  const picker = $("workspaceToolSelect");
+  if (picker && !picker.closest("[hidden]")) {
+    picker.focus({ preventScroll: true });
+    revealWorkspaceElement(picker, { block: "center", behavior: "auto" });
+  }
 }
 
 function maskSecret(value) {
@@ -14432,7 +14430,7 @@ function openWorkspaceConfigDetail(targetId = "", options = {}) {
   switchWorkspaceTab(tab, { reveal: false });
 
   const details = id ? $(id) : null;
-  if (details) details.open = true;
+  if (details instanceof HTMLDetailsElement) details.open = true;
   const target = details || $("workspaceInstanceEditorPanel");
   requestAnimationFrame(() => {
     if (target?.id) revealWorkspacePanelTarget(target.id, { block: options.block || "center" });
@@ -14794,86 +14792,40 @@ function workspaceAgentCoverageSummaryMarkup() {
 function renderWorkspaceToolCatalogSummary() {
   const root = $("workspaceToolCatalogSummary");
   if (!root) return;
-  const missingCount = recommendedToolMissingCount();
-  const catalogGroups = workspaceToolsByCategory(WORKSPACE_TOOL_CATALOG);
-  const currentGroups = workspaceToolsByCategory(state.workspaceToolsDraft);
-  const matchedCount = WORKSPACE_TOOL_CATALOG.length - missingCount;
-  const enabledTools = state.workspaceToolsDraft.filter((tool) => tool.enabled !== false);
-  const status = missingCount ? "warning" : enabledTools.length ? "ready" : "draft";
-  const primaryAction = missingCount
-    ? { label: "补齐工具", dataAction: "merge-recommended-workspace-tools", tone: "primary", title: "补齐复现/部署常用工具定义，不移除已有工具。" }
-    : { label: "打开高级配置", dataAction: "open-workspace-details", targetId: "workspaceToolAdvancedDetails", tone: "primary", title: "展开工具列表、类别、能力边界和描述。" };
-  const secondaryAction = { label: "新增工具", dataAction: "add-workspace-tool", tone: "secondary", title: "在当前项目实例内新增一个工具草稿。" };
+  const matchedCount = WORKSPACE_TOOL_CATALOG.length - recommendedToolMissingCount();
+  const outsideCatalogCount = Math.max(0, state.workspaceToolsDraft.length - matchedCount);
   root.innerHTML = `
-    <section class="workspace-tool-summary-overview status-${escapeHtml(status)}">
-      <div class="workspace-tool-summary-head">
-        <div>
-          <span>工具覆盖摘要</span>
-          <strong>${escapeHtml(`${matchedCount}/${WORKSPACE_TOOL_CATALOG.length} 推荐工具已注册 · ${enabledTools.length}/${state.workspaceToolsDraft.length} 启用`)}</strong>
-          <em>${escapeHtml(missingCount ? `还缺 ${missingCount} 个系统工具，建议先补齐。` : "工具库已经能支撑默认复现/部署链路。")}</em>
-        </div>
-        <div class="workspace-tool-summary-actions">
-          ${workspaceHomeActionButtonMarkup(primaryAction, "处理工具覆盖缺口。")}
-          ${workspaceHomeActionButtonMarkup(secondaryAction, "新增一个工具草稿。")}
-        </div>
+    <div class="workspace-tool-definition-summary">
+      <p>当前草稿已加入 ${matchedCount}/${WORKSPACE_TOOL_CATALOG.length} 条推荐定义${outsideCatalogCount ? `，另有 ${outsideCatalogCount} 条目录外定义` : ""}。推荐目录仅作参考，无需全部加入。</p>
+      <p>新增条目不会自动实现工具动作；本页不验证实际执行能力，运行条件以任务检查为准。</p>
+      <div class="workspace-tool-boundaries">
+        <strong>当前使用限制</strong>
+        <ul>
+          <li>停用设置尚未完整用于执行检查，不能用它保证阻止 Agent 调用。</li>
+          <li>工作流启动时的自动补配置可能重新加入内置工具及 Agent 授权。</li>
+        </ul>
       </div>
-      <div class="workspace-tool-summary-grid">
-        <article class="workspace-tool-summary-card">
-          <span class="workspace-tool-summary-label">推荐工具库</span>
-          <strong>${matchedCount} / ${WORKSPACE_TOOL_CATALOG.length}</strong>
-          <span class="workspace-tool-summary-meta">${missingCount ? `还缺 ${missingCount} 个系统工具` : "系统工具已经完整"}</span>
-        </article>
-        <article class="workspace-tool-summary-card">
-          <span class="workspace-tool-summary-label">当前工具</span>
-          <strong>${state.workspaceToolsDraft.length}</strong>
-          <span class="workspace-tool-summary-meta">${currentGroups.length} / ${catalogGroups.length} 个类别已经可分配给 Agent</span>
-        </article>
-        <article class="workspace-tool-summary-chip-row">
-          ${catalogGroups.map((group) => {
-            const current = currentGroups.find((item) => item.category === group.category);
-            return `<span class="workspace-tool-summary-chip">${escapeHtml(group.label)} ${current?.items.length || 0}/${group.items.length}</span>`;
-          }).join("")}
-        </article>
-      </div>
-    </section>
+    </div>
   `;
 }
 
 function renderWorkspaceTools() {
-  const list = $("workspaceToolList");
+  const picker = $("workspaceToolSelect");
   const editor = $("workspaceToolEditor");
   const count = $("workspaceToolCount");
-  if (count) count.textContent = `${state.workspaceToolsDraft.length} 个工具`;
+  if (count) count.textContent = `${state.workspaceToolsDraft.length} 条定义`;
   renderWorkspaceToolCatalogSummary();
-  if (list) {
-    if (!state.workspaceToolsDraft.length) {
-      list.innerHTML = '<div class="empty">还没有工具。</div>';
-    } else {
-      list.innerHTML = `
-        <div class="workspace-tool-stack">
-          ${state.workspaceToolsDraft.map((tool) => {
-            const active = tool.id === state.selectedWorkspaceToolId ? " active" : "";
-            const enabled = tool.enabled === false ? "blocked" : "idle";
-            return `
-              <button class="workspace-tool-card${active}" type="button" data-action="select-workspace-tool" data-tool-id="${escapeHtml(tool.id)}" title="选择这个工具，编辑类别、能力边界和描述">
-                <div class="workspace-tool-head">
-                  <strong>${escapeHtml(tool.label)}</strong>
-                  <span class="state ${enabled}">${tool.enabled === false ? "停用" : "启用"}</span>
-                </div>
-                <div class="workspace-tool-meta">${escapeHtml(tool.id)}</div>
-                <div class="workspace-tool-meta">${escapeHtml(workspaceToolCategoryLabel(tool.category))} · ${escapeHtml(tool.capability || "read")}</div>
-                <div class="workspace-tool-desc">${escapeHtml(tool.description || "未填写描述")}</div>
-              </button>
-            `;
-          }).join("")}
-        </div>
-      `;
-    }
+  if (picker) {
+    setSelectOptions(picker, state.workspaceToolsDraft.map((tool) => ({
+      value: tool.id,
+      label: `${tool.label}（${tool.id}） · 配置${tool.enabled === false ? "停用" : "启用"}`,
+    })), state.selectedWorkspaceToolId, state.workspaceToolsDraft.length ? "" : "暂无定义，请先新增");
+    picker.disabled = !state.workspaceToolsDraft.length;
   }
   if (!editor) return;
   const tool = selectedWorkspaceTool();
   if (!tool) {
-    editor.innerHTML = '<div class="empty">选择一个工具后，在这里编辑标签、类别和描述。</div>';
+    editor.innerHTML = '<div class="empty">还没有选中的工具定义。点击“新增定义”开始，或从上方选择已有定义。</div>';
     return;
   }
   const categoryOptions = [
@@ -14904,11 +14856,10 @@ function renderWorkspaceTools() {
       <div class="workspace-node-editor-head">
         <div>
           <h4>${escapeHtml(tool.label)}</h4>
-          <p class="muted">工具 registry 会被 agent 复用，决定可调用能力的边界。</p>
+          <p class="muted">修改当前实例的工具定义；名称和用途标记不代表动作已实现。</p>
         </div>
         <div class="workspace-node-editor-actions">
-          <button class="secondary mini" type="button" data-action="add-workspace-tool" title="在当前项目实例里新增一条工具定义">新增工具</button>
-          <button class="secondary mini danger" type="button" data-action="remove-workspace-tool" data-tool-id="${escapeHtml(tool.id)}" title="从当前项目实例移除这个工具，并从 Agent allowlist 中清理引用">删除工具</button>
+          <button class="secondary mini danger" type="button" data-action="remove-workspace-tool" data-tool-id="${escapeHtml(tool.id)}" title="从当前实例草稿删除这条定义，并清理 Agent 的工具引用；保存后保留修改">删除定义</button>
         </div>
       </div>
       <div class="workspace-tool-editor-grid">
@@ -14927,7 +14878,7 @@ function renderWorkspaceTools() {
           </select>
         </label>
         <label>
-          能力
+          用途标记
           <select data-tool-field="capability">
             ${capabilityOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${option.value === tool.capability ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
           </select>
@@ -14943,9 +14894,8 @@ function renderWorkspaceTools() {
       </label>
       <label class="check">
         <input data-tool-checkbox="enabled" type="checkbox" ${tool.enabled === false ? "" : "checked"} />
-        启用这个工具
+        在配置中启用这条定义
       </label>
-      <div class="workspace-tool-summary">${escapeHtml(workspaceToolSummary(tool))}</div>
     </div>
   `;
 }
@@ -24331,6 +24281,7 @@ async function submitWorkspace(event) {
         persist: true,
         selectedNodeId: state.selectedWorkspaceNodeId,
         selectedExecutionNodeId: state.selectedWorkspaceExecutionNodeId,
+        selectedToolId: state.selectedWorkspaceToolId,
       });
       persistFormState("workspaceForm");
       message.textContent = payload.workspace_id ? "工作区已更新。" : "工作区已保存。";
@@ -24974,7 +24925,7 @@ function workspaceHeaderWheelTarget(target) {
     return visibleScrollTarget("#workspaceAgentList", "#workspaceAgentEditor");
   }
   if (target.closest("#workspaceToolsPanel .workspace-agent-toolbar")) {
-    return visibleScrollTarget("#workspaceToolList", "#workspaceToolEditor");
+    return document.querySelector(".workspace-scroll-shell");
   }
   if (target.closest("#workspaceModelPanel .subsection-head, #workspaceModelPanel .workspace-provider-toolbar")) {
     return visibleScrollTarget("#providerProfileList", "#providerProfileEditor");

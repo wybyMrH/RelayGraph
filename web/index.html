@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b3a" />
+    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b3b1ui" />
   </head>
   <body>
     <div class="shell">
@@ -1108,28 +1108,23 @@
                   <div class="workspace-agent-panel">
                     <div class="workspace-agent-toolbar">
                       <div>
-                        <strong>工具覆盖</strong>
-                        <p class="muted">默认只看复现/部署工具是否补齐；工具注册表和能力边界按需展开。</p>
+                        <strong>当前实例的工具定义</strong>
+                        <p class="muted">修改后点击上方“保存实例”写入后端；不改全局工具或已提交运行的快照。</p>
                       </div>
-                      <span id="workspaceToolCount" class="muted">0 个工具</span>
+                      <span id="workspaceToolCount" class="muted">0 条定义</span>
+                    </div>
+                    <div class="button-row workspace-tool-definition-actions">
+                      <button id="workspaceAddToolBtn" class="secondary" type="button" title="在当前实例草稿新增一条工具定义">新增定义</button>
+                      <button id="workspaceRestoreToolsBtn" class="secondary" type="button" title="将缺少的推荐定义加入当前草稿，不移除已有定义；需保存实例">加入缺少的推荐定义</button>
                     </div>
                     <div id="workspaceToolCatalogSummary" class="workspace-tool-catalog-summary"></div>
-                    <details id="workspaceToolAdvancedDetails" class="workspace-home-collapse workspace-panel-details">
-                      <summary>
-                        <strong>工具高级配置</strong>
-                        <span>工具列表、类别、能力边界、描述和启停状态。</span>
-                      </summary>
-                      <div class="workspace-home-collapse-body workspace-panel-details-body">
-                        <div class="button-row workspace-panel-detail-actions">
-                          <button id="workspaceRestoreToolsBtn" class="secondary" type="button" title="补齐复现/部署常用工具定义，不移除已有工具">补齐推荐工具</button>
-                          <button id="workspaceAddToolBtn" class="secondary" type="button" title="在当前项目实例内新增一个工具草稿">新增工具</button>
-                        </div>
-                        <div class="workspace-agent-layout">
-                          <div id="workspaceToolList" class="workspace-tool-list"></div>
-                          <div id="workspaceToolEditor" class="workspace-tool-editor"></div>
-                        </div>
+                    <section id="workspaceToolAdvancedDetails" class="workspace-tool-edit-section" aria-label="工具定义编辑">
+                      <div id="workspaceToolList" class="workspace-tool-picker">
+                        <label for="workspaceToolSelect">选择要编辑的工具定义</label>
+                        <select id="workspaceToolSelect"></select>
                       </div>
-                    </details>
+                      <div id="workspaceToolEditor" class="workspace-tool-editor"></div>
+                    </section>
                   </div>
                 </section>
 
@@ -1686,12 +1681,12 @@
     <script src="/workspace/workspace_template_diff.js?v=20260706templatediffsplit"></script>
     <script src="/workspace/workspace_template_migration_actions.js?v=20260706templatemigrationactions"></script>
     <script src="/workspace/workspace_flow_canvas_controls.js?v=20260706flowcanvascontrols"></script>
-    <script src="/workspace/workspace_focus_navigation.js?v=20261013n13b3a"></script>
+    <script src="/workspace/workspace_focus_navigation.js?v=20261013n13b3b1ui"></script>
     <script src="/workspace/workspace_flow_tool_state.js?v=20260707flowtoolstate"></script>
     <script src="/workspace/workspace_node_run_state.js?v=20260707noderunstate"></script>
     <script src="/workspace/workspace_catalog_data.js?v=20261013n13b2"></script>
     <script src="/workspace/workspace_node_catalog.js?v=20260707nodecatalog"></script>
-    <script src="/workspace/workspace_tool_catalog.js?v=20260707toolcatalog"></script>
+    <script src="/workspace/workspace_tool_catalog.js?v=20261013n13b3b1ui"></script>
     <script src="/workspace/workspace_defaults.js?v=20260707workspacedefaults"></script>
     <script src="/workspace/workspace_draft_normalizers.js?v=20260707draftnormalizers"></script>
     <script src="/workspace/workspace_agent_catalog.js?v=20260707agentcatalog"></script>
@@ -1705,7 +1700,7 @@
     <script src="/workspace/workspace_chat_normalizers.js?v=20260707chatnormalizers"></script>
     <script src="/workspace/workspace_chat_actions.js?v=20260707chatactions"></script>
     <script src="/workspace/workspace_node_actions.js?v=20260707nodeactions"></script>
-    <script src="/workspace/workspace_agent_tool_actions.js?v=20260707agenttoolactions"></script>
+    <script src="/workspace/workspace_agent_tool_actions.js?v=20261013n13b3b1ui"></script>
     <script src="/core/app_status_actions.js?v=20260707appstatusactions"></script>
     <script src="/workspace/workspace_execution_lane_rail.js?v=20260706lanerailsplit"></script>
     <script src="/workspace/workspace_execution_overview.js?v=20261013n13b2"></script>
@@ -1751,6 +1746,6 @@
     <script src="/transfer/transfer_progress_state.js?v=20260707transferprogressstate"></script>
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
-    <script src="/core/app.js?v=20261013n13b3b1"></script>
+    <script src="/core/app.js?v=20261013n13b3b1ui"></script>
   </body>
 </html>

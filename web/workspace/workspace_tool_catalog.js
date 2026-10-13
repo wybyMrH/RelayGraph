@@ -45,16 +45,6 @@
     }));
   }
 
-  function workspaceToolSummary(tool) {
-    if (!tool) return "";
-    const parts = [
-      workspaceToolCategoryLabel(tool.category || "general"),
-      tool.capability || "read",
-    ];
-    if (tool.description) parts.push(tool.description);
-    return parts.join(" · ");
-  }
-
   function fallbackEscapeHtml(value) {
     return String(value ?? "")
       .replaceAll("&", "&amp;")
@@ -87,7 +77,6 @@
     workspaceToolCategoryLabel,
     workspaceToolLabel,
     workspaceToolPolicyBadge,
-    workspaceToolSummary,
     workspaceToolsByCategory,
   };
 })();
