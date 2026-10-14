@@ -816,10 +816,18 @@ body.has-log-pane .metric-card {
 
 .topbar {
   display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
   justify-content: space-between;
   gap: 16px;
   align-items: center;
   margin-bottom: 16px;
+}
+
+.topbar-heading {
+  flex: 1 1 260px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .topbar h2 {
@@ -835,9 +843,58 @@ body.has-log-pane .metric-card {
 
 .top-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
+
+.status-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.status-refresh-button:disabled { color: var(--muted); cursor: wait; }
+.status-refresh-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.status-refresh-button .icon-glyph { font-size: 18px; line-height: 1; }
+
+.status-load-feedback {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0 0 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.status-load-feedback strong { font-size: 14px; }
+.status-load-feedback strong::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.status-load-feedback[data-phase="loading"] strong::before { background: var(--accent); }
+.status-load-feedback[data-phase="ready"] strong::before { background: var(--ok); }
+.status-load-feedback[data-phase="timeout"] strong::before { background: var(--warn); }
+.status-load-feedback[data-phase="error"] strong::before { background: var(--bad); }
+.status-load-feedback p { margin: 5px 0 0 15px; max-width: 70ch; font-size: 13px; line-height: 1.65; color: var(--muted); }
+.status-load-feedback .status-load-error { color: var(--bad); white-space: pre-wrap; }
+.status-load-feedback [hidden] { display: none; }
+.status-load-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 .overview-grid {
   display: grid;

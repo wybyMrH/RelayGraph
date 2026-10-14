@@ -224,9 +224,7 @@ const state = {
     workspaceToolSearch: "",
     statusRequestSeq: 0,
     statusBusyCount: 0,
-    statusManualBusyCount: 0,
-    statusBusyVisibleUntil: 0,
-    statusBusyTimer: null,
+    statusLoadFeedback: { phase: "idle", requestId: 0, seconds: 0, failure: null },
     workflowTemplateDirty: false,
     workflowTemplateValidationBusy: false,
     workflowTemplateNodeSearch: "",
@@ -1224,33 +1222,20 @@ function actionProxyEvent(baseEvent, currentTarget) {
   };
 }
 
-function scheduleRefreshButtonStateUpdate(delayMs) {
-  if (state.ui.statusBusyTimer) clearTimeout(state.ui.statusBusyTimer);
-  if (delayMs <= 0) {
-    state.ui.statusBusyTimer = null;
-    updateRefreshButtonState();
-    return;
-  }
-  state.ui.statusBusyTimer = setTimeout(() => {
-    state.ui.statusBusyTimer = null;
-    updateRefreshButtonState();
-  }, delayMs);
-}
-
-function updateRefreshButtonState() {
-  const button = $("refreshBtn");
-  if (!button) return;
-  const now = Date.now();
-  const busy = state.ui.statusBusyCount > 0 || now < (state.ui.statusBusyVisibleUntil || 0);
-  button.classList.toggle("busy", busy);
-  button.setAttribute("aria-busy", busy ? "true" : "false");
-  button.disabled = state.ui.statusBusyCount > 0;
-  button.title = busy ? "正在刷新" : "刷新";
-  if (busy && state.ui.statusBusyCount === 0 && state.ui.statusBusyVisibleUntil > now) {
-    scheduleRefreshButtonStateUpdate(state.ui.statusBusyVisibleUntil - now);
-  } else if (!busy && state.ui.statusBusyVisibleUntil && now >= state.ui.statusBusyVisibleUntil) {
-    state.ui.statusBusyVisibleUntil = 0;
-  }
+function updateRefreshButtonState(announce = false) {
+  window.AppStatusFeedback.render(state.ui.statusLoadFeedback, {
+    busy: state.ui.statusBusyCount > 0,
+    announce,
+    elements: {
+      root: $("statusLoadFeedback"),
+      label: $("statusLoadLabel"),
+      detail: $("statusLoadDetail"),
+      error: $("statusLoadError"),
+      announcement: $("statusLoadAnnouncement"),
+      button: $("refreshBtn"),
+      buttonLabel: $("refreshBtnLabel"),
+    },
+  });
 }
 
 function syncLogPaneMetrics() {
@@ -23191,6 +23176,7 @@ function renderHeader(payload) {
     : `${connected}/${total} 已连接 · ${online} 监控正常`;
   pill.classList.toggle("bad", connected === 0);
   pill.classList.toggle("warn", connected > 0 && online < connected);
+  pill.setAttribute("aria-label", `主机连接状态：${pill.textContent}`);
 }
 
 function render(payload = {}, options = {}) {
@@ -23585,18 +23571,32 @@ async function loadStatus(force = false, options = {}) {
   const requestId = state.ui.statusRequestSeq + 1;
   state.ui.statusRequestSeq = requestId;
   state.ui.statusBusyCount += 1;
-  if (force) {
-    state.ui.statusManualBusyCount += 1;
-    state.ui.statusBusyVisibleUntil = Math.max(state.ui.statusBusyVisibleUntil || 0, Date.now() + 450);
-  }
-  updateRefreshButtonState();
+  const announceRead = options.feedbackSource === "manual" || options.feedbackSource === "initial";
+  state.ui.statusLoadFeedback = {
+    phase: "loading", requestId, seconds: 0, failure: state.ui.statusLoadFeedback.failure,
+  };
+  const refreshButton = $("refreshBtn");
+  const handoffFocus = document.activeElement === refreshButton;
+  let focusMoved = false;
+  const onFocusMove = (event) => {
+    if (event.type === "keydown" && event.key !== "Tab") return;
+    if (event.type === "focusin" && (event.target === refreshButton || event.target === document.body)) return;
+    focusMoved = true;
+  };
+  let announceResult = false;
   let requestBudget = null;
   let budgetTimer = null;
   try {
+    if (handoffFocus) {
+      for (const type of ["focusin", "pointerdown", "keydown"]) document.addEventListener(type, onFocusMove);
+    }
+    updateRefreshButtonState(announceRead);
     const seconds = Number(document.querySelector('meta[name="relaygraph-status-load-timeout-seconds"]')?.content);
     if (!Number.isInteger(seconds) || seconds < 1 || seconds > 300) {
       throw new Error("页面缺少有效的状态加载预算，请重启服务后重新加载页面。");
     }
+    state.ui.statusLoadFeedback.seconds = seconds;
+    updateRefreshButtonState();
     const controller = new AbortController();
     const deadline = performance.now() + seconds * 1000;
     const timeoutError = new Error(`状态加载超过 ${seconds} 秒，已停止等待。请重试刷新。`);
@@ -23672,28 +23672,44 @@ async function loadStatus(force = false, options = {}) {
     await loadTmuxSessions({ requestBudget });
     requestBudget.check();
     if (requestId !== state.ui.statusRequestSeq) return;
+    announceResult = announceRead || Boolean(state.ui.statusLoadFeedback.failure);
+    state.ui.statusLoadFeedback = { phase: "ready", requestId, seconds, failure: null };
     return true;
   } catch (error) {
     if (requestId !== state.ui.statusRequestSeq) return;
-    $("healthPill").textContent = "api error";
-    $("healthPill").classList.add("bad");
-    $("refreshMeta").textContent = requestBudget?.signal.aborted ? requestBudget.signal.reason.message : error.message;
+    const failure = requestBudget?.signal.aborted ? requestBudget.signal.reason : error;
+    const phase = failure?.code === "status_load_timeout" ? "timeout" : "error";
+    state.ui.statusLoadFeedback = {
+      ...state.ui.statusLoadFeedback,
+      phase,
+      failure: { code: failure?.code || "status_load_error", message: String(failure?.message || failure || "未能读取状态。") },
+    };
+    announceResult = true;
     return false;
   } finally {
+    if (handoffFocus) {
+      for (const type of ["focusin", "pointerdown", "keydown"]) document.removeEventListener(type, onFocusMove);
+    }
     if (budgetTimer !== null) clearTimeout(budgetTimer);
     state.ui.statusBusyCount = Math.max(0, state.ui.statusBusyCount - 1);
-    if (force) state.ui.statusManualBusyCount = Math.max(0, state.ui.statusManualBusyCount - 1);
-    if (state.ui.statusBusyCount === 0) {
-      const remaining = Math.max((state.ui.statusBusyVisibleUntil || 0) - Date.now(), 0);
-      scheduleRefreshButtonStateUpdate(remaining);
+    if (state.ui.statusLoadFeedback.requestId === requestId && state.ui.statusLoadFeedback.phase === "loading"
+      && requestId !== state.ui.statusRequestSeq) {
+      state.ui.statusLoadFeedback.phase = "replaced";
     }
-    updateRefreshButtonState();
+    updateRefreshButtonState(announceResult && state.ui.statusLoadFeedback.requestId === requestId);
+    if (handoffFocus) {
+      if (!focusMoved && requestId === state.ui.statusRequestSeq && state.ui.statusBusyCount === 0
+        && !refreshButton.disabled && document.activeElement === document.body
+        && document.hasFocus() && document.visibilityState === "visible") {
+        refreshButton.focus({ preventScroll: true });
+      }
+    }
   }
 }
 
 async function bootstrapStatus() {
   // A failed initial read must remain retryable, not be bypassed by a monitor-only refresh.
-  if (await loadStatus(false)) {
+  if (await loadStatus(false, { feedbackSource: "initial" })) {
     void loadStatus(true, { renderWorkspace: false });
   }
 }
@@ -25332,7 +25348,7 @@ function bindEvents() {
       }
       void refreshServerStatus(state.selectedServer);
     },
-    refreshStatus: () => loadStatus(true),
+    refreshStatus: () => loadStatus(true, { feedbackSource: "manual" }),
   });
   window.WorkspaceFormActions?.bind?.({
     clearWorkspaceForm,

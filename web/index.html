@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="relaygraph-status-load-timeout-seconds" content="__RELAYGRAPH_STATUS_LOAD_TIMEOUT_SECONDS__" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles/styles.css?v=20261013n13b3b1ui" />
+    <link rel="stylesheet" href="/styles/styles.css?v=20261014n13c2ui" />
   </head>
   <body>
     <div class="shell">
@@ -246,19 +246,26 @@
 
       <main class="main">
         <header class="topbar">
-          <div>
+          <div class="topbar-heading">
             <h2 id="topbarTitle">GPU 集群</h2>
-            <p id="refreshMeta">等待数据</p>
+            <p id="refreshMeta">尚无监控快照</p>
           </div>
           <div class="top-actions">
-            <span id="healthPill" class="pill">offline</span>
-            <button id="refreshBtn" class="icon-button" type="button" title="刷新全部服务器、GPU、任务和监控状态；不会重置工作台正在编辑的选项卡">
+            <span id="healthPill" class="pill">主机状态待读取</span>
+            <button id="refreshBtn" class="status-refresh-button" type="button" aria-busy="false" aria-describedby="statusLoadLabel statusLoadDetail" title="读取最新监控状态，保留正在编辑的选项卡">
               <span class="icon-glyph" aria-hidden="true">↻</span>
+              <span id="refreshBtnLabel">刷新状态</span>
             </button>
           </div>
         </header>
 
         <div id="mainContentArea" class="main-content-area">
+        <div id="statusLoadFeedback" class="status-load-feedback" data-phase="idle">
+          <strong id="statusLoadLabel">等待读取状态</strong>
+          <p id="statusLoadDetail">使用“刷新状态”读取最新监控信息。</p>
+          <p id="statusLoadError" class="status-load-error" hidden></p>
+        </div>
+        <span id="statusLoadAnnouncement" class="status-load-announcement" role="status" aria-live="polite" aria-atomic="true"></span>
         <section id="consoleOverviewPanel" class="overview-grid" hidden>
           <div class="metric-card">
             <span class="metric-label">在线服务器</span>
@@ -1747,6 +1754,7 @@
     <script src="/transfer/transfer_progress_state.js?v=20260707transferprogressstate"></script>
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
-    <script src="/core/app.js?v=20261014n13c2"></script>
+    <script src="/core/status_load_feedback.js?v=20261014n13c2ui"></script>
+    <script src="/core/app.js?v=20261014n13c2ui"></script>
   </body>
 </html>
