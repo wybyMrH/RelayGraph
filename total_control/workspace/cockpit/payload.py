@@ -34,19 +34,6 @@ def apply_workspace_automation_defaults_to_payload(
     if default_tool_applied:
         updated["tools"] = current_tools
         applied.extend(default_tool_applied)
-    tool_ids = [str(item.get("id") or "").strip() for item in current_tools if isinstance(item, dict) and str(item.get("id") or "").strip()]
-    current_agents = normalize_workspace_agents(
-        updated.get("agents"),
-        existing=updated.get("agents"),
-        tool_ids=tool_ids,
-    )
-    current_agents, default_agent_applied = backfill_default_agent_tools(
-        current_agents,
-        tool_ids=tool_ids,
-    )
-    if default_agent_applied:
-        updated["agents"] = current_agents
-        applied.extend(default_agent_applied)
     workspace_dir = infer_workspace_dir_from_inputs(updated)
     if workspace_dir and (force or not str(updated.get("workspace_dir") or "").strip()):
         updated["workspace_dir"] = workspace_dir

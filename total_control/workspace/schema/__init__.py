@@ -16,7 +16,6 @@ from .agents_tools import (
     backfill_default_tool_definitions,
     default_agent_required_tool_ids,
     workspace_required_default_tool_ids,
-    backfill_default_agent_tools,
 )
 
 from .chat import (
@@ -76,7 +75,6 @@ from .templates import (
 )
 
 __all__ = [
-    "backfill_default_agent_tools",
     "backfill_default_tool_definitions",
     "build_default_workflow_templates",
     "build_recommended_handler",

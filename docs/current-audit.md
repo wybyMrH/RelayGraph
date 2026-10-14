@@ -1,14 +1,14 @@
 # 第二部分：现状、问题与逐文件审查
 
-审查日期：2026-10-13。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
+审查日期：2026-10-14。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
 
 ## 1. 范围、证据等级与结论
 
-当前正式代码台账覆盖 291 个文件：169 个后端 Python、120 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
+当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
 N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 已在 N03B2b 接入单 Job，N03B2c1 接入一个 Job → 无工具报告 Agent；G01 的更长混合链、G02 子任务续跑和 G09 剩余恢复边界仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。两节点 shell CPU 链是旧路径的历史验收；当前新计划仅接受单 Job 或 Job → 无工具 eval.report Agent，其他多节点计划明确拒绝。
 
-N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码现为 292 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；N07A-UI 已交付独立报告阅读与状态；N16A 已交付成功说明/错误字段契约修正；N16A-UI 已交付执行说明、错误和历史来源；N13B2 已交付全局运行概览归位与精确运行入口；N13B3a已交付独立实例编辑及权威保存回执交接；N13B3b1已接通工具业务字段正式保存；完整配置往返仍有G27缺口，N13B3b1-UI工具配置说明与反馈已限定验收，N13B3b2a工具既有元数据保真已限定验收，N13C1周期状态请求去重已限定验收（第三部分2.26）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI超时与重试呈现已限定验收（第三部分2.28），唯一下一片N03B2c2a默认补全尊重显式工具授权，仍不扩Agent工具执行/子任务。
+N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码现为 292 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；N07A-UI 已交付独立报告阅读与状态；N16A 已交付成功说明/错误字段契约修正；N16A-UI 已交付执行说明、错误和历史来源；N13B2 已交付全局运行概览归位与精确运行入口；N13B3a已交付独立实例编辑及权威保存回执交接；N13B3b1已接通工具业务字段正式保存；完整配置往返仍有G27缺口，N13B3b1-UI工具配置说明与反馈已限定验收，N13B3b2a工具既有元数据保真已限定验收，N13C1周期状态请求去重已限定验收（第三部分2.26）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI超时与重试呈现已限定验收（第三部分2.28），N03B2c2a默认授权后端已限定验收（第三部分2.29），唯一下一片N03B2c2a-UI显式授权说明与完整启动入口；仍不扩Agent工具执行/子任务。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -109,9 +109,10 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R02/R05/R09/R14，类别：冗余、语义漂移，证据 E2。
 - 原 orchestration/input_mapping.py 的 context_ref_value 与 automation/contracts_pkg/context.py 的 workspace_context_ref_value 归一化 AST 相同；N00C 已合并到 context_refs.py，原导入名保留，135 组取值输入前后等价。仅完成底层字典/列表取值去重，运行/静态引用规则仍分别维护；前端 node_catalog/defaults/catalog_data 的目录副本也仍存在，G10 未关闭。
 - N03A0 过程发现：finalize_agent_executable_nodes 原来把明确 system/human 的可 Agent 节点改成默认 Agent，自动回填后 CPU Job 被无关 Provider 阻断。修复只保留明确 mode/agent_id，原缺绑定的 Agent 仍补推荐；不创建第二套默认组件。已被旧逻辑覆盖的历史执行者不凭空还原。
-- 本次可视化复验新增 E1/E2：独立 Agent 若使用内置 reporter 角色，即使显式 tools=[]，backfill_default_agent_tools 仍按角色补回工具，默认 auto_apply 后被 B2c1 无工具门禁拒绝（HTTP 409）。使用独立自定义角色可经原门禁运行；这属于默认配置覆盖显式权限意图，未修复，不能称内置报告角色开箱即用。后续需区分未配置与明确空列表，并验证历史默认配置的兼容。
-- N13B3b1复核E2：普通CRUD/GET/reload不调用补默认；显式apply-defaults及工作流默认auto_apply仍经backfill补builtin工具/授权。工具删除与改授权的正式保存通过，不证明后续运行保持该权限意图；G10仍开放。本片没有执行工作流来验证或修改该路径。
-- 后续优先小片N03B2c2a只保护默认补全中的显式工具授权（含空列表），先核启动/驾驶舱/auto_apply全部既有调用者与历史缺字段边界；尚未实现，不扩工具执行。
+- 历史可视化及本片修复前真实 API 复现 E1：内置 reporter 即使显式 tools=[] 或删减名单，后置 backfill_default_agent_tools 仍补回五项/剩余授权；默认 auto_apply 后无工具报告链 HTTP409，未产生 Job。专用 global 定义同状态重启也扩大授权。此前用自定义角色运行只能证明绕开该默认冲突，不能证明内置角色可用。
+- **N03B2c2a 后端已限定验收**：唯一 normalize_workspace_agent 按本次显式 tools→同ID已有 tools→缺字段推荐处理，空列表/None/空串均不补权。缺字段以既有内置ID preset优先，未命中才用role；只补工具，不改自定义prompt等字段。矛盾ID/role不再联合两套推荐，是有意收敛，不宣称所有旧输入逐值等价。保留既有无效工具过滤/门禁语义；已有正规化名单、历史run/snapshot不猜来源、不批量迁移或恢复曾被加回的权限。
+- 删除后置 backfill_default_agent_tools、schema导出及仅有的启动/cockpit payload调用；启动退出该补权引起的写回，payload退出整段无消费的Agent再规范化，原metadata保留。工具定义目录补全、首次初始化及原清理写回保留。29项本地合同、6组真实API、一次正常默认auto_apply的CPU Job→内置reporter tools=[]报告链、网页读取/导出及重复/重启通过；详第三部分2.29。无Agent工具执行扩展，G10引用/前端目录重复仍开放。
+- **未交付界面**：真实驾驶舱没有完整运行按钮；本片只经正常HTTP启动，网页只证明读取和导出。唯一下一片N03B2c2a-UI补显式授权说明与可见启动入口，不把HTTP成功写成网页点击启动通过；旧拓扑诊断误报见G11。
 - 方案：统一纯引用解析器，静态校验与运行时校验共享规则但传入不同上下文；由后端提供版本化目录，前端只留必要无服务草稿默认。先锁定空值、前向引用、历史输出与 $prev 语义，再替换调用者；不把不同职责的校验一律合并。
 
 <a id="g11"></a>
@@ -123,6 +124,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - AgentExecutor 缺少 tool_executor 时返回 [Simulated]，若当生产路径使用可能让模型把模拟当真实。自定义工具 CRUD 也不等于自动产生适配器。
 - N13B3b1新增E2：agents.py构造allowed_tools只按ID交集，AgentExecutor保存/查找工具也未过滤enabled；本片只证明开关字段持久化，不能把“停用”当可靠执行隔离。WorkspaceToolContext.tool_definition_by_id先全局再实例，实例Search Provider覆盖是否作用未动态验证；先明确有效配置优先级，再单片收敛执行入口，不再加一套目录。
 - N13B3b1-UI已退出按推荐/启用数量推算ready的工具摘要，明确新增定义不生成动作、停用未构成执行隔离、运行自动补配置可能补回工具/授权。仅修展示语义，不关闭以上执行风险；真实浏览器/限制见第三部分2.24。
+- N03B2c2a真实页面新增E1/E2：同一内置reporter tools=[]实例执行包ready_to_execute=true、missing=[]，正常run门禁可通过，但旧topology仍报required_tool_unbound缺report.write。推荐工具与本片单次无工具报告能力混淆，尚未修复；UI不得隐藏该错误冒充诊断准确，诊断语义若需后端改动另开小片。工具enabled隔离与全局/实例有效配置优先级仍开放。
 - 方案：能力目录明确执行级别与真实 adapter_id；无适配器只能配置/诊断，不能进入可执行包。建议型工具保留并如实命名，不必为每个名字补大型实现；验证调用方确实需要正文/通知后再开发。
 
 <a id="g12"></a>
@@ -224,7 +226,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R06/R12，类别：状态呈现错误，证据 E1/E2。
 - 本次 Chromium 实际点击运行 Job→报告链，后台始终两步、计算实物计数 1；页面从未绑定任务到 Job/Agent ID 的过程中，compute/report 各保留一份 pending 占位。正常结束时实时 DOM 有 4 行，既显示已完成又显示未运行；重新打开页面的完整快照恢复两行。
 - workspace_run_state_merge.js 的 stepMergeKey 优先 job_id/agent_execution_id，再退回 node_id+index；身份随绑定变化，mergeSteps 又追加旧 key，导致占位未退出。此前仅检查页面内存中的 run 终态或进度，没有断言实际 DOM 行数，未覆盖这个缺陷。
-- 方案：单独交付稳定 step/attempt 身份的合并修复，保留历史记录和实时事件边界；对待执行→绑定任务→终态、Agent 绑定及旧记录做真实浏览器验证。不能用强制刷新、隐藏重复行或删除测试来代替修复。N13A 已作为 N03B2c1 后的独立前端小片验收；新隔离实例正常/失败/重启的实时 DOM 均为两行。当时交接 N13B1；现其验收见 G26，当前下一片 N03B2c2a（超时界面验收见第三部分2.28）。
+- 方案：单独交付稳定 step/attempt 身份的合并修复，保留历史记录和实时事件边界；对待执行→绑定任务→终态、Agent 绑定及旧记录做真实浏览器验证。不能用强制刷新、隐藏重复行或删除测试来代替修复。N13A 已作为 N03B2c1 后的独立前端小片验收；新隔离实例正常/失败/重启的实时 DOM 均为两行。当时交接 N13B1；现其验收见 G26，当前下一片 N03B2c2a-UI（授权后端验收见第三部分2.29）。
 
 - N13A 实现：step_id 优先、node_id/index 兼容；绑定的 Job/Agent ID 不再改变计划步骤身份。单步 SSE 保留可选 step_id/attempt_id，未更新的另一计划步骤继续保留；新 attempt 不继承旧任务/输出/错误。已知节点冲突不合并；缺 attempt 的历史事件不能把已知 attempt 改绑到另一任务。没有新增通用版本协议，迟到完整 run 快照仍沿既有时间/终态保护。
 - app.js 的步骤 key/合并 fallback 已退出，原消费入口只委托唯一 helper；其他尚有消费者的投影 fallback 保留待 N13 后续收敛。历史真实旧 run 只读合并检查通过，未在本片重新执行旧任务。G25/G26 与无版本事件的一般排序不因本片关闭。
@@ -243,10 +245,11 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 ### G26 · P2 · 配置与运行界面混杂，多层容器挤压主要内容（部分修复）
 
 - 对齐规格§3/C13/R12，类别：功能入口错位、布局与可用性缺口。原阶段截图的拥挤/空白与 N13B1 的真实浏览器点击是 E1，HTML/事件/样式检查是 E2；当前实例与全局运行阅读区已分别验收，不宣称全站完成。
+- **N03B2c2a新发现E1/E2，未修复**：真实驾驶舱与链路诊断没有run-selected-workspace完整运行按钮，节点只有“Job运行”；正常执行包已ready且无missing。旧app完整运行markup/helper没有实际DOM消费者，不能让测试造按钮或调用JS假装点击。后端正常HTTP链与网页读取/导出已限定通过，完整点击启动仍未通过；唯一下一片N03B2c2a-UI复用原action/提交身份/门禁补用户入口，不恢复配置抽屉运行、不增加推进器。旧topology误报工具要求见G11，不能隐藏错误通过验收。
 - **N13B1 已验收**：当前实例的运行列表、步骤详情、日志、回放、比较与导出从配置表单/抽屉移至顶层“运行记录”。驾驶舱同级入口直接到达，可选择实例、去编辑、返回；配置的旧记录页签/模块卡片与包住全部记录的 workspaceRunDetails 已退出，旧动作跳到同一个阅读区。复用唯一 run renderer/merger、现有日志与订阅，没有第二套推进器或轮询。无消费者的旧运行工具栏滚轮分支、workspace-runs-panel 单个选择器与卡片统计变量同步退出。
 - 原四张统计卡、最新任务/命令块改成文字摘要，计划步骤在主阅读顺序，次要输入过程、交付和事件按需展开。限定阅读区的样式修正了旧 grid 规则把按钮竖排造成的空白。原生 summary/按钮的点击和键盘不再误激活整行日志，展开状态在重绘中保留。
 - 本次基线复现刷新清除已选实例；现改为恢复并核对实例 ID，过期 ID 回到明确空状态。比较基准和回放选择只保存 ID，不保存日志/正文；刷新后的“加载回放”一次沿既有 API 获取正文。旧 runs 页签迁移落盘为规范值，避免以后每次刷新强制返回记录页。
-- **仍待处理**：实例高级编辑的页面归位已由 N13B3a 验收，工具保存缺口已由 N13B3b1 限定验收，工具配置说明与反馈已由 N13B3b1-UI 限定验收，工具既有元数据保真已由N13B3b2a限定验收（G27）；N13C1已修有限慢响应的周期请求自相作废（第三部分2.26），N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），唯一下一片N03B2c2a保护显式工具授权。全局概览已由 N13B2 从配置中心退出，见下文。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债继续开放；G25 源字段已由N16A修复，独立说明界面已由N16A-UI验收；G06 当前报告文件已由N07A补齐，独立阅读界面已由N07A-UI补齐，长报告仍待后片。
+- **仍待处理**：实例高级编辑的页面归位已由 N13B3a 验收，工具保存缺口已由 N13B3b1 限定验收，工具配置说明与反馈已由 N13B3b1-UI 限定验收，工具既有元数据保真已由N13B3b2a限定验收（G27）；N13C1已修有限慢响应的周期请求自相作废（第三部分2.26），N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），唯一下一片N03B2c2a-UI补显式授权说明与完整启动入口。全局概览已由 N13B2 从配置中心退出，见下文。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债继续开放；G25 源字段已由N16A修复，独立说明界面已由N16A-UI验收；G06 当前报告文件已由N07A补齐，独立阅读界面已由N07A-UI补齐，长报告仍待后片。
 - 新隔离实例的成功/退出7/真实服务重启/同实例第二次运行经过实际按钮、默认门禁、HTTP/tmux；实时两行，Job 启动增量各1，受控报告接口调用增量1/0/1/1。14项页面导航检查和5项边界检查通过；1440×900、1280×720、768×1024、390×844 阅读/返回与宽度核对，实际长名称、63583字符进程日志和显式注入的长HTTP错误有本地截图。受控 Provider 非真实模型，故障注入不算真实后端故障恢复。
 - N16A联调单次观察：页面初始化期间的早期工作台选择之后，运行入口变隐藏，可能被持久UI恢复覆盖；自动化改等可见“已配置”后正常点击通过。N16A-UI分别延迟初始status和第二次bootstrap refresh的真实响应再点击，均未复现；保留原单次观察为待定位风险，不宣称已修。后续若再次出现先固定请求/恢复时序，再独立切片，不混入说明呈现。
 - N13B3a复验出现初始化持续“等待数据”（E1）；当时/API status直连HTTP200约5.9秒、5.23MB，loadStatus请求序号只收最新、周期请求可连续作废慢响应（E2机制，尚未隔离到完整因果）。清掉6个本轮重复无run测试实例后约3.84MB/3.40秒，独立旧格式迁移及reload通过；未暂停poll、未调低门禁。目录变小是环境清理，不是产品性能/饥饿修复，较大目录与多窗口仍待独立切片。
@@ -277,7 +280,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - **N13C2-UI读取反馈已限定验收（R12/规格§3）**：沿已评估frontend-design，页头保留快照时间和主机连接信息，原刷新按钮有“刷新状态/读取中/重试刷新”文字；主滚动区只有一条读取说明及必要的完整错误，不套卡片/抽屉或局部滚动。新status_load_feedback.js只接显式投影/DOM，无网络、定时器、全局业务状态或DOM缓存。loadStatus按真实结果/timeout code/seq接UI，自动重试保留上次原错误直到当前整链成功，保存作废只解释被替代，不冒称成功；错误不再把主机标为api error。首次无快照显示“主机状态待读取”，不把读取超时当主机离线或任务停止。
 - 旧450ms视觉余留与专用timer、仅增减无消费者的statusManualBusyCount退出，按钮disabled/aria-busy只由实际busy决定。force包含自动请求，不能当用户操作；原按钮/初入显式feedbackSource决定读取开始及普通成功的必要朗读，失败与恢复另行通知，正常poll安静。正常loading/ready说明一致，避免2秒poll造成固有高度变化。真实键盘发现native disabled丢焦点，现仅在本次开始时原按钮确有焦点才获归还资格，用户Tab/点击/移开即撤销；finally先清监听，当前seq/idle/按钮可用/文档聚焦可见且仍BODY才preventScroll归还。自动poll只归还它禁用前已有的焦点，不抢其他控件或窗口。
 - 实际通过：22项本地Node原函数/原客户端预算兼容及投影/seq/朗读/焦点监听异常清理；9组真实浏览器正常、7秒有限慢、首读/手动tmux挂起15秒native取消/原Tab+Enter重试、原poll保留错误、双窗口、草稿/历史；5组布局包括1440×900、1280×720、768×1024、390×844的正常/长HTTP错误真实wheel至末端、literal markup不执行/键盘重试，以及真实已有4000字报告在390下scroll1164→1164经3次原2秒poll。另5种焦点结束/移开和3组持续poll焦点检查，CDP只读listener数量回基线。121JS/392ID/HTML装配、292源码台账/27问题/正式链接与六路径安全范围检查通过；本地静态成果页14个证据链接经真实浏览器逐个点击HTTP200。原23实例/24run/48attempt/24Job/snapshot/Provider不变，无新任务/模型调用；config15/2秒poll不改，测试脚本/原始失败/截图只留本地dev_work/artifacts/n13c2ui/。
-- 过程与边界：首次初读poll变量实际默认5000（尚未拿配置/启动timer），测试误断0失败保留；tmux短timeout被下一合法poll切换，改同seq只读observer核timeout/busy0，不暂停poll/延长状态。早期scroll0只能证明零位置，后用真实长报告非零1164补足；键盘实际掉焦点后才补接线，不在测试中人工focus恢复。pointer-away脚本误用不存在sortSelect已改实际serverSortSelect，旧失败保留。另有一次新窗口“state is not defined”，原轮未留充分脚本网络信息，原因未定位；后续窗口记录121脚本HTTP200/无pageerror，不将未复现称为已修。纯前端未重跑无关Python/pytest。非预算读取、子读取世代/选机快照、性能、一般配置并发、早期交互和全站侧栏仍开放；唯一下一片N03B2c2a保护显式工具授权，G26不关闭。
+- 过程与边界：首次初读poll变量实际默认5000（尚未拿配置/启动timer），测试误断0失败保留；tmux短timeout被下一合法poll切换，改同seq只读observer核timeout/busy0，不暂停poll/延长状态。早期scroll0只能证明零位置，后用真实长报告非零1164补足；键盘实际掉焦点后才补接线，不在测试中人工focus恢复。pointer-away脚本误用不存在sortSelect已改实际serverSortSelect，旧失败保留。另有一次新窗口“state is not defined”，原轮未留充分脚本网络信息，原因未定位；后续窗口记录121脚本HTTP200/无pageerror，不将未复现称为已修。纯前端未重跑无关Python/pytest。非预算读取、子读取世代/选机快照、性能、一般配置并发、早期交互和全站侧栏仍开放；唯一下一片N03B2c2a-UI补显式授权说明与完整启动入口，G26不关闭。
 
 <a id="g27"></a>
 ### G27 · P2 · 实例草稿、配置完整往返和保存竞争仍有缺口（部分修复）
@@ -291,7 +294,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 过程边界：首轮双context时新页60秒持续等待（G26），失败保留；后轮关闭原context再开单窗口空context通过，不宣称多窗口初始化已修。复验仅经正式POST恢复本轮无run实例的tools/agents/model配置，无终态或执行证据补写。基线首次保存已正规化，元数据首存缺失仍以上述原证据为准；有效非空唯一ID之外、最后一工具限制/非法ID冲突均未修。证据仅本地dev_work/artifacts/n13b3b1/；实际10项与限制见第三部分2.23。
 - N13B3b1-UI真实新增保存发现工具选择跳回首项（E1），现同实例原回执分支传已有selectedToolId、由原draft设置器校验有效ID；正常保存后无需脚本重选。新增/删除焦点复用原滚动内核，四视口可见。并未解决同实例在途输入/逆序响应。首轮失败及正常删除临时定义证据均保留。
 - **N13B3b2a工具限定保真已验收（R02/R03/R12）**：真实新模板首次可见name/references保存复现27工具来源时间全丢；工具normalizer现仅保留同ID existing中的非空字符串created_at/updated_at，不从请求导入、不生成/触碰时间。新ID/改ID不继承别ID时间，global wrapper仍拥有全局更新时间。全新模板首次无关保存27工具记录全等；工具编辑/增改ID/删/503重试、reload/新空storage/重启再保存、API与盘核对通过。原allowlist仅显式ID改删精准变化，snapshot及原run/attempt/Job/Provider不变。来源时间不是实例编辑时间/revision，已丢字段不回填。Agent/model首存差异仍实际存在。9组浏览器、真实POST伪造时间/未知字段检查、8局部契约通过；compileall通过，根pytest无测试退出5不算通过。本地证据dev_work/artifacts/n13b3b2a/，详见第三部分2.25。
-- 方案与顺序：工具说明与限定保真已分别验收（2.24/2.25）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），唯一下一片N03B2c2a保护显式工具授权（G10；G26有限慢响应去重已验收见第三部分2.26），Agent/model、草稿、同实例竞争、配置revision和Provider归属另立边界。不要为这些问题加第二套实例状态、保存器或三层重试。
+- 方案与顺序：工具说明与限定保真已分别验收（2.24/2.25）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），唯一下一片N03B2c2a-UI补显式授权说明与完整启动入口（G10；G26有限慢响应去重已验收见第三部分2.26），Agent/model、草稿、同实例竞争、配置revision和Provider归属另立边界。不要为这些问题加第二套实例状态、保存器或三层重试。
 
 ## 3. 验证边界与阶段状态
 
@@ -446,7 +449,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 过程发现与修正：首轮旧display覆盖hidden让列表仍可见，已用reader直系hidden限定修复；loadStatus原resource-only分支拿到新workspaces但未重画报告，已接同一sync，实际可见刷新后清正文复验通过，未加轮询。首轮失败场景脚本强求观察5秒running而漏看，核对真实退出7/报告skipped后修观察条件，原失败证据保留说明，不延长命令/改终态；历史脚本误用全局selector撞隐藏摘要，改为作用域选择。文件变化本身不新增SSE事件/文件watch，接收新快照或点击重新核对后以实物为准；首次只等待无事件的删除观察未通过，不冒记通过。正文精确保留、焦点恢复和native toggle后的首次相同快照不重建由实际检查确认。
 
-补验390×844真实滚轮到4000字正文中段、末端和文件证据，以及长HTTP错误中段/末端均通过。原长元素截图受祖先裁剪，改用实际视口截图；真实滚动还发现loadStatus请求前的旧scroll快照覆盖在途阅读位置，现仅当前报告/工作台resource-only响应后重取位置、沿用原同步恢复，延迟真实刷新响应期间wheel前后位置保持验收通过。阅读区无横向溢出且正文无局部高度/滚动限制；全站侧栏仍占首屏较多，继续G26后续，不在本片改导航。真实AI/SSH/GPU、长报告、一般交付修复仍未实现或未验证。脚本/配置/结果/截图/静态成果页仅本地dev_work/artifacts/n07aui/，旧归档保留。G06仅当前报告读取界面补齐；本片当时保留G25源红字，现N16A后端修复见下文，当时交接N16A-UI，现已验收见G25/第三部分2.20，当前唯一下一片 **N03B2c2a**（超时界面见第三部分2.28）。
+补验390×844真实滚轮到4000字正文中段、末端和文件证据，以及长HTTP错误中段/末端均通过。原长元素截图受祖先裁剪，改用实际视口截图；真实滚动还发现loadStatus请求前的旧scroll快照覆盖在途阅读位置，现仅当前报告/工作台resource-only响应后重取位置、沿用原同步恢复，延迟真实刷新响应期间wheel前后位置保持验收通过。阅读区无横向溢出且正文无局部高度/滚动限制；全站侧栏仍占首屏较多，继续G26后续，不在本片改导航。真实AI/SSH/GPU、长报告、一般交付修复仍未实现或未验证。脚本/配置/结果/截图/静态成果页仅本地dev_work/artifacts/n07aui/，旧归档保留。G06仅当前报告读取界面补齐；本片当时保留G25源红字，现N16A后端修复见下文，当时交接N16A-UI，现已验收见G25/第三部分2.20，当前唯一下一片 **N03B2c2a-UI**（授权后端见第三部分2.29）。
 
 ### N16A：成功说明和错误各自归位（后端/契约已验收）
 
@@ -460,7 +463,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 过程记录：首次观察器错求本链未产生的run.step.updated，实测为run.updated带全量steps；改观察真实事件，不增产品事件。step事件的两个压缩字段属于局部契约，未冒称真实发出。坏JSON首次脚本误求validation.status=failed；既有格式校验返回warning+解析errors，Agent会拒绝并产生failed step；核对真实错误后按failed step+非空解析errors验收，不改变校验器/终态。原失败记录及首次实际拒绝run均保留本地；另一次新页面初始化前点击被表单恢复切回，脚本改等可见“已配置”后正常点击，未脚本设置状态；疑似初始化恢复覆盖的早期交互竞争留G26独立复现/修复，没有补记录或重放来覆盖原证据。
 
-证据只在dev_work/artifacts/n16a/；测试、受控接口、截图和本机配置不提交。受控Provider证明流程，不证明真实AI；取消/超时仅字段契约覆盖，未冒称实际外部取消完整实现。执行、预算、子任务、长报告、一般恢复均排除。第一部分稳定；当时交接N16A-UI，现已独立验收见G25/第三部分2.20；当前唯一下一片 **N03B2c2a**，只处理默认补全尊重显式工具授权（超时界面见第三部分2.28）。
+证据只在dev_work/artifacts/n16a/；测试、受控接口、截图和本机配置不提交。受控Provider证明流程，不证明真实AI；取消/超时仅字段契约覆盖，未冒称实际外部取消完整实现。执行、预算、子任务、长报告、一般恢复均排除。第一部分稳定；当时交接N16A-UI，现已独立验收见G25/第三部分2.20；当前唯一下一片 **N03B2c2a-UI**，只补显式授权说明与完整启动入口（后端见第三部分2.29）。
 
 ## 4. 逐文件台账的读法
 
@@ -555,7 +558,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/state/__init__.py) · 20 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | `TotalControlState:16` |
 | [_deps.py](../total_control/state/_deps.py) · 40 | R14；上层模块/公共符号 → 星号聚合依赖 → 子包可见依赖 | 结构风险；改显式依赖前先锁定 monkeypatch 与兼容调用。 | 文件整体/公开入口 |
-| [base.py](../total_control/state/base.py) · 230 | R06/R13/R14；配置/持久数据 → 账本/回执核对、唯一图适配及后台启动 → 单机状态 | N03B2c1 组合同一个 JobCoordinator/报告回调与单个串行后台唤醒线程；监控线程不等待模型，legacy 不重放。G09/G21 剩余风险保持。 | `_dedupe_provider_profiles:8`；`_agent_definitions_need_writeback:44`；`BaseMixin:60` |
+| [base.py](../total_control/state/base.py) · 226 | R03/R06/R13/R14；配置/持久数据 → 唯一规范化、账本核对及后台启动 → 单机状态 | N03B2c2a退出后置补权及其启动写回；空/子集重启保持，旧缺字段由normalizer解释，不强制迁移原盘。首次初始化/清理写回保留；G09/G21余项开放。 | `_dedupe_provider_profiles:8`；`_agent_definitions_need_writeback:44`；`BaseMixin:60` |
 | [files.py](../total_control/state/files.py) · 741 | R04/R11；浏览/清理请求 → 文件与保留引用管理 → 文件/存储响应 | N02 暂保护账本 run 和回执，防止 JSON 裁剪后重新出现或失去幂等依据；事务归档待 N14。其他关联 [G07](#g07)、[G09](#g09)、[G20](#g20)。 | `_runtime_state_run_job_ids:18`；`_runtime_state_workspace_run_closure:22`；`FilesMixin:47` |
 | [jobs.py](../total_control/state/jobs.py) · 4 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [monitoring.py](../total_control/state/monitoring.py) · 114 | R01/R12；探针/查询 → 刷新完整计划投影、组合工作区状态 → status/cockpit | N02 读取领域账本和 Job 事实形成只读投影，不执行恢复副作用；派生冗余仍关联 [G17](#g17)。 | `MonitoringMixin:5` |
@@ -695,7 +698,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [evidence.py](../total_control/workspace/cockpit/evidence.py) · 417 | R02/R04/R05；发现结果/现有字段 → 生成并应用有来源回填 → backfill plan/实例 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `apply_workspace_evidence_config_value:15`；`merge_workspace_evidence_config_values:29` |
 | [fsm.py](../total_control/workspace/cockpit/fsm.py) · 614 | R05/R06；检查与静态契约/包 → 共用阻塞投影 → cockpit/提交门禁 | N03B1 复用 workflow_contract 缺项，包错误优先显示真正计划阻塞；保留公共响应与旧建议投影，不另造解析器。关联 [G17](#g17)。 | `workspace_workflow_blocking_checks`；`workspace_execution_package_blocking_checks` |
 | [helpers.py](../total_control/workspace/cockpit/helpers.py) · 75 | R02/R04/R05；工作区/Job/字段 → 通用选择与参数解析 → 基础派生值 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_jobs_for_workspace:7`；`workspace_node_config_ready_status:19` |
-| [payload.py](../total_control/workspace/cockpit/payload.py) · 333 | R02/R05/R07；实例输入/显式环境 → 现有默认回填与运行投影 → workspace | N03J1b 退出 rg-* 默认执行名；5 项契约、真实默认 HTTP/浏览器、显式环境正常/失败通过。旧无来源配置不猜测清除；其他就绪展示仍见 [G17](#g17)。 | `apply_workspace_automation_defaults_to_payload:19` |
+| [payload.py](../total_control/workspace/cockpit/payload.py) · 320 | R02/R03/R05/R07；实例字段/显式授权 → 默认目录/运行投影 → workspace | N03B2c2a退出整段Agent再规范化/补权，原Agent字段保真；工具定义补全与N03J1b显式环境规则保留。正常/force/auto_apply不扩大授权，G17余项开放。 | `apply_workspace_automation_defaults_to_payload:19` |
 | [scheduler.py](../total_control/workspace/cockpit/scheduler.py) · 451 | R02/R04/R05；资源快照/限制/偏好 → 候选评分与绑定建议 → scheduler selection | 问题/修补关联 [G13](#g13)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_status_age_seconds:11`；`workspace_host_resource_summary_for_scheduler:18` |
 
 ### total_control/workspace/execution
@@ -727,8 +730,8 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [__init__.py](../total_control/workspace/schema/__init__.py) · 139 | R02/R03/R05；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [agents_tools.py](../total_control/workspace/schema/agents_tools.py) · 446 | R02/R03/R05；工具业务字段/同ID已有记录 → 显式规范与来源保留 → 有效工具定义 | N13B3b2a只保留同ID stored来源created_at/updated_at，请求时间/未知字段不导入；global wrapper仍touch全局时间。真实首存/编辑/改ID/删除/重启与8契约通过；Agent元数据G27、默认授权G10及能力标签G11继续开放。 | normalize_workspace_tool/normalize_workspace_tools/normalize_global_tool_definition |
+| [__init__.py](../total_control/workspace/schema/__init__.py) · 137 | R02/R03/R05；包内实现 → 显式转导出 → 公开兼容入口 | N03B2c2a移除无其他消费者的backfill_default_agent_tools导出，已有规范化/工具定义入口保留；不按短文件数量删除。 | 文件整体/公开入口 |
+| [agents_tools.py](../total_control/workspace/schema/agents_tools.py) · 404 | R02/R03/R05；当前/同ID字段与目录 → 规范化与缺字段推荐 → 有效Agent/工具 | N03B2c2a唯一授权入口尊重显式空/子集，缺字段单一preset，旧无效筛选保留；删除后置补权。N13B3b2a工具元数据规则保留；G10引用目录、G11能力标签、G27 Agent元数据仍开放。 | normalize_workspace_agent/normalize_workspace_agents/normalize_workspace_tool/normalize_global_tool_definition |
 | [chat.py](../total_control/workspace/schema/chat.py) · 461 | R02/R03/R05；消息/反思/工作区 → 规范、规则回复与 debug → chat/debug payload | 问题/修补关联 [G05](#g05)、[G11](#g11)；按登记方案处理，不另建平行服务。 | `normalize_workspace_context_reflection:15`；`normalize_workspace_chat_message:54` |
 | [nodes.py](../total_control/workspace/schema/nodes.py) · 698 | R02/R03/R05；源类型/节点草稿/recipe → 默认、绑定、连线规范 → 顺序工作区节点 | N03A0 保留明确 system/human 与已绑定 Agent 的执行者；缺指定/缺 Agent 继续由唯一 finalizer 补默认，输出键/输入映射沿原逻辑。关联 [G10](#g10)、[G11](#g11)、[G14](#g14)。 | `workspace_node_definition:22`；`workspace_node_kinds_for_source:31` |
 | [recipe.py](../total_control/workspace/schema/recipe.py) · 201 | R02/R03/R05；启动/模型/环境输入 → 字段规范与源类型推断 → recipe/model/inputs | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `normalize_workspace_recipe:13`；`clean_workspace_config_default:32` |

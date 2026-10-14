@@ -141,11 +141,15 @@ def normalize_workspace_agent(
     name = str(base.get("name") or f"Agent {index + 1}").strip() or f"Agent {index + 1}"
     role = str(base.get("role") or safe_id(name) or f"agent-{index + 1}").strip() or f"agent-{index + 1}"
     agent_id = safe_id(str(base.get("id") or role or name or f"agent-{index + 1}")) or f"agent-{index + 1}"
-    tools = parse_tag_list(base.get("tools", []))
+    # An explicit tools field (including empty) is authorization, not a request to
+    # merge recommendations. Only a missing field may use the role preset.
+    has_tools = "tools" in current or "tools" in previous
+    tool_source = base if has_tools or preset else (default_agent_preset_for(base) or {})
+    tools = parse_tag_list(tool_source.get("tools", []))
     allowed_tools = {str(item or "").strip() for item in (tool_ids or []) if str(item or "").strip()}
     if allowed_tools:
         filtered_tools = [tool for tool in tools if tool in allowed_tools]
-        if filtered_tools:
+        if filtered_tools or (not has_tools and not preset):
             tools = filtered_tools
     max_iterations_raw = base.get("max_iterations")
     max_iterations = safe_int(max_iterations_raw, 0) if max_iterations_raw not in (None, "") else 0
@@ -398,49 +402,3 @@ def workspace_required_default_tool_ids(workspace: dict[str, Any]) -> list[str]:
         seen.add(tool_id)
         tool_ids.append(tool_id)
     return tool_ids
-
-def backfill_default_agent_tools(
-    agents: list[dict[str, Any]],
-    *,
-    tool_ids: list[str] | None = None,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    allowed_tool_ids = {
-        str(item or "").strip()
-        for item in (tool_ids or [])
-        if str(item or "").strip()
-    }
-    updated: list[dict[str, Any]] = []
-    applied: list[dict[str, Any]] = []
-    for agent in agents:
-        if not isinstance(agent, dict):
-            continue
-        current = copy.deepcopy(agent)
-        preset = default_agent_preset_for(current)
-        if not preset:
-            updated.append(current)
-            continue
-        current_tools = parse_tag_list(current.get("tools", []))
-        seen = set(current_tools)
-        missing: list[str] = []
-        for tool_id in parse_tag_list(preset.get("tools", [])):
-            if allowed_tool_ids and tool_id not in allowed_tool_ids:
-                continue
-            if tool_id in seen:
-                continue
-            seen.add(tool_id)
-            current_tools.append(tool_id)
-            missing.append(tool_id)
-        if missing:
-            current["tools"] = current_tools
-            if "updated_at" in current:
-                current["updated_at"] = now_iso()
-            applied.append(
-                {
-                    "field": f"agents.{str(current.get('id') or '').strip()}.tools",
-                    "label": f"{str(current.get('name') or current.get('id') or 'Agent').strip()} 工具授权",
-                    "value": ", ".join(missing),
-                    "source": "default_agent_tool_backfill",
-                }
-            )
-        updated.append(current)
-    return updated, applied

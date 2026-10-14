@@ -88,10 +88,6 @@ class BaseMixin:
             tool_ids=[str(item.get("id") or "").strip() for item in self.tool_definitions],
             touch_updated_at=False,
         )
-        self.agent_definitions, default_agent_tools_applied = backfill_default_agent_tools(
-            self.agent_definitions,
-            tool_ids=[str(item.get("id") or "").strip() for item in self.tool_definitions],
-        )
         raw_workflow_templates = read_json(WORKFLOW_TEMPLATES_PATH, [])
         if isinstance(raw_workflow_templates, list) and raw_workflow_templates:
             self.workflow_templates = [
@@ -131,7 +127,7 @@ class BaseMixin:
             write_json(JOBS_PATH, self.jobs)
         if (not isinstance(raw_tool_definitions, list) or not raw_tool_definitions) or default_tools_applied:
             write_json(TOOL_DEFINITIONS_PATH, self.tool_definitions)
-        if (not isinstance(raw_agent_definitions, list) or not raw_agent_definitions) or default_agent_tools_applied or agent_definitions_cleaned:
+        if (not isinstance(raw_agent_definitions, list) or not raw_agent_definitions) or agent_definitions_cleaned:
             write_json(AGENT_DEFINITIONS_PATH, self.agent_definitions)
         if not isinstance(raw_workflow_templates, list) or not raw_workflow_templates:
             write_json(WORKFLOW_TEMPLATES_PATH, self.workflow_templates)
