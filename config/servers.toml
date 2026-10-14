@@ -1,6 +1,9 @@
 [app]
 poll_interval_seconds = 5
 remote_timeout_seconds = 6
+# 浏览器一次状态加载（含模型配置/驾驶舱/会话查询）的总等待上限，整数1–300秒。
+# 首次请求也使用此值；修改后重启服务并重新加载页面，不影响正在运行的任务。
+status_load_timeout_seconds = 30
 idle_min_free_mib = 1024
 idle_max_gpu_util = 10
 # 可选：执行账本路径；相对路径以本配置文件所在目录为基准。

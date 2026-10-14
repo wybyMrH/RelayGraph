@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import json
+import io
 import posixpath
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -41,6 +42,22 @@ class Handler(SimpleHTTPRequestHandler):
         if resolved_target == web_root or resolved_target.is_relative_to(web_root):
             return str(target)
         return str(WEB_DIR / "__invalid_static_path__")
+
+    def send_head(self) -> Any:
+        if urlparse(self.path).path not in {"/", "/index.html"}:
+            return super().send_head()
+        assert STATE is not None
+        # The first status request also needs the configured budget, before any API snapshot exists.
+        content = (WEB_DIR / "index.html").read_text(encoding="utf-8").replace(
+            "__RELAYGRAPH_STATUS_LOAD_TIMEOUT_SECONDS__", str(STATE.config.status_load_timeout_seconds)
+        )
+        body = content.encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        return io.BytesIO(body)
 
     def _suppress_access_log(self, args: tuple[Any, ...]) -> bool:
         if os.environ.get("TOTAL_CONTROL_VERBOSE_ACCESS_LOG", "").strip().lower() in {"1", "true", "yes", "on"}:

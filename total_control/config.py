@@ -45,6 +45,7 @@ class AppConfig:
     execution_db_path: str = ""
     report_output_dir: str = ""
     servers: list[ServerConfig] = field(default_factory=list)
+    status_load_timeout_seconds: int = 30
 
 
 def load_secrets(path: Path) -> dict[str, str]:
@@ -128,6 +129,9 @@ def load_config(path: Path) -> AppConfig:
             user_raw = {}
 
     app = raw.get("app", {})
+    status_load_timeout_seconds = app.get("status_load_timeout_seconds", 30)
+    if type(status_load_timeout_seconds) is not int or not 1 <= status_load_timeout_seconds <= 300:
+        raise ValueError("app.status_load_timeout_seconds must be an integer between 1 and 300")
     aliases = {str(key): str(value) for key, value in raw.get("server_aliases", {}).items()}
     user_aliases = {str(key): str(value) for key, value in user_raw.get("server_aliases", {}).items()}
     aliases.update(user_aliases)
@@ -136,6 +140,7 @@ def load_config(path: Path) -> AppConfig:
     config = AppConfig(
         poll_interval_seconds=safe_int(app.get("poll_interval_seconds"), 5),
         remote_timeout_seconds=safe_int(app.get("remote_timeout_seconds"), 6),
+        status_load_timeout_seconds=status_load_timeout_seconds,
         idle_min_free_mib=safe_int(app.get("idle_min_free_mib"), 1024),
         idle_max_gpu_util=safe_int(app.get("idle_max_gpu_util"), 10),
         execution_db_path=str((path.parent / Path(str(app["execution_db_path"])).expanduser()).resolve())

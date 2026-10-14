@@ -2514,7 +2514,9 @@ function setProviderProfiles(profiles = [], options = {}) {
 async function loadProviderProfiles(options = {}) {
   const renderProfiles = options.render !== false;
   try {
-    const payload = await fetchJson("/api/provider-profiles");
+    options.requestBudget?.check();
+    const payload = await fetchJson("/api/provider-profiles", options.requestBudget ? { signal: options.requestBudget.signal } : undefined);
+    options.requestBudget?.check();
     const profiles = payload.provider_profiles || [];
     // Transform backend format to frontend format
     const transformed = profiles.map((p) => ({
@@ -2535,6 +2537,7 @@ async function loadProviderProfiles(options = {}) {
     setProviderProfiles(transformed, { render: renderProfiles });
     return transformed;
   } catch (error) {
+    options.requestBudget?.check();
     console.error("Failed to load provider profiles:", error);
     // Fall back to localStorage on error
     setProviderProfiles(loadStoredArray(STORAGE_KEYS.providerProfiles), { render: renderProfiles });
@@ -22400,7 +22403,9 @@ async function refreshWorkspaceCockpit(workspaceId = state.selectedWorkspaceId, 
   const id = String(workspaceId || "").trim();
   if (!id || !workspaceById(id)) return null;
   try {
-    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/cockpit`);
+    options.requestBudget?.check();
+    const payload = await fetchJson(`/api/workspaces/${encodeURIComponent(id)}/cockpit`, options.requestBudget ? { signal: options.requestBudget.signal } : undefined);
+    options.requestBudget?.check();
     const workspace = mergeWorkspaceCockpitPayload(id, payload);
     if (workspace && options.render !== false && state.selectedWorkspaceId === id) {
       renderWorkspaceRuns();
@@ -22409,6 +22414,7 @@ async function refreshWorkspaceCockpit(workspaceId = state.selectedWorkspaceId, 
     }
     return workspace;
   } catch (error) {
+    options.requestBudget?.check();
     if (!options.quiet) setWorkspaceMessage(error.message, true);
     return null;
   }
@@ -23584,8 +23590,29 @@ async function loadStatus(force = false, options = {}) {
     state.ui.statusBusyVisibleUntil = Math.max(state.ui.statusBusyVisibleUntil || 0, Date.now() + 450);
   }
   updateRefreshButtonState();
+  let requestBudget = null;
+  let budgetTimer = null;
   try {
-    const payload = await fetchJson(endpoint);
+    const seconds = Number(document.querySelector('meta[name="relaygraph-status-load-timeout-seconds"]')?.content);
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 300) {
+      throw new Error("页面缺少有效的状态加载预算，请重启服务后重新加载页面。");
+    }
+    const controller = new AbortController();
+    const deadline = performance.now() + seconds * 1000;
+    const timeoutError = new Error(`状态加载超过 ${seconds} 秒，已停止等待。请重试刷新。`);
+    timeoutError.code = "status_load_timeout";
+    requestBudget = {
+      signal: controller.signal,
+      check() {
+        if (controller.signal.aborted || performance.now() >= deadline) {
+          if (!controller.signal.aborted) controller.abort(timeoutError);
+          throw timeoutError;
+        }
+      },
+    };
+    budgetTimer = setTimeout(() => controller.abort(timeoutError), seconds * 1000);
+    const payload = await fetchJson(endpoint, { signal: requestBudget.signal });
+    requestBudget.check();
     if (requestId !== state.ui.statusRequestSeq) return;
     // Report reading may move while the monitor request is in flight.
     // Preserve the position just before repaint, rather than undoing that movement.
@@ -23595,7 +23622,8 @@ async function loadStatus(force = false, options = {}) {
     applyStatusPayload(payload, { preserveWorkspaceUi: !renderWorkspace });
     if (workspaceSnapshot) restoreWorkspaceUiSnapshot(workspaceSnapshot, { force: true });
     // Provider/Profile data belongs to the workbench editor; monitor-only refresh should not disturb drafts.
-    if (renderWorkspace) await loadProviderProfiles({ render: true });
+    if (renderWorkspace) await loadProviderProfiles({ render: true, requestBudget });
+    requestBudget.check();
     if (requestId !== state.ui.statusRequestSeq) return;
     render(payload, { workspace: renderWorkspace });
     if (!state.ui.formsRestored) {
@@ -23624,8 +23652,11 @@ async function loadStatus(force = false, options = {}) {
         selectWorkspace(state.selectedWorkspaceId, { persist: false, refreshCockpit: false });
       }
       if (state.selectedWorkspaceId) {
-        await refreshWorkspaceCockpit(state.selectedWorkspaceId, { render: false, quiet: true });
+        requestBudget.check();
+        await refreshWorkspaceCockpit(state.selectedWorkspaceId, { render: false, quiet: true, requestBudget });
       }
+      requestBudget.check();
+      if (requestId !== state.ui.statusRequestSeq) return;
       renderWorkspaceWorkbench();
     } else if (state.ui.productTab === "workspace") {
       renderWorkspaceResourceSurfaces({ scope: "resource-only" });
@@ -23637,13 +23668,19 @@ async function loadStatus(force = false, options = {}) {
     if (scrollSnapshot) restoreUiScrollSnapshot(scrollSnapshot);
     if (workspaceSnapshot) syncWorkspaceCollapsePanels(workspaceSnapshot);
     void updateTransferProgress();
-    await loadTmuxSessions();
+    requestBudget.check();
+    await loadTmuxSessions({ requestBudget });
+    requestBudget.check();
+    if (requestId !== state.ui.statusRequestSeq) return;
+    return true;
   } catch (error) {
     if (requestId !== state.ui.statusRequestSeq) return;
     $("healthPill").textContent = "api error";
     $("healthPill").classList.add("bad");
-    $("refreshMeta").textContent = error.message;
+    $("refreshMeta").textContent = requestBudget?.signal.aborted ? requestBudget.signal.reason.message : error.message;
+    return false;
   } finally {
+    if (budgetTimer !== null) clearTimeout(budgetTimer);
     state.ui.statusBusyCount = Math.max(0, state.ui.statusBusyCount - 1);
     if (force) state.ui.statusManualBusyCount = Math.max(0, state.ui.statusManualBusyCount - 1);
     if (state.ui.statusBusyCount === 0) {
@@ -23655,9 +23692,8 @@ async function loadStatus(force = false, options = {}) {
 }
 
 async function bootstrapStatus() {
-  try {
-    await loadStatus(false);
-  } finally {
+  // A failed initial read must remain retryable, not be bypassed by a monitor-only refresh.
+  if (await loadStatus(false)) {
     void loadStatus(true, { renderWorkspace: false });
   }
 }
@@ -23670,13 +23706,16 @@ function updateSelectedServerRefreshButton() {
   button.textContent = busy ? "刷新中" : "刷新选中服务器";
 }
 
-async function loadTmuxSessions() {
+async function loadTmuxSessions(options = {}) {
   if (!state.selectedServer) return;
   try {
-    const payload = await fetchJson(`/api/servers/${encodeURIComponent(state.selectedServer)}/tmux`);
+    options.requestBudget?.check();
+    const payload = await fetchJson(`/api/servers/${encodeURIComponent(state.selectedServer)}/tmux`, options.requestBudget ? { signal: options.requestBudget.signal } : undefined);
+    options.requestBudget?.check();
     state.tmuxSessions = payload.sessions || [];
     state.tmuxError = "";
   } catch (error) {
+    options.requestBudget?.check();
     state.tmuxSessions = [];
     state.tmuxError = error.message;
   }
