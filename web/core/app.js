@@ -2472,9 +2472,6 @@ function setWorkspaceAgentsDraft(agents = [], options = {}) {
 
 function setWorkspaceModelDraft(model = {}, options = {}) {
   state.workspaceModelDraft = normalizeWorkspaceModelDraft(model);
-  if (!workspaceAgentById(state.workspaceModelDraft.chat_agent_id, state.workspaceAgentsDraft)) {
-    state.workspaceModelDraft.chat_agent_id = state.workspaceAgentsDraft[0]?.id || "";
-  }
   persistWorkspaceModelDraft();
   if (options.render !== false) {
     renderWorkspaceAgentControls();
@@ -14266,7 +14263,7 @@ function workspaceHomeContextMarkup(workspace = selectedWorkspace(), formData = 
   const sourceSummary = String(options.sourceSummary || workspaceDraftSourceSummary(formData, workspace));
   const statusValue = String(options.statusValue || formData.status || workspace?.status || "draft");
   const profile = options.profile || providerProfileById(state.workspaceModelDraft.provider_profile_id);
-  const chatAgent = options.chatAgent || workspaceAgentById(state.workspaceModelDraft.chat_agent_id)?.name || "项目默认 Agent";
+  const chatAgent = options.chatAgent || workspaceModelChatAgentSelection().label;
   const enabledAgents = Number(options.enabledAgents ?? state.workspaceAgentsDraft.filter((agent) => agent.enabled !== false).length);
   const enabledTools = Number(options.enabledTools ?? state.workspaceToolsDraft.filter((tool) => tool.enabled !== false).length);
   const briefText = String(formData.brief || workspace?.brief || "").replace(/\s+/g, " ").trim();
@@ -14353,13 +14350,45 @@ function setSelectOptions(select, options, selectedValue, emptyLabel = "") {
   select.value = items.some((item) => item.value === selectedValue) ? selectedValue : items[0]?.value || "";
 }
 
+function workspaceModelChatAgentSelection() {
+  const chatAgentId = String(state.workspaceModelDraft?.chat_agent_id || "").trim();
+  if (!chatAgentId) {
+    return { kind: "empty", label: "未指定", text: "未指定。保存后仍保持空值。" };
+  }
+  const agent = workspaceAgentById(chatAgentId, state.workspaceAgentsDraft);
+  if (!agent) {
+    return {
+      kind: "invalid",
+      label: `不可用：${chatAgentId}`,
+      text: `当前引用不可用（${chatAgentId}）。请选择一个 Agent，或清空后保存。`,
+    };
+  }
+  return {
+    kind: "valid",
+    label: agent.name || chatAgentId,
+    text: `当前选择：${agent.name || chatAgentId}。`,
+  };
+}
+
 function renderWorkspaceAgentControls() {
+  const chatAgentId = String(state.workspaceModelDraft?.chat_agent_id || "").trim();
+  const selectedAgent = workspaceAgentById(chatAgentId, state.workspaceAgentsDraft);
   const agentOptions = state.workspaceAgentsDraft.map((agent) => ({
     value: agent.id,
     label: `${agent.name}${agent.enabled === false ? "（停用）" : ""}`,
   }));
-  setSelectOptions($("workspaceChatAgentSelect"), agentOptions, state.workspaceModelDraft.chat_agent_id, "项目默认 Agent");
-  setSelectOptions($("workspaceModelChatAgentSelect"), agentOptions, state.workspaceModelDraft.chat_agent_id, "项目默认 Agent");
+  if (chatAgentId && !selectedAgent) {
+    agentOptions.unshift({ value: chatAgentId, label: `当前引用不可用：${chatAgentId}` });
+  }
+  setSelectOptions($("workspaceChatAgentSelect"), agentOptions, chatAgentId, "不指定对话 Agent（保持空）");
+  setSelectOptions($("workspaceModelChatAgentSelect"), agentOptions, chatAgentId, "不指定对话 Agent（保持空）");
+  const selection = workspaceModelChatAgentSelection();
+  for (const id of ["workspaceChatAgentStatus", "workspaceModelChatAgentStatus"]) {
+    const status = $(id);
+    if (!status) continue;
+    status.className = `workspace-model-chat-agent-status status-${selection.kind}`;
+    status.textContent = selection.text;
+  }
   const modelOptions = state.providerProfiles.filter((profile) => providerProfileKind(profile) === "llm").map((profile) => ({
     value: profile.id,
     label: providerProfileLabel(profile),
@@ -14551,8 +14580,9 @@ function renderWorkspaceChat() {
     }).join("");
   }
   if (hint) {
-    const agentName = workspaceAgentById(state.workspaceModelDraft.chat_agent_id)?.name || "项目默认 Agent";
-    hint.textContent = state.workspaceChatBusy ? "发送中..." : `当前对话路由：${agentName}`;
+    hint.textContent = state.workspaceChatBusy
+      ? "发送中..."
+      : `当前项目默认对话 Agent：${workspaceModelChatAgentSelection().label}`;
   }
 }
 
@@ -14965,6 +14995,7 @@ function workspaceModelRoutingSummaryMarkup() {
   const routedAgents = enabledAgents.filter((agent) => String(agent.provider_profile_id || "").trim() || effectiveProfile);
   const overrideAgents = enabledAgents.filter((agent) => String(agent.provider_profile_id || "").trim());
   const chatAgent = workspaceAgentById(state.workspaceModelDraft.chat_agent_id);
+  const chatAgentSelection = workspaceModelChatAgentSelection();
   const routeMode = state.workspaceModelDraft.routing_mode === "agent_override" ? "允许 Agent 覆盖" : "项目统一默认";
   const missingRouteCount = Math.max(0, enabledAgents.length - routedAgents.length);
   const status = !configuredProfiles.length
@@ -14982,7 +15013,7 @@ function workspaceModelRoutingSummaryMarkup() {
     { label: "默认 Profile", value: effectiveProfile ? providerProfileLabel(effectiveProfile) : "未指定", status: effectiveProfile ? "ready" : configuredProfiles.length ? "warning" : "draft" },
     { label: "Agent 路由", value: `${routedAgents.length}/${enabledAgents.length}`, status: missingRouteCount ? "warning" : enabledAgents.length ? "ready" : "draft" },
     { label: "覆盖模式", value: routeMode, status: state.workspaceModelDraft.routing_mode === "agent_override" ? "running" : "ready" },
-    { label: "对话 Agent", value: chatAgent?.name || "项目默认", status: chatAgent ? "ready" : "draft" },
+    { label: "对话 Agent", value: chatAgentSelection.label, status: chatAgent ? "ready" : chatAgentSelection.kind === "invalid" ? "warning" : "draft" },
   ];
   return `
     <section class="workspace-model-routing-card status-${escapeHtml(status)}">
@@ -22773,7 +22804,6 @@ function addWorkspaceAgent() {
   state.workspaceAgentsDraft.push(agent);
   state.selectedWorkspaceAgentId = agent.id;
   saveStoredValue(STORAGE_KEYS.selectedWorkspaceAgent, agent.id);
-  if (!state.workspaceModelDraft.chat_agent_id) state.workspaceModelDraft.chat_agent_id = agent.id;
   renderWorkspacePanels();
 }
 
@@ -22791,7 +22821,9 @@ function removeWorkspaceAgent(agentId) {
     };
   });
   if (state.workspaceModelDraft.chat_agent_id === agentId) {
-    state.workspaceModelDraft.chat_agent_id = state.workspaceAgentsDraft[0]?.id || "";
+    state.workspaceModelDraft.chat_agent_id = "";
+    persistWorkspaceModelDraft();
+    setWorkspaceMessage("已删除当前对话 Agent，默认对话 Agent 已清空，请重新选择。", false);
   }
   state.selectedWorkspaceAgentId = state.workspaceAgentsDraft[0]?.id || "";
   saveStoredValue(STORAGE_KEYS.selectedWorkspaceAgent, state.selectedWorkspaceAgentId);
@@ -22848,9 +22880,6 @@ async function debugWorkspaceAgent(agentId = state.selectedWorkspaceAgentId) {
 
 function updateWorkspaceModelDraft(patch = {}) {
   state.workspaceModelDraft = normalizeWorkspaceModelDraft({ ...state.workspaceModelDraft, ...patch });
-  if (!workspaceAgentById(state.workspaceModelDraft.chat_agent_id, state.workspaceAgentsDraft)) {
-    state.workspaceModelDraft.chat_agent_id = state.workspaceAgentsDraft[0]?.id || "";
-  }
   renderWorkspacePanels();
 }
 

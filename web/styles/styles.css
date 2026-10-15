@@ -6344,6 +6344,27 @@ textarea:focus {
   min-width: 0;
 }
 
+.workspace-model-chat-agent-status {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.workspace-model-chat-agent-status.status-empty {
+  color: var(--muted);
+}
+
+.workspace-model-chat-agent-status.status-valid {
+  color: #287a4d;
+}
+
+.workspace-model-chat-agent-status.status-invalid {
+  color: #a05b00;
+  font-weight: 600;
+}
+
 .provider-key-row {
   display: flex;
   align-items: center;

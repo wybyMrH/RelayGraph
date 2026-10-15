@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="relaygraph-status-load-timeout-seconds" content="__RELAYGRAPH_STATUS_LOAD_TIMEOUT_SECONDS__" />
     <title>RelayGraph</title>
-    <link rel="stylesheet" href="/styles/styles.css?v=20261014n13c2ui" />
+    <link rel="stylesheet" href="/styles/styles.css?v=20261015n13b3b2cui" />
   </head>
   <body>
     <div class="shell">
@@ -1067,8 +1067,9 @@
                         <p class="muted">先把需求和上下文记到项目里，后面再接真实模型服务。</p>
                       </div>
                       <label>
-                        对话 Agent
+                        项目默认对话 Agent
                         <select id="workspaceChatAgentSelect"></select>
+                        <span id="workspaceChatAgentStatus" class="workspace-model-chat-agent-status status-empty" aria-live="polite"></span>
                       </label>
                     </div>
                     <div id="workspaceChatList" class="workspace-chat-list"></div>
@@ -1173,6 +1174,7 @@
                               <label>
                                 默认对话 Agent
                                 <select id="workspaceModelChatAgentSelect"></select>
+                                <span id="workspaceModelChatAgentStatus" class="workspace-model-chat-agent-status status-empty" aria-live="polite"></span>
                               </label>
                               <label>
                                 路由备注
@@ -1755,6 +1757,6 @@
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
     <script src="/core/status_load_feedback.js?v=20261014n13c2ui"></script>
-    <script src="/core/app.js?v=20261014n13c2ui"></script>
+    <script src="/core/app.js?v=20261015n13b3b2cui"></script>
   </body>
 </html>
