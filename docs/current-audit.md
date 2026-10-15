@@ -296,6 +296,15 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - **N13B3b2a工具限定保真已验收（R02/R03/R12）**：真实新模板首次可见name/references保存复现27工具来源时间全丢；工具normalizer现仅保留同ID existing中的非空字符串created_at/updated_at，不从请求导入、不生成/触碰时间。新ID/改ID不继承别ID时间，global wrapper仍拥有全局更新时间。全新模板首次无关保存27工具记录全等；工具编辑/增改ID/删/503重试、reload/新空storage/重启再保存、API与盘核对通过。原allowlist仅显式ID改删精准变化，snapshot及原run/attempt/Job/Provider不变。来源时间不是实例编辑时间/revision，已丢字段不回填。Agent/model首存差异仍实际存在。9组浏览器、真实POST伪造时间/未知字段检查、8局部契约通过；compileall通过，根pytest无测试退出5不算通过。本地证据dev_work/artifacts/n13b3b2a/，详见第三部分2.25。
 - 方案与顺序：工具说明与限定保真已分别验收（2.24/2.25）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），唯一下一片N03B2c2a-UI补显式授权说明与完整启动入口（G10；G26有限慢响应去重已验收见第三部分2.26），Agent/model、草稿、同实例竞争、配置revision和Provider归属另立边界。不要为这些问题加第二套实例状态、保存器或三层重试。
 
+### N03B2c2a-UI：显式授权说明与完整启动入口（本片已实现，边界验收）
+
+- 对齐 R03/R06/R12、规格§3，关联 G10/G11/G26。后端 execution bundle 的 `ready_to_execute`/`missing` 是入口事实：ready 才显示“运行工作流”，缺项显示后端返回原因并提供自动推进/配置中心；在途 run 显示“打开当前运行”，不重复提交。
+- 驾驶舱的完整入口复用原 `run-selected-workspace`、`WorkspaceWorkflowSubmission` 的 request_id/sessionStorage 幂等和后端门禁；提交成功后通过既有 `openWorkspaceFromExecutionOverview(workspace_id,{runId})` 进入运行记录，不再把首个 Job 日志冒充完整工作流阅读区。`open-workspace-run-reader` 只是既有导航动作，不是第二状态机。
+- 授权说明只陈述稳定规则：实例明确拥有 `tools` 字段（包括空列表）按原授权保留；只有缺少字段时才采用有来源的推荐。页面不从当前已规范化 payload 反推某个实例的历史来源，不动态声称“此实例来自推荐”。运行记录不嵌入配置抽屉。
+- 消融决定：删除 `workspace_form_actions.js` 对不存在的 `#workspaceRunFlowBtn` 监听，并移除 automation busy 列表中的同一死 ID；保留既有节点级运行按钮、旧拓扑诊断和所有真实消费者。启动入口只有 `workspaceLaunchClosure` 一处，事件仍由既有 action surface 委托处理。
+- 真实浏览器：1440×900 和 390×844 均看到完整入口及授权说明；键盘聚焦“查看最近运行”后点击，实际切到 runs 并定位 `20261014-160812-34545369`，无 pageerror。点击“运行工作流”也实际发出 `POST /api/workspaces/20261014-141005-1c574764/run`，服务按旧发现门禁返回 409，未伪造成功；该实例的 `cockpit.next_action` 仍报 `required_tool_unbound/report.write`，属于 G11 未修语义。由于本机没有一个同时满足 ready、无旧发现门禁且无历史运行的隔离实例，本片未把完整网页提交→Job→Agent等待→报告的成功链记为通过；后端成功链证据仍以 2.29 为准。
+- 过程检查：Node 通过 `/home/hzj/.nvm/versions/node/v24.13.0/bin/node --check` 检查 4 个改动 JS；`git diff --check` 通过；系统默认 `node`、`python` 不在 PATH，Python compileall 改动未运行，不能记通过。浏览器失败 selector/隐藏面板/409 记录均保留在本地 `dev_work/artifacts/n03b2c2a-ui/`，测试脚本、截图和结果不提交。
+
 ## 3. 验证边界与阶段状态
 
 N13B1 本次独立前端片的证据在本地 dev_work/artifacts/n13b1/：四条实际运行、回放/比较/导出/日志引用、导航及长内容验证。正常链没有 force、手填终态或人工补报告；模型接口是明确标注的本机替身，只验证数据衔接。正常报告文件仍 incomplete，不能把脚本另存正文当产品交付。两次导航脚本的 selector/文案断言错误保留原失败记录，修正断言后实际复跑；监督发现的真实事件拦截和恢复缺口均修复后重新验证。4个相关JS语法、118脚本引用/顺序/ID唯一与 compileall 通过；根 pytest 无测试退出5，未记通过。其他历史能力的验证边界不扩大。
@@ -761,7 +770,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26339 | R02/R03/R12/R14；真实加载结果/seq/busy/预算 → 最小读取UI投影 → 原刷新/状态反馈 | N13C2预算不变；N13C2-UI接唯一renderer、显式朗读来源/有条件焦点交接，退出旧api error/余留timer/无消费计数。子投影世代/G11/G27另排。 | loadStatus/updateRefreshButtonState/bootstrapStatus/renderHeader |
+| [app.js](../web/core/app.js) · 26407 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；配置与运行记录仍分区，G11旧诊断不隐藏。 | renderWorkspaceLaunchClosure/workspaceHomeActionButtonMarkup/openWorkspaceFromExecutionOverview |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 63 | R12；用户事件/注入依赖 → 顶层导航动作 → 唯一回调 | N13B3a删除已退出moduleCards的委托绑定；其他导航保持，实际独立编辑入口由shell actions绑定。 | bind |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch/浏览器存储 → 页面结果 | 原通用fetchJson不自带deadline；N13C2外层标准signal透传/正文取消合同通过，本文件不改，不冒称其他调用都获预算。存储仍[G19](#g19)。 | fetchJson/loadStoredValue/saveStoredValue |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |
@@ -799,7 +808,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [styles.css](../web/styles/styles.css) · 22908 | R12/规格§3；原页头与读取反馈 → 自然换行/主滚动/焦点可见 → 四视口界面 | N13C2-UI仅页头换行、文字按钮/焦点与单反馈区；长错误自然展开无新固定高度/局部滚动/动画，四视口真实wheel末端可见。共享icon CSS仍有消费者，G15旧样式债保留。 | topbar/status-refresh-button/status-load-feedback |
+| [styles.css](../web/styles/styles.css) · 23007 | R12/规格§3；执行包状态/授权说明 → 入口状态色、自然换行、窄屏动作换行 → 启动闭环可读布局 | N03B2c2a-UI 只补完整运行入口、缺项列表和授权说明响应式样式；letter-spacing 保持0，无固定局部滚动、动画或外部字体。旧共享样式仍有消费者，G15旧样式债保留。 | workspace-launch-runtime-entry/workspace-launch-runtime-missing |
 
 ### web/transfer
 
@@ -860,12 +869,12 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [workspace_action_surfaces.js](../web/workspace/workspace_action_surfaces.js) · 63 | R12；用户动作/依赖 → 单一事件委托 → 业务回调 | N13B3a仅退出12个已无DOM的home/queue动作ID；workflow/agents/tools/model及inspect消费者保留，不抽新组件。 | WORKSPACE_ACTION_SURFACE_IDS/bind |
+| [workspace_action_surfaces.js](../web/workspace/workspace_action_surfaces.js) · 64 | R12；用户动作/依赖 → 单一事件委托 → 业务回调 | N03B2c2a-UI 将实际渲染的 `workspaceLaunchClosure` 纳入既有委托；不新增第二事件系统。旧 workflow/agents/tools/model/inspect 消费者保留。 | WORKSPACE_ACTION_SURFACE_IDS/bind |
 | [workspace_agent_catalog.js](../web/workspace/workspace_agent_catalog.js) · 48 | R02/R06/R09/R12；页面数据/注入依赖 → 实例 Agent 查询/显示 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `workspaceAgentById:4`；`workspaceAgentDisplayName:8` |
 | [workspace_agent_stream_state.js](../web/workspace/workspace_agent_stream_state.js) · 286 | R02/R06/R09/R12；页面数据/注入依赖 → Agent 实时输出缓冲 → 派生状态/界面结果 | 契约/维护关联 [G04](#g04)、[G05](#g05)；消费后端结果，随所属切片收敛。 | `appState:8`；`selectedWorkspaceId:13` |
 | [workspace_agent_tool_actions.js](../web/workspace/workspace_agent_tool_actions.js) · 165 | R03/R12；原生select change/原编辑事件 → 注入原回调 → 选择与字段编辑 | N13B3b1-UI从卡click改稳定select change；toolbar增补/编辑器/Agent回调沿原绑定。键盘/正常保存与本地回调契约通过，不新建状态。 | bindToolList/bindToolEditor/bindToolbars |
 | [workspace_agent_trace.js](../web/workspace/workspace_agent_trace.js) · 218 | R02/R06/R09/R12；页面数据/注入依赖 → Agent 工具与事件轨迹 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:17`；`compactFor:21` |
-| [workspace_automation_actions.js](../web/workspace/workspace_automation_actions.js) · 898 | R06/R11/R12；两个直接动作 → 共用稳定身份、受理反馈/忙碌控制 → HTTP/run/日志 | N03B2b 同步文案为计划节点数/已关联 Job 数，允许受理时 jobs 为空；真实浏览器 running→done 通过。单节点/发现仍原入口，G17 不关闭。 | `workflowErrorMessage:212`；`runWorkspaceToNode:312`；`runWorkspaceWorkflow:375` |
+| [workspace_automation_actions.js](../web/workspace/workspace_automation_actions.js) · 904 | R06/R11/R12；用户点击/稳定 request_id → 唯一工作流提交与运行阅读导航 → HTTP/run/运行记录 | N03B2c2a-UI `runWorkspaceWorkflow` 成功后刷新状态并调用既有运行阅读导航；新增 `open-workspace-run-reader` 只切换既有 run reader；移除无 DOM 的 `workspaceRunFlowBtn` busy 引用。单节点/发现仍原入口，G17 不关闭。 | `runWorkspaceWorkflow:377`；`handleAutomationAction:500`；`openWorkspaceRunReader` |
 | [workspace_catalog_data.js](../web/workspace/workspace_catalog_data.js) · 564 | R02/R06/R12；静态能力目录 → 配置tab枚举 → 装配数据 | N13B2从WORKSPACE_MANAGE_TABS退出runs；旧存储值在app一次迁移到运行记录/all。其他节点/工具目录保留。 | WORKSPACE_MANAGE_TABS |
 | [workspace_chat_actions.js](../web/workspace/workspace_chat_actions.js) · 61 | R02/R06/R09/R12；用户事件/注入依赖 → 聊天/反思动作动作路由 → 回调/API 请求 | 契约/维护关联 [G05](#g05)；消费后端结果，随所属切片收敛。 | `element:8`；`eventTarget:12` |
 | [workspace_chat_normalizers.js](../web/workspace/workspace_chat_normalizers.js) · 84 | R02/R06/R09/R12；页面数据/注入依赖 → 聊天与反思字段规范 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `normalizeWorkspaceContextReflection:16`；`normalizeWorkspaceChatMessage:45` |
@@ -879,7 +888,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [workspace_flow_canvas_controls.js](../web/workspace/workspace_flow_canvas_controls.js) · 178 | R02/R06/R09/R12；页面数据/注入依赖 → 执行板缩放/平移 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `configFor:16`；`boardFor:23` |
 | [workspace_flow_tool_state.js](../web/workspace/workspace_flow_tool_state.js) · 76 | R02/R06/R09/R12；页面数据/注入依赖 → 节点工具健康/选择状态 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `workspaceFlowNodeToolStatuses:4`；`workspaceFlowToolStatusLabel:21` |
 | [workspace_focus_navigation.js](../web/workspace/workspace_focus_navigation.js) · 441 | R12；工具toolbar滚轮/既有焦点目标 → 原定位内核 → 主内容滚动 | N13B3b1-UI工具toolbar改主scroll shell，app fallback同步；新增/删除复用revealWorkspaceElement，四视口焦点可见。其他定位规则保留。 | revealWorkspaceElement/workspaceHeaderWheelTarget |
-| [workspace_form_actions.js](../web/workspace/workspace_form_actions.js) · 54 | R02/R06/R09/R12；用户事件/注入依赖 → 实例高级表单动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`fieldName:12` |
+| [workspace_form_actions.js](../web/workspace/workspace_form_actions.js) · 51 | R02/R06/R09/R12；用户事件/注入依赖 → 实例高级表单动作路由 → 回调/API 请求 | 删除无 DOM 消费者的 `workspaceRunFlowBtn` 监听；完整运行入口现在由 `workspaceLaunchClosure` 的既有 data-action 委托承接。表单提交、输入与填充 Job 入口保留，不抽第二提交器。 | `element:8`；`fieldName:12` |
 | [workspace_help_popover_actions.js](../web/workspace/workspace_help_popover_actions.js) · 79 | R02/R06/R09/R12；用户事件/注入依赖 → 帮助浮层动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `eventTarget:8`；`workspaceHelpTarget:14` |
 | [workspace_launcher_actions.js](../web/workspace/workspace_launcher_actions.js) · 92 | R02/R06/R09/R12；用户事件/注入依赖 → 目标输入与实例创建动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:16`；`eventTarget:20` |
 | [workspace_model_provider_actions.js](../web/workspace/workspace_model_provider_actions.js) · 91 | R02/R06/R09/R12；用户事件/注入依赖 → 实例模型路由交互动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`eventTarget:12` |

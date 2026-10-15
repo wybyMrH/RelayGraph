@@ -21603,6 +21603,105 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   border-left-color: #dc2626;
 }
 
+.workspace-launch-runtime-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 16px;
+  align-items: center;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid #dbe4ee;
+  border-left: 3px solid #64748b;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.workspace-launch-runtime-entry.status-ready {
+  border-left-color: #1f9d55;
+}
+
+.workspace-launch-runtime-entry.status-running,
+.workspace-launch-runtime-entry.status-queued,
+.workspace-launch-runtime-entry.status-submitted,
+.workspace-launch-runtime-entry.status-waiting,
+.workspace-launch-runtime-entry.status-reconciling {
+  border-left-color: #2563eb;
+}
+
+.workspace-launch-runtime-entry.status-blocked {
+  border-left-color: #dc2626;
+}
+
+.workspace-launch-runtime-copy {
+  min-width: 0;
+}
+
+.workspace-launch-runtime-copy > span,
+.workspace-launch-runtime-copy > strong {
+  display: block;
+}
+
+.workspace-launch-runtime-copy > span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.workspace-launch-runtime-copy > strong {
+  margin-top: 2px;
+  color: #162132;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.workspace-launch-runtime-copy p {
+  margin: 5px 0 0;
+  color: #526174;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.workspace-launch-runtime-copy code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #eef2f7;
+  color: #24364d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.workspace-launch-runtime-missing {
+  display: grid;
+  gap: 3px;
+  margin: 7px 0 0;
+  padding: 0 0 0 17px;
+  color: #7f1d1d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workspace-launch-runtime-missing span {
+  color: #526174;
+}
+
+.workspace-launch-runtime-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+@media (max-width: 720px) {
+  .workspace-launch-runtime-entry {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-launch-runtime-actions {
+    justify-content: flex-start;
+  }
+}
+
 .workspace-use-status-panel .workspace-capability-baseline-facts span {
   font-size: 10px;
 }

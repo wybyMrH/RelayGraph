@@ -57,6 +57,7 @@
     "run-workspace-to-selected-node": "运行到当前节点",
     "run-selected-workspace": "运行工作流",
     "open-workspace-run": "打开运行输出",
+    "open-workspace-run-reader": "打开运行记录",
     "apply-recommended-workspace-roles": "应用推荐分工",
     "merge-recommended-workspace-agents": "补齐推荐角色",
     "add-workspace-agent": "新增 Agent",
@@ -88,6 +89,7 @@
     "focus-workspace-node-kind",
     "focus-workspace-backfill-target",
     "open-workspace-run",
+    "open-workspace-run-reader",
     "refresh-workspace-resources",
     "refresh-workspace-resource-server",
     "refresh-workspace-resource-selected-server",
@@ -116,6 +118,7 @@
     "run-workspace-to-selected-node": "从起点运行到当前选中节点，用于验证前置 source/data/env/GPU 链路；不会提交后续节点。",
     "run-selected-workspace": "门禁通过后提交完整工作流；门禁失败时不会创建半截队列。",
     "open-workspace-run": "打开这条运行记录的输出日志，用于确认当前卡在命令、环境、路径、数据还是 GPU 调度。",
+    "open-workspace-run-reader": "打开这次运行的步骤、等待状态、日志、产物和报告。",
     "apply-recommended-workspace-roles": "根据节点类型批量填充推荐 Agent 分工，降低逐个配置节点的成本。",
     "merge-recommended-workspace-agents": "按复现/部署链路补齐默认 Agent 角色，不覆盖已有自定义 Agent。",
     "add-workspace-agent": "在当前项目实例内新增一个 Agent 草稿。",
@@ -158,7 +161,6 @@
     ["workspaceCreateDiscoverTaskBtn", "create-workspace-discover"],
     ["workspaceCreateRunTaskBtn", "create-workspace-run"],
     ["workspaceTestChainBtn", "test-workspace-chain"],
-    ["workspaceRunFlowBtn", "run-selected-workspace"],
   ];
 
   function actionButtons(deps = {}) {
@@ -349,8 +351,8 @@
         : `已受理到“${target}”，计划 ${payload.run?.execution_plan?.steps?.length ?? created} 个节点，已关联 ${created} 个 Job${applied ? ` · 先回填 ${applied} 项` : ""}。`);
       if (payload.jobs?.[0]?.id) {
         await fn(deps, "loadStatus", async () => {})(true, { renderWorkspace: true });
-        await fn(deps, "showLog", async () => {})(payload.jobs[0].id);
       }
+      if (payload.jobs?.[0]?.id) await fn(deps, "showLog", async () => {})(payload.jobs[0].id);
     } catch (error) {
       if (confirmedRunId) {
         setMessage(`运行 ${confirmedRunId} 已提交，但界面或日志更新失败：${error?.message || error}。请刷新查看运行记录。`, true);
@@ -409,8 +411,8 @@
         : `已受理工作流 ${payload.run_id}，计划 ${payload.run?.execution_plan?.steps?.length ?? created} 个节点，已关联 ${created} 个 Job${applied ? ` · 先回填 ${applied} 项` : ""}${packageText}。`);
       if (payload.jobs?.[0]?.id) {
         await fn(deps, "loadStatus", async () => {})(true, { renderWorkspace: true });
-        await fn(deps, "showLog", async () => {})(payload.jobs[0].id);
       }
+      await fn(deps, "openWorkspaceRunReader", async () => {})(payload.run_id);
     } catch (error) {
       if (confirmedRunId) {
         setMessage(`运行 ${confirmedRunId} 已提交，但界面或日志更新失败：${error?.message || error}。请刷新查看运行记录。`, true);
@@ -803,6 +805,10 @@
     }
     if (action === "open-workspace-run" && button.dataset.runId) {
       void fn(deps, "openWorkspaceRunDetail", async () => {})(button.dataset.runId);
+      return true;
+    }
+    if (action === "open-workspace-run-reader" && button.dataset.runId) {
+      void fn(deps, "openWorkspaceRunReader", async () => {})(button.dataset.runId);
       return true;
     }
     if (action === "open-last-workspace-log") {

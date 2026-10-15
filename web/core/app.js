@@ -12602,7 +12602,73 @@ function renderWorkspaceLaunchClosure(workspace = selectedWorkspace()) {
     ? (workflowTemplateById(workspace.template_id) || selectedWorkflowTemplate())
     : selectedWorkflowTemplate();
   const resources = workspaceUseResourceSummary();
-  root.innerHTML = workspaceLauncherPrecreateContractMarkup(inputs, template, resources, { compact: true, band: true });
+  const contract = workspaceLauncherPrecreateContractMarkup(inputs, template, resources, { compact: true, band: true });
+  if (!workspace?.id) {
+    root.innerHTML = contract;
+    root.hidden = !root.innerHTML.trim();
+    return;
+  }
+  const manifest = workspace.automation?.reproduction_manifest && typeof workspace.automation.reproduction_manifest === "object"
+    ? workspace.automation.reproduction_manifest
+    : {};
+  const bundle = manifest.execution_bundle && typeof manifest.execution_bundle === "object" ? manifest.execution_bundle : {};
+  const ready = Boolean(bundle.ready_to_execute);
+  const missing = Array.isArray(bundle.missing) ? bundle.missing : [];
+  const latestRun = workspaceLatestExecutionRun(workspace);
+  const activeRun = workspaceExecutionRuns(workspace).find((run) => ["pending", "submitted", "queued", "running", "waiting", "reconciling"].includes(String(run?.status || "").toLowerCase()));
+  const runAction = activeRun
+    ? workspaceHomeActionButtonMarkup({
+        label: "打开当前运行",
+        dataAction: "open-workspace-run-reader",
+        runId: activeRun.id,
+        tone: "primary",
+        title: "打开这次运行的步骤、等待状态、日志与报告。",
+      })
+    : ready
+      ? workspaceHomeActionButtonMarkup({
+          label: "运行工作流",
+          dataAction: "run-selected-workspace",
+          tone: "primary",
+          title: "按当前执行包和后端门禁提交完整工作流。",
+        })
+      : "";
+  const missingMarkup = missing.length
+    ? `<ul class="workspace-launch-runtime-missing">${missing.slice(0, 6).map((item) => {
+        const label = typeof item === "string" ? item : item?.label || item?.field || item?.action || "执行包缺项";
+        const detail = typeof item === "string" ? "" : item?.action || item?.detail || "";
+        return `<li><strong>${escapeHtml(label)}</strong>${detail ? ` <span>${escapeHtml(detail)}</span>` : ""}</li>`;
+      }).join("")}</ul>`
+    : "";
+  const status = activeRun ? String(activeRun.status || "queued") : ready ? "ready" : "blocked";
+  const statusText = activeRun
+    ? `当前运行：${zhStatus(activeRun.status || "queued")}`
+    : ready
+      ? "执行包已就绪"
+      : "执行包未就绪";
+  const latestLink = latestRun && !activeRun
+    ? workspaceHomeActionButtonMarkup({
+        label: "查看最近运行",
+        dataAction: "open-workspace-run-reader",
+        runId: latestRun.id,
+        tone: "secondary",
+        title: "回看最近一次运行的步骤、日志和报告。",
+      })
+    : "";
+  root.innerHTML = `${contract}
+    <section class="workspace-launch-runtime-entry status-${escapeHtml(status)}" aria-label="完整工作流运行入口">
+      <div class="workspace-launch-runtime-copy">
+        <span>完整工作流</span>
+        <strong>${escapeHtml(statusText)}</strong>
+        <p>授权规则：明确填写 <code>tools</code>（包括空列表）按实例授权保留；只有缺少字段时才使用有来源的推荐。</p>
+        ${missingMarkup}
+      </div>
+      <div class="workspace-launch-runtime-actions">
+        ${runAction}
+        ${latestLink}
+        ${!ready && !activeRun ? workspaceHomeActionButtonMarkup({ label: "自动推进", dataAction: "advance-workspace-automation", tone: "secondary", title: "按后端门禁补齐发现、回填和执行包缺项。" }, "执行包未就绪") : ""}
+        ${!ready && !activeRun ? workspaceHomeActionButtonMarkup({ label: "配置中心", dataAction: "open-workspace-chain-inspect", tone: "secondary", title: "打开配置中心查看并编辑链路、输入、Agent、工具和门禁。" }) : ""}
+      </div>
+    </section>`;
   root.hidden = !root.innerHTML.trim();
 }
 
@@ -13147,12 +13213,13 @@ function workspaceHomeActionButtonMarkup(button = {}, fallbackDetail = "") {
     const agentAttr = guarded.agentId ? ` data-agent-id="${escapeHtml(guarded.agentId)}"` : "";
     const toolAttr = guarded.toolId ? ` data-tool-id="${escapeHtml(guarded.toolId)}"` : "";
     const profileAttr = guarded.profileId ? ` data-profile-id="${escapeHtml(guarded.profileId)}"` : "";
+    const runAttr = guarded.runId ? ` data-run-id="${escapeHtml(guarded.runId)}"` : "";
     const targetAttr = guarded.targetId ? ` data-target-id="${escapeHtml(guarded.targetId)}"` : "";
     const tabAttr = guarded.tab ? ` data-tab="${escapeHtml(guarded.tab)}"` : "";
     const modeAttr = guarded.mode ? ` data-mode="${escapeHtml(guarded.mode)}"` : "";
     const help = workspaceAutomationActionHelp(action, title);
     return `
-      <button class="${tone} mini" type="button" data-action="${escapeHtml(action)}"${nodeAttr}${serverAttr}${jobAttr}${agentAttr}${toolAttr}${profileAttr}${targetAttr}${tabAttr}${modeAttr} title="${escapeHtml(help)}" aria-label="${escapeHtml(`${label}：${help}`)}" data-workspace-help="${escapeHtml(help)}">
+      <button class="${tone} mini" type="button" data-action="${escapeHtml(action)}"${nodeAttr}${serverAttr}${jobAttr}${agentAttr}${toolAttr}${profileAttr}${runAttr}${targetAttr}${tabAttr}${modeAttr} title="${escapeHtml(help)}" aria-label="${escapeHtml(`${label}：${help}`)}" data-workspace-help="${escapeHtml(help)}">
         ${escapeHtml(label)}
       </button>
     `;
@@ -25179,6 +25246,7 @@ function workspaceAutomationActionDeps() {
     workspaceExecutionBundleScriptText,
     workspaceExecutionBundlePackageText,
     renderWorkspaceCockpitOverview,
+    openWorkspaceRunReader: (runId) => openWorkspaceFromExecutionOverview(state.selectedWorkspaceId, { runId }),
   };
 }
 

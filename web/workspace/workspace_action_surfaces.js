@@ -3,6 +3,7 @@
 
   const WORKSPACE_ACTION_SURFACE_IDS = [
     "workspaceLauncherPlan",
+    "workspaceLaunchClosure",
     "workspaceLauncherDetails",
     "workspaceCapabilityBaseline",
     "workspaceWorkflowSummary",

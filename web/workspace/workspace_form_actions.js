@@ -38,9 +38,6 @@
     element(callbacks, "workspaceResetBtn")?.addEventListener("click", (event) => {
       call(callbacks, "clearWorkspaceForm", event);
     });
-    element(callbacks, "workspaceRunFlowBtn")?.addEventListener("click", (event) => {
-      callAsync(callbacks, "runWorkspaceWorkflow", event);
-    });
     element(callbacks, "workspaceFillJobBtn")?.addEventListener("click", (event) => {
       call(callbacks, "fillJobFormFromWorkspace", event);
     });
