@@ -5,6 +5,7 @@ from __future__ import annotations
 from ._deps import *  # noqa: F403
 from ..registry_pkg.provider_profiles import provider_profile_health, provider_route_hash
 from ...orchestration.run_store import content_hash
+from ...orchestration.job_coordinator import AGENT_CHILD_JOB_ENGINE_VERSION
 
 
 def _workspace_env_prepare_failure_checks(execution: dict[str, Any]) -> list[dict[str, Any]]:
@@ -272,11 +273,19 @@ class WorkflowMixin:
         single_job = len(nodes) == 1 and planned_modes == ["job"]
         job_report = (len(nodes) == 2 and planned_modes == ["job", "agent"]
                       and nodes[1].get("kind") == "eval.report")
-        if not (single_job or job_report):
+        first_agent = next(
+            (item for item in workspace.get("agents", []) if isinstance(item, dict)
+             and str(item.get("id") or "").strip() == str((nodes[0].get("handler") or {}).get("agent_id") or "").strip()),
+            {},
+        ) if nodes else {}
+        first_agent_tools = set(parse_tag_list(first_agent.get("tools", [])))
+        agent_child = (len(nodes) == 2 and planned_modes == ["agent", "agent"]
+                       and bool(first_agent_tools & {"job.run", "host.exec"}))
+        if not (single_job or job_report or agent_child):
             raise WorkspaceWorkflowReadinessError(
-                "当前持久工作流支持一个 Job，或一个 Job → 无工具报告 Agent。",
+                "当前持久工作流支持一个 Job、一个 Job → 报告 Agent，或受控 Agent → child Job → Agent。",
                 blocked_checks=[{"id": "workflow_plan_not_supported", "status": "blocked",
-                                 "title": "工作流类型尚未接入", "detail": "请选择单 Job 或 Job → eval.report Agent。",
+                                 "title": "工作流类型尚未接入", "detail": "请选择单 Job、Job → eval.report Agent，或首个 Agent 含 job.run/host.exec 的两 Agent 链。",
                                  "action": "使用受支持的计划；其他混合链待后续切片。"}],
                 workspace=self.workspace_public_payload(workspace), applied=applied,
                 evidence_applied=evidence_applied,
@@ -370,6 +379,14 @@ class WorkflowMixin:
             executor_prefer,
         )
         report_route_hash = ""
+        agent_route_hashes: dict[str, str] = {}
+        if agent_child and not agent_execution_checks:
+            for agent_node in nodes:
+                handler = agent_node.get("handler") if isinstance(agent_node.get("handler"), dict) else {}
+                agent = next(item for item in workspace["agents"] if item["id"] == handler.get("agent_id"))
+                route = workspace_model_route_for_agent(workspace.get("model", {}), agent)
+                profile = next(item for item in provider_profiles_snapshot if item["id"] == route["effective_profile_id"])
+                agent_route_hashes[agent_node["id"]] = provider_route_hash(profile)
         if job_report and not agent_execution_checks:
             report_node = nodes[1]
             agent = next(item for item in workspace["agents"]
@@ -406,7 +423,8 @@ class WorkflowMixin:
 
         run_summary = (
             f"运行至节点 · {str((target_node or {}).get('title') or until_node_id).strip()}"
-            if until_node_id else "工作流 · 1 Job → 报告 Agent" if job_report else "工作流 · 1 Job"
+            if until_node_id else "工作流 · Agent → child Job → Agent" if agent_child
+            else "工作流 · 1 Job → 报告 Agent" if job_report else "工作流 · 1 Job"
         )
         initial_package = workspace_execution_bundle_result(automation, [])
         if until_node_id:
@@ -421,6 +439,8 @@ class WorkflowMixin:
             request_id=request_id, request_hash=request_hash, summary=run_summary, executor_prefer=executor_prefer,
             job_payloads=job_payloads,
             report_route_hash=report_route_hash,
+            agent_route_hashes=agent_route_hashes,
+            engine_version=AGENT_CHILD_JOB_ENGINE_VERSION if agent_child else "",
         )
         run_id = str(run.get("id") or "").strip()
         if not created:

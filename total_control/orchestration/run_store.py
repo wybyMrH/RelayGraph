@@ -38,7 +38,7 @@ class RunStoreError(RuntimeError):
 
 
 class RunStore:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
     TERMINAL = frozenset({"done", "failed", "stopped", "skipped"})
 
     def __init__(self, path: Path):
@@ -63,8 +63,13 @@ class RunStore:
                     submit_key TEXT PRIMARY KEY, run_id TEXT NOT NULL, step_id TEXT NOT NULL,
                     attempt_no INTEGER NOT NULL, payload_hash TEXT NOT NULL, payload_json TEXT NOT NULL,
                     state TEXT NOT NULL, external_ref TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+                    operation TEXT NOT NULL DEFAULT 'job',
                     FOREIGN KEY(run_id,step_id,attempt_no) REFERENCES attempts(run_id,step_id,attempt_no))""")
-                db.execute("PRAGMA user_version=1")
+                db.execute("PRAGMA user_version=2")
+                version = 2
+            if version == 1:
+                db.execute("ALTER TABLE submissions ADD COLUMN operation TEXT NOT NULL DEFAULT 'job'")
+                db.execute("PRAGMA user_version=2")
             elif version != self.SCHEMA_VERSION:
                 raise RunStoreError("unsupported execution store schema; existing file preserved")
             if db.execute("PRAGMA quick_check").fetchone()[0] != "ok":
@@ -201,7 +206,7 @@ class RunStore:
         if result.get("node_id", step_id) != step_id:
             raise RunConflictError("attempt result belongs to another step")
         status = result["status"]
-        if status not in {"pending", "running", "queued", "reconciling", "blocked", *self.TERMINAL}:
+        if status not in {"pending", "running", "queued", "waiting", "reconciling", "blocked", *self.TERMINAL}:
             raise ValueError("invalid attempt result status")
         with self._db(write=True) as db:
             row = db.execute("SELECT * FROM attempts WHERE run_id=? AND step_id=? AND attempt_no=?",
@@ -267,16 +272,27 @@ class RunStore:
             record["updated_at"] = now_iso()
             db.execute("UPDATE runs SET record_json=? WHERE run_id=?", (canonical_json(record), run_id))
 
-    def prepare_submission(self, run_id: str, step_id: str, attempt_no: int, payload: dict[str, Any]) -> dict[str, Any]:
-        key = f"{run_id}/{step_id}/a{attempt_no}/job"
+    def prepare_submission(
+        self,
+        run_id: str,
+        step_id: str,
+        attempt_no: int,
+        payload: dict[str, Any],
+        *,
+        operation: str = "job",
+    ) -> dict[str, Any]:
+        operation = str(operation or "job").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.:-]{1,64}", operation):
+            raise ValueError("invalid submission operation")
+        key = f"{run_id}/{step_id}/a{attempt_no}/{operation}"
         digest = content_hash(payload)
         with self._db(write=True) as db:
             row = db.execute("SELECT * FROM submissions WHERE submit_key=?", (key,)).fetchone()
             if row and row["payload_hash"] != digest:
                 raise RunConflictError("submission key reused with a different payload")
             if not row:
-                db.execute("INSERT INTO submissions(submit_key,run_id,step_id,attempt_no,payload_hash,payload_json,state) VALUES(?,?,?,?,?,?,?)",
-                           (key, run_id, step_id, attempt_no, digest, canonical_json(payload), "prepared"))
+                db.execute("INSERT INTO submissions(submit_key,run_id,step_id,attempt_no,payload_hash,payload_json,state,operation) VALUES(?,?,?,?,?,?,?,?)",
+                           (key, run_id, step_id, attempt_no, digest, canonical_json(payload), "prepared", operation))
                 row = db.execute("SELECT * FROM submissions WHERE submit_key=?", (key,)).fetchone()
             return dict(row)
 

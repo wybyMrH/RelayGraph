@@ -27,6 +27,8 @@ def derive_workspace_execution_run_status(steps: list[dict[str, Any]]) -> str:
         return "stopped"
     if any(status == "blocked" for status in statuses):
         return "blocked"
+    if any(status == "waiting" for status in statuses):
+        return "waiting"
     if any(status == "running" for status in statuses):
         return "running"
     if any(status == "queued" for status in statuses):
@@ -44,6 +46,7 @@ def derive_workspace_execution_run_progress(steps: list[dict[str, Any]]) -> dict
     failed = sum(1 for step in steps if str(step.get("status") or "") in {"failed", "blocked", "stopped"})
     running = sum(1 for step in steps if str(step.get("status") or "") == "running")
     queued = sum(1 for step in steps if str(step.get("status") or "") == "queued")
+    waiting = sum(1 for step in steps if str(step.get("status") or "") == "waiting")
     percent = int(((done + skipped) / total) * 100) if total else 0
     return {
         "total": total,
@@ -53,6 +56,7 @@ def derive_workspace_execution_run_progress(steps: list[dict[str, Any]]) -> dict
         "stopped": stopped,
         "running": running,
         "queued": queued,
+        "waiting": waiting,
         "percent": percent,
     }
 

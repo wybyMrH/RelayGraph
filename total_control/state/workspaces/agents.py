@@ -40,13 +40,14 @@ class AgentsMixin:
             "active": agent_run_is_active(str(execution_id or "").strip()),
         }
 
-    def workspace_tool_runtime(self, workspace: dict[str, Any]) -> dict[str, Any]:
+    def workspace_tool_runtime(self, workspace: dict[str, Any], parent: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
             "submit_job": lambda tool_id, arguments, context: self.submit_workspace_tool_job(
                 workspace,
                 tool_id,
                 arguments,
                 context,
+                parent=parent,
             ),
             "bind_gpu": lambda arguments, context: self.bind_workspace_tool_gpu_allocation(
                 workspace,
@@ -171,6 +172,7 @@ class AgentsMixin:
         tool_id: str,
         arguments: dict[str, Any],
         context: Any,
+        parent: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         workspace_id = str(workspace.get("id") or "").strip()
         tool = str(tool_id or "").strip()
@@ -329,8 +331,40 @@ class AgentsMixin:
                     "submitted_by": "agent_tool",
                 }
             )
+            parent = parent if isinstance(parent, dict) else {}
+            child_intent = None
+            if parent.get("run_id") and parent.get("step_id") and parent.get("attempt_no"):
+                child_payload = {"tool": tool, "command": command, "node_id": str(node_copy.get("id") or "")}
+                child_intent = self.execution_store.prepare_submission(
+                    str(parent["run_id"]), str(parent["step_id"]), int(parent["attempt_no"]),
+                    child_payload, operation="child-job",
+                )
+                if child_intent["external_ref"]:
+                    existing = self._job_for_submission(child_intent, workspace_id)
+                    if existing:
+                        return {"status": "submitted", "tool": tool, "controlled": True,
+                                "runtime_control": "workspace_job_queue", "runtime_side_effect": "workspace_job",
+                                "job_id": str(existing["id"]), "job": public_job_payload(existing)}
+                if not self.execution_store.claim_submission(child_intent["submit_key"]):
+                    raise RunConflictError("child Job submission outcome unknown; reconciliation required")
+            if parent.get("run_id") and parent.get("step_id") and parent.get("attempt_no"):
+                metadata.update(
+                    parent_run_id=str(parent["run_id"]),
+                    parent_step_id=str(parent["step_id"]),
+                    parent_attempt_id=f"a{int(parent['attempt_no'])}",
+                    source_agent_execution_id=str(parent.get("agent_execution_id") or ""),
+                    child_submit_key=str(parent.get("child_submit_key") or ""),
+                    child_payload_hash=str(parent.get("child_payload_hash") or ""),
+                )
+                if child_intent:
+                    metadata.update(
+                        child_submit_key=child_intent["submit_key"],
+                        child_payload_hash=child_intent["payload_hash"],
+                    )
             job_payload["metadata"] = metadata
             job = self.create_job(job_payload, publish_events=False)
+            if child_intent:
+                self.execution_store.bind_submission(child_intent["submit_key"], str(job.get("id") or ""))
             run = self.register_workspace_execution_run(
                 workspace_id,
                 kind="node",
@@ -413,6 +447,7 @@ class AgentsMixin:
         execution_id: str = "",
         expected_route_hash: str = "",
         report_only: bool = False,
+        parent_attempt: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         workspace_id = str(workspace.get("id") or "").strip()
         execution_run_id = str(run_id or "").strip()
@@ -477,7 +512,7 @@ class AgentsMixin:
             jobs=copy.deepcopy(self.jobs),
             provider_profiles=copy.deepcopy(getattr(self, "provider_profiles", [])),
             tool_definitions=copy.deepcopy(getattr(self, "tool_definitions", [])),
-            runtime=self.workspace_tool_runtime(workspace),
+            runtime=self.workspace_tool_runtime(workspace, parent=parent_attempt),
         )
         agent_config = dict(agent)
         if max_iterations is not None:
@@ -756,6 +791,7 @@ class AgentsMixin:
                 execution_id=execution_id,
                 expected_route_hash=expected_route_hash,
                 report_only=report_only,
+                parent_attempt=context.parent_attempt,
             )
             return {"execution": execution}
 

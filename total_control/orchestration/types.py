@@ -82,6 +82,7 @@ class ExecutionRunContext:
     outputs: dict[str, Any] = field(default_factory=dict)
     previous_output: dict[str, Any] | None = None
     step_index: int = 0
+    parent_attempt: dict[str, Any] = field(default_factory=dict)
 
     def with_output(self, key: str, value: Any) -> None:
         normalized = str(key or "").strip()

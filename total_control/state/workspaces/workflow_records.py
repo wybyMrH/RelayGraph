@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from ...orchestration.run_store import RunConflictError, RunStoreError, content_hash
-from ...orchestration.job_coordinator import JOB_ENGINE_VERSION, REPORT_ENGINE_VERSION, GRAPH_ENGINE_VERSIONS
+from ...orchestration.job_coordinator import (
+    AGENT_CHILD_JOB_ENGINE_VERSION,
+    JOB_ENGINE_VERSION,
+    REPORT_ENGINE_VERSION,
+    GRAPH_ENGINE_VERSIONS,
+)
 from ...orchestration.types import RunPlan, ExecutionRunContext
 from ...workspace.automation.contracts_pkg.io import workspace_contract_output_key_for_node
 from .agent_runtime_safety import redact_runtime_observation_text
@@ -26,16 +31,24 @@ from ...workspace.execution import (
 
 class WorkflowRecordsMixin:
     def _job_for_submission(self, intent: dict[str, Any], workspace_id: str) -> dict[str, Any] | None:
-        matches = [job for job in self.jobs if job.get("metadata", {}).get("submission_key") == intent["submit_key"]]
+        matches = [job for job in self.jobs
+                   if job.get("metadata", {}).get("submission_key") == intent["submit_key"]
+                   or job.get("metadata", {}).get("child_submit_key") == intent["submit_key"]]
         if len(matches) > 1:
             raise RunConflictError("duplicate durable Job receipts; manual reconciliation required")
         if not matches:
             return None
         job = matches[0]
         metadata = job["metadata"]
-        expected = {"submission_payload_hash": intent["payload_hash"], "workspace_id": workspace_id,
-                    "execution_run_id": intent["run_id"], "node_id": intent["step_id"],
-                    "execution_attempt_id": f"a{intent['attempt_no']}"}
+        if intent.get("operation") == "child-job":
+            expected = {"workspace_id": workspace_id, "parent_run_id": intent["run_id"],
+                        "parent_step_id": intent["step_id"], "parent_attempt_id": f"a{intent['attempt_no']}",
+                        "child_submit_key": intent["submit_key"],
+                        "child_payload_hash": intent["payload_hash"]}
+        else:
+            expected = {"submission_payload_hash": intent["payload_hash"], "workspace_id": workspace_id,
+                        "execution_run_id": intent["run_id"], "node_id": intent["step_id"],
+                        "execution_attempt_id": f"a{intent['attempt_no']}"}
         if any(metadata.get(key) != value for key, value in expected.items()):
             raise RunConflictError("durable Job receipt identity conflict")
         return job
@@ -82,7 +95,7 @@ class WorkflowRecordsMixin:
                             "status": item["status"], "inputs": item["inputs"], "result": item["result"],
                             "created_at": item["created_at"], "updated_at": item["updated_at"]} for item in attempts]
         public_submissions = [{key: item[key] for key in (
-            "submit_key", "step_id", "attempt_no", "payload_hash", "state", "external_ref", "error"
+            "submit_key", "step_id", "attempt_no", "payload_hash", "state", "external_ref", "error", "operation"
         )} for item in submissions]
         record = normalize_workspace_execution_run({
             **existing, **evidence["record"], "id": run_id, "workspace_id": workspace_id,
@@ -142,6 +155,8 @@ class WorkflowRecordsMixin:
         package_snapshot: dict[str, Any], *, request_id: str, request_hash: str, summary: str,
         executor_prefer: str, job_payloads: dict[str, dict[str, Any]],
         report_route_hash: str = "",
+        agent_route_hashes: dict[str, str] | None = None,
+        engine_version: str = "",
     ) -> tuple[dict[str, Any], bool]:
         snapshot = {key: copy.deepcopy(value) for key, value in workspace.items()
                     if key not in {"runs", "chat", "execution", "automation", "updated_at"}}
@@ -159,9 +174,10 @@ class WorkflowRecordsMixin:
                 payload["metadata"].update(workflow_phase="run_to_node", workflow_until_node_id=scope["target_node_id"],
                                            workflow_until_node_title=scope["target_node_title"],
                                            workflow_until_node_kind=scope["target_node_kind"])
+        selected_engine = engine_version or (REPORT_ENGINE_VERSION if report_route_hash else JOB_ENGINE_VERSION)
         plan = RunPlan(
             run_id=planned_run_id, workspace_id=workspace["id"],
-            engine_version=REPORT_ENGINE_VERSION if report_route_hash else JOB_ENGINE_VERSION,
+            engine_version=selected_engine,
             steps=[{"step_id": node["id"], "index": index, "executor": modes[index], "node": copy.deepcopy(node)}
                    for index, node in enumerate(nodes)],
             workspace_snapshot=snapshot, package_snapshot=copy.deepcopy(package_snapshot), executor_prefer=executor_prefer,
@@ -172,7 +188,9 @@ class WorkflowRecordsMixin:
             if step["executor"] == "job":
                 step["job_payload"] = frozen_payloads[step["step_id"]]
             else:
-                step.update(provider_route_hash=report_route_hash, invocation_mode="single-call-no-tools")
+                route_hash = (agent_route_hashes or {}).get(step["step_id"], report_route_hash)
+                step.update(provider_route_hash=route_hash,
+                            invocation_mode="single-call-no-tools" if selected_engine == REPORT_ENGINE_VERSION else "controlled-handoff")
         run_id, created = self.execution_store.create(plan, request_id=request_id, request_hash=request_hash, summary=summary)
         with self.lock:
             current = self.workspace_by_id(workspace["id"])
@@ -199,6 +217,137 @@ class WorkflowRecordsMixin:
         self.begin_workflow_step(run_id, step["node"], step["index"])
         return self.submit_workflow_job(copy.deepcopy(step["job_payload"]))["id"]
 
+    def start_coordinated_agent(self, run_id: str) -> str:
+        evidence = self.execution_store.read(run_id)
+        plan = evidence["plan"]
+        if plan["engine_version"] != AGENT_CHILD_JOB_ENGINE_VERSION:
+            raise RunConflictError("child Agent callback cannot execute this plan")
+        step = plan["steps"][0]
+        attempt_no = self.execution_store.begin_attempt(run_id, step["step_id"], inputs={
+            "plan_hash": evidence["plan_hash"], "input_mapping": copy.deepcopy(step["node"].get("input_mapping", {})),
+        })
+        attempt = next(item for item in self.execution_store.read(run_id)["attempts"]
+                       if item["step_id"] == step["step_id"] and item["attempt_no"] == attempt_no)
+        if attempt["result"].get("child_job_id"):
+            return str(attempt["result"]["child_job_id"])
+        prior_intent = next((item for item in evidence["submissions"]
+                             if item.get("operation") == "child-job"
+                             and item["step_id"] == step["step_id"]
+                             and item["attempt_no"] == attempt_no), None)
+        if prior_intent:
+            child = self._job_for_submission(prior_intent, plan["workspace_id"])
+            if child and prior_intent.get("external_ref") == child.get("id"):
+                child_id = str(child["id"])
+                self.execution_store.record_result(
+                    run_id, step["step_id"], attempt_no,
+                    {**attempt["result"], "node_id": step["step_id"], "status": "waiting",
+                     "executor": "agent", "runtime_status": "waiting_child",
+                     "child_status": child.get("status", "unknown"), "child_job_id": child_id,
+                     "child_job_ids": [child_id], "child_submit_key": prior_intent["submit_key"],
+                     "child_payload_hash": prior_intent["payload_hash"]},
+                )
+                return child_id
+            if prior_intent.get("state") in {"submitting", "reconciling"}:
+                raise RunConflictError("child Job submission outcome unknown; reconciliation required")
+        execution_id = f"{run_id}:{step['step_id']}:a{attempt_no}"
+        if not self.execution_store.claim_agent_invocation(run_id, step["step_id"], attempt_no, execution_id):
+            self.execution_store.record_result(
+                run_id, step["step_id"], attempt_no,
+                {**attempt["result"], "node_id": step["step_id"], "status": "blocked",
+                 "executor": "agent", "invocation_state": "unknown",
+                 "error": "Agent invocation outcome unknown; automatic replay refused"},
+            )
+            raise RunConflictError("Agent invocation already claimed; automatic replay refused")
+        context = ExecutionRunContext(
+            workspace_id=plan["workspace_id"], run_id=run_id, kind="workflow", step_index=0,
+            parent_attempt={"run_id": run_id, "step_id": step["step_id"], "attempt_no": attempt_no,
+                            "agent_execution_id": execution_id},
+        )
+        result = self.execute_workspace_agent_node(
+            plan["workspace_id"], copy.deepcopy(step["node"]), run_context=context,
+            frozen_workspace=copy.deepcopy(plan["workspace_snapshot"]), execution_id=execution_id,
+            expected_route_hash=step.get("provider_route_hash", ""),
+        )
+        recorded = workspace_run_step_from_agent(step["node"], result, step["index"])
+        recorded.update(agent_execution_id=execution_id, invocation_state="recorded")
+        child_ids = recorded.get("child_job_ids") if isinstance(recorded.get("child_job_ids"), list) else []
+        if child_ids:
+            recorded.update(status="waiting", runtime_status="waiting_child", completed_at="", error="")
+        self.execution_store.record_result(run_id, step["step_id"], attempt_no, recorded)
+        if not child_ids:
+            raise RunConflictError("parent Agent did not submit a controlled child Job")
+        return str(child_ids[0])
+
+    def resume_coordinated_agent(self, run_id: str) -> dict[str, Any]:
+        evidence = self.execution_store.read(run_id)
+        plan = evidence["plan"]
+        if plan["engine_version"] != AGENT_CHILD_JOB_ENGINE_VERSION:
+            raise RunConflictError("child Agent callback cannot execute this plan")
+        source = plan["steps"][0]
+        follow = plan["steps"][1]
+        source_attempt = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == source["step_id"])
+        if source_attempt["result"].get("continuation_state") == "resumed":
+            return copy.deepcopy(source_attempt["result"])
+        number = self.execution_store.begin_attempt(run_id, follow["step_id"], inputs={
+            "plan_hash": evidence["plan_hash"], "source_step_id": source["step_id"],
+            "source_attempt_id": f"a{source_attempt['attempt_no']}",
+            "child_job_id": source_attempt["result"].get("child_job_id", ""),
+        })
+        existing_follow = next(item for item in self.execution_store.read(run_id)["attempts"]
+                              if item["step_id"] == follow["step_id"] and item["attempt_no"] == number)
+        if existing_follow["result"]:
+            if existing_follow["result"].get("invocation_state") == "claimed":
+                result = {**existing_follow["result"], "status": "blocked", "invocation_state": "unknown",
+                          "error": "Agent invocation outcome unknown; automatic replay refused"}
+                self.execution_store.record_result(run_id, follow["step_id"], number, result)
+                return result
+            self.execution_store.record_result(
+                run_id,
+                source["step_id"],
+                source_attempt["attempt_no"],
+                {**source_attempt["result"], "node_id": source["step_id"], "status": "done",
+                 "runtime_status": "done", "continuation_state": "resumed"},
+            )
+            return copy.deepcopy(existing_follow["result"])
+        execution_id = f"{run_id}:{follow['step_id']}:a{number}"
+        if not self.execution_store.claim_agent_invocation(run_id, follow["step_id"], number, execution_id):
+            raise RunConflictError("Agent invocation already claimed; automatic replay refused")
+        child_output = copy.deepcopy(source_attempt["result"].get("output_value", {}))
+        result = self.execute_workspace_agent_node(plan["workspace_id"], copy.deepcopy(follow["node"]),
+                                                   run_context=ExecutionRunContext(
+                                                       workspace_id=plan["workspace_id"], run_id=run_id,
+                                                       kind="workflow", step_index=1,
+                                                       previous_output=child_output or None,
+                                                       outputs={str(child_output.get("output_key") or ""): child_output}
+                                                       if child_output.get("output_key") else {},
+                                                   ),
+                                                   frozen_workspace=copy.deepcopy(plan["workspace_snapshot"]), execution_id=execution_id,
+                                                   expected_route_hash=follow.get("provider_route_hash", ""))
+        recorded = workspace_run_step_from_agent(follow["node"], result, follow["index"])
+        recorded.update(agent_execution_id=execution_id, continuation_state="resumed")
+        self.execution_store.record_result(run_id, follow["step_id"], number, recorded)
+        source_result = {
+            **source_attempt["result"],
+            "node_id": source["step_id"],
+            "status": "done",
+            "runtime_status": "done",
+            "continuation_state": "resumed",
+        }
+        self.execution_store.record_result(run_id, source["step_id"], source_attempt["attempt_no"], source_result)
+        return recorded.as_dict() if hasattr(recorded, "as_dict") else recorded
+
+    def fail_coordinated_agent(self, run_id: str, observation: dict[str, Any]) -> dict[str, Any]:
+        evidence = self.execution_store.read(run_id)
+        step = evidence["plan"]["steps"][0]
+        attempt = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == step["step_id"])
+        if attempt["status"] in self.execution_store.TERMINAL:
+            return copy.deepcopy(attempt["result"])
+        terminal = "failed" if observation.get("status") == "failed" else "blocked" if observation.get("status") in {"blocked", "reconciling", "unknown"} else "stopped"
+        result = {**attempt["result"], "node_id": step["step_id"], "status": terminal,
+                  "runtime_status": observation.get("status", "failed"), "error": observation.get("error") or "child Job did not complete"}
+        self.execution_store.record_result(run_id, step["step_id"], attempt["attempt_no"], result)
+        return result
+
     def observe_coordinated_job(self, run_id: str, job_id: str) -> dict[str, Any]:
         evidence = self.execution_store.read(run_id)
         step = evidence["plan"]["steps"][0]
@@ -206,12 +355,43 @@ class WorkflowRecordsMixin:
         if attempt["status"] in self.execution_store.TERMINAL:
             return copy.deepcopy(attempt["result"])
         intent = next(item for item in evidence["submissions"] if item["step_id"] == step["step_id"]
-                      and item["attempt_no"] == attempt["attempt_no"])
+                      and item["attempt_no"] == attempt["attempt_no"]
+                      and (evidence["plan"]["engine_version"] != AGENT_CHILD_JOB_ENGINE_VERSION
+                           or item.get("operation") == "child-job"))
         with self.lock:
             job = self._job_for_submission(intent, evidence["plan"]["workspace_id"])
             if job and job["id"] == job_id and intent["external_ref"] == job_id:
                 job = copy.deepcopy(job)
                 result = workspace_run_step_from_job(job, step["index"])
+                if evidence["plan"]["engine_version"] == AGENT_CHILD_JOB_ENGINE_VERSION:
+                    child_status = result["status"]
+                    parent_status = child_status if child_status in self.execution_store.TERMINAL else "waiting"
+                    runtime_status = child_status if child_status in self.execution_store.TERMINAL else "waiting_child"
+                    output = {
+                        "run_id": run_id,
+                        "node_id": step["step_id"],
+                        "attempt_id": f"a{attempt['attempt_no']}",
+                        "job_id": job_id,
+                        "status": child_status,
+                        "output_key": workspace_contract_output_key_for_node(step["node"], step["index"]),
+                        "artifact_manifest": {"items": copy.deepcopy(result.get("artifacts", [])),
+                                              "verification": "Child Job declarations; files not verified by this handoff"},
+                    }
+                    return {
+                        **attempt["result"],
+                        "node_id": step["step_id"],
+                        "status": parent_status,
+                        "executor": "agent",
+                        "job_id": job_id,
+                        "child_job_ids": [job_id],
+                        "child_status": child_status,
+                        "runtime_status": runtime_status,
+                        "error": result.get("error", ""),
+                        "agent_execution_id": attempt["result"].get("agent_execution_id", ""),
+                        "child_submit_key": intent["submit_key"],
+                        "child_payload_hash": intent["payload_hash"],
+                        "output_value": output,
+                    }
                 if evidence["plan"]["engine_version"] == REPORT_ENGINE_VERSION and result["status"] == "done":
                     log = self.job_log_payload(job, offset=0, max_bytes=8192)
                     result["output_value"] = {

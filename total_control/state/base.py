@@ -73,6 +73,9 @@ class BaseMixin:
             submit=self.submit_coordinated_job, observe=self.observe_coordinated_job,
             record=self.record_coordinated_job,
             report=self.execute_coordinated_report,
+            start_agent=self.start_coordinated_agent,
+            resume_agent=self.resume_coordinated_agent,
+            fail_agent=self.fail_coordinated_agent,
         ))
         self.workflow_wake_thread: threading.Thread | None = None
         raw_tool_definitions = read_json(TOOL_DEFINITIONS_PATH, [])

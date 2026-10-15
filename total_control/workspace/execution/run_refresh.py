@@ -111,6 +111,8 @@ def refresh_workspace_agent_run_step_from_child_jobs(
     step_status, runtime_status, failed_child_id, error = _workspace_agent_child_runtime_status(child_jobs, child_runs)
     if not step_status:
         return normalized
+    if normalized.get("runtime_status") == "waiting_child" and step_status in {"running", "queued"}:
+        step_status, runtime_status = "waiting", "waiting_child"
 
     completed_at = str(normalized.get("completed_at") or "").strip()
     if step_status in {"done", "failed", "stopped", "blocked"}:
