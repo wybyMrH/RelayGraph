@@ -98,12 +98,12 @@ def normalize_workspace_model(
     routing_mode = str(current.get("routing_mode") or previous.get("routing_mode") or "workspace_default").strip()
     if routing_mode not in {"workspace_default", "agent_override"}:
         routing_mode = "workspace_default"
+    raw_chat_agent_id = current.get("chat_agent_id") if "chat_agent_id" in current else previous.get("chat_agent_id")
+    chat_agent_id = str(raw_chat_agent_id or "").strip()
     return {
         "provider_profile_id": str(current.get("provider_profile_id") or previous.get("provider_profile_id") or "").strip(),
         "routing_mode": routing_mode,
-        "chat_agent_id": safe_id(str(current.get("chat_agent_id") or previous.get("chat_agent_id") or ""))
-        if str(current.get("chat_agent_id") or previous.get("chat_agent_id") or "").strip()
-        else "",
+        "chat_agent_id": safe_id(chat_agent_id) if chat_agent_id else "",
         "notes": str(current.get("notes") or previous.get("notes") or "").strip(),
     }
 

@@ -4,13 +4,13 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N03B2c2b 已修正 G11 的报告 Agent 工具误报；N03B2c2c-UI 仍待以 ready 隔离实例复验真实启动闭环。N13B3b2b-Agent 已限定验收并提交，下一片为 **N13B3b2c-Model：明确并保留 `model.chat_agent_id` 空值语义**；不与 N03 网页启动闭环合并。
+当前执行指针：N03B2c2b 已修正 G11 的报告 Agent 工具误报；N03B2c2c-UI 仍待以 ready 隔离实例复验真实启动闭环。N13B3b2b-Agent 已限定验收并提交；N13B3b2c-Model 后端契约片现已验收并准备提交，明确字段缺失与显式空值；当前唯一下一片是 **N13B3b2c-UI：让空值、显式选择和无效 Agent 引用在实例编辑页可见且可保存**。不与 N03 网页启动闭环合并。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
 N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 已在 N03B2b 接入单 Job，N03B2c1 接入一个 Job → 无工具报告 Agent；G01 的更长混合链、G02 子任务续跑和 G09 剩余恢复边界仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。两节点 shell CPU 链是旧路径的历史验收；当前新计划仅接受单 Job 或 Job → 无工具 eval.report Agent，其他多节点计划明确拒绝。
 
-N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码现为 292 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；N07A-UI 已交付独立报告阅读与状态；N16A 已交付成功说明/错误字段契约修正；N16A-UI 已交付执行说明、错误和历史来源；N13B2 已交付全局运行概览归位与精确运行入口；N13B3a已交付独立实例编辑及权威保存回执交接；N13B3b1已接通工具业务字段正式保存；完整配置往返仍有G27缺口，N13B3b1-UI工具配置说明与反馈已限定验收，N13B3b2a工具既有元数据保真已限定验收，N13C1周期状态请求去重已限定验收（第三部分2.26）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI超时与重试呈现已限定验收（第三部分2.28），N03B2c2a默认授权后端已限定验收（第三部分2.29），N03B2c2a-UI 已交付完整启动入口与授权说明（第三部分2.30），N03B2c2b 已修正 G11 报告 Agent 工具误报；N13B3b2b-Agent 已限定验收（第三部分2.31），当前唯一下一片 N13B3b2c-Model；N03B2c2c-UI 仅作为后续历史候选，不是当前执行指针。
+N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码现为 292 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；N07A-UI 已交付独立报告阅读与状态；N16A 已交付成功说明/错误字段契约修正；N16A-UI 已交付执行说明、错误和历史来源；N13B2 已交付全局运行概览归位与精确运行入口；N13B3a已交付独立实例编辑及权威保存回执交接；N13B3b1已接通工具业务字段正式保存；完整配置往返仍有G27缺口，N13B3b1-UI工具配置说明与反馈已限定验收，N13B3b2a工具既有元数据保真已限定验收，N13C1周期状态请求去重已限定验收（第三部分2.26）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI超时与重试呈现已限定验收（第三部分2.28），N03B2c2a默认授权后端已限定验收（第三部分2.29），N03B2c2a-UI 已交付完整启动入口与授权说明（第三部分2.30），N03B2c2b 已修正 G11 报告 Agent 工具误报；N13B3b2b-Agent 已限定验收（第三部分2.31），N13B3b2c-Model 后端片已验收，当前唯一下一片以本文顶部执行指针为准；N03B2c2c-UI 仅作为后续候选。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -114,7 +114,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 历史可视化及本片修复前真实 API 复现 E1：内置 reporter 即使显式 tools=[] 或删减名单，后置 backfill_default_agent_tools 仍补回五项/剩余授权；默认 auto_apply 后无工具报告链 HTTP409，未产生 Job。专用 global 定义同状态重启也扩大授权。此前用自定义角色运行只能证明绕开该默认冲突，不能证明内置角色可用。
 - **N03B2c2a 后端已限定验收**：唯一 normalize_workspace_agent 按本次显式 tools→同ID已有 tools→缺字段推荐处理，空列表/None/空串均不补权。缺字段以既有内置ID preset优先，未命中才用role；只补工具，不改自定义prompt等字段。矛盾ID/role不再联合两套推荐，是有意收敛，不宣称所有旧输入逐值等价。保留既有无效工具过滤/门禁语义；已有正规化名单、历史run/snapshot不猜来源、不批量迁移或恢复曾被加回的权限。
 - 删除后置 backfill_default_agent_tools、schema导出及仅有的启动/cockpit payload调用；启动退出该补权引起的写回，payload退出整段无消费的Agent再规范化，原metadata保留。工具定义目录补全、首次初始化及原清理写回保留。29项本地合同、6组真实API、一次正常默认auto_apply的CPU Job→内置reporter tools=[]报告链、网页读取/导出及重复/重启通过；详第三部分2.29。无Agent工具执行扩展，G10引用/前端目录重复仍开放。
-- **已交付界面，闭环待复验（历史交接）**：N03B2c2a-UI 已增加完整运行按钮和授权说明（第三部分2.30）；旧 topology 对无工具报告 Agent 的误报由 N03B2c2b 修正，详见 G11。N03B2c2c-UI 后续仍需用 ready 隔离实例真实点击提交并进入本次 run 阅读；当前先处理 N13B3b2c-Model，不把旧 HTTP 成功或先前409写成网页闭环通过。
+- **已交付界面，闭环待复验（历史交接）**：N03B2c2a-UI 已增加完整运行按钮和授权说明（第三部分2.30）；旧 topology 对无工具报告 Agent 的误报由 N03B2c2b 修正，详见 G11。N03B2c2c-UI 后续仍需用 ready 隔离实例真实点击提交并进入本次 run 阅读；当前先处理 N13B3b2c-UI，不把旧 HTTP 成功或先前409写成网页闭环通过。
 - 方案：统一纯引用解析器，静态校验与运行时校验共享规则但传入不同上下文；由后端提供版本化目录，前端只留必要无服务草稿默认。先锁定空值、前向引用、历史输出与 $prev 语义，再替换调用者；不把不同职责的校验一律合并。
 
 <a id="g11"></a>
@@ -251,7 +251,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - **N13B1 已验收**：当前实例的运行列表、步骤详情、日志、回放、比较与导出从配置表单/抽屉移至顶层“运行记录”。驾驶舱同级入口直接到达，可选择实例、去编辑、返回；配置的旧记录页签/模块卡片与包住全部记录的 workspaceRunDetails 已退出，旧动作跳到同一个阅读区。复用唯一 run renderer/merger、现有日志与订阅，没有第二套推进器或轮询。无消费者的旧运行工具栏滚轮分支、workspace-runs-panel 单个选择器与卡片统计变量同步退出。
 - 原四张统计卡、最新任务/命令块改成文字摘要，计划步骤在主阅读顺序，次要输入过程、交付和事件按需展开。限定阅读区的样式修正了旧 grid 规则把按钮竖排造成的空白。原生 summary/按钮的点击和键盘不再误激活整行日志，展开状态在重绘中保留。
 - 本次基线复现刷新清除已选实例；现改为恢复并核对实例 ID，过期 ID 回到明确空状态。比较基准和回放选择只保存 ID，不保存日志/正文；刷新后的“加载回放”一次沿既有 API 获取正文。旧 runs 页签迁移落盘为规范值，避免以后每次刷新强制返回记录页。
-- **仍待处理**：实例高级编辑的页面归位已由 N13B3a 验收，工具保存缺口已由 N13B3b1 限定验收，工具配置说明与反馈已由 N13B3b1-UI 限定验收，工具既有元数据保真已由N13B3b2a限定验收（G27）；N13B3b2b-Agent 已限定验收（第三部分2.31），当前先处理 N13B3b2c-Model 的空 `chat_agent_id` 语义。N13C1已修有限慢响应的周期请求自相作废（第三部分2.26），N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），N03B2c2a-UI完整启动入口已交付（第三部分2.30），N03B2c2b修正G11，N03B2c2c-UI仍是后续网页闭环候选。全局概览已由 N13B2 从配置中心退出，见下文。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债继续开放；G25 源字段已由N16A修复，独立说明界面已由N16A-UI验收；G06 当前报告文件已由N07A补齐，独立阅读界面已由N07A-UI补齐，长报告仍待后片。
+- **仍待处理**：实例高级编辑的页面归位已由 N13B3a 验收，工具保存缺口已由 N13B3b1 限定验收，工具配置说明与反馈已由 N13B3b1-UI 限定验收，工具与 Agent 来源元数据已由 N13B3b2a/b 验收（G27）；N13B3b2c-Model 后端空值契约已验收，当前 UI 自动首选和无效引用呈现由 N13B3b2c-UI 处理。N13C1/N13C2/N13C2-UI 与 N03B2c2a-UI 已分别限定验收，N03B2c2b 修正 G11；N03B2c2c-UI 仍是后续网页闭环候选。全局概览已由 N13B2 从配置中心退出，见下文。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债继续开放；G25 源字段已由N16A修复，独立说明界面已由N16A-UI验收；G06 当前报告文件已由N07A补齐，独立阅读界面已由N07A-UI补齐，长报告仍待后片。
 - 新隔离实例的成功/退出7/真实服务重启/同实例第二次运行经过实际按钮、默认门禁、HTTP/tmux；实时两行，Job 启动增量各1，受控报告接口调用增量1/0/1/1。14项页面导航检查和5项边界检查通过；1440×900、1280×720、768×1024、390×844 阅读/返回与宽度核对，实际长名称、63583字符进程日志和显式注入的长HTTP错误有本地截图。受控 Provider 非真实模型，故障注入不算真实后端故障恢复。
 - N16A联调单次观察：页面初始化期间的早期工作台选择之后，运行入口变隐藏，可能被持久UI恢复覆盖；自动化改等可见“已配置”后正常点击通过。N16A-UI分别延迟初始status和第二次bootstrap refresh的真实响应再点击，均未复现；保留原单次观察为待定位风险，不宣称已修。后续若再次出现先固定请求/恢复时序，再独立切片，不混入说明呈现。
 - N13B3a复验出现初始化持续“等待数据”（E1）；当时/API status直连HTTP200约5.9秒、5.23MB，loadStatus请求序号只收最新、周期请求可连续作废慢响应（E2机制，尚未隔离到完整因果）。清掉6个本轮重复无run测试实例后约3.84MB/3.40秒，独立旧格式迁移及reload通过；未暂停poll、未调低门禁。目录变小是环境清理，不是产品性能/饥饿修复，较大目录与多窗口仍待独立切片。
@@ -289,7 +289,9 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 
 - 对齐R02/R03/R12/R13，类别：配置丢失/来源变更风险、能力缺口；不是页面归位已完成的证明。
 - **E1，草稿仍未修复**：已有实例修改name后同实例切页往返保留，reload重新选择后未保存name丢失。工具编辑原漏tools（E2）已通过真实新增→POST成功→GET丢失复现（E1）；N13B3b1现将当前tools draft接入唯一整实例payload，限定正式保存验收见下文。不把目录注册当执行能力。
-- **E1，部分修复**：通过正式API创建有非空template_snapshot的隔离实例，仅改name/references后真实POST：snapshot本体保留，但6个Agent的created_at/updated_at/description丢失，27个工具的created_at/updated_at丢失，model.chat_agent_id从空变researcher。节点dataset_hints随references同步是既有显式规则，不混称无关损失。原完整域不变断言失败记录保留；N13B3b2a已修工具已有来源时间。当前 N13B3b2b-Agent 单独处理 Agent 来源元数据；`model.chat_agent_id` 空值行为仍待另一片。普通手工实例重复保存字段不变，不能代表模板实例保真。
+- **E1，部分修复**：通过正式API创建有非空template_snapshot的隔离实例，仅改name/references后真实POST：snapshot本体保留，但6个Agent的created_at/updated_at/description丢失，27个工具的created_at/updated_at丢失，model.chat_agent_id从空变researcher。节点dataset_hints随references同步是既有显式规则，不混称无关损失。原完整域不变断言失败记录保留；N13B3b2a已修工具已有来源时间，N13B3b2b-Agent 已修同ID Agent 来源元数据。
+- **E1，N13B3b2c-Model 后端契约已验收**：隔离服务正式 API 确认缺少 `chat_agent_id` 时保留 existing，显式空/空白清空，合法与未知但语法合法 ID 沿既有 `safe_id` 规则保留，其他 model 字段不变。首次夹具把模板入口忽略的顶层 `model` override 当成已创建基线，断言失败并留下隔离实例；随后按精确 ID 在隔离服务正式 DELETE，并 GET 确认不存在。监督代理只读复核 API 契约；`python3 -m compileall -q total_control`、`git diff --check` 通过。pytest 无用例，未记通过；脚本/证据仅本地 dev_work/。
+- **E2，前端仍未修**：`setWorkspaceModelDraft`、`updateWorkspaceModelDraft` 及新增/删除 Agent 的联动仍可能在当前值为空时自动选首个 Agent；非法 ID 可能令原生 select 显示空白但状态仍保留未知字符串。下一片需区分未设置、有效引用、无效引用并提供明确清空/选择动作，验证保存往返；页面空白不能冒充后端已清空。
 - **E1，本片已修复最小回执交接**：新建POST201后显示“已保存”而form ID/选择空。N13B3a去掉非必需全局refresh等待，直接采用本次权威回执；更新回执缺ID/错ID拒绝，不fallback到当前实例冒充成功。旧monitor响应与跨实例晚到保存分别通过真实延迟响应验收。原失败保留，不用手工reload/重选补成功。
 - **E2/E3，未修复**：同一实例多次保存逆序、保存途中继续输入、两次未绑定空草稿共享空ID，仍可能覆盖新意图；当前只保护跨实例选择。接口无配置revision/乐观锁（E4），快照created_at或updated_at不能当配置版本。Provider内层编辑仍有真实消费者，“只写localStorage”文案与服务端持久化不符（E2），本片不搬密钥。
 - **N13B3b1已限定验收（R02/R03/R12）**：唯一payload增加tools深拷贝，沿原POST/normalize/回执，无新API/目录/保存器。一个非空模板snapshot隔离实例经可见增改启停、重命名被researcher引用的repo.search、删除被repo-scout/env-builder引用的file.read；六次真实保存及API/普通reload/串行全新空storage上下文核对业务字段、ID和精准allowlist，snapshot不变。新custom/改名ID的implemented=false，未伪造适配器。只读盘中配置对齐，原run/attempt、Job和Provider调用不变。POST503注入后服务端不写、原入口重试成功。
@@ -299,6 +301,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - **N13B3b2a工具限定保真已验收（R02/R03/R12）**：真实新模板首次可见name/references保存复现27工具来源时间全丢；工具normalizer现仅保留同ID existing中的非空字符串created_at/updated_at，不从请求导入、不生成/触碰时间。新ID/改ID不继承别ID时间，global wrapper仍拥有全局更新时间。全新模板首次无关保存27工具记录全等；工具编辑/增改ID/删/503重试、reload/新空storage/重启再保存、API与盘核对通过。原allowlist仅显式ID改删精准变化，snapshot及原run/attempt/Job/Provider不变。来源时间不是实例编辑时间/revision，已丢字段不回填。Agent/model首存差异仍实际存在。9组浏览器、真实POST伪造时间/未知字段检查、8局部契约通过；compileall通过，根pytest无测试退出5不算通过。本地证据dev_work/artifacts/n13b3b2a/，详见第三部分2.25。
 
 - **N13B3b2b-Agent 已限定验收（R02/R03/R12）**：`normalize_workspace_agent` 仅从同 ID existing 保留 `description`（包括空字符串字段）、`created_at`、`updated_at`；客户端不能覆写，新 ID/改 ID不继承。以隔离默认模板创建的6 Agent（描述均为空字符串且字段存在）经真实编辑页只改name/references并正式POST，GET/reload与实际workspaces.json均保留三项来源元数据；请求本身不含这些元数据。另在正式API路径检查同ID伪造、新Agent伪造与改ID不继承，原表单一次POST 503后重试成功，失败时后端原值不变。template_snapshot与allowlist始终不变；隔离起始无run/attempt/Job，结束仍为空；Provider文件原本不存在且未调用。浏览器无pageerror。全流程共6组检查，脚本仅在 `dev_work/smokes/n13b3b2b_agent.py`，前后证据仅在 `dev_work/artifacts/n13b3b2b-agent/`。用已安装依赖的Python 3.13 venv compileall通过；仓库pytest无测试并退出5，不计通过。模型空引用、已有运行证据下的保存、真实Provider/SSH/GPU及N03网页闭环未测，分别留待后续。
+- **N13B3b2c-Model 后端片已验收（R02/R12）**：`normalize_workspace_model` 以字段是否存在区分缺失与显式空值；未传 `chat_agent_id` 沿用 existing，显式空或空白清空，非空值照旧 `safe_id` 规范化且不在此层检查 Agent 是否存在。隔离正式 API 验证后其他模型字段不变，测试遗留实例已正式删除。未增加 helper、API、依赖或状态；前端自动首选、Agent 增删联动及无效引用呈现留给 N13B3b2c-UI。此片未动态覆盖已有 run/attempt/Job/Provider 的非空实例，也未测试真实 Provider/SSH/GPU。
 - 方案与顺序：工具说明与限定保真已分别验收（2.24/2.25）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），此前计划的N03B2c2a-UI已完成（第三部分2.30），G11随后由N03B2c2b修正；当前下一片以文档顶部执行指针为准（G10；G26有限慢响应去重已验收见第三部分2.26）。Agent/model、草稿、同实例竞争、配置revision和Provider归属另立边界。不要为这些问题加第二套实例状态、保存器或三层重试。
 
 ### N03B2c2a-UI：显式授权说明与完整启动入口（本片已实现，边界验收）
@@ -756,7 +759,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [agents_tools.py](../total_control/workspace/schema/agents_tools.py) · 418 | R02/R03/R05；当前/同ID字段与目录 → 规范化与缺字段推荐 → 有效Agent/工具 | N03B2c2a 唯一授权入口尊重显式空/子集，删除后置 allowlist 补权；N03B2c2b 默认工具需求按 executor mode 区分。N13B3b2b-Agent 保留同ID existing 的只读 description/timestamps，拒绝客户端伪造和跨ID继承；不触碰业务字段/allowlist。G10/G11/G27 的其他边界开放。 | `normalize_workspace_agent:119`；`normalize_workspace_agents:186` |
 | [chat.py](../total_control/workspace/schema/chat.py) · 461 | R02/R03/R05；消息/反思/工作区 → 规范、规则回复与 debug → chat/debug payload | 问题/修补关联 [G05](#g05)、[G11](#g11)；按登记方案处理，不另建平行服务。 | `normalize_workspace_context_reflection:15`；`normalize_workspace_chat_message:54` |
 | [nodes.py](../total_control/workspace/schema/nodes.py) · 698 | R02/R03/R05；源类型/节点草稿/recipe → 默认、绑定、连线规范 → 顺序工作区节点 | N03A0 保留明确 system/human 与已绑定 Agent 的执行者；缺指定/缺 Agent 继续由唯一 finalizer 补默认，输出键/输入映射沿原逻辑。关联 [G10](#g10)、[G11](#g11)、[G14](#g14)。 | `workspace_node_definition:22`；`workspace_node_kinds_for_source:31` |
-| [recipe.py](../total_control/workspace/schema/recipe.py) · 201 | R02/R03/R05；启动/模型/环境输入 → 字段规范与源类型推断 → recipe/model/inputs | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `normalize_workspace_recipe:13`；`clean_workspace_config_default:32` |
+| [recipe.py](../total_control/workspace/schema/recipe.py) · 201 | R02/R03/R05；启动/模型/环境输入 → 字段规范与源类型推断 → recipe/model/inputs | N13B3b2c-Model 后端片：`normalize_workspace_model` 对 `chat_agent_id` 区分缺字段（保留 existing）和显式空值（清空）；非空值保持既有 `safe_id` 规则，未知引用不在 schema 层自动重选。未增加抽象或第二保存路径；UI 联动与无效引用呈现留给下一片。 | `normalize_workspace_model:84`；`clean_workspace_config_default:32` |
 | [templates.py](../total_control/workspace/schema/templates.py) · 1372 | R02/R03/R05；模板/实例快照 → 版本、拓扑、差异与迁移计划 → template/snapshot/diff | N03A0 模板补齐保留明确 system/human，即使没有 agent_id；新默认链仍提供推荐 Agent。其余迁移/快照关联 [G10](#g10)、[G16](#g16)。 | `workflow_template_sort_key:39`；`normalize_workflow_template_version_history:46` |
 
 ### web
