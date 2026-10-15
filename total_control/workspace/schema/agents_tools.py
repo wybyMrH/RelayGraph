@@ -167,6 +167,16 @@ def normalize_workspace_agent(
         "provider_profile_id": str(base.get("provider_profile_id") or "").strip(),
         "enabled": bool(base.get("enabled", True)),
     }
+    # Instance Agent source metadata is read-only. Preserve it only from the
+    # same stored identity; never accept a client-supplied replacement.
+    if str(previous.get("id") or "").strip() == agent_id:
+        description = previous.get("description")
+        if isinstance(description, str) and "description" in previous:
+            result["description"] = description
+        for key in ("created_at", "updated_at"):
+            timestamp = previous.get(key)
+            if isinstance(timestamp, str) and timestamp.strip():
+                result[key] = timestamp.strip()
     if max_iterations > 0:
         result["max_iterations"] = max_iterations
     if timeout_seconds > 0:
