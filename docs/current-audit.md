@@ -1,14 +1,16 @@
 # 第二部分：现状、问题与逐文件审查
 
-审查日期：2026-10-14。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
+审查日期：2026-10-15。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
 
 ## 1. 范围、证据等级与结论
+
+当前执行指针：N03B2c2a-UI 已交付，N03B2c2b 已修正 G11 的报告 Agent 工具误报；唯一下一片为 **N03B2c2c-UI**，以 ready 隔离实例真实验收可见启动到本次 run 阅读。下方旧切片交接文字只描述当时计划，不覆盖该当前指针。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
 N00C/N00D 已完成文档收敛、重复代码清理和原有业务改动整合；N01 随后完成本机执行引擎选型；N02 已把完整计划、attempt 和提交记录接入现有工作流入口。样机/验证只留本地 dev_work/。LangGraph 已在 N03B2b 接入单 Job，N03B2c1 接入一个 Job → 无工具报告 Agent；G01 的更长混合链、G02 子任务续跑和 G09 剩余恢复边界仍开放，G03 的新工作流失败覆盖路径已退出。N03J0/N03A0/N03A 分别收紧 Job 启动状态、保留明确执行方式、接入浏览器稳定提交身份；这些小片不等于 Job → Agent 已正确等待。N03B1 已完成实际计划/前缀门禁；默认自动回填路径的过程复验另发现 G23；N03J1a 已阻止 cwd/环境前置失败后的命令，N03J1b 已退出未配环境就回填 rg-* 名的路径。两节点 shell CPU 链是旧路径的历史验收；当前新计划仅接受单 Job 或 Job → 无工具 eval.report Agent，其他多节点计划明确拒绝。
 
-N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码现为 292 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；N07A-UI 已交付独立报告阅读与状态；N16A 已交付成功说明/错误字段契约修正；N16A-UI 已交付执行说明、错误和历史来源；N13B2 已交付全局运行概览归位与精确运行入口；N13B3a已交付独立实例编辑及权威保存回执交接；N13B3b1已接通工具业务字段正式保存；完整配置往返仍有G27缺口，N13B3b1-UI工具配置说明与反馈已限定验收，N13B3b2a工具既有元数据保真已限定验收，N13C1周期状态请求去重已限定验收（第三部分2.26）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI超时与重试呈现已限定验收（第三部分2.28），N03B2c2a默认授权后端已限定验收（第三部分2.29），唯一下一片N03B2c2a-UI显式授权说明与完整启动入口；仍不扩Agent工具执行/子任务。
+N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证（G08），承接 N00A 的部署基线职责；只增加依赖声明与文档，不改变上述生产等待缺口。源码现为 292 个文件，公开配置/数据/依赖与验证入口现为 9 项；N03B2b 随后完成单 Job 持久受理/等待，旧同步推进已删除；N03B2c1 已交付本次结果交接；按最新用户要求 N13A 已修复实时步骤重复，N13B1 已验收独立运行阅读区；N07A 已交付本次本地报告正文落盘与验证；N07A-UI 已交付独立报告阅读与状态；N16A 已交付成功说明/错误字段契约修正；N16A-UI 已交付执行说明、错误和历史来源；N13B2 已交付全局运行概览归位与精确运行入口；N13B3a已交付独立实例编辑及权威保存回执交接；N13B3b1已接通工具业务字段正式保存；完整配置往返仍有G27缺口，N13B3b1-UI工具配置说明与反馈已限定验收，N13B3b2a工具既有元数据保真已限定验收，N13C1周期状态请求去重已限定验收（第三部分2.26）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI超时与重试呈现已限定验收（第三部分2.28），N03B2c2a默认授权后端已限定验收（第三部分2.29），N03B2c2a-UI 已交付完整启动入口与授权说明（第三部分2.30），N03B2c2b 已修正 G11 报告 Agent 工具误报；当前唯一下一片 N03B2c2c-UI：以 ready 隔离实例复验真实网页提交到本次 run 阅读；仍不扩 Agent 工具执行/子任务。
 
 逐文件审查通过源码文本、Python AST、函数/调用职责、导入、状态/副作用分支和前端公开接口进行静态核对；关键路径另外做内存/临时目录复现。**静态覆盖全部文件不等于逐分支动态验证，不等于读完十万行后保证没有遗漏。** 每个文件在后面的台账单列；未发现独立问题的文件不会被硬凑成缺陷。
 
@@ -112,7 +114,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 历史可视化及本片修复前真实 API 复现 E1：内置 reporter 即使显式 tools=[] 或删减名单，后置 backfill_default_agent_tools 仍补回五项/剩余授权；默认 auto_apply 后无工具报告链 HTTP409，未产生 Job。专用 global 定义同状态重启也扩大授权。此前用自定义角色运行只能证明绕开该默认冲突，不能证明内置角色可用。
 - **N03B2c2a 后端已限定验收**：唯一 normalize_workspace_agent 按本次显式 tools→同ID已有 tools→缺字段推荐处理，空列表/None/空串均不补权。缺字段以既有内置ID preset优先，未命中才用role；只补工具，不改自定义prompt等字段。矛盾ID/role不再联合两套推荐，是有意收敛，不宣称所有旧输入逐值等价。保留既有无效工具过滤/门禁语义；已有正规化名单、历史run/snapshot不猜来源、不批量迁移或恢复曾被加回的权限。
 - 删除后置 backfill_default_agent_tools、schema导出及仅有的启动/cockpit payload调用；启动退出该补权引起的写回，payload退出整段无消费的Agent再规范化，原metadata保留。工具定义目录补全、首次初始化及原清理写回保留。29项本地合同、6组真实API、一次正常默认auto_apply的CPU Job→内置reporter tools=[]报告链、网页读取/导出及重复/重启通过；详第三部分2.29。无Agent工具执行扩展，G10引用/前端目录重复仍开放。
-- **未交付界面**：真实驾驶舱没有完整运行按钮；本片只经正常HTTP启动，网页只证明读取和导出。唯一下一片N03B2c2a-UI补显式授权说明与可见启动入口，不把HTTP成功写成网页点击启动通过；旧拓扑诊断误报见G11。
+- **已交付界面，闭环待复验**：N03B2c2a-UI 已增加完整运行按钮和授权说明（第三部分2.30）；旧 topology 对无工具报告 Agent 的误报由 N03B2c2b 修正，详见 G11。唯一下一片 N03B2c2c-UI 用 ready 隔离实例真实点击提交并进入本次 run 阅读，不把旧 HTTP 成功或先前409写成网页闭环通过。
 - 方案：统一纯引用解析器，静态校验与运行时校验共享规则但传入不同上下文；由后端提供版本化目录，前端只留必要无服务草稿默认。先锁定空值、前向引用、历史输出与 $prev 语义，再替换调用者；不把不同职责的校验一律合并。
 
 <a id="g11"></a>
@@ -245,11 +247,11 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 ### G26 · P2 · 配置与运行界面混杂，多层容器挤压主要内容（部分修复）
 
 - 对齐规格§3/C13/R12，类别：功能入口错位、布局与可用性缺口。原阶段截图的拥挤/空白与 N13B1 的真实浏览器点击是 E1，HTML/事件/样式检查是 E2；当前实例与全局运行阅读区已分别验收，不宣称全站完成。
-- **N03B2c2a新发现E1/E2，未修复**：真实驾驶舱与链路诊断没有run-selected-workspace完整运行按钮，节点只有“Job运行”；正常执行包已ready且无missing。旧app完整运行markup/helper没有实际DOM消费者，不能让测试造按钮或调用JS假装点击。后端正常HTTP链与网页读取/导出已限定通过，完整点击启动仍未通过；唯一下一片N03B2c2a-UI复用原action/提交身份/门禁补用户入口，不恢复配置抽屉运行、不增加推进器。旧topology误报工具要求见G11，不能隐藏错误通过验收。
+- **N03B2c2a发现的完整启动入口缺口已由 N03B2c2a-UI 修复**（第三部分2.30）；随后真实旧实例点击揭示 G11 的 `required_tool_unbound/report.write` 误报，已由 N03B2c2b 修正。当前唯一下一片 N03B2c2c-UI：先准备 execution bundle ready、`tools=[]` 的隔离实例，再经可见入口验收提交到本次 run 阅读。旧 markup 无消费者问题已核对，不再另造提交器。
 - **N13B1 已验收**：当前实例的运行列表、步骤详情、日志、回放、比较与导出从配置表单/抽屉移至顶层“运行记录”。驾驶舱同级入口直接到达，可选择实例、去编辑、返回；配置的旧记录页签/模块卡片与包住全部记录的 workspaceRunDetails 已退出，旧动作跳到同一个阅读区。复用唯一 run renderer/merger、现有日志与订阅，没有第二套推进器或轮询。无消费者的旧运行工具栏滚轮分支、workspace-runs-panel 单个选择器与卡片统计变量同步退出。
 - 原四张统计卡、最新任务/命令块改成文字摘要，计划步骤在主阅读顺序，次要输入过程、交付和事件按需展开。限定阅读区的样式修正了旧 grid 规则把按钮竖排造成的空白。原生 summary/按钮的点击和键盘不再误激活整行日志，展开状态在重绘中保留。
 - 本次基线复现刷新清除已选实例；现改为恢复并核对实例 ID，过期 ID 回到明确空状态。比较基准和回放选择只保存 ID，不保存日志/正文；刷新后的“加载回放”一次沿既有 API 获取正文。旧 runs 页签迁移落盘为规范值，避免以后每次刷新强制返回记录页。
-- **仍待处理**：实例高级编辑的页面归位已由 N13B3a 验收，工具保存缺口已由 N13B3b1 限定验收，工具配置说明与反馈已由 N13B3b1-UI 限定验收，工具既有元数据保真已由N13B3b2a限定验收（G27）；N13C1已修有限慢响应的周期请求自相作废（第三部分2.26），N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），唯一下一片N03B2c2a-UI补显式授权说明与完整启动入口。全局概览已由 N13B2 从配置中心退出，见下文。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债继续开放；G25 源字段已由N16A修复，独立说明界面已由N16A-UI验收；G06 当前报告文件已由N07A补齐，独立阅读界面已由N07A-UI补齐，长报告仍待后片。
+- **仍待处理**：实例高级编辑的页面归位已由 N13B3a 验收，工具保存缺口已由 N13B3b1 限定验收，工具配置说明与反馈已由 N13B3b1-UI 限定验收，工具既有元数据保真已由N13B3b2a限定验收（G27）；N13C1已修有限慢响应的周期请求自相作废（第三部分2.26），N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），N03B2c2a-UI完整启动入口已交付（第三部分2.30），N03B2c2b修正G11，当前唯一下一片N03B2c2c-UI复验就绪实例的网页提交闭环。全局概览已由 N13B2 从配置中心退出，见下文。390px 下阅读区不横向溢出，但全站侧栏占首屏较多，属于后续导航布局验收，未在本片重做。G15 组合根/样式债继续开放；G25 源字段已由N16A修复，独立说明界面已由N16A-UI验收；G06 当前报告文件已由N07A补齐，独立阅读界面已由N07A-UI补齐，长报告仍待后片。
 - 新隔离实例的成功/退出7/真实服务重启/同实例第二次运行经过实际按钮、默认门禁、HTTP/tmux；实时两行，Job 启动增量各1，受控报告接口调用增量1/0/1/1。14项页面导航检查和5项边界检查通过；1440×900、1280×720、768×1024、390×844 阅读/返回与宽度核对，实际长名称、63583字符进程日志和显式注入的长HTTP错误有本地截图。受控 Provider 非真实模型，故障注入不算真实后端故障恢复。
 - N16A联调单次观察：页面初始化期间的早期工作台选择之后，运行入口变隐藏，可能被持久UI恢复覆盖；自动化改等可见“已配置”后正常点击通过。N16A-UI分别延迟初始status和第二次bootstrap refresh的真实响应再点击，均未复现；保留原单次观察为待定位风险，不宣称已修。后续若再次出现先固定请求/恢复时序，再独立切片，不混入说明呈现。
 - N13B3a复验出现初始化持续“等待数据”（E1）；当时/API status直连HTTP200约5.9秒、5.23MB，loadStatus请求序号只收最新、周期请求可连续作废慢响应（E2机制，尚未隔离到完整因果）。清掉6个本轮重复无run测试实例后约3.84MB/3.40秒，独立旧格式迁移及reload通过；未暂停poll、未调低门禁。目录变小是环境清理，不是产品性能/饥饿修复，较大目录与多窗口仍待独立切片。
@@ -280,7 +282,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - **N13C2-UI读取反馈已限定验收（R12/规格§3）**：沿已评估frontend-design，页头保留快照时间和主机连接信息，原刷新按钮有“刷新状态/读取中/重试刷新”文字；主滚动区只有一条读取说明及必要的完整错误，不套卡片/抽屉或局部滚动。新status_load_feedback.js只接显式投影/DOM，无网络、定时器、全局业务状态或DOM缓存。loadStatus按真实结果/timeout code/seq接UI，自动重试保留上次原错误直到当前整链成功，保存作废只解释被替代，不冒称成功；错误不再把主机标为api error。首次无快照显示“主机状态待读取”，不把读取超时当主机离线或任务停止。
 - 旧450ms视觉余留与专用timer、仅增减无消费者的statusManualBusyCount退出，按钮disabled/aria-busy只由实际busy决定。force包含自动请求，不能当用户操作；原按钮/初入显式feedbackSource决定读取开始及普通成功的必要朗读，失败与恢复另行通知，正常poll安静。正常loading/ready说明一致，避免2秒poll造成固有高度变化。真实键盘发现native disabled丢焦点，现仅在本次开始时原按钮确有焦点才获归还资格，用户Tab/点击/移开即撤销；finally先清监听，当前seq/idle/按钮可用/文档聚焦可见且仍BODY才preventScroll归还。自动poll只归还它禁用前已有的焦点，不抢其他控件或窗口。
 - 实际通过：22项本地Node原函数/原客户端预算兼容及投影/seq/朗读/焦点监听异常清理；9组真实浏览器正常、7秒有限慢、首读/手动tmux挂起15秒native取消/原Tab+Enter重试、原poll保留错误、双窗口、草稿/历史；5组布局包括1440×900、1280×720、768×1024、390×844的正常/长HTTP错误真实wheel至末端、literal markup不执行/键盘重试，以及真实已有4000字报告在390下scroll1164→1164经3次原2秒poll。另5种焦点结束/移开和3组持续poll焦点检查，CDP只读listener数量回基线。121JS/392ID/HTML装配、292源码台账/27问题/正式链接与六路径安全范围检查通过；本地静态成果页14个证据链接经真实浏览器逐个点击HTTP200。原23实例/24run/48attempt/24Job/snapshot/Provider不变，无新任务/模型调用；config15/2秒poll不改，测试脚本/原始失败/截图只留本地dev_work/artifacts/n13c2ui/。
-- 过程与边界：首次初读poll变量实际默认5000（尚未拿配置/启动timer），测试误断0失败保留；tmux短timeout被下一合法poll切换，改同seq只读observer核timeout/busy0，不暂停poll/延长状态。早期scroll0只能证明零位置，后用真实长报告非零1164补足；键盘实际掉焦点后才补接线，不在测试中人工focus恢复。pointer-away脚本误用不存在sortSelect已改实际serverSortSelect，旧失败保留。另有一次新窗口“state is not defined”，原轮未留充分脚本网络信息，原因未定位；后续窗口记录121脚本HTTP200/无pageerror，不将未复现称为已修。纯前端未重跑无关Python/pytest。非预算读取、子读取世代/选机快照、性能、一般配置并发、早期交互和全站侧栏仍开放；唯一下一片N03B2c2a-UI补显式授权说明与完整启动入口，G26不关闭。
+- 过程与边界：首次初读poll变量实际默认5000（尚未拿配置/启动timer），测试误断0失败保留；tmux短timeout被下一合法poll切换，改同seq只读observer核timeout/busy0，不暂停poll/延长状态。早期scroll0只能证明零位置，后用真实长报告非零1164补足；键盘实际掉焦点后才补接线，不在测试中人工focus恢复。pointer-away脚本误用不存在sortSelect已改实际serverSortSelect，旧失败保留。另有一次新窗口“state is not defined”，原轮未留充分脚本网络信息，原因未定位；后续窗口记录121脚本HTTP200/无pageerror，不将未复现称为已修。纯前端未重跑无关Python/pytest。非预算读取、子读取世代/选机快照、性能、一般配置并发、早期交互和全站侧栏仍开放；当前下一片以文档顶部执行指针为准，G26不关闭。
 
 <a id="g27"></a>
 ### G27 · P2 · 实例草稿、配置完整往返和保存竞争仍有缺口（部分修复）
@@ -294,7 +296,7 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 过程边界：首轮双context时新页60秒持续等待（G26），失败保留；后轮关闭原context再开单窗口空context通过，不宣称多窗口初始化已修。复验仅经正式POST恢复本轮无run实例的tools/agents/model配置，无终态或执行证据补写。基线首次保存已正规化，元数据首存缺失仍以上述原证据为准；有效非空唯一ID之外、最后一工具限制/非法ID冲突均未修。证据仅本地dev_work/artifacts/n13b3b1/；实际10项与限制见第三部分2.23。
 - N13B3b1-UI真实新增保存发现工具选择跳回首项（E1），现同实例原回执分支传已有selectedToolId、由原draft设置器校验有效ID；正常保存后无需脚本重选。新增/删除焦点复用原滚动内核，四视口可见。并未解决同实例在途输入/逆序响应。首轮失败及正常删除临时定义证据均保留。
 - **N13B3b2a工具限定保真已验收（R02/R03/R12）**：真实新模板首次可见name/references保存复现27工具来源时间全丢；工具normalizer现仅保留同ID existing中的非空字符串created_at/updated_at，不从请求导入、不生成/触碰时间。新ID/改ID不继承别ID时间，global wrapper仍拥有全局更新时间。全新模板首次无关保存27工具记录全等；工具编辑/增改ID/删/503重试、reload/新空storage/重启再保存、API与盘核对通过。原allowlist仅显式ID改删精准变化，snapshot及原run/attempt/Job/Provider不变。来源时间不是实例编辑时间/revision，已丢字段不回填。Agent/model首存差异仍实际存在。9组浏览器、真实POST伪造时间/未知字段检查、8局部契约通过；compileall通过，根pytest无测试退出5不算通过。本地证据dev_work/artifacts/n13b3b2a/，详见第三部分2.25。
-- 方案与顺序：工具说明与限定保真已分别验收（2.24/2.25）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），唯一下一片N03B2c2a-UI补显式授权说明与完整启动入口（G10；G26有限慢响应去重已验收见第三部分2.26），Agent/model、草稿、同实例竞争、配置revision和Provider归属另立边界。不要为这些问题加第二套实例状态、保存器或三层重试。
+- 方案与顺序：工具说明与限定保真已分别验收（2.24/2.25）；N13C2状态加载网络预算已限定验收（第三部分2.27），N13C2-UI已限定验收（第三部分2.28），此前计划的N03B2c2a-UI已完成（第三部分2.30），G11随后由N03B2c2b修正；当前下一片以文档顶部执行指针为准（G10；G26有限慢响应去重已验收见第三部分2.26）。Agent/model、草稿、同实例竞争、配置revision和Provider归属另立边界。不要为这些问题加第二套实例状态、保存器或三层重试。
 
 ### N03B2c2a-UI：显式授权说明与完整启动入口（本片已实现，边界验收）
 
@@ -304,6 +306,14 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 消融决定：删除 `workspace_form_actions.js` 对不存在的 `#workspaceRunFlowBtn` 监听，并移除 automation busy 列表中的同一死 ID；保留既有节点级运行按钮、旧拓扑诊断和所有真实消费者。启动入口只有 `workspaceLaunchClosure` 一处，事件仍由既有 action surface 委托处理。
 - 真实浏览器：1440×900 和 390×844 均看到完整入口及授权说明；键盘聚焦“查看最近运行”后点击，实际切到 runs 并定位 `20261014-160812-34545369`，无 pageerror。点击“运行工作流”也实际发出 `POST /api/workspaces/20261014-141005-1c574764/run`，服务按旧发现门禁返回 409，未伪造成功；该实例的 `cockpit.next_action` 仍报 `required_tool_unbound/report.write`，属于 G11 未修语义。由于本机没有一个同时满足 ready、无旧发现门禁且无历史运行的隔离实例，本片未把完整网页提交→Job→Agent等待→报告的成功链记为通过；后端成功链证据仍以 2.29 为准。
 - 过程检查：Node 通过 `/home/hzj/.nvm/versions/node/v24.13.0/bin/node --check` 检查 4 个改动 JS；`git diff --check` 通过；系统默认 `node`、`python` 不在 PATH，Python compileall 改动未运行，不能记通过。浏览器失败 selector/隐藏面板/409 记录均保留在本地 `dev_work/artifacts/n03b2c2a-ui/`，测试脚本、截图和结果不提交。
+
+### G11 / N03B2c2b：报告 Agent 直出与 Job 工具写入边界（后端已修，待前端闭环复验）
+
+- 对齐 R03/R05/R06。问题是 `workspace_node_required_tool_id(kind)` 同时承担“按节点种类推荐工具”和“按执行方式判断硬门禁”两个语义，导致已经支持的 `eval.report` + `handler.mode=agent` + `tools=[]` 被错误生成 `required_tool_unbound(report.write)`。
+- helper 现在接收可选 `executor_mode`：报告 Agent 直出不声明静态 `report.write`，仍要求模型路由、输入映射、报告输出和现有 `report_only/single_call` 执行约束；`eval.report` 的 Job/shell 路径仍保留 `report.write`/`report_command` 门禁。其他节点工具要求未改变。
+- topology 同步跳过报告 Agent 空工具列表的“Agent 没有可用工具”警告；这是该最小链的显式能力边界，不是把空 allowlist 泛化为所有 Agent 可执行。模板验证、workflow contract/context metadata 和节点所需工具定义回填也按实际 executor mode 使用同一 helper。既有 Agent preset 仍可补齐工具定义目录，但不改变 `agent.tools` 授权列表。
+- 确定性检查已通过：mode-aware helper（Agent 空、Job 保留、其他节点保留）、Agent topology 为 ready 且无 `required_tool_unbound/agent_without_tools`、Job topology 仍登记一个 `report.write` requirement；`dev_work/n03b2b/venv-test` 的 `compileall` 和契约脚本通过，`git diff --check` 通过。xng/zuoye 默认环境缺 `langgraph`，直接从完整包导入无法运行，未把它记为通过。
+- 消融决定：不新增第二个工具映射表、不把 Agent 直出改成工具调用、不删除既有 Job 报告命令；唯一模式判断复用 `resolve_node_executor_mode`。旧实例的真实 POST 409 和前端响应记录保留，下一片只复验 ready 隔离实例的网页提交闭环。
 
 ## 3. 验证边界与阶段状态
 
@@ -613,7 +623,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [provider_route_health.py](../total_control/state/registry_pkg/provider_route_health.py) · 162 | R03/R05/R11；工作区/Agent/Profile → 检查路由缺口 → 诊断问题列表 | 问题/修补关联 [G21](#g21)；按登记方案处理，不另建平行服务。 | `build_provider_route_health:8`；`add_issue:35` |
 | [tool_definitions.py](../total_control/state/registry_pkg/tool_definitions.py) · 22 | R03/R05/R11；工具引用变化 → 重写 Agent allowlist → 更新后的定义 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `rewrite_agent_tool_reference:8` |
 | [tool_testing.py](../total_control/state/registry_pkg/tool_testing.py) · 73 | R03/R05/R11；工具/安全测试参数 → 判定副作用并受限执行 → safe-test 结果 | 问题/修补关联 [G11](#g11)；按登记方案处理，不另建平行服务。 | `run_tool_definition_safe_test:12` |
-| [workflow_templates.py](../total_control/state/registry_pkg/workflow_templates.py) · 498 | R03/R05/R11；模板节点/能力目录 → I/O、绑定、拓扑校验 → validation/preview | 问题/修补关联 [G10](#g10)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `rewrite_workflow_template_agent_reference:20`；`build_workflow_template_validation_payload:60` |
+| [workflow_templates.py](../total_control/state/registry_pkg/workflow_templates.py) · 500 | R03/R05/R11；模板节点/能力目录 → I/O、绑定、拓扑校验 → validation/preview | N03B2c2b 模板校验按 node executor mode 判断静态必需工具：Agent 报告无 report.write 要求，Job 报告仍有；G10/G17 其他问题按登记方案处理。 | `rewrite_workflow_template_agent_reference:20`；`build_workflow_template_validation_payload:60` |
 
 ### total_control/state/workspaces
 
@@ -683,18 +693,18 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [preflight.py](../total_control/workspace/automation/preflight.py) · 593 | R05/R06；工作区/资源/执行 → 汇总预检与资源编排 → 缺口和建议 | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_execution_readiness_step:7`；`workspace_resource_item:36` |
 | [report.py](../total_control/workspace/automation/report.py) · 458 | R05/R06；自动化各投影 → 汇总高亮/门禁/行动 → 操作报告 | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_report_highlight:9`；`workspace_report_next_action:17` |
 | [reproduction.py](../total_control/workspace/automation/reproduction.py) · 791 | R05/R06；计划/声明数据/静态输入 → 范围内脚本与包缺项 → execution bundle | N03B1 仅有消费者的命令预览进入包；warning 可提交，声明数据与输入硬错误保留；未统一多同-kind/远程读取，关联 [G10](#g10)、[G12](#g12)、[G17](#g17)。 | `derive_workspace_reproduction_manifest` |
-| [run_plan.py](../total_control/workspace/automation/run_plan.py) · 195 | R05/R06；节点执行方式/配置 → 阶段和命令摘要 → run plan | N03B1 复用 executor resolver，Agent 报告不强求 shell report_command；实际路由/输入仍由提交门禁校验。 | `workspace_node_command_summary_for_plan`；`derive_workspace_run_plan` |
-| [topology.py](../total_control/workspace/automation/topology.py) · 391 | R03/R05/R06；节点执行方式/Agent/工具 → 有效绑定和路由缺口 → topology | N03B1 仅 Agent 模式进入 Agent 绑定/路由缺口；system/human 不借虚拟绑定过门禁，其余投影收敛待 [G17](#g17)。 | `derive_workspace_agent_topology` |
+| [run_plan.py](../total_control/workspace/automation/run_plan.py) · 198 | R05/R06；节点执行方式/配置 → 阶段和命令摘要 → run plan | N03B2c2b 使 `workspace_node_required_tool_id` 接收 executor mode：eval.report Agent 无静态 report.write 要求，Job 保留；N03B1 的 Agent 报告不强求 shell report_command 仍保留。 | `workspace_node_required_tool_id`；`workspace_node_command_summary_for_plan` |
+| [topology.py](../total_control/workspace/automation/topology.py) · 393 | R03/R05/R06；节点执行方式/Agent/工具 → 有效绑定和路由缺口 → topology | N03B2c2b 的 eval.report Agent 可显式 tools=[] 且不报 required_tool_unbound/agent_without_tools；Job 的 report.write 门禁保留；system/human 原边界保留，其他投影收敛待 [G17](#g17)。 | `derive_workspace_agent_topology` |
 
 ### total_control/workspace/automation/contracts_pkg
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/workspace/automation/contracts_pkg/__init__.py) · 60 | R05/R06；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [context.py](../total_control/workspace/automation/contracts_pkg/context.py) · 351 | R05/R06；节点/输出/映射 → 解析并汇总上下文契约 → 输入/输出状态 | N00C 通过别名复用 context_refs；展示就绪语义仍由本文件处理，关联 [G10](#g10)。 | `workspace_node_workflow_contract_metadata:16`；`workspace_context_value_present:84` |
+| [context.py](../total_control/workspace/automation/contracts_pkg/context.py) · 353 | R05/R06；节点/输出/映射 → 解析并汇总上下文契约 → 输入/输出状态 | N00C 通过别名复用 context_refs；N03B2c2b metadata 按 executor mode 投影必需工具，report Agent 不注入 report.write；其余展示就绪语义与 G10 引用规则仍开放。 | `workspace_node_workflow_contract_metadata:16`；`workspace_context_value_present:84` |
 | [io.py](../total_control/workspace/automation/contracts_pkg/io.py) · 226 | R05/R06；节点类型/映射 → I/O 默认和引用静态校验 → refs/gaps | 问题/修补关联 [G10](#g10)；按登记方案处理，不另建平行服务。 | `workspace_io_contract_for_kind:12`；`workspace_node_config_signal:24` |
 | [orchestration.py](../total_control/workspace/automation/contracts_pkg/orchestration.py) · 225 | R05/R06；节点契约/拓扑缺口 → 按阶段分车道 → 编排展示契约 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_orchestration_gap_matches_node:12`；`workspace_orchestration_status:29` |
-| [workflow.py](../total_control/workspace/automation/contracts_pkg/workflow.py) · 229 | R05/R06；实际节点/映射/执行方式 → 复用静态引用校验 → workflow contract | N03B1 保留显式非法引用；Agent 要求声明输入完整，shell 默认映射是未消费预览，不能误当必需 Agent 输入。静态/运行时规则统一仍待 [G10](#g10)。 | `derive_workspace_workflow_contract` |
+| [workflow.py](../total_control/workspace/automation/contracts_pkg/workflow.py) · 229 | R05/R06；实际节点/映射/执行方式 → 复用静态引用校验 → workflow contract | N03B2c2b 按 `resolve_node_executor_mode` 生成工具投影，Agent 报告不注入 report.write、Job 要求保留；N03B1 显式非法引用与输入契约规则不变。静态/运行时引用规则统一仍待 [G10](#g10)。 | `derive_workspace_workflow_contract` |
 
 ### total_control/workspace/cockpit
 
@@ -740,7 +750,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/workspace/schema/__init__.py) · 137 | R02/R03/R05；包内实现 → 显式转导出 → 公开兼容入口 | N03B2c2a移除无其他消费者的backfill_default_agent_tools导出，已有规范化/工具定义入口保留；不按短文件数量删除。 | 文件整体/公开入口 |
-| [agents_tools.py](../total_control/workspace/schema/agents_tools.py) · 404 | R02/R03/R05；当前/同ID字段与目录 → 规范化与缺字段推荐 → 有效Agent/工具 | N03B2c2a唯一授权入口尊重显式空/子集，缺字段单一preset，旧无效筛选保留；删除后置补权。N13B3b2a工具元数据规则保留；G10引用目录、G11能力标签、G27 Agent元数据仍开放。 | normalize_workspace_agent/normalize_workspace_agents/normalize_workspace_tool/normalize_global_tool_definition |
+| [agents_tools.py](../total_control/workspace/schema/agents_tools.py) · 408 | R02/R03/R05；当前/同ID字段与目录 → 规范化与缺字段推荐 → 有效Agent/工具 | N03B2c2a 唯一授权入口尊重显式空/子集，删除后置 allowlist 补权；N03B2c2b 的默认工具定义需求计算按 node executor mode 区分，避免报告 Agent 被算作工具调用。推荐工具定义不等于修改 `agent.tools`。N13B3b2a 元数据规则保留；G10/G11/G27余项开放。 | `workspace_node_required_tool_id`；`workspace_required_default_tool_ids` |
 | [chat.py](../total_control/workspace/schema/chat.py) · 461 | R02/R03/R05；消息/反思/工作区 → 规范、规则回复与 debug → chat/debug payload | 问题/修补关联 [G05](#g05)、[G11](#g11)；按登记方案处理，不另建平行服务。 | `normalize_workspace_context_reflection:15`；`normalize_workspace_chat_message:54` |
 | [nodes.py](../total_control/workspace/schema/nodes.py) · 698 | R02/R03/R05；源类型/节点草稿/recipe → 默认、绑定、连线规范 → 顺序工作区节点 | N03A0 保留明确 system/human 与已绑定 Agent 的执行者；缺指定/缺 Agent 继续由唯一 finalizer 补默认，输出键/输入映射沿原逻辑。关联 [G10](#g10)、[G11](#g11)、[G14](#g14)。 | `workspace_node_definition:22`；`workspace_node_kinds_for_source:31` |
 | [recipe.py](../total_control/workspace/schema/recipe.py) · 201 | R02/R03/R05；启动/模型/环境输入 → 字段规范与源类型推断 → recipe/model/inputs | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `normalize_workspace_recipe:13`；`clean_workspace_config_default:32` |

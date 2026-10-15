@@ -38,7 +38,9 @@ def workspace_node_workflow_contract_metadata(workspace: dict[str, Any], node: d
     agent_id = str(handler.get("agent_id") or "").strip()
     agent = agent_index.get(agent_id, {})
     agent_tool_ids = parse_tag_list(agent.get("tools", []) if agent else [])
-    required_tool_id = workspace_node_required_tool_id(kind)
+    from ....orchestration.node_runner import resolve_node_executor_mode
+
+    required_tool_id = workspace_node_required_tool_id(kind, resolve_node_executor_mode(node))
     tool_ids = list(dict.fromkeys([*(agent_tool_ids[:3]), *([required_tool_id] if required_tool_id else [])]))
     model = normalize_workspace_model(workspace.get("model"), existing=workspace.get("model"))
     route = workspace_model_route_for_agent(model, agent if agent else None)

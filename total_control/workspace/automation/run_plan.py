@@ -29,7 +29,10 @@ def workspace_run_phase_label(phase: str) -> str:
         "other": "其他",
     }.get(phase, phase)
 
-def workspace_node_required_tool_id(kind: str) -> str:
+def workspace_node_required_tool_id(kind: str, executor_mode: str = "") -> str:
+    normalized_kind = str(kind or "").strip()
+    if normalized_kind == "eval.report" and executor_mode == "agent":
+        return ""
     return {
         "repo.clone": "repo.clone",
         "path.resolve": "path.resolve",
@@ -41,7 +44,7 @@ def workspace_node_required_tool_id(kind: str) -> str:
         "run.command": "job.run",
         "artifact.collect": "artifact.collect",
         "eval.report": "report.write",
-    }.get(str(kind or "").strip(), "")
+    }.get(normalized_kind, "")
 
 def workspace_node_command_summary_for_plan(workspace: dict[str, Any], node: dict[str, Any]) -> tuple[str, str]:
     from ...orchestration.node_runner import resolve_node_executor_mode

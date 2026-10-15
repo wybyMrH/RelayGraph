@@ -84,7 +84,8 @@ def derive_workspace_workflow_contract(
         agent_id = str(handler.get("agent_id") or execution_node.get("agent_id") or plan_node.get("agent_id") or "").strip()
         agent = agent_index.get(agent_id, {})
         agent_tool_ids = parse_tag_list(agent.get("tools", []) if agent else [])
-        required_tool_id = workspace_node_required_tool_id(kind)
+        executor_mode = resolve_node_executor_mode(node)
+        required_tool_id = workspace_node_required_tool_id(kind, executor_mode)
         tool_ids = list(dict.fromkeys([*(agent_tool_ids[:3]), *([required_tool_id] if required_tool_id else [])]))
         route = workspace_model_route_for_agent(model, agent if agent else None)
         next_node = nodes[index + 1] if index + 1 < len(nodes) and isinstance(nodes[index + 1], dict) else {}
@@ -92,7 +93,6 @@ def derive_workspace_workflow_contract(
         required_inputs = workspace_required_input_names(contract)
         input_refs = workspace_contract_input_refs(input_mapping, index, output_catalog, previous_outputs)
         has_explicit_mapping = workspace_has_explicit_input_mapping(node)
-        executor_mode = resolve_node_executor_mode(node)
         if not has_explicit_mapping:
             workspace_apply_auto_input_mapping_fallbacks(input_mapping, input_refs)
             if executor_mode == "job":

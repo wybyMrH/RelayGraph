@@ -151,7 +151,9 @@ def build_workflow_template_validation_payload(
                         elif tool.get("enabled") is False:
                             add_issue("warning", "tool", "disabled_agent_tool", f"Agent {agent.get('name') or agent_id} 的工具 {tool.get('label') or tool_id} 已停用。", node_id=node_id, agent_id=agent_id, tool_id=tool_id)
 
-        required_tool_id = workspace_node_required_tool_id(kind)
+        from ...orchestration.node_runner import resolve_node_executor_mode
+
+        required_tool_id = workspace_node_required_tool_id(kind, resolve_node_executor_mode(node))
         if required_tool_id:
             tool = tool_index.get(required_tool_id)
             if not tool:

@@ -143,7 +143,7 @@ def derive_workspace_agent_topology(workspace: dict[str, Any], run_plan: dict[st
         mode = str(handler.get("mode") or "agent").strip() or "agent"
         agent_id = str(handler.get("agent_id") or plan_node.get("agent_id") or "").strip()
         agent = agent_index.get(agent_id)
-        required_tool_id = workspace_node_required_tool_id(kind)
+        required_tool_id = workspace_node_required_tool_id(kind, mode)
         if required_tool_id:
             required_tool_ids.add(required_tool_id)
             stage_tool_ids[phase_id].add(required_tool_id)
@@ -239,7 +239,9 @@ def derive_workspace_agent_topology(workspace: dict[str, Any], run_plan: dict[st
                         agent_id=agent_id,
                     ),
                 )
-            if not valid_tools:
+            # The supported report-agent branch is intentionally tool-free:
+            # it returns a report directly from the model in one call.
+            if not valid_tools and not (kind == "eval.report" and mode == "agent"):
                 add_gap(
                     stage,
                     workspace_agent_topology_gap(

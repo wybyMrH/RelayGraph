@@ -385,13 +385,17 @@ def default_agent_required_tool_ids(agents: list[dict[str, Any]]) -> list[str]:
 
 def workspace_required_default_tool_ids(workspace: dict[str, Any]) -> list[str]:
     from ..automation.run_plan import workspace_node_required_tool_id
+    from ...orchestration.node_runner import resolve_node_executor_mode
 
     tool_ids: list[str] = []
     seen: set[str] = set()
     for node in (workspace.get("nodes") if isinstance(workspace.get("nodes"), list) else []):
         if not isinstance(node, dict):
             continue
-        tool_id = workspace_node_required_tool_id(str(node.get("kind") or "").strip())
+        tool_id = workspace_node_required_tool_id(
+            str(node.get("kind") or "").strip(),
+            resolve_node_executor_mode(node),
+        )
         if tool_id and tool_id not in seen:
             seen.add(tool_id)
             tool_ids.append(tool_id)
