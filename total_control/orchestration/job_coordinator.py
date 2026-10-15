@@ -93,7 +93,8 @@ class JobCoordinator:
 
     def _after_observe(self, state: JobGraphState) -> str:
         if self.store.read(state["run_id"])["plan"]["engine_version"] == AGENT_CHILD_JOB_ENGINE_VERSION:
-            status = state["observation"].get("status")
+            observation = state["observation"]
+            status = observation.get("child_status") or observation.get("status")
             if status == "done":
                 return "resume_agent"
             if status in self.store.TERMINAL:
@@ -158,6 +159,12 @@ class JobCoordinator:
                 elif not snapshot.next and not snapshot.tasks:
                     return False
                 elif snapshot.tasks and any(task.interrupts for task in snapshot.tasks):
+                    observed = self.callbacks.observe(
+                        run_id,
+                        snapshot.values.get("child_job_id") or snapshot.values.get("job_id", ""),
+                    )
+                    if observed == snapshot.values.get("observation"):
+                        return False
                     graph.invoke(Command(resume=True), config, durability="sync")
                 else:
                     # Completed task writes may hide snapshot.next before the next

@@ -342,9 +342,10 @@ class WorkflowRecordsMixin:
         attempt = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == step["step_id"])
         if attempt["status"] in self.execution_store.TERMINAL:
             return copy.deepcopy(attempt["result"])
-        terminal = "failed" if observation.get("status") == "failed" else "blocked" if observation.get("status") in {"blocked", "reconciling", "unknown"} else "stopped"
+        child_status = observation.get("child_status") or observation.get("status")
+        terminal = "failed" if child_status == "failed" else "blocked" if child_status in {"blocked", "reconciling", "unknown"} else "stopped"
         result = {**attempt["result"], "node_id": step["step_id"], "status": terminal,
-                  "runtime_status": observation.get("status", "failed"), "error": observation.get("error") or "child Job did not complete"}
+                  "runtime_status": child_status or "failed", "error": observation.get("error") or "child Job did not complete"}
         self.execution_store.record_result(run_id, step["step_id"], attempt["attempt_no"], result)
         return result
 
@@ -365,8 +366,6 @@ class WorkflowRecordsMixin:
                 result = workspace_run_step_from_job(job, step["index"])
                 if evidence["plan"]["engine_version"] == AGENT_CHILD_JOB_ENGINE_VERSION:
                     child_status = result["status"]
-                    parent_status = child_status if child_status in self.execution_store.TERMINAL else "waiting"
-                    runtime_status = child_status if child_status in self.execution_store.TERMINAL else "waiting_child"
                     output = {
                         "run_id": run_id,
                         "node_id": step["step_id"],
@@ -380,13 +379,13 @@ class WorkflowRecordsMixin:
                     return {
                         **attempt["result"],
                         "node_id": step["step_id"],
-                        "status": parent_status,
+                        "status": "waiting",
                         "executor": "agent",
                         "job_id": job_id,
                         "child_job_ids": [job_id],
                         "child_status": child_status,
-                        "runtime_status": runtime_status,
-                        "error": result.get("error", ""),
+                        "runtime_status": "waiting_child",
+                        "error": result.get("error", "") if child_status != "done" else "",
                         "agent_execution_id": attempt["result"].get("agent_execution_id", ""),
                         "child_submit_key": intent["submit_key"],
                         "child_payload_hash": intent["payload_hash"],

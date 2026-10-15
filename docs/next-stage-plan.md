@@ -2,7 +2,7 @@
 
 计划日期：2026-10-15。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N03B2c2b 的 G11 后端小片和 N03B2c2c-UI 的真实网页闭环均已完成并记录证据。N13B3b2b-Agent、N13B3b2c-Model 后端契约片和 N13B3b2c-UI 也已按小片验收并推送：模型聊天 Agent 的缺字段沿用、显式空值清空、非空 ID 保持原规范化；实例编辑页不再自动首选，空/有效/无效引用可见且保存往返可信。N04-A 正在开发并已完成持久边界与协调器基础，下一片为 **N04-B：真实应用 child Job handoff 联调**；不顺带做 GPU、SSH、Transfer、LiteLLM 或全站重构。
+当前执行指针：N03B2c2b 的 G11 后端小片和 N03B2c2c-UI 的真实网页闭环均已完成并记录证据。N13B3b2b-Agent、N13B3b2c-Model 后端契约片和 N13B3b2c-UI 也已按小片验收并推送：模型聊天 Agent 的缺字段沿用、显式空值清空、非空 ID 保持原规范化；实例编辑页不再自动首选，空/有效/无效引用可见且保存往返可信。N04-A 已提交持久边界与协调器终态修复；N04-B 的真实 HTTP 联调暴露 G30 Provider 流式工具调用缺口，下一片为 **N04-C：Provider 工具调用契约收敛**；不顺带做 GPU、SSH、Transfer、LiteLLM 或全站重构。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -751,9 +751,9 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 开片列app/replay helper/必要样式与缓存文档的精确文件范围；若投影真的丢字段，先记录后单独处理，不能扩大成后端重写。真实浏览器对当前已保留正常/失败/坏JSON和旧run只读点击，验证实时/刷新不回旧说明、错误持续可见、回放/导出一致；如需新运行，只生成必要一条小链。检查常用桌面/窄窗、键盘焦点、长说明/错误和空字段；G26登记的初始化期间选择被恢复覆盖先做独立复现，确需改恢复时序时另切小片，不把此字段呈现片扩成启动流程重构；注入长文明确是布局检查，不冒充任务能力。监督复核后更新台账、提交推送，再从计划选唯一下一片。
 
-### N04-A：子任务恢复的持久边界与协调器（当前切片）
+### N04-A：子任务恢复的持久边界与协调器（已提交）
 
-**当前状态：开发中，尚未验收。** 本片开片记录见本地 `dev_work/reports/n04-opening.md`。本次提交只交付持久 child intent、独立 engine 和协调器分支基础；完整应用联调留给下一切片。
+**当前状态：已提交边界修复，完整应用链仍未验收。** 本片开片记录见本地 dev_work/reports/n04-opening.md。本次提交交付持久 child intent、独立 engine、父 waiting/child_status 路由和重复 wake no-op；完整应用联调留给后续切片。
 
 本片只交付一个受控边界：父 Agent（允许 `job.run`/`host.exec`）→ 一个 child Job → 后续 Agent。复用 N03 的 LangGraph 等待引用，不新增 Agent polling loop。计划使用独立 `langgraph-agent-child-job/n04` engine，旧 N03 engine 不迁移；RunStore 的 submissions 表增加 `operation=child-job`，稳定键为 `run/step/attempt/child-job`，Job metadata 同时记录 parent run/step/attempt、child submit key/hash 和 source Agent execution id。
 
@@ -763,9 +763,13 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 完成条件：父 Agent → child Job → 后续 Agent 全链只执行一次，100% 只在全部必需计划步骤终结后出现；取消父/子关系明确；服务重启不丢后续计划。
 
-### N04-B：真实应用 child Job handoff 联调（下一切片）
+### N04-B：真实应用 child Job handoff 联调（未通过，保留为待重跑验收）
 
-在 N04-A 的持久边界上，用隔离本机服务、真实工作区入口和受控 Provider 完成父 Agent 工具调用、child Job queued/running/done、后续 Agent 恢复。验收重复请求、重复完成通知、child failed/stopped、服务重启 active/已完成两个窗口；确认 Job 副作用一次、Agent invocation 次数、计划分母和公开 run/attempt/child 引用。此片不接 child run、前端新页面或远程能力。
+在 N04-A 的持久边界上，已尝试用隔离本机服务、真实工作区入口和受控 Provider 完成父 Agent 工具调用、child Job queued/running/done、后续 Agent 恢复。入口、完整计划和父 Agent invocation 可运行，但 Provider 流式工具调用未被当前 AgentExecutor 识别，父步骤据实进入需核对状态，child Job 没有被伪造提交；因此本片不通过，重复请求、重复完成通知、child failed/stopped、服务重启和浏览器闭环不能记为通过。此片不接 child run、前端新页面或远程能力。
+
+### N04-C：Provider 工具调用契约收敛（唯一下一片）
+
+只处理 G30 的一个边界：在不改变 Agent/Job 协调器和公开工作流 schema 的前提下，给 OpenAI-compatible SSE 建立可观察的工具调用解析契约。先用本地受控 endpoint 同时返回非流式 content、流式 content、原生 tool_calls 和分片 JSON 参数，记录每种输入的解析结果、工具步骤、错误与是否产生副作用；确认流式失败不静默降级为普通最终答案，工具参数不截断、不重复执行。若当前自制协议仍需兼容，保留明确版本/失败语义，不直接引入 LiteLLM 双路径。通过后再回到 N04-B 重跑真实 child handoff；本片不接 GPU、SSH、Transfer、LiteLLM Proxy、前端页面或任意多 Agent。
 
 ### N03B2c2a-UI：显式授权说明与完整启动入口（已实现，见2.30）
 

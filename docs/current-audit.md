@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N03B2c2b 已修正 G11 的报告 Agent 工具误报；N03B2c2c-UI 已用 ready 隔离实例完成真实启动闭环验收。N13B3b2b-Agent、N13B3b2c-Model 后端契约片和 N13B3b2c-UI 均已限定验收；实例编辑页的空值、显式选择和无效 Agent 引用已经可见且可保存。N04 已开片并处于开发中，当前只实现受控 Agent → child Job → Agent，不与 child run、草稿竞争或 Provider 路由合并。
+当前执行指针：N03B2c2b 已修正 G11 的报告 Agent 工具误报；N03B2c2c-UI 已用 ready 隔离实例完成真实启动闭环验收。N13B3b2b-Agent、N13B3b2c-Model 后端契约片和 N13B3b2c-UI 均已限定验收；实例编辑页的空值、显式选择和无效 Agent 引用已经可见且可保存。N04-A 的持久边界与协调器修复已提交；N04-B 真实 HTTP 联调未通过，当前下一片收敛为 Provider 流式工具调用契约，不把失败链路写成完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -37,9 +37,16 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 对齐 R06，类别：能力缺口、伪完成，证据 E1/E2。
 - 原 workflow_runner.py.run_workflow_sequence 遇到 pending_agent_runtime 后直接 break，没有后续游标。N03B2b 已删除旧推进器，但 Agent 子任务续跑仍未实现。N02 前 run_records 只以已有 steps 计算终态与分母；完整计划投影不能单独证明续跑。
 - 两个 Agent 的复现只留下第一个 step；子任务结束后按现有计算得到 done、1/1、100%，第二个 Agent 未运行。历史用例只证明阻止提前执行，未证明完成后的恢复。
-- N04 正在实现一个独立 `langgraph-agent-child-job/n04` engine：完整两 Agent 计划保留，父 attempt 通过 `child-job` submission 记录稳定 key/hash、parent run/step/attempt 与 child Job metadata；child 未完成时公开步骤为 `waiting` 且 `runtime_status=waiting_child`，后续 Agent 保持 pending，分母仍为完整计划。child 完成后唯一协调器恢复后续 Agent，失败/停止/收据未知则进入失败或 blocked，不重提。
-- 已完成静态、RunStore 隔离、真实 LangGraph SQLite checkpointer 的受控回调 smoke：重复 waiting wake 不恢复图，child done 只调用一次后续 Agent，failed/stopped/blocked 各只传播一次，waiting 进度保持完整分母。真实服务工作区、Agent/Job 受控提交、重启、重复完成通知和 Provider 链尚未验收，因此 G02 仍开放，不能把当前代码写成完成。
+- N04-A 已提交一个独立 `langgraph-agent-child-job/n04` engine：完整两 Agent 计划保留，父 attempt 通过 `child-job` submission 记录稳定 key/hash、parent run/step/attempt 与 child Job metadata；child 未完成时公开步骤为 `waiting` 且 `runtime_status=waiting_child`，后续 Agent 保持 pending，分母仍为完整计划。child 完成观察仍先保持父 attempt waiting，由 `child_status=done` 路由恢复；只有后续 Agent 成功后才把父 attempt 写成 done。失败/停止/收据未知则进入失败或 blocked，不重提。重复观察相同值直接 no-op。
+- N04-B 已按真实 HTTP 工作区入口、隔离本机服务和受控 Provider 进行联调，但未通过：服务能保存完整计划并启动父 Agent，当前 Provider 流式响应中的工具调用没有被 AgentExecutor 识别，父 Agent 被据实记录为普通 done，协调器拒绝继续并将运行置为需核对；没有 child Job 副作用，也没有人工补写终态。该过程暴露新的 G30 能力缺口，G02 仍开放。
 - 方案：先冻结完整计划，再为每个节点记录等待/尝试；完成事件恢复推进。分别处理子 Job 与子 run，重复通知不重复启动，服务重启能恢复。N04 只覆盖 child Job 和受控 Agent handoff，child run 另切片。
+
+<a id="g30"></a>
+### G30 · P1 · 流式 Provider 工具调用契约未形成可执行 child Job
+
+- 对齐 R06/R09，类别：能力缺口、伪完成风险，证据 E1（N04-B 真实 HTTP 联调）。
+- 隔离服务通过真实 POST /api/workspaces/{id}/run 建立两 Agent 完整计划，父 Agent 也完成了一次 Provider 调用；受控 Provider 返回工具调用文本后，当前流式 LLMClient.chat_stream → AgentExecutor._parse_tool_call 链没有产生可识别的 tool step。父 attempt 因而被记录为普通 done，没有 child submission，协调器据实报 parent Agent did not submit a controlled child Job 并停止；没有关闭门禁、手填终态或创建副作用。
+- 这不是 N04 协调器可以吞掉的错误：若把普通 final answer 当成提交成功，会重复或漏掉真实 Job。下一片只核对 OpenAI-compatible SSE 的 content/finish/tool-call 形态、流式与非流式一致解析、工具参数 JSON 边界和失败证据；通过后再重跑 N04-B。LiteLLM 替换仍不在本片承诺范围。
 
 <a id="g03"></a>
 ### G03 · P1 · 提交异常替换已记录步骤（N02 新工作流已修复）
@@ -652,7 +659,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 461 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)；按登记方案处理，不另建平行服务。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 665 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
 | [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 增加两 Agent、首 Agent 明确拥有 `job.run/host.exec` 的受控 handoff 计划和双路由 hash；旧单 Job/Job→报告入口不变。当前仅静态编译通过，真实门禁/服务链待验收。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 420 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04 接入父 Agent invocation claim、child Job receipt 核对、waiting_child 投影、完成后后续 Agent resume 及失败传播；恢复时保留父 attempt 元数据并把 follow attempt 的未知调用标为 blocked；旧 N03 回调保留。真实 child Job/Provider/重启尚未验收，不能关闭 G02。 | `WorkflowRecordsMixin:21` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 420 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 接入父 Agent invocation claim、child Job receipt 核对、waiting_child 投影、完成后后续 Agent resume 及失败传播；child 完成观察不提前终结父 attempt，重复 wake 保持 no-op；旧 N03 回调保留。真实 Provider 工具调用契约未通过，关联 G02/G30。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 
