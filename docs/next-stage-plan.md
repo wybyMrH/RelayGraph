@@ -1,8 +1,8 @@
 # 第三部分：下一阶段计划、技术复用与消融验证
 
-计划日期：2026-10-15。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
+计划日期：2026-11-02。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N03B2c2b 的 G11 后端小片和 N03B2c2c-UI 的真实网页闭环均已完成并记录证据。N13B3b2b-Agent、N13B3b2c-Model 后端契约片和 N13B3b2c-UI 也已按小片验收并推送：模型聊天 Agent 的缺字段沿用、显式空值清空、非空 ID 保持原规范化；实例编辑页不再自动首选，空/有效/无效引用可见且保存往返可信。N04-A 已提交持久边界与协调器终态修复；N04-B 的真实 HTTP 联调暴露 G30 Provider 流式工具调用缺口，下一片为 **N04-C：Provider 工具调用契约收敛**；不顺带做 GPU、SSH、Transfer、LiteLLM 或全站重构。
+当前执行指针：N04-A 已提交；N04-B 旧成功记录的 CPU、次数和等待中重启证据不足。2026-11-02 重跑复现 G31：显式 CPU child Job 被执行包 GPU 默认覆盖。唯一下一片为 **N04-D：child Job 显式执行目标保真**。先修这个实际阻塞，再回 N04-B；N04-C Provider 契约留后续，不同时实施。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -763,13 +763,25 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 完成条件：父 Agent → child Job → 后续 Agent 全链只执行一次，100% 只在全部必需计划步骤终结后出现；取消父/子关系明确；服务重启不丢后续计划。
 
-### N04-B：真实应用 child Job handoff 联调（未通过，保留为待重跑验收）
+### N04-B：真实应用 child Job handoff 联调（未验收，需先解决 G31）
 
-在 N04-A 的持久边界上，已尝试用隔离本机服务、真实工作区入口和受控 Provider 完成父 Agent 工具调用、child Job queued/running/done、后续 Agent 恢复。入口、完整计划和父 Agent invocation 可运行，但 Provider 流式工具调用未被当前 AgentExecutor 识别，父步骤据实进入需核对状态，child Job 没有被伪造提交；因此本片不通过，重复请求、重复完成通知、child failed/stopped、服务重启和浏览器闭环不能记为通过。此片不接 child run、前端新页面或远程能力。
+旧隔离 SQLite 确认 parent/follow 各一 attempt 和一 child submission；完成后同键 HTTP 重发及服务重启返回原 run。原脚本的 Provider/副作用次数硬编码、覆盖写入和实际 GPU Job 不足以支撑完整通过；首次失败根因未确定，不归咎于 Provider 或端口。
 
-### N04-C：Provider 工具调用契约收敛（唯一下一片）
+2026-11-02 新本地检查记录真实 Provider 请求，工具显式传 local/cwd/cpu/none，child 用追加标记并准备等待中重启；实际运行却得到 GPU 0（G31），因此停止验收，未改门禁/手填记录。首次重跑把提交瞬间的 blocked/submitting 当终态是观察脚本错误，已修脚本并重新复现实际目标覆盖；不将该瞬态直接定义为产品故障。
 
-只处理 G30 的一个边界：在不改变 Agent/Job 协调器和公开工作流 schema 的前提下，给 OpenAI-compatible SSE 建立可观察的工具调用解析契约。先用本地受控 endpoint 同时返回非流式 content、流式 content、原生 tool_calls 和分片 JSON 参数，记录每种输入的解析结果、工具步骤、错误与是否产生副作用；确认流式失败不静默降级为普通最终答案，工具参数不截断、不重复执行。若当前自制协议仍需兼容，保留明确版本/失败语义，不直接引入 LiteLLM 双路径。通过后再回到 N04-B 重跑真实 child handoff；本片不接 GPU、SSH、Transfer、LiteLLM Proxy、前端页面或任意多 Agent。
+修复后必须实际证明：完整计划分母为 2；child queued/running/done；waiting 时 follow pending；在运行中重启服务后同 Job 恢复；父/follow 各一个 invocation claim（父可含工具前后多次模型请求），child 追加标记一次；waiting/完成后同键请求和重复调度不增加副作用；failed/stopped 不调用 follow 且不建其 attempt；follow 请求输入含本次 run/step/attempt/Job 和 done 状态。当前实现的 handoff 仅交接身份、状态及产物声明，日志正文尚未交接；这只是现状，不降低 R09 本次输出消费要求，需另片验证正文/日志引用传递，不能用固定回答证明读过日志。父/子取消关系、提交未知窗口与浏览器另验；不接 child run、SSH/GPU/Transfer 或任意多 Agent。
+
+### N04-D：child Job 显式执行目标保真（唯一下一片）
+
+对齐 G31/R06/R07/R09。当前 `job.run` 的显式 CPU 目标会被工作区执行包的默认 GPU 覆盖。目标是经已有主机/路径边界验证后，实际 Job、runtime_binding 与 resource_plan 都使用同一目标；未显式设置的字段保持原有解析来源，不为通过测试另换工具或手改执行包。
+
+允许范围先限 `state/workspaces/agents.py`、必要的 `nodes.py`/`workspace/automation/bundle.py` 调用边界及二三文档；开片先查消费者与旧优先级，选择最小实现，不改变普通冻结工作流目标。不新增推进器、配置层或重试。验收走原 HTTP/Agent 工具入口，显式 CPU/none、非默认 cwd、已配环境/主机校验及默认继承；核对持久 Job 与真实启动过程，再回 N04-B。必要 API 消费者同步属于后端；用户可见目标/等待呈现安排独立前端片，不将 HTTP 通过当 UI 完成。
+
+child hash 缺失目标字段是已登记静态风险；目标解析稳定后另做副作用身份与旧记录兼容片，不混本轮修复。没有完成本片验收前不关 G31。
+
+### N04-C：Provider 工具调用契约收敛（后续独立片）
+
+针对 G30，用受控 endpoint 分别核对非流式 content、流式 content、原生 tool_calls 和分片 JSON 参数，记录解析结果、工具步骤、错误和真实副作用次数。保留当前协议的明确边界；先证明实际缺口再决定 LiteLLM 薄适配，不直接引入双主路径，不扩协调器、远程或前端页面。
 
 ### N03B2c2a-UI：显式授权说明与完整启动入口（已实现，见2.30）
 
