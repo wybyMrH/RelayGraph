@@ -297,7 +297,19 @@ class AgentsMixin:
         node_copy["config"] = config
 
         try:
-            job_payload = self.workspace_node_job_payload(workspace, node_copy)
+            runtime_target_overrides = {}
+            if node_copy.get("kind") == "run.command":
+                runtime_target_overrides = {
+                    key: args[key] for key in ("server_id", "env_name", "gpu_policy", "gpu_index", "min_free_memory_gib")
+                    if key in args and args[key] is not None
+                }
+                if args.get("cwd") is not None or args.get("workspace_dir") is not None:
+                    runtime_target_overrides["cwd"] = args.get("cwd") if args.get("cwd") is not None else args["workspace_dir"]
+                if tool == "host.exec":
+                    runtime_target_overrides.update(gpu_policy="cpu", gpu_index="none")
+            job_payload = self.workspace_node_job_payload(
+                workspace, node_copy, runtime_target_overrides=runtime_target_overrides,
+            )
             job_payload["name"] = str(
                 args.get("name")
                 or f"{workspace.get('name') or workspace_id} · {tool}"
@@ -311,16 +323,13 @@ class AgentsMixin:
                 job_payload["wait_for_idle"] = bool(args.get("wait_for_idle"))
             else:
                 job_payload["wait_for_idle"] = False
-            if tool == "host.exec":
+            if tool == "host.exec" and node_copy.get("kind") != "run.command":
+                # Explicit legacy node_id can select a non-command node. Preserve
+                # its CPU-only contract until those callers migrate separately.
                 job_payload["gpu_index"] = "none"
-                metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}
+                metadata = job_payload["metadata"]
                 metadata["execution_mode"] = "cpu"
-                runtime_binding = metadata.get("runtime_binding") if isinstance(metadata.get("runtime_binding"), dict) else {}
-                runtime_binding["gpu_policy"] = "cpu"
-                runtime_binding["gpu_index"] = "none"
-                runtime_binding["execution_mode"] = "cpu"
-                metadata["runtime_binding"] = runtime_binding
-                job_payload["metadata"] = metadata
+                metadata["runtime_binding"].update(gpu_policy="cpu", gpu_index="none", execution_mode="cpu")
             observe_options = self.workspace_tool_observe_options(args)
             metadata = job_payload.get("metadata") if isinstance(job_payload.get("metadata"), dict) else {}
             metadata.update(

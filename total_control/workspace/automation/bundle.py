@@ -417,6 +417,7 @@ def workspace_execution_package_runtime_binding(
     config: dict[str, Any] | None = None,
     *,
     fallback: dict[str, Any] | None = None,
+    runtime_target_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Materialize the execution package target into runtime job fields."""
 
@@ -451,8 +452,32 @@ def workspace_execution_package_runtime_binding(
         if scheduler.get("gpu_index") is not None
         else fallback.get("gpu_index", "auto")
     ).strip() or "auto"
+    overrides = runtime_target_overrides or {}
+    if overrides:
+        # Only controlled command tools supply overrides; frozen workflow calls do not.
+        if kind != "run.command":
+            raise ValueError("runtime target overrides require a command node")
+        if "server_id" in overrides:
+            server_id = str(overrides["server_id"]).strip()
+            if not server_id:
+                raise ValueError("server_id must not be empty")
+        if "gpu_policy" in overrides:
+            gpu_policy = str(overrides["gpu_policy"]).strip().lower() or "auto"
+        if "gpu_index" in overrides:
+            gpu_index = str(overrides["gpu_index"]).strip().lower() or "auto"
+        cpu_policy = gpu_policy in {"cpu", "none", "no_gpu"}
+        cpu_index = gpu_index in {"cpu", "none", "no_gpu"}
+        if "gpu_policy" in overrides and "gpu_index" in overrides:
+            if (cpu_policy and gpu_index not in {"auto", "cpu", "none", "no_gpu"}) or (cpu_index and gpu_policy not in {"auto", "cpu", "none", "no_gpu"}):
+                raise ValueError("conflicting GPU policy and index")
+        # An explicit choice replaces the inherited choice of the other field.
+        if "gpu_policy" in overrides and "gpu_index" not in overrides:
+            gpu_index = "none" if cpu_policy else "auto"
+        if "gpu_index" in overrides and "gpu_policy" not in overrides:
+            gpu_policy = "cpu" if cpu_index else "auto"
     cpu_mode = (
-        str(target.get("mode") or scheduler.get("mode") or "").strip().lower() == "cpu"
+        (not {"gpu_policy", "gpu_index"}.intersection(overrides)
+         and str(target.get("mode") or scheduler.get("mode") or "").strip().lower() == "cpu")
         or gpu_policy in {"cpu", "none", "no_gpu"}
         or gpu_index.lower() in {"cpu", "none", "no_gpu"}
     )
@@ -462,6 +487,12 @@ def workspace_execution_package_runtime_binding(
 
     cwd = str(target.get("workspace_dir") or fallback.get("cwd") or "").strip()
     env_name = str(target.get("env_name") or fallback.get("env_name") or "").strip()
+    if "cwd" in overrides:
+        cwd = str(overrides["cwd"]).strip()
+        if not cwd:
+            raise ValueError("cwd must not be empty")
+    if "env_name" in overrides:
+        env_name = str(overrides["env_name"]).strip()
     min_free_memory_gib = str(
         scheduler.get("min_free_memory_gib")
         or target.get("min_free_memory_gib")
@@ -470,12 +501,16 @@ def workspace_execution_package_runtime_binding(
         or ""
     ).strip()
     min_free_mib = _runtime_min_free_mib(min_free_memory_gib)
+    if "min_free_memory_gib" in overrides:
+        min_free_memory_gib = str(overrides["min_free_memory_gib"]).strip()
+        min_free_mib = _runtime_min_free_mib(min_free_memory_gib)
     wait_for_idle = bool(fallback.get("wait_for_idle", True))
     execution_mode = "cpu" if cpu_mode else "gpu" if kind == "run.command" else str(fallback.get("execution_mode") or "cpu")
 
     return {
         "node_kind": kind,
-        "source": "execution_package.target" if target else "node.config",
+        "source": "agent.tool.arguments" if overrides else "execution_package.target" if target else "node.config",
+        **({"overridden_fields": sorted(overrides)} if overrides else {}),
         "status": str(bundle_meta.get("status") or scheduler.get("status") or "").strip(),
         "ready_to_execute": bool(bundle_meta.get("ready_to_execute")),
         "server_id": server_id,

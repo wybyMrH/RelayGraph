@@ -12,6 +12,7 @@ class NodesMixin:
         *,
         previous_job_id: str = "",
         automation: dict[str, Any] | None = None,
+        runtime_target_overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         kind = str(node.get("kind") or "").strip()
         if kind not in WORKSPACE_EXECUTABLE_NODE_KINDS:
@@ -250,6 +251,7 @@ PY"""
             automation,
             node,
             config,
+            runtime_target_overrides=runtime_target_overrides,
             fallback={
                 "server_id": server_id,
                 "gpu_index": str(gpu_index),
@@ -279,6 +281,8 @@ PY"""
             elif kind == "run.command":
                 env_name = str(runtime_binding.get("env_name") or env_name).strip()
             wait_for_idle = bool(runtime_binding.get("wait_for_idle", wait_for_idle))
+            if runtime_target_overrides and "env_name" in runtime_target_overrides:
+                env_name = runtime_binding["env_name"]
         else:
             runtime_binding = {
                 "node_kind": kind,
@@ -327,8 +331,14 @@ PY"""
         }
         if kind == "run.command":
             runtime_min_free_mib = safe_int(runtime_binding.get("min_free_mib"), 0)
-            if runtime_min_free_mib > 0:
+            if runtime_min_free_mib > 0 or (runtime_target_overrides and "min_free_memory_gib" in runtime_target_overrides):
                 payload["min_free_mib"] = runtime_min_free_mib
+        if runtime_target_overrides:
+            payload["metadata"]["resource_plan"].update({
+                key: runtime_binding[key]
+                for key in ("server_id", "gpu_index", "gpu_policy", "execution_mode", "cwd", "env_name", "wait_for_idle", "min_free_mib")
+            })
+            payload["metadata"]["resource_plan"]["requested_server_id"] = server_id
         if previous_job_id:
             payload["metadata"]["workflow_prev_job_id"] = previous_job_id
         return payload

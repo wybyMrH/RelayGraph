@@ -1,8 +1,8 @@
 # 第三部分：下一阶段计划、技术复用与消融验证
 
-计划日期：2026-11-02。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
+计划日期：2026-11-05。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-A 已提交；N04-B 旧成功记录的 CPU、次数和等待中重启证据不足。2026-11-02 重跑复现 G31：显式 CPU child Job 被执行包 GPU 默认覆盖。唯一下一片为 **N04-D：child Job 显式执行目标保真**。先修这个实际阻塞，再回 N04-B；N04-C Provider 契约留后续，不同时实施。
+当前执行指针：N04-D 后端已限定验收（见下文），G31 的 command child 显式 CPU/主机/目录/环境目标覆盖已修复。唯一下一片为 **N04-D-UI：实际目标与等待状态浏览器验收**，先完成独立前端片，再继续 N04-B 的其余缺口。不把 HTTP/本地受控 Provider 通过写成页面或 N04 总体完成。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -763,7 +763,7 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 完成条件：父 Agent → child Job → 后续 Agent 全链只执行一次，100% 只在全部必需计划步骤终结后出现；取消父/子关系明确；服务重启不丢后续计划。
 
-### N04-B：真实应用 child Job handoff 联调（未验收，需先解决 G31）
+### N04-B：真实应用 child Job handoff 联调（部分 HTTP 证据已补，总验收未完成）
 
 旧隔离 SQLite 确认 parent/follow 各一 attempt 和一 child submission；完成后同键 HTTP 重发及服务重启返回原 run。原脚本的 Provider/副作用次数硬编码、覆盖写入和实际 GPU Job 不足以支撑完整通过；首次失败根因未确定，不归咎于 Provider 或端口。
 
@@ -771,13 +771,24 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 修复后必须实际证明：完整计划分母为 2；child queued/running/done；waiting 时 follow pending；在运行中重启服务后同 Job 恢复；父/follow 各一个 invocation claim（父可含工具前后多次模型请求），child 追加标记一次；waiting/完成后同键请求和重复调度不增加副作用；failed/stopped 不调用 follow 且不建其 attempt；follow 请求输入含本次 run/step/attempt/Job 和 done 状态。当前实现的 handoff 仅交接身份、状态及产物声明，日志正文尚未交接；这只是现状，不降低 R09 本次输出消费要求，需另片验证正文/日志引用传递，不能用固定回答证明读过日志。父/子取消关系、提交未知窗口与浏览器另验；不接 child run、SSH/GPU/Transfer 或任意多 Agent。
 
-### N04-D：child Job 显式执行目标保真（唯一下一片）
+### N04-D：child Job 显式执行目标保真（后端已限定验收）
 
-对齐 G31/R06/R07/R09。当前 `job.run` 的显式 CPU 目标会被工作区执行包的默认 GPU 覆盖。目标是经已有主机/路径边界验证后，实际 Job、runtime_binding 与 resource_plan 都使用同一目标；未显式设置的字段保持原有解析来源，不为通过测试另换工具或手改执行包。
+对齐 G31/R06/R07/R09。Agent command 工具显式字段通过原 `workspace_node_job_payload` → `workspace_execution_package_runtime_binding` 解析，优先于包默认；不新增解析器、配置层或推进器。server/cwd/env/阈值未传则继承原来源，env 空串明确清空，server/cwd 空串拒绝。GPU 是成对选择的特例：只传 cpu policy 得 none；只传 GPU 索引 0 保留 0 并将 policy 设 auto；只传非 CPU policy 将 index 设 auto；显式矛盾 CPU/GPU 对拒绝。修改范围只有 agents.py、nodes.py、automation/bundle.py 和二三文档，第一部分不变。
 
-允许范围先限 `state/workspaces/agents.py`、必要的 `nodes.py`/`workspace/automation/bundle.py` 调用边界及二三文档；开片先查消费者与旧优先级，选择最小实现，不改变普通冻结工作流目标。不新增推进器、配置层或重试。验收走原 HTTP/Agent 工具入口，显式 CPU/none、非默认 cwd、已配环境/主机校验及默认继承；核对持久 Job 与真实启动过程，再回 N04-B。必要 API 消费者同步属于后端；用户可见目标/等待呈现安排独立前端片，不将 HTTP 通过当 UI 完成。
+2026-11-05 实际通过：
 
-child hash 缺失目标字段是已登记静态风险；目标解析稳定后另做副作用身份与旧记录兼容片，不混本轮修复。没有完成本片验收前不关 G31。
+- 原 HTTP 工作区入口、原门禁、受控 OpenAI-compatible SSE 文本 Provider、scheduler 和真实 tmux，成功/失败/正式 Job stop 三分支均保持 CPU/none。waiting 中重启服务并重发相同 request_id，保留同 run/Job、完整两步计划；追加标记一次。成功父/follow 各一 attempt，失败/停止没有 follow attempt；模型请求分别 3/2/2 次，来自实际 Provider 请求记录而非硬编码。终态后重复调度与同键请求不增加上述副作用。
+- 另一次成功运行让工具 cwd 区别于工作区目录，指定已存在 venv；实际 Job 与日志的 os.getcwd()/sys.prefix 独立整行输出证实目录/环境生效。follow 请求 user payload 的 mapped_inputs 精确绑定本次 parent/a1/run/Job/done；这只证明身份/终态交接，不证明日志正文消费。
+- 17 项本地契约检查通过，包括 CPU/none、GPU 0、空环境、阈值 0、目标拒绝、adapter 接线，以及九组普通 binding 输出与修改前对照。前者用最小宿主/捕获 create_job 的夹具只证明契约；真实执行证据来自以上 HTTP。默认 GPU 和其他主机只验证 payload，不宣称实际 GPU/SSH 运行。
+- compileall、diff 检查通过；专用环境起初缺 pytest，安装仅本地开发依赖后根 pytest 无用例退出 5，不计通过。本地初版契约错误地在 fixture 自带 CPU policy 时期待 GPU 2，已改为真正 auto 默认再验证；host.exec 夹具初用非允许命令 echo 被正常拦截，改为允许的版本查询核接线，没有放松产品规则。测试脚本/结果、临时配置/数据均忽略，不提交。
+
+消融：command host.exec 原事后 CPU 重写删除，统一用 binding；显式 node_id 仍可选非 command 节点，所以该旧 CPU 兼容分支保留，待调用者迁移另验后退出。execution_bundle/scheduler 是默认快照，实际目标看 runtime_binding/resource_plan，新增 source/overridden_fields 解释覆盖；普通工作流无 overrides，行为不变。旧无 context 独立工具 wait_for_idle 的证据差异不在本片修复。child hash 仍缺目标字段，后续必须做副作用身份及旧记录兼容，不因此关 N04。
+
+### N04-D-UI：实际目标与等待状态浏览器验收（唯一下一片）
+
+先用前端设计 skill 核对真实字段与现有入口，不另做配置/导航重构。只验收驾驶舱 child Job 的实际 CPU/主机/目录/环境及 parent waiting、follow pending、失败/停止的阅读，默认包配置与本次执行目标要分清；必要时做最小呈现修正，不能复制状态合并器或推进逻辑。后端目标已改变且用户可见，HTTP 通过不免除独立前端片。
+
+开片列输入/动作/空载入失败/长内容和布局草图、精确允许文件；真实浏览器点击原入口和 Job 日志，核对实际持久数据，桌面/窄窗、键盘、刷新及实时状态并保存截图。使用受控 Provider 需明确标记；无真实供应商不记通过。完成并提交后，再按 N04-B 查漏；正文/日志传递、child hash 与父/子取消关系各自小片，不一次实施。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 
