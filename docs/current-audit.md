@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-Q3 已限定验证follow请求在途时真实强杀/重启，原claimed保守转unknown，无重复模型/Job。唯一下一片 N04-Q4：按当前代码与原始证据重新逐项总核N04目标；先核验再决定剩余最小缺口，不沿用历史完成声明。G20/G04其余/G33仍开放，N04未完成。
+当前执行指针：N04-Q4 已完成当前证据总核，最小CPU执行链及限定恢复/控制证据已支持，G33历史网页初始化失败仍未解释，N04整体未完成。唯一下一片 N04-I2：冷启动/重启初始化链诊断。G20/G04其余/G26等开放产品问题保留，不批量实施。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -208,6 +208,27 @@ Q2b随后复用原SQLite事务实现`record_results`，单条record_result委托
 Provider跨重启持续存活，20.0002秒后旧socket的响应写调用返回成功（response-written），不能据此认定死去服务收到/保存回答。四次原request重发/约1.1秒间隔观察、迟到写出后、再重启后三次约1.1秒观察，完整attempt均与首次终态逐值一致；正式HTTP不额外调用推进，未用trace，故不声称精确advance次数。两链分别2/3个服务PID；每链始终3模型请求、1Job、parent/follow各a1、根分母2、实物start字节`73746172740a`一份；原Job日志含Q3 END和exit_code=0。杀前/最终SQLite submissions整行不变，唯一键为`run/parent/a1/child-job`、external_ref为本次Job，plan及plan_hash不变，follow inputs.child_job_id、source_attempt_id和agent_execution_id均对应本次原身份。两链未新增attempt或重发模型。
 
 本地独立review逐值检查上述SQLite/公开记录/物理文件/时序通过，摘要仅`dev_work/reports/n04q3-review.json`。第一轮`n04q3-20261107-003519/`在正常完成/重启后观察脚本误读不存在的公开Job.exit_code而失败；实际退出码在日志，随后修脚本走正式Job日志API核验，同时核对公开attempt字段为attempt_id，未改产品迎合脚本；旧失败目录保留，不计通过。受控接口不证明真实供应商；请求未知只能保守停，未提供人工找回答/重放新能力。无代码/API/状态/UI变化，按规则免新增前端实现片，Q2b-UI截图仅历史页面证据，本片没有重跑浏览器。3.10完整部署、G33、手机/全站布局、SSH/GPU/Transfer/LiteLLM等未验且排除。文档独立检查链接/diff/台账，未重跑不相关Python套件。唯一下一片Q4总核，N04仍未完成。
+
+### N04-Q4 · 当前原目标总核（2026-11-07，1074e5c基线，未达到整体完成条件）
+
+本轮只读22组原始证据，SQLite用mode=ro，核实际请求/事件/下载/日志/实物及当前调用者；不启动任务、不补终态，不用历史Phase或review退出码代替事实。完整矩阵与机器摘要仅`dev_work/reports/n04q4-audit.md`、`n04q4-evidence.json`。旧77bbcbd总核保留为当时反证，以下说明后续补齐情况，不能让它继续冒充当前缺口。
+
+| 原目标要求 | 本轮直接核到的证据及当前实现 | 当前结论/边界 |
+| --- | --- | --- |
+| 副作用前完整计划、等待不偷跑、分母 | workflow.py先register_planned再仅返回；scheduler.py唯一周期advance；job_coordinator.py原run_lock/检查点/相同observation no-op。Q2bUI最终SQLite两步计划与两个a1，原waiting截图/记录、根分母2 | 最小链支持；只读调用顺序不证明任意平台故障，也不外推任意DAG |
+| 本次child与后续输入/幂等身份 | `n04q2bui-final-20261107-002511/`三链实际第3请求的JSON段mapped_inputs.run_result逐值等于父output；SQLite唯一run/parent/a1/child-job键、external_ref、follow.inputs.child_job_id及物理starts一致 | 新记录身份支持；Q2a前历史空child元数据保留解释，不补造旧记录 |
+| 正常执行/等待中与终态重启 | Q1最终`n04q1-20261106-232413/`真实waiting重启/同request；Q2bUI真实启动/完成/导出/原日志/终态重启；Q3正常链实际1CPU Job、1追加、3模型请求 | 对应窗口支持；Provider受控，不证明真实模型理解 |
+| 重复完成通知与重连 | 直接读Q1 duplicate trace两次相同payload不同id额外publish、唯一resume return、原实物start一次；两次SSE connections逐值相同 | 生产周期观察Job推进，事件只通知；profile与重复发布是披露辅助，不新增completion API，不冒称浏览器EventSource跨重启游标验收 |
+| child失败/停止阻止follow | `n04g-20261106-173528/`失败/停止原attempt/请求/Job：各只有父attempt、2模型请求、1启动 | 两分支支持；follow自身失败本来有a1，不能与零attempt混同 |
+| 父子取消策略明确 | M1原始parent-tool-cancel时序受理取消在模型返回前、最终0Job；after-child-cancel保留1Job；H-UI `n04hui-20261106-184153/`真实keep-child/stop-child动作，父stopped/follow pending且零attempt | 旧取消后新副作用反证已由M1对应修复；已提交child是否停止靠显式策略，不把Agent cancel当全部停止 |
+| 总预算/调用后门禁 | M1当前control_result在模型后/工具前/成功前，M2b实际SSE/afterchild/fallback约1001.3/2000.8/1000.8ms，失败/Job数与重启原键一致；当前HTTPX+wait_for使用原deadline | N04所需限定控制支持；DNS/cleanup硬实时、活动网络立即强停及所有外部取消不是已关闭能力，G04其余保留 |
+| 未知提交/失败与原子交接 | J1原创建前/后强杀证据0/1Job；Q2b precommit父waiting/follow unknown与postcommit父done/follow failed分别保留；当前resume共用record_results事务 | 对应窗口支持；未持久模型正文不可声称恢复为失败正文 |
+| follow请求在途/迟到响应 | Q3 `n04q3-20261107-003641/`杀前claimed/childdone，0.2175秒后SIGKILL，重启unknown；20秒后旧socket写出、重发/再次重启均同attempt/3模型/1Job | 支持保守停止且不重发；不是找回答或提供人工重放 |
+| 页面/证据阅读与导出 | Q2bUI actual download.replay.timeline/linked_jobs与后端一致；当前根摘要/回放blocked用工作流标签、共享Notes，原P1重读缓存保留唯一入口 | 已修G36对应读取与G39页面；当前正常/失败/unknown桌面/窄窗有真实证据，G26浮层与报告提示仍开放 |
+| 正常网页入口可靠性 | G33 `n04k2-fixed-20261106-202141/`、H-UI183051/183408历史30秒无快照/25秒空select；I1采集/注入与后续Q2bUI成功不能解释原失败 | **仍不足，阻碍整体完成**；不能凭样本数或后轮成功宣布修复，唯一下一I2定位启动链 |
+| 范围/交付 | 本机配置、测试及结果均本地忽略，提交仅二三文档，稳定规格/源码台账无变化，child-count保留 | 最小受控child Job链范围；独立child Agent run、多child、GPU/SSH/Transfer/LiteLLM/长报告与3.10全后端未验，不借审计扩展 |
+
+22组脚本检查通过只是对上列限定证据的交叉核对，不是目标完成。首轮审计脚本误把带说明前缀的整段user content当JSON，改读既有JSON段后重跑，无历史/产品数据修改。当前旧推进器无新增、通知/日志/独立工具入口仍有不同消费者，不凭相似名称删除。文档独立检查链接/292文件台账/diff，不运行不相关业务测试。下一片只诊断G33，不在总核批补功能；N04保持进行中。
 
 ### N04完整需求总核（2026-11-06，77bbcbd审计快照，未达到完成条件）
 
