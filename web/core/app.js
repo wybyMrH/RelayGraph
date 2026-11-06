@@ -12462,7 +12462,7 @@ function workspaceRunReplayState(runId = "", workspaceId = state.selectedWorkspa
     key,
     open: Boolean(key && workspaceRunReplayOpenRunId(workspaceId) === String(runId || "").trim()),
     busy: Boolean(key && state.ui.workspaceRunReplayBusyKey === key),
-    replay: key ? workspaceRunReplayCacheStore()[key] || null : null,
+    replay: key ? workspaceRunReplayCacheStore()[key]?.replay || null : null,
     error: key ? String(workspaceRunReplayErrorStore()[key] || "").trim() : "",
   };
 }
@@ -15331,6 +15331,9 @@ function renderWorkspaceRuns() {
   const list = $("workspaceRunList");
   if (!meta || !summary || !list) return;
   window.WorkspaceRunReport.sync(workspace, workspaceExecutionRuns(workspace), workspaceRunReportDeps());
+  if (state.ui.productTab === "workspace" && state.ui.workspaceMode === "runs") {
+    workspaceRunDetailActionsApi()?.syncRunReplay?.(workspaceRunDetailActionDeps());
+  }
   setSelectOptions($("workspaceRunReaderProjectSelect"), state.workspaces.map((item) => ({
     value: item.id, label: item.name || item.id,
   })), workspace?.id || "", "选择实例");

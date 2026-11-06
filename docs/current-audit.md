@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-P1 已限定修复G36全量读取raw覆盖刷新结果的问题，正式HTTP新CPU正常/等待/退出7及重启同键通过。唯一下一片 N04-P1-UI：真实页面点击回放/导出核对关联状态。旧历史裁剪风险另记G20；G04其余、G33/精确通知/follow异常仍开放，N04未完成。
+当前执行指针：N04-P1-UI 已限定修复并验收已展开回放缓存失效，真实正常/退出7/父失败child独立完成及导出下载、重启同键通过。唯一下一片 N04-Q1：补精确重复完成通知/真实调度唤醒证据。G20保留策略、G04其余、G33与follow异常仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -89,7 +89,7 @@ N04-M1a只改post_routes：去掉固定/cancel后缀后复用已有single_segmen
 M1a当时只完成取消URI契约，不算M1-UI完成。当时成功点击同时实测取消后额外Provider读取1次、cockpit2次（待消融），终态移除取消按钮后焦点BODY；当时列下一片，不能因为200就把整个键盘/刷新流程记通过。迟到提示/切实例、child已提交、follow取消/超时的浏览器完整分支当时仍待M1-UI，现限定结果见G26记录。前端没有改动，故不为本片重跑无关JS全套；原用户child-count不动，配置/探针/结果仅本地。
 
 <a id="g36"></a>
-### G36 · P1 · 已完成child在回放关联记录仍显示等待（P1后端限定修复，页面待验）
+### G36 · P1 · 已完成child在回放关联记录仍显示等待（P1/P1-UI限定修复及验收）
 
 对齐R11/R12，类别：重复记录投影不一致，E1+E2。K2终态截图已出现实际child“已完成”、回放关联项“等待中”。总核以`dev_work/artifacts/n04-completion-probe-20261106-203151/`复制本轮两条真实已完成CPU链的隔离数据，正常服务入口启动，真实GET父run/replay/jobs，未提交任何任务或调用Provider：两父run均done、parent/follow均done，linked_jobs中同Job均done，而linked_runs的同job.run-agent-runtime项仍queued。不是浏览器自己猜状态或旧截图单独构成的结论。
 
@@ -97,7 +97,17 @@ M1a当时只完成取消URI契约，不算M1-UI完成。当时成功点击同时
 
 本片先用正式HTTP重新复现旧码：`dev_work/artifacts/n04-completion-probe-20261106-223513/`复制既有两条CPU完成链，根与Job done而关联child queued；修复后同来源重新复制`n04-completion-probe-20261106-223826/`关联run/timeline均done。这是历史对照，非本轮新任务。新真实正式HTTP→受控Provider→原scheduler/tmux CPU证据为`dev_work/artifacts/n04p1-20261106-223913/`：normal/waiting各3模型请求/1Job/1行start/父follow各a1、完整两步done；waiting_child取样时实际Job尚queued，回放/导出同样queued、follow pending零attempt，随后自然完成；failed实际退出7，2请求/1Job/父a1，关联child failed、follow pending零attempt。run/replay/export/compare保持一致，成功比较统计3个done（2计划步+关联child），失败为2failed+1pending。各终态3轮读取及真实服务重启/原键重放不增加attempt/请求/Job/物理追加；start字节均`73746172740a`一次。没有关门禁、手填终态、补记录或伪Job；受控Provider仅验证协议和流程，不证明真实模型理解。
 
-13项本地确定性投影契约与身份/F/G/H/J1回归共93项通过：默认50/全量57且关联child在默认窗口外、六类Job状态、图barrier/父失败不被child完成覆盖、缺失Job/引用、循环/跨工作区/闭包限额、输入不变与原字段白名单。HTTP响应未含内部日志目录/原始key，不宣称任意模型正文全量脱敏。compileall通过；根pytest无用例退出5不算通过。后端片未改JS，未运行浏览器验收；P1-UI为唯一下一片，不能把HTTP通过算页面已完成。全量limit只处理仍在集合中的记录，既有更早legacy裁剪风险记G20，不冒称历史保留已完善。稳定规格不变；脚本/config/报告/结果只本地，用户文件不动。G36页面与旧摘要仍待P1-UI复核，N04总核未完成。
+13项本地确定性投影契约与身份/F/G/H/J1回归共93项通过：默认50/全量57且关联child在默认窗口外、六类Job状态、图barrier/父失败不被child完成覆盖、缺失Job/引用、循环/跨工作区/闭包限额、输入不变与原字段白名单。HTTP响应未含内部日志目录/原始key，不宣称任意模型正文全量脱敏。compileall通过；根pytest无用例退出5不算通过。P1后端片未改JS、当时未运行浏览器验收；随后P1-UI独立验收见下文，未把HTTP通过直接算页面完成。全量limit只处理仍在集合中的记录，既有更早legacy裁剪风险记G20，不冒称历史保留已完善。稳定规格不变；脚本/config/报告/结果只本地，用户文件不动。P1-UI随后复核当前回放，旧摘要其他呈现归G26，N04总核未完成。
+
+P1-UI真实反证与修复：`dev_work/artifacts/n04p1ui-baseline-20261106-224737/`与`n04p1ui-baseline-visible-20261106-225106/`同run等待时打开回放，主记录自然2/2 done后，保持展开的回放仍显示child running，6.5秒周期更新仍未同步。原缓存按workspace/run永久命中，没有生命周期失效；后端P1正确不能抵消前端旧缓存。现在actions复用原load/cache及唯一busy key，在原reader接受root步骤/关联Job生命周期变化时重读正式replay API，同一cache entry保存replay与已消费源指纹（app只解包replay），不要求较快GET响应与滞后页面快照相等才停读，不按Job本地合并回放终态；不新增轮询/状态机。原默认缓存短路不再用于重新展开，显式重开读取；已关闭缓存仍保留。源workspace/run/open及请求前生命周期变化时拒绝晚到响应/错误，过时首读接续读取；跨key沿原单busy串行，旧上下文结束后接续最新打开选择。更新中/失败明确说明下方保留旧记录；当前源错误不自动重试，生命周期后续变化也不悄悄清错，收起重开显式重试。
+
+真实浏览器最终源码证据：`dev_work/artifacts/n04p1ui-source-fixed-20261106-231301/` normal/failed与`dev_work/artifacts/n04p1ui-source-fixed-boundaries-20261106-231427/` parentfail/fault；前期`n04p1ui-final-20261106-225717/`与`n04p1ui-fault-fixed-20261106-225948/`保留作过程记录。正常链3请求/1Job/父follow各a1，保持回放展开后child running→done、主2/2；实际退出7链2请求/1Job/父a1、关联child failed、follow pending零attempt；父第二次模型坏JSON链2请求/1Job/父a1，父failed保持而关联child queued→running→自然done，follow pending零attempt。第四条明确浏览器注入一次回放503，保留旧记录且提示，3.2秒周期不再请求；收起再开恢复最新，正常链仍3请求/1Job/2attempt。均实际点击导出并捕获网页download.json，精确核root/关联child/Job状态；不是另GET后伪造下载。每条starts物理精确`73746172740a`一次，原POST重放/真实服务重启与reload保持同run/attempt/请求/Job数。受控Provider只证明协议/流程，坏JSON/503是披露故障注入，正常路径无门禁关闭/终态补写；CPU命令10秒自然执行窗供真实点击，不是暂停产品。
+
+1440×900/768×900截图与原Job结束日志、键盘Enter打开/重开、焦点跨自动更新、空长名称实例均通过，四条无pageerror。首轮功能通过后截图审查发现回放head的auto包编号列把标题挤成竖排，本片仅将这个head的既有grid改为可换行flex（标题基准16rem），不改全站布局/滚动；最终重跑前三链实际标题宽度≥180px。14项确定性JS契约覆盖去重/不变时间增量无请求、晚到/跨实例/关闭/过时首读、child独立变化、错误停止自动重试/重开、跨key接续及响应身份/转义；原K1合并与F/G/H界面契约、相关3JS语法/121脚本存在唯一及顺序通过。前端片未重跑无关Python。浏览器晚到/在途跨实例仅确定性契约覆盖，手机/长错误/长报告/未知Job/真实Provider未在本片验收。
+
+终审补充：只读监管指出GET已done但页面源仍running时可能反复读取；本地固定源且真实renderer回调sync的契约复现9次GET后被测试上限截住，保留`dev_work/reports/n04p1ui-ahead-red.txt`。改用同一entry的已消费源指纹后，该固定源仅1次读取；新源变化才再读取，无新缓存服务或本地终态合并。上述前期四链证据保留；最终源码正常/退出7另经`dev_work/artifacts/n04p1ui-source-fixed-20261106-231301/`重新验收，父失败/读取503边界另经`dev_work/artifacts/n04p1ui-source-fixed-boundaries-20261106-231427/`重新验收，两条均通过；最终源码四链均无pageerror，重启后Job/请求/attempt与实物追加次数不增。
+
+过程审查：第一份反证截图未滚到preview，第二次用真实滚动补拍矛盾区域；首组fixed截图暴露窄窗排版缺口，未把状态通过当布局通过。首次fault测试脚本先unroute再fulfill导致Route already handled，实际未注入503，原失败保留；仅修本地拦截顺序/条件后独立完整重跑，产品未为断言放宽。旧组件/日志/原摘要/默认工作区派生均保留，无被替代重复面板可删。第一部分不变；本地测试/config/结果/截图/下载不提交。G36仅当前保留记录的后端与页面一致性限定通过；G20历史裁剪、G33启动及G26公共消息等仍开放。下一片N04-Q1核精确重复完成通知/真实调度唤醒，N04总目标未完成。
 
 ### N04完整需求总核（2026-11-06，77bbcbd审计快照，未达到完成条件）
 
@@ -435,7 +445,7 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 ### G26 · P2 · 配置与运行界面混杂，多层容器挤压主要内容（部分修复）
 
 - J1-UI新增E1：回放Enter加载后焦点落BODY；N04-K2已定位为busy原生disabled阻止既有reader同步恢复，现仅该焦点职责限定修复，详见N04-K2记录。G26其他范围不关闭。
-- K2新增E1：回放请求期间切到空实例，旧响应不抢焦点/实例，但全局消息仍显示旧实例“回放预览已加载”。`loadRunReplay/toggleRunReplay` 的提示未按当前选择隔离；后续单独处理迟到提示归属，不混入本片。E2风险：单全局busyKey可被另一run请求覆盖，本片只验证同key重复拦截及切run不抢焦点，不宣称跨run并发去重。
+- K2新增E1：回放请求期间切到空实例，旧响应不抢焦点/实例，但全局消息仍显示旧实例“回放预览已加载”。`loadRunReplay/toggleRunReplay` 的提示未按当前选择隔离；后续单独处理迟到提示归属，不混入本片。E2风险：单全局busyKey可被另一run请求覆盖，K2当时只验同key及切run焦点。P1-UI现按源workspace/run/open拒绝旧响应/错误，并沿单busy串行接续最新打开选择，确定性契约覆盖；浏览器在途跨实例未在P1-UI复验，不据此关闭所有消息归属问题。
 - 对齐规格§3/C13/R12，类别：功能入口错位、布局与可用性缺口。原阶段截图的拥挤/空白与 N13B1 的真实浏览器点击是 E1，HTML/事件/样式检查是 E2；当前实例与全局运行阅读区已分别验收，不宣称全站完成。
 - **N03B2c2a发现的完整启动入口缺口已由 N03B2c2a-UI 修复**（第三部分2.30）；随后真实旧实例点击揭示 G11 的 `required_tool_unbound/report.write` 误报，已由 N03B2c2b 修正。N03B2c2c-UI 是后续历史候选；先准备 execution bundle ready、`tools=[]` 的隔离实例，再经可见入口验收提交到本次 run 阅读。旧 markup 无消费者问题已核对，不再另造提交器。
 - **N13B1 已验收**：当前实例的运行列表、步骤详情、日志、回放、比较与导出从配置表单/抽屉移至顶层“运行记录”。驾驶舱同级入口直接到达，可选择实例、去编辑、返回；配置的旧记录页签/模块卡片与包住全部记录的 workspaceRunDetails 已退出，旧动作跳到同一个阅读区。复用唯一 run renderer/merger、现有日志与订阅，没有第二套推进器或轮询。无消费者的旧运行工具栏滚轮分支、workspace-runs-panel 单个选择器与卡片统计变量同步退出。
@@ -990,7 +1000,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
+| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本；P1-UI更新actions/replay/app/styles缓存版本，无新增脚本。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
 
 ### web/config-center
 
@@ -1010,7 +1020,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26529 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
+| [app.js](../web/core/app.js) · 26532 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 P1-UI仅原实例reader装配actions.syncRunReplay，已加载打开回放按生命周期重读，复用原焦点/滚动恢复。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 63 | R12；用户事件/注入依赖 → 顶层导航动作 → 唯一回调 | N13B3a删除已退出moduleCards的委托绑定；其他导航保持，实际独立编辑入口由shell actions绑定。 | bind |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch/浏览器存储 → 页面结果 | 原通用fetchJson不自带deadline；N13C2外层标准signal透传/正文取消合同通过，本文件不改，不冒称其他调用都获预算。存储仍[G19](#g19)。 | fetchJson/loadStoredValue/saveStoredValue |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |
@@ -1048,7 +1058,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [styles.css](../web/styles/styles.css) · 23057 | R12/规格§3；执行包状态/授权说明 → 入口状态色、自然换行、窄屏动作换行 → 启动闭环可读布局 | N03B2c2a-UI 只补完整运行入口、缺项列表和授权说明响应式样式；N13B3b2c-UI补充空/有效/无效模型聊天 Agent 状态文字样式；letter-spacing保持0，无固定局部滚动、动画或外部字体。N04-D-UI 目标dl自然换行、窄窗无固定高；F-UI仅补标题与状态flex换行；G-UI新增交接摘要自然换行与唯一正文局部滚动/键盘焦点样式；H-UI补后续控制自然流、错误反馈和控制/子任务区焦点轮廓，不加嵌套折叠/固定高；旧共享样式仍有消费者，G15旧样式债保留。 J1-UI补说明边线/自然换行，覆盖旧回放p裁剪红字，无新滚动容器。 | workspace-launch-runtime-entry/workspace-model-chat-agent-status |
+| [styles.css](../web/styles/styles.css) · 23057 | R12/规格§3；执行包状态/授权说明 → 入口状态色、自然换行、窄屏动作换行 → 启动闭环可读布局 | N03B2c2a-UI 只补完整运行入口、缺项列表和授权说明响应式样式；N13B3b2c-UI补充空/有效/无效模型聊天 Agent 状态文字样式；letter-spacing保持0，无固定局部滚动、动画或外部字体。N04-D-UI 目标dl自然换行、窄窗无固定高；F-UI仅补标题与状态flex换行；G-UI新增交接摘要自然换行与唯一正文局部滚动/键盘焦点样式；H-UI补后续控制自然流、错误反馈和控制/子任务区焦点轮廓，不加嵌套折叠/固定高；旧共享样式仍有消费者，G15旧样式债保留。 J1-UI补说明边线/自然换行，覆盖旧回放p裁剪红字，无新滚动容器。 P1-UI只将回放head改可换行flex，窄窗包编号不再挤成竖标题，退出该head旧media grid声明。 | workspace-launch-runtime-entry/workspace-model-chat-agent-status |
 
 ### web/transfer
 
@@ -1136,9 +1146,9 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [workspace_node_catalog.js](../web/workspace/workspace_node_catalog.js) · 422 | R02/R06/R09/R12；页面数据/注入依赖 → 实例节点默认/归一化/顺序链 → 派生状态/界面结果 | 契约/维护关联 [G10](#g10)、[G14](#g14)；消费后端结果，随所属切片收敛。 | `workspaceNodeMeta:48`；`workspaceNodeLabel:53` |
 | [workspace_node_run_state.js](../web/workspace/workspace_node_run_state.js) · 76 | R02/R06/R09/R12；页面数据/注入依赖 → 节点执行方式和运行内容 → 派生状态/界面结果 | 契约/维护关联 [G10](#g10)；消费后端结果，随所属切片收敛。 | `workspaceNodeSupportsAgentRun:32`；`workspaceNodeSupportsJobRun:39` |
 | [workspace_run_actions.js](../web/workspace/workspace_run_actions.js) · 85 | R02/R06/R09/R12；用户事件/注入依赖 → 运行列表和筛选交互动作路由 → 回调/API 请求 | N13B1 键盘只激活聚焦的整行本身；原生按钮/summary保留自身动作，Enter/Space与无多余日志请求通过。 | `handleRunListKeydown` |
-| [workspace_run_detail_actions.js](../web/workspace/workspace_run_detail_actions.js) · 399 | R02/R06/R09/R12；用户事件/注入依赖 → 详情、回放、比较、导出动作动作路由 → 回调/API 请求 | N07A-UI报告动作先分派，沿用原导出与日志；阅读不触发整行默认日志/执行。N13B1原生事件边界保留；H-UI按原workspace/run/step/attempt/child完整key提交keep_running，成功需持久回执，失败先GET原run，不自动POST，未知只读重查；每个HTTP请求复用config注入等待预算，非总动作deadline；原Job stop只接精确child并移焦点至目标区。G20余项开放。 | `handleRunSurfaceClick`；`toggleRunReplay` |
+| [workspace_run_detail_actions.js](../web/workspace/workspace_run_detail_actions.js) · 462 | R02/R06/R09/R12；用户事件/注入依赖 → 详情、回放、比较、导出动作动作路由 → 回调/API 请求 | N07A-UI报告动作先分派，沿用原导出与日志；阅读不触发整行默认日志/执行。N13B1原生事件边界保留；H-UI按原workspace/run/step/attempt/child完整key提交keep_running，成功需持久回执，失败先GET原run，不自动POST，未知只读重查；每个HTTP请求复用config注入等待预算，非总动作deadline；原Job stop只接精确child并移焦点至目标区。P1-UI复用原load/cache/busy：root步骤/关联Job生命周期变化重读，晚到/关闭/错身份拒绝、串行接续当前选择，错误停自动重试，重开显式读；不本地补终态。G20余项开放。 | `handleRunSurfaceClick`；`toggleRunReplay` |
 | [workspace_run_filter.js](../web/workspace/workspace_run_filter.js) · 195 | R02/R06/R09/R12；页面数据/注入依赖 → 运行筛选条件 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:22`；`normalizeFilters:26` |
-| [workspace_run_replay.js](../web/workspace/workspace_run_replay.js) · 226 | R02/R06/R09/R12；页面数据/注入依赖 → 摘要回放展示 → 派生状态/界面结果 | N16A-UI接共享notes，原诊断步骤优先后补说明；退出旧裁180字error属性/展示，无已知调用者。仍为摘要预览最多4步，状态/数据来自后端。 J1-UI接显式展示依赖，app核同run非linked/计划身份，只用timeline快照；旧缺字段保留。 | `stepLine`；`previewMarkup`
+| [workspace_run_replay.js](../web/workspace/workspace_run_replay.js) · 228 | R02/R06/R09/R12；页面数据/注入依赖 → 摘要回放展示 → 派生状态/界面结果 | N16A-UI接共享notes，原诊断步骤优先后补说明；退出旧裁180字error属性/展示，无已知调用者。仍为摘要预览最多4步，状态/数据来自后端。 J1-UI接显式展示依赖，app核同run非linked/计划身份，只用timeline快照；旧缺字段保留。 P1-UI新增旧快照更新中/失败提示，错误转义，不自己推断状态。 | `stepLine`；`previewMarkup`
 | [workspace_run_report.js](../web/workspace/workspace_run_report.js) · 188 | R10/R12；run/attempt与API正文/文件元数据 → 有身份的读取、失效与布局 → 独立报告阅读视图 | N07A-UI唯一阅读控制器，显式依赖，无正文持久缓存/轮询；11组件契约、真实主链/15边界/历史读取通过。正文失败清空、旧响应丢弃；文件watch与修复不在本片。 | `statusInfo`；`entryMarkup`；`load`；`sync`；`handleClick` |
 | [workspace_run_step_notes.js](../web/workspace/workspace_run_step_notes.js) · 31 | R09/R12；step.detail/error/recorded_error与显式escape/展开依赖 → 安全无状态说明标记 → 当前步骤/回放共同展示 | N16A-UI新增，两个现存消费者；不判状态/清洗错误，无新缓存/轮询。去重/真实错误/原文/长文本/键盘通过；[G25](#g25)已修。 | `hasNotes`；`markup` |
 | [workspace_run_state_merge.js](../web/workspace/workspace_run_state_merge.js) · 382 | R02/R06/R09/R12；页面数据/注入依赖 → HTTP/SSE run/step 版本合并 → 派生状态/界面结果 | N16A事件摘要接detail/recorded_error，真实run.updated合并及4局部字段/新attempt契约通过；N13A稳定身份保持，未新增前端错误清洗。G02/G20余项开放。 | `defaultTimestampMs:17`；`timestampMs:22` |

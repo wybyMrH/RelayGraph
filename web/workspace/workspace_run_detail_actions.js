@@ -30,6 +30,45 @@
     return fn(deps, "formatBytes", (item) => String(item || 0))(value);
   }
 
+  function runLifecycle(run = {}) {
+    return JSON.stringify([
+      run.status || "pending",
+      (Array.isArray(run.steps) ? run.steps : []).map((step) => [
+        step.index, step.node_id, step.status, step.runtime_status || "",
+        step.job_id || "", step.agent_execution_id || "", step.error || "",
+        step.completed_at || "", step.child_run_ids || [],
+      ]),
+    ]);
+  }
+
+  function replaySource(workspace, runId, deps, replay) {
+    const run = workspace?.runs?.find((item) => item.id === runId);
+    const jobs = Array.isArray(appState(deps).jobs) ? appState(deps).jobs : [];
+    const jobIds = new Set((run?.steps || []).flatMap((step) =>
+      [step.job_id, ...(step.child_job_ids || [])].filter(Boolean)));
+    for (const job of (replay?.linked_jobs || [])) if (job.id) jobIds.add(job.id);
+    return JSON.stringify([workspace?.id, run ? runLifecycle(run) : null,
+      [...jobIds].sort().map((id) => [id, jobs.find((job) => job.id === id)?.status || ""])]);
+  }
+
+  function syncRunReplay(deps = {}) {
+    const workspace = selectedWorkspace(deps);
+    const id = fn(deps, "workspaceRunReplayOpenRunId", () => "")(workspace?.id || "");
+    const key = fn(deps, "workspaceRunReplayCacheKey", () => "")(workspace?.id || "", id);
+    const entry = fn(deps, "workspaceRunReplayCacheStore", () => ({}))()[key];
+    const errors = fn(deps, "workspaceRunReplayErrorStore", () => ({}))();
+    const run = workspace?.runs?.find((item) => item.id === id);
+    // Only refresh an already loaded, open preview. Errors require an explicit reopen.
+    if (!run || !entry || errors[key] || appState(deps).ui.workspaceRunReplayBusyKey) return;
+    // A replay GET may be ahead of the periodic source snapshot. Consume each
+    // source once, rather than repeatedly requiring both projections to match.
+    if (entry.source !== replaySource(workspace, id, deps, entry.replay)) {
+      // Existing status/SSE rendering is the trigger; the backend still owns all states.
+      void loadRunReplay(id, { force: true, render: false }, deps).finally(() =>
+        fn(deps, "renderWorkspaceRunSurfaces", () => {})());
+    }
+  }
+
   async function refreshRunDetail(runId, options = {}, deps = {}) {
     const workspace = selectedWorkspace(deps);
     const id = String(runId || "").trim();
@@ -86,9 +125,17 @@
     const key = fn(deps, "workspaceRunReplayCacheKey", () => "")(workspace?.id || "", id);
     if (!workspace?.id || !id || !key) return null;
     const cache = fn(deps, "workspaceRunReplayCacheStore", () => ({}))();
-    if (!options.force && cache[key]) return cache[key];
+    if (!options.force && cache[key]) return cache[key].replay;
     const errors = fn(deps, "workspaceRunReplayErrorStore", () => ({}))();
     delete errors[key];
+    if (appState(deps).ui.workspaceRunReplayBusyKey) return null;
+    const openId = fn(deps, "workspaceRunReplayOpenRunId", () => "")(workspace.id);
+    const priorReplay = cache[key]?.replay;
+    const source = replaySource(workspace, id, deps, priorReplay);
+    const isCurrent = () => selectedWorkspace(deps)?.id === workspace.id
+      && fn(deps, "workspaceRunReplayOpenRunId", () => "")(workspace.id) === openId;
+    const sourceChanged = () => replaySource(selectedWorkspace(deps), id, deps, priorReplay) !== source;
+    let superseded = false;
     appState(deps).ui.workspaceRunReplayBusyKey = key;
     if (options.render !== false) fn(deps, "renderWorkspaceRunSurfaces", () => {})();
     try {
@@ -96,10 +143,17 @@
         `/api/workspaces/${encodeValue(deps, workspace.id)}/runs/${encodeValue(deps, id)}/replay`,
       );
       const replay = payload.replay && typeof payload.replay === "object" ? payload.replay : payload;
-      cache[key] = replay;
+      if (!isCurrent()) return null;
+      if (sourceChanged()) { superseded = true; return null; }
+      if (replay.run?.id !== id || (replay.workspace?.id && replay.workspace.id !== workspace.id)) {
+        throw new Error("回放响应与所选运行不匹配。");
+      }
+      cache[key] = { replay, source };
       delete errors[key];
       return replay;
     } catch (error) {
+      if (!isCurrent()) return null;
+      if (sourceChanged()) { superseded = true; return null; }
       errors[key] = error.message || "读取运行回放失败。";
       fn(deps, "setWorkspaceMessage", () => {})(errors[key], true);
       return null;
@@ -107,6 +161,14 @@
       const state = appState(deps);
       if (state.ui.workspaceRunReplayBusyKey === key) state.ui.workspaceRunReplayBusyKey = "";
       if (options.render !== false) fn(deps, "renderWorkspaceRunSurfaces", () => {})();
+      if (superseded && isCurrent()) void loadRunReplay(id, { force: true }, deps);
+      else if (!isCurrent()) {
+        // A newer open selection may have waited behind this single request.
+        const nextWorkspace = selectedWorkspace(deps);
+        const nextId = fn(deps, "workspaceRunReplayOpenRunId", () => "")(nextWorkspace?.id || "");
+        const nextKey = fn(deps, "workspaceRunReplayCacheKey", () => "")(nextWorkspace?.id || "", nextId);
+        if (nextId && !errors[nextKey]) void loadRunReplay(nextId, { force: true }, deps);
+      }
     }
   }
 
@@ -128,7 +190,7 @@
     }
     fn(deps, "setWorkspaceRunReplayOpenRunId", () => {})(id, workspace.id);
     fn(deps, "renderWorkspaceRunSurfaces", () => {})();
-    const replay = await loadRunReplay(id, {}, deps);
+    const replay = await loadRunReplay(id, { force: true }, deps);
     if (replay) {
       const summary = fn(deps, "workspaceRunReplayCountSummary", () => ({ stepCount: 0, eventCount: 0, linkedJobCount: 0 }))(replay);
       fn(deps, "setWorkspaceMessage", () => {})(
@@ -391,6 +453,7 @@
     downloadRunExport,
     handleRunSurfaceClick,
     loadRunReplay,
+    syncRunReplay,
     openRunDetail,
     refreshRunDetail,
     setRunCompareBase,

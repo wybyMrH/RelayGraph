@@ -175,6 +175,8 @@
           </div>
           <em>${escapeFor(deps, [packageId ? `pkg ${packageId}` : "", deliveryStatus ? `交付 ${workspaceStatusFor(deps, deliveryStatus)}` : "", closureIssue].filter(Boolean).join(" · ") || "结构化执行证据")}</em>
         </div>
+        ${replayState.busy ? '<p class="muted">正在更新回放，下面是上次读取的记录。</p>'
+          : replayState.error ? `<p role="alert">回放更新失败：${escapeFor(deps, replayState.error)}。下面保留上次读取的记录；收起后重新展开可重试。</p>` : ""}
         <div class="workspace-run-replay-stats">
           <span><strong>${summary.stepCount}</strong>步骤</span>
           <span><strong>${summary.eventCount}</strong>事件</span>
