@@ -313,7 +313,7 @@ class AgentExecutor:
             return response
 
         def control_result() -> AgentExecutionResult | None:
-            # Calls already in flight are not interrupted. Refuse the next effect
+            # This check does not interrupt calls in flight. Refuse the next effect
             # or success using the original cancellation signal and total budget.
             cancelled = bool(self.cancel_check and self.cancel_check())
             elapsed = time.monotonic() - started
@@ -330,7 +330,16 @@ class AgentExecutor:
                 timed_out=timed_out, model=last_model,
             )
 
+        def model_request_options() -> dict[str, float]:
+            if self.timeout_seconds is None:
+                return {}
+            remaining = self.timeout_seconds - (time.monotonic() - started)
+            # Keep the client's existing 60s idle limit, sharing this run's budget.
+            # The control check below rejects exhausted budgets before the request.
+            return {"timeout": min(60.0, remaining)}
+
         for iteration in range(self.max_iterations):
+            request_options = model_request_options()
             if stopped := control_result():
                 return stopped
             # Call LLM
@@ -359,14 +368,17 @@ class AgentExecutor:
                         accumulated=text,
                     )
 
-                response = received_response(self.llm_client.chat_stream(messages, on_delta=on_stream_delta))
+                response = received_response(self.llm_client.chat_stream(
+                    messages, on_delta=on_stream_delta, **request_options,
+                ))
                 if (not self.single_call and not response.success and not response.content
                         and not getattr(response, "raw_response", {}).get("protocol_error")):
+                    request_options = model_request_options()
                     if stopped := control_result():
                         return stopped
-                    response = received_response(self.llm_client.chat(messages))
+                    response = received_response(self.llm_client.chat(messages, **request_options))
             else:
-                response = received_response(self.llm_client.chat(messages))
+                response = received_response(self.llm_client.chat(messages, **request_options))
 
             if stopped := control_result():
                 return stopped

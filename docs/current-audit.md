@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-M1-UI 已限定验收取消信号说明、monitor-only 刷新、同执行终态焦点与跨实例迟到反馈隔离。唯一下一片 N04-M2a：把 Agent 剩余预算传到现有模型请求，先验证网络等待的真实边界。G04 网络预算、G36 关联回放、G33 初始化、精确重复通知及 follow 异常恢复仍开放，N04 未完成。
+当前执行指针：N04-M2a 已限定接通 Agent 剩余预算到既有模型请求，首次静默等待由2.64秒降到约1秒（预算1秒），后续/fallback共享余量。唯一下一片 N04-M2a-UI：真实页面核对模型尚未返回时的超时失败、已有child独立状态与刷新。持续滴流仍能超过总预算，G04未关闭；G36/G33/精确重复通知及follow异常恢复仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -215,7 +215,7 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - 下一步只复用 N02 的记录接口，N03 不再维护一份独立失败步骤表；Job 等待/续跑仍在 G01/G02。
 
 <a id="g04"></a>
-### G04 · P1 · deadline/cancel 与网络预算未完整贯通（M1后端部分修复）
+### G04 · P1 · deadline/cancel 与网络预算未完整贯通（M1/M2a部分修复）
 
 - 对齐 R09，类别：控制风险，证据 E1。
 - 原 agent_executor.py:303–407 只在循环开头检查；Provider 返回后可直接 success 或继续工具副作用。llm_client 使用独立网络超时，未消费 Agent 剩余预算。
@@ -227,7 +227,12 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - 当前真实HTTP `dev_work/artifacts/n04m1-http-20261106-204548/` 七分支：首次返回前cancel工具/最终答案、1秒预算的迟到工具/答案、取消后503不fallback均1模型请求/0Job/0追加，父分别stopped/failed、follow pending且零attempt；已有child后第二调用cancel保留1Job/1追加/父attempt、follow零attempt；follow第三调用cancel保留1Job/1追加/2attempt，follow stopped而非成功。取消信号送达后Provider仍等待时未预写stopped；释放后才持久终态。七条均经服务重启和原request重放，attempt/Job不增加；原门禁、真实HTTP/scheduler/tmux，Provider等待是可控故障窗口，不是产品暂停/网络强停能力。
 - 正常回归 `dev_work/artifacts/n04k1-natural-20261106-204617/` 经真实网页启动JSON受控模型CPU链，3实际请求/1Job/1追加/父follow各a1、完整分母2，实际follow映射=持久本次父输出含620字后随机END；等待中与完成后重启/同键重放不重复。普通报告single_call/回调中取消/工具已执行后取消/跨迭代与fallback总预算等24项本地控制检查、C1/F/G/H/J1相关92项通过，compileall通过；根pytest无测试退出5不计通过。测试/结果/config仅本地。无公开字段/schema变更，原stopped/failed/cancelled/timed_out消费者接线保留；真实取消浏览器入口与反馈另M1-UI，当前不称UI交付。
 - M1-UI真实网页入口随后发现G37编码ID取消404，M1a先独立修复；现M1-UI原网页Enter验收父/已有child/follow取消及超时，信号已受理时仍running，后端结算后才显示stopped/failed。原消息明确子任务需单独停止；已有child仍运行且原日志可打开，follow取消不改父done。不沿用M1直HTTP替代网页证据；详见下述M1-UI记录。
-- 剩余：LLMClient网络timeout尚未取Agent剩余预算，底层阻塞不能立即终止；检查点与下一行外部调用不是跨系统原子操作，不承诺任意时刻的强停。回放G36/入口G33/精确重复通知未随本片修复。第一部分稳定，M1只提交AgentExecutor与二三文档。
+- M1当时剩余：LLMClient网络timeout尚未取Agent剩余预算；M2a仅接通以下空闲等待预算。持续响应读取仍不能按总墙钟期限中止；检查点与下一行外部调用不是跨系统原子操作，不承诺任意时刻的强停。回放G36/入口G33/精确重复通知未随本片修复。第一部分稳定，M1/M2a均只改AgentExecutor与二三文档。
+- **N04-M2a后端限定验收**：run局部model_request_options按原monotonic起点计算min(既有60秒上限,剩余预算)，loop首次/后续及stream失败fallback均重新计算，再经原control_result拒绝耗尽；无预算返回空参数，旧行为不变。只给现有chat/chat_stream传timeout，LLMClient既有body白名单不透传；不改client协议/HTTP schema或新增网络库/线程/重试。
+- 真实正式HTTP/scheduler/tmux基线 `dev_work/artifacts/n04m2a-baseline-20261106-213202/`：预算1秒，静默Provider2.6秒才响应，父失败时执行2639.1ms/1请求/0Job。修后同输入 `n04m2a-fixed-20261106-213232/first/` 为1017.0ms/1请求/0Job。`n04m2a-cases:afterchild:fallback:natural-20261106-213439/`：先前模型消费0.4秒并提交child后，第二请求静默，父1001.1ms失败，保留1Job/1实际追加及收据，follow pending；stream在0.4秒返回503再fallback静默，1001.4ms失败，仅2请求/0Job；自然CPU链3请求/1Job/1追加、父follow各1attempt、完整2步100%。各条原键重发/终态后服务重启attempt/Job不增加，正常门禁不关闭、不补终态。child即使父失败仍经原队列自然完成，未伪称父超时会停止child。
+- 真实client/Agent检查覆盖无回调chat与有回调stream静默、stream503后fallback余量、无预算原60秒、实际请求正文无timeout/deadline。确定性契约覆盖耗尽不请求、长预算仍沿60秒上限、后续工具/模型消费与fallback余量、已有收据保留；与M1/C1共62项通过，compileall通过；根pytest无测试退出5不计通过。直接HTTP客户端证据与滴流测量留本地 `dev_work/artifacts/n04m2a-client-*`，不是供应商验收。新增测试/结果/config不提交。
+- **仍有真实反证**：预算0.3秒、SSE每0.12秒返回一段，实际约0.84秒后原guard才判timed_out，未成功也未产生工具，但没有在总deadline中止读取。urllib timeout约束空闲等待，不是总墙钟期限；DNS/TLS/多地址、慢速JSON/错误body、取消立即中断未交付。G04保持开放，后续M2b应单独处理读取总期限，不以丢弃后台线程冒充停止。M2a状态类型未变，但失败时间改变，独立M2a-UI尚待真实网页验收。
+- 过程复核：首次afterchild脚本在父failed时立即要求starts=1，磁盘Job实际queued/CPU，观察条件错误；失败记录与原数据保留，仅改本地观察为等待Job经原调度自然终态后再计数，最终1追加。没有改产品调度/超时/门禁来迎合测试。旧60秒独立等待仅在有Agent预算时被替代；无预算/debug调用、原stream与chat消费者、独立Job生命周期全部保留，无第二推进器。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
 <a id="g05"></a>
@@ -690,7 +695,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/__init__.py) · 5 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [agent_executor.py](../total_control/agent_executor.py) · 501 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；M1将普通/single_call的取消/截止构造收敛到原run局部guard，模型/fallback/工具/成功边界复核并保留已收usage/既有工具证据；单调总预算不重置，网络剩余预算G04与G21未关闭；构造/查ID未滤enabled为G11 E2风险。 | `_tool_side_effect:31`；`_metadata_value:39` |
+| [agent_executor.py](../total_control/agent_executor.py) · 513 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；M1将普通/single_call的取消/截止构造收敛到原run局部guard，模型/fallback/工具/成功边界复核并保留已收usage/既有工具证据；单调总预算不重置；M2a把min(60,剩余)传入三处原模型调用，每次/fallback重新计算再guard，无预算不传；socket空闲等待接通但持续读取总期限G04与G21未关闭；构造/查ID未滤enabled为G11 E2风险。 | `_tool_side_effect:31`；`_metadata_value:39` |
 | [agent_runtime.py](../total_control/agent_runtime.py) · 49 | R09；execution_id/取消请求 → 进程内注册与信号 → active/cancel 检查 | 问题/修补关联 [G04](#g04)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `register_agent_cancel:20`；`cancel_agent_run:30` |
 | [compat.py](../total_control/compat.py) · 21 | R14；公开门面名/默认实现 → 查询 override → 兼容调用入口 | 问题/修补关联 [G16](#g16)；按登记方案处理，不另建平行服务。 | `public_api_override:7`；`public_api_value:17` |
 | [config.py](../total_control/config.py) · 340 | R01/R12/R13/R14；config/ TOML → 校验主机/路径及状态加载秒数 → AppConfig | N13C2增加status_load_timeout_seconds默认30、严格int 1–300（拒bool/float/string/非有限值）；首页先送预算。N07A目录/SSH兼容保留，无秘密透出。 | AppConfig/load_config |
