@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-M2a 已限定接通 Agent 剩余预算到既有模型请求，首次静默等待由2.64秒降到约1秒（预算1秒），后续/fallback共享余量。唯一下一片 N04-M2a-UI：真实页面核对模型尚未返回时的超时失败、已有child独立状态与刷新。持续滴流仍能超过总预算，G04未关闭；G36/G33/精确重复通知及follow异常恢复仍开放，N04未完成。
+当前执行指针：N04-M2a-UI 已限定验收原页面自动显示网络超时失败、已有child独立运行/完成与正常CPU链，无需新增UI代码。唯一下一片 N04-M2b：读取总期限的最小验证与实现，先核成熟HTTP能力及真实持续滴流。G04总期限/G36/G33/精确重复通知及follow异常恢复仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -231,7 +231,7 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - **N04-M2a后端限定验收**：run局部model_request_options按原monotonic起点计算min(既有60秒上限,剩余预算)，loop首次/后续及stream失败fallback均重新计算，再经原control_result拒绝耗尽；无预算返回空参数，旧行为不变。只给现有chat/chat_stream传timeout，LLMClient既有body白名单不透传；不改client协议/HTTP schema或新增网络库/线程/重试。
 - 真实正式HTTP/scheduler/tmux基线 `dev_work/artifacts/n04m2a-baseline-20261106-213202/`：预算1秒，静默Provider2.6秒才响应，父失败时执行2639.1ms/1请求/0Job。修后同输入 `n04m2a-fixed-20261106-213232/first/` 为1017.0ms/1请求/0Job。`n04m2a-cases:afterchild:fallback:natural-20261106-213439/`：先前模型消费0.4秒并提交child后，第二请求静默，父1001.1ms失败，保留1Job/1实际追加及收据，follow pending；stream在0.4秒返回503再fallback静默，1001.4ms失败，仅2请求/0Job；自然CPU链3请求/1Job/1追加、父follow各1attempt、完整2步100%。各条原键重发/终态后服务重启attempt/Job不增加，正常门禁不关闭、不补终态。child即使父失败仍经原队列自然完成，未伪称父超时会停止child。
 - 真实client/Agent检查覆盖无回调chat与有回调stream静默、stream503后fallback余量、无预算原60秒、实际请求正文无timeout/deadline。确定性契约覆盖耗尽不请求、长预算仍沿60秒上限、后续工具/模型消费与fallback余量、已有收据保留；与M1/C1共62项通过，compileall通过；根pytest无测试退出5不计通过。直接HTTP客户端证据与滴流测量留本地 `dev_work/artifacts/n04m2a-client-*`，不是供应商验收。新增测试/结果/config不提交。
-- **仍有真实反证**：预算0.3秒、SSE每0.12秒返回一段，实际约0.84秒后原guard才判timed_out，未成功也未产生工具，但没有在总deadline中止读取。urllib timeout约束空闲等待，不是总墙钟期限；DNS/TLS/多地址、慢速JSON/错误body、取消立即中断未交付。G04保持开放，后续M2b应单独处理读取总期限，不以丢弃后台线程冒充停止。M2a状态类型未变，但失败时间改变，独立M2a-UI尚待真实网页验收。
+- **仍有真实反证**：预算0.3秒、SSE每0.12秒返回一段，实际约0.84秒后原guard才判timed_out，未成功也未产生工具，但没有在总deadline中止读取。urllib timeout约束空闲等待，不是总墙钟期限；DNS/TLS/多地址、慢速JSON/错误body、取消立即中断未交付。G04保持开放，后续M2b应单独处理读取总期限，不以丢弃后台线程冒充停止。M2a状态类型未变，但失败时间改变；独立M2a-UI现已限定验收原页面，见G26记录，不把超时信号等同child停止或持续读取总期限。
 - 过程复核：首次afterchild脚本在父failed时立即要求starts=1，磁盘Job实际queued/CPU，观察条件错误；失败记录与原数据保留，仅改本地观察为等待Job经原调度自然终态后再计数，最终1追加。没有改产品调度/超时/门禁来迎合测试。旧60秒独立等待仅在有Agent预算时被替代；无预算/debug调用、原stream与chat消费者、独立Job生命周期全部保留，无第二推进器。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
@@ -475,6 +475,18 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 本地纯JS覆盖原编码路径、同实例成功/失败归属、monitor-only请求、quiet/空ID、终态身份不符/仍在途不fallback、主动离开不抢焦点；J1UI/H/G/K1契约、121脚本装配和app语法通过。K2真实回放回归 `dev_work/artifacts/n04k2-terminal-20261106-212122/` 的busy/成功/失败/重试/Tab/切实例与run焦点通过，仅复制历史数据阅读，不是新执行链。纯前端未重跑无关Python。第一次最终全分支进程在switch中退出143且已无存活句柄，只计已落盘的四分支；剩余五分支独立重跑通过，未把中断当pass。先前六分支记录211319仅作补充，不替代最终代码断言。
 
 调用者消融：真实入口是 workspaceRunList → 原detail_actions → cancelAgentExecution；workspaceHomeRunsMarkup无调用且index无对应DOM，不保留假想兼容刷新，本片也不越界删除死markup。旧消息容器、其他动作的刷新、Job独立停止/日志保留。Provider为受控接口，延迟/一次浏览器503仅为故障窗口，不证明真实供应商理解、网络强停或产品暂停恢复。脚本/配置/结果仅本地；第一部分不变，G04网络预算/G36/G33/精确通知仍待后续。
+
+### N04-M2a-UI：网络超时后的原页面验收（G04/G26，2026-11-06）
+
+本片仅更新二三文档，未改前后端代码。真实输入仍为run/step/attempt/timed_out/error、完整分母2、child Job/日志；沿原实例运行阅读区的父错误→独立child状态→follow未执行→可选回放，保持系统字体/既有配色与单主滚动区。frontend-design来源、Apache2许可、无版本及适用边界沿2.14/M1-UI，SHA256 d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3已复核；只取任务层级、真实字段与截图检查，不引字体/运行依赖或新面板。
+
+`dev_work/artifacts/n04m2aui-20261106-214406/` 三条真实Chromium原按钮链：first模型首次静默，1秒预算、父1016.9ms后timed_out/failed、0Job/follow零attempt；child已提交后第二模型静默，父1002.0ms失败，1真实CPU Job/1追加，自身从running自然done，父仍failed、follow仍pending零attempt；natural原门禁正常链3模型请求/1Job/1追加、parent/follow各1attempt，完整2步100%。两失败链完整分母2、非100%。实际目标模型请求进入后，页面约1.46/1.11秒看到失败；这些是本地观测，不作性能SLA。
+
+关键过程证据：自动失败首次观察、1440×900/768×900截图、child原日志与自然完成、回放Enter及2400ms焦点保持，均在Provider release之前；记录的release分别晚于页面失败约2.84/11.96秒，未用释放模型响应、手刷、详情点击或客户端假状态触发失败。原回放只验入口/焦点，已知G36关联child旧状态矛盾未关闭。各链原request_id重放、真实服务重启/reload保持run/attempt/Job；实际追加文件为start+0a，补逐字节核对恰好1份，不靠受控回复证明任务执行次数。child 8秒命令仅固定可见运行窗口，非产品暂停/恢复能力；Provider受控，不证明真实供应商理解或任意网络立即强停。
+
+截图人工核看父失败、child独立running→done、桌面正常链和窄窗；三链均无pageerror。空长名称实例可读，首组重启后的空页截图恰落在首个监控快照前，页头0/0并显示约17.94亿秒前更新，不能当监控恢复通过；补充 `dev_work/artifacts/n04m2aui-20261106-214644/first/` 等自然status显示已配置1台且不再等待首次刷新，再拍空页及完成本键重启检查，没有额外reload/手刷。巨大秒数是本轮启动过渡帧E1，未复现G33的30秒未装配，也不证明同根因；初始空监控的时间/提示仍归G26/G33待独立诊断。
+
+首轮214320失败仅因本地脚本错把follow说明断言成“父步骤失败”；实际页面明确“前置步骤未成功，本次未执行”，按真实文义修断言后完整三链通过，没有改产品文案/终态。额外实物字节核对曾把换行转义误读，改按实际0a验证，原文件未写改。长错误全文沿M1-UI既有证据，本片未重验；手机导航、首次监控过渡显示、G26公共消息分离/动作邻近反馈仍开放。无新字段、动作、状态判断、请求器或展示副本，原界面已满足本片，不为阶段造重复UI；无需删除仍有消费者的旧组件。仅文档改动检查链接/diff，未重跑无关Python/JS检查；脚本、配置、截图和结果均只本地，第一部分不变。
 
 <a id="g27"></a>
 ### G27 · P2 · 实例草稿、配置完整往返和保存竞争仍有缺口（部分修复）
