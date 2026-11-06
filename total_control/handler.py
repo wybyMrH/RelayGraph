@@ -50,6 +50,8 @@ class Handler(SimpleHTTPRequestHandler):
         # The first status request also needs the configured budget, before any API snapshot exists.
         content = (WEB_DIR / "index.html").read_text(encoding="utf-8").replace(
             "__RELAYGRAPH_STATUS_LOAD_TIMEOUT_SECONDS__", str(STATE.config.status_load_timeout_seconds)
+        ).replace(
+            "__RELAYGRAPH_PAGE_STARTUP_TIMEOUT_SECONDS__", str(STATE.config.page_startup_timeout_seconds)
         )
         body = content.encode("utf-8")
         self.send_response(HTTPStatus.OK)

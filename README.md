@@ -32,6 +32,8 @@ Debian/Ubuntu 如果提示缺少 ensurepip，需要先安装与 Python 版本匹
 
 ## 配置与数据
 
+`config/servers.toml` 的 `[app]` 分别配置两种等待预算：`status_load_timeout_seconds` 是一次 API 状态读取的总上限；`page_startup_timeout_seconds` 是页面内联保护开始到同步装配完成的启动预算。两者默认 30 秒，只接受 1–300 的整数，修改后重启服务并重新加载页面。当前启动预算已校验并输出到首页，计时及超时重载尚待独立前端切片接入；它不覆盖 HTML 尚未到达或主线程死循环。
+
 默认配置是 `config/servers.toml`，包含本地服务器和 SSH config 发现。个人主机、别名和路径放忽略的覆盖文件：
 
 ```bash

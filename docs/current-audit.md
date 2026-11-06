@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-I4 已复现必需脚本无finish/error时超过30秒仍启动中、按钮禁用，现有保护无应用层启动截止。唯一下一片 N04-I5：独立页面启动预算的配置与首页输出；随后独立I5-UI接入现有boot保护。历史G33未证同因，N04未完成。
+当前执行指针：N04-I5 已交付独立页面启动预算校验与首页meta；前端计时尚未接入，pending脚本仍无应用层截止。唯一下一片 N04-I5-UI：接入现有boot保护的单次计时、超时锁存与显式重载。历史G33未证同因，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -279,6 +279,8 @@ N04-I3（2026-11-07）限定修复前置故障可见性：index在全部外部�
 当前源码额外正常CPU网页回归`dev_work/artifacts/n04q2bui-i3-regression-20261107-010752/normal/`，run `20261107-010755-65de6490`：真实可见启动→原门禁/HTTP/scheduler/tmux→父/child/follow完成，3受控模型请求/1Job/父follow各a1/实物start一次，实际回放下载/原日志/刷新重启attempt一致，无pageerror。此新链与只读故障夹具分开，不拿受控模型回答证明理解。boot范围/原文隐私/锁存/capture重载/正常接管契约及J1/F/G/H、P1十四回归，inline/app语法、121外部引用/顺序均通过；未重跑无关后端套件。skill沿用已核Apache2的frontend-design，仅指导动作与可读性，无新运行依赖；源码仍292文件，相关index/app台账更新。
 
 I3只覆盖明确error的启动分支；内联本身无法执行、脚本一直pending不error、历史G33自然复现、手机/全站/3.10完整后端未验，不据此关历史原因。唯一下一I4先诊断必需脚本不完成/不报错窗口，正常对照与故障辅助区分，不先加watchdog或改变API预算。测试/config/数据/截图均本地，第一部分稳定，child-count不动，N04保持进行中。
+
+N04-I5（2026-11-07）已新增独立 `app.page_startup_timeout_seconds` 默认30、严格整数1..300，旧配置缺省兼容；沿唯一首页send_head输出独立meta，原status预算不变。配置与真实Handler HTTP本地15项通过：缺省/边界/非法类型、GET/HEAD两首页以新17/旧41核独立值、长度/no-store/无占位。隔离STATE仅含config，无后台调度/任务/Provider，不能冒充完整应用或浏览器验收。compileall通过，根pytest无测试退出5不算通过。本地 `dev_work/reports/n04i5-result.md` 与contract输出保存过程。尚无timer，pending缺口仍开放；唯一下一片I5-UI。未新增加载器/API/状态机，原status消费者保留；新meta仅预留给紧接的前端片。
 
 N04-I4（2026-11-07，3906d2a）诊断得到新的明确反证：正式服务+异步Chromium在旧183408终态数据隔离副本上，正常对照无延迟且经真实UI保存实例；随后分别固定延迟app或必需feedback helper响应35秒。最终`dev_work/artifacts/n04i4-20261107-012241/`在收到请求后31.2423/31.2109秒，目标request已发生、无finish/failed/script load/error，bootFailed=false、app未装配/无status请求，顶部仍“正在启动页面”且原按钮禁用。CDP当前像素截图与evaluate/monotonic现场一致。静态inline只有error监听/同步接管，没有启动计时；I3明确报错保护无法覆盖pending分支。结论是**缺少应用层启动等待上限与可操作恢复**，不是从35秒样本推断浏览器永远不会超时。
 
@@ -885,11 +887,11 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [agent_executor.py](../total_control/agent_executor.py) · 513 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；M1将普通/single_call的取消/截止构造收敛到原run局部guard，模型/fallback/工具/成功边界复核并保留已收usage/既有工具证据；单调总预算不重置；M2a把min(60,剩余)传入三处原模型调用，每次/fallback重新计算再guard，无预算不传；M2b同传原started绝对deadline到客户端，idle与总期限分开、fallback不重置；G04其余边界与G21未关闭；构造/查ID未滤enabled为G11 E2风险。 | `_tool_side_effect:31`；`_metadata_value:39` |
 | [agent_runtime.py](../total_control/agent_runtime.py) · 49 | R09；execution_id/取消请求 → 进程内注册与信号 → active/cancel 检查 | 问题/修补关联 [G04](#g04)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `register_agent_cancel:20`；`cancel_agent_run:30` |
 | [compat.py](../total_control/compat.py) · 21 | R14；公开门面名/默认实现 → 查询 override → 兼容调用入口 | 问题/修补关联 [G16](#g16)；按登记方案处理，不另建平行服务。 | `public_api_override:7`；`public_api_value:17` |
-| [config.py](../total_control/config.py) · 340 | R01/R12/R13/R14；config/ TOML → 校验主机/路径及状态加载秒数 → AppConfig | N13C2增加status_load_timeout_seconds默认30、严格int 1–300（拒bool/float/string/非有限值）；首页先送预算。N07A目录/SSH兼容保留，无秘密透出。 | AppConfig/load_config |
+| [config.py](../total_control/config.py) · 345 | R01/R12/R13/R14；config/ TOML → 校验主机/路径及状态加载秒数 → AppConfig | I5增加独立page_startup_timeout_seconds及首页meta，默认30严格int1–300；N13C2增加status_load_timeout_seconds默认30、严格int 1–300（拒bool/float/string/非有限值）；首页先送预算。N07A目录/SSH兼容保留，无秘密透出。 | AppConfig/load_config |
 | [constants.py](../total_control/constants.py) · 2 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [context_refs.py](../total_control/context_refs.py) · 18 | R05/R09；数据和点分路径 → 字典键/列表下标查找 → 原值或 None | N00C 唯一纯取值内核；执行映射与上下文投影均已接入；不承担引用前缀或就绪规则。 | `context_ref_value:8` |
 | [events.py](../total_control/events.py) · 207 | R12；业务事件/游标 → 有界队列、gap 与 SSE 编码 → 实时通知 | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `EventBroker:12`；`sse_encode:135` |
-| [handler.py](../total_control/handler.py) · 197 | R12/R13/R14；HTTP/首页 → 路由/安全数值meta → JSON/文件/配置化HTML | N13C2仅/与/index.html由send_head替数值占位、no-store；GET/HEAD长度相同，其他静态保持。首次status前有预算，不新增配置API；原RunStoreError503/G19边界保留；I1静态核实默认抑制状态/静态GET日志，既有verbose仅用于诊断，历史无日志不代表无请求，未改本文件。 | Handler.send_head/do_GET |
+| [handler.py](../total_control/handler.py) · 199 | R12/R13/R14；HTTP/首页 → 路由/安全数值meta → JSON/文件/配置化HTML | I5沿原send_head独立输出page启动预算；N13C2仅/与/index.html由send_head替数值占位、no-store；GET/HEAD长度相同，其他静态保持。首次status前有预算，不新增配置API；原RunStoreError503/G19边界保留；I1静态核实默认抑制状态/静态GET日志，既有verbose仅用于诊断，历史无日志不代表无请求，未改本文件。 | Handler.send_head/do_GET |
 | [llm_client.py](../total_control/llm_client.py) · 660 | R03/R09；Profile/消息 → 供应商请求、流解析 → LLMResponse | N00C 已删除无调用者的 simple_chat 包装；C1仅chat_stream明确JSON文本响应校验并复用_parse_response、同响应一次消费/整体回调、记录实际格式；非法/native结构protocol_error阻止Agent回退洗白，SSE/JSON真实链及失败门禁通过；M2b两模型POST统一HTTPX异步传输+wait_for绝对期限，保留同步入口、原parser、失败partial/usage，过期/active loop早拒；旧POST退出，list_models GET有registry消费者保留urllib。持续读取/连接释放有限验收，主动取消/同步阻塞与真实代理TLS仍未交付；其他协议维护与预算问题仍按 [G04](#g04)/[G21](#g21) 解决。 | `LLMResponse:23`；`ChatMessage:43` |
 | [path_safety.py](../total_control/path_safety.py) · 37 | R04/R13；原始/解析路径 → 敏感目录规则 → 拒绝原因 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `sensitive_path_block_reason:19`；`sensitive_path_block_reason_for_path:30` |
 | [preset_matrix.py](../total_control/preset_matrix.py) · 90 | R02/R07；数据集选项 → 硬编码实验组合排序 → preset 参数矩阵 | 问题/修补关联 [G18](#g18)；按登记方案处理，不另建平行服务。 | `PresetExperiment:12`；`dataset_rank:26` |
@@ -1145,7 +1147,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1814 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本；P1-UI更新actions/replay/app/styles缓存版本，无新增脚本。 Q2b-UI更新4个已改JS缓存版本，无新脚本。 I3内联前置脚本故障保护、原顶部启动/重载、121外部引用不变；app缓存更新。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
+| [index.html](../web/index.html) · 1815 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本；P1-UI更新actions/replay/app/styles缓存版本，无新增脚本。 Q2b-UI更新4个已改JS缓存版本，无新脚本。 I3内联前置脚本故障保护、原顶部启动/重载、121外部引用不变；app缓存更新。I5只增独立启动预算meta，timer尚未接入。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
 
 ### web/config-center
 
@@ -1312,7 +1314,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件 | 检查结论与解决方向 |
 | --- | --- |
-| [config/servers.toml](../config/servers.toml) | R01/R10/R12/R13/R14；安全本地默认/SSH发现、N07A报告目录示例；N13C2公开status_load_timeout_seconds=30与1–300/重启生效说明，无真实目录/凭据。 |
+| [config/servers.toml](../config/servers.toml) | R01/R10/R12/R13/R14；安全本地默认/SSH发现、N07A报告目录示例；N13C2公开status_load_timeout_seconds=30与1–300/重启生效说明；I5公开独立page_startup_timeout_seconds=30及未接timer边界，无真实目录/凭据。 |
 | [config/user_servers.example.toml](../config/user_servers.example.toml) | R01/R13；保留覆盖模板；后续输入校验统一，实际用户覆盖仍忽略。 |
 | [config/secrets.example.toml](../config/secrets.example.toml) | R13；保留 SSH 密码格式示例；不等于推荐明文密码，真实 secrets 不入库。 |
 | [data/agent_definitions.json](../data/agent_definitions.json) | R03；保留公开 Agent 目录；与真实 adapter/Provider 绑定校验，关联 G10/G11。 |
@@ -1324,7 +1326,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 ### 台账完整性与维护
 
-正式代码台账包含 292 行，一文件一行；README.md同步真实能力/报告配置与API及M2b四直接依赖/请求期限边界，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
+正式代码台账包含 292 行，一文件一行；README.md同步真实能力/报告配置与API及M2b四直接依赖/请求期限边界、I5独立启动预算与未接timer边界，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
 ### N03B2c2c-UI：ready 隔离执行包的真实启动闭环（已验收）
 
 对应 R06/R12、G10/G11/G26。使用独立 `TOTAL_CONTROL_DATA_DIR`、端口 8771、本机 CPU 主机和显式 `tools=[]` 报告 Agent；夹具先经正式 automation/apply，再用公开工作区更新接口恢复空 allowlist，最后由 `/cockpit` 读取 `execution_bundle.ready_to_execute=true` 且 `missing=[]`。浏览器只通过可见驾驶舱点击，API 仅用于准备、观察和重放核对。
@@ -1336,3 +1338,5 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 消融决定：没有新增提交器、轮询器、状态机或配置入口；复用 `workspaceLaunchClosure`、既有 `workspace_workflow_submission.js` request_id 幂等、后端持久 run/Job/Agent 协调器和现有运行阅读器。N03B2c2c-UI 完成后，G10/G11 不因“无工具 Agent 单链”整体关闭，下一片应从 Job→Agent 等待/恢复、工具执行或更长报告交付中选择一个清楚边界。
 
 <!-- FILE_AUDIT_END -->
+
+Python 3.10 环境补充发现（2026-11-07）：PyPI元数据表明当前四个直接依赖均允许3.10，但这不等于完整项目已兼容验收；config.py已有tomli回退，requirements.txt漏条件依赖。用户原报错还显示python与裸pip环境不同，应使用python -m pip。另开小片补声明并验证安装/启动/工作流，不混入I5或改称已支持。
