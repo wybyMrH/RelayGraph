@@ -203,26 +203,40 @@ class RunStore:
             return number
 
     def record_result(self, run_id: str, step_id: str, attempt_no: int, result: dict[str, Any]) -> None:
-        encoded = canonical_json(result)
-        if result.get("node_id", step_id) != step_id:
-            raise RunConflictError("attempt result belongs to another step")
-        status = result["status"]
-        if status not in {"pending", "running", "queued", "waiting", "reconciling", "blocked", *self.TERMINAL}:
-            raise ValueError("invalid attempt result status")
+        self.record_results(run_id, [(step_id, attempt_no, result)])
+
+    def record_results(self, run_id: str, results: list[tuple[str, int, dict[str, Any]]]) -> None:
+        """Commit related attempt results together, preserving single-result evidence rules."""
+        if not results:
+            raise ValueError("result transaction must contain at least one attempt")
+        updates = []
+        identities = set()
+        for step_id, attempt_no, result in results:
+            if (step_id, attempt_no) in identities:
+                raise RunConflictError("duplicate attempt in result transaction")
+            identities.add((step_id, attempt_no))
+            encoded = canonical_json(result)
+            if result.get("node_id", step_id) != step_id:
+                raise RunConflictError("attempt result belongs to another step")
+            status = result["status"]
+            if status not in {"pending", "running", "queued", "waiting", "reconciling", "blocked", *self.TERMINAL}:
+                raise ValueError("invalid attempt result status")
+            updates.append((step_id, attempt_no, encoded, status, result))
         with self._db(write=True) as db:
-            row = db.execute("SELECT * FROM attempts WHERE run_id=? AND step_id=? AND attempt_no=?",
-                             (run_id, step_id, attempt_no)).fetchone()
-            if not row:
-                raise ValueError("attempt not found")
-            failure = json.loads(row["result_json"]).get("child_submission_error")
-            if failure and (result.get("child_submission_error") != failure or status != failure["status"]):
-                raise RunConflictError("child submission failure cannot be cleared")
-            if row["result_json"] == encoded:
-                return
-            if row["status"] in self.TERMINAL:
-                raise RunConflictError("terminal attempt evidence cannot be replaced; append a retry")
-            db.execute("UPDATE attempts SET status=?,result_json=?,updated_at=? WHERE run_id=? AND step_id=? AND attempt_no=?",
-                       (status, encoded, now_iso(), run_id, step_id, attempt_no))
+            for step_id, attempt_no, encoded, status, result in updates:
+                row = db.execute("SELECT * FROM attempts WHERE run_id=? AND step_id=? AND attempt_no=?",
+                                 (run_id, step_id, attempt_no)).fetchone()
+                if not row:
+                    raise ValueError("attempt not found")
+                failure = json.loads(row["result_json"]).get("child_submission_error")
+                if failure and (result.get("child_submission_error") != failure or status != failure["status"]):
+                    raise RunConflictError("child submission failure cannot be cleared")
+                if row["result_json"] == encoded:
+                    continue
+                if row["status"] in self.TERMINAL:
+                    raise RunConflictError("terminal attempt evidence cannot be replaced; append a retry")
+                db.execute("UPDATE attempts SET status=?,result_json=?,updated_at=? WHERE run_id=? AND step_id=? AND attempt_no=?",
+                           (status, encoded, now_iso(), run_id, step_id, attempt_no))
 
     def record_child_submission_error(self, run_id: str, step_id: str, attempt_no: int,
                                       failure: dict[str, Any]) -> None:

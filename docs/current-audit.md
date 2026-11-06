@@ -1,10 +1,10 @@
 # 第二部分：现状、问题与逐文件审查
 
-审查日期：2026-11-06。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
+审查日期：2026-11-07。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-Q2a 已限定修复新follow attempt的child Job身份，真实正常/失败链及旧空字段兼容重开通过。新增G39：root先显示failed，父步骤交接稍后才收尾。唯一下一片 N04-Q2b 核失败交接的一致性；G20/G04其余/G33及follow在途崩溃仍开放，N04未完成。
+当前执行指针：N04-Q2b 已限定完成父/follow同事务结算，真实正常/失败及提交前后SIGKILL恢复通过。G39后端窗口已修复，页面仍待独立验收；唯一下一片 N04-Q2b-UI。G20/G04其余/G33及通用follow在途未知恢复仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -160,13 +160,34 @@ Q2a随后仅修`resume_coordinated_agent`的新attempt身份来源：唯一同�
 前端无按follow.inputs.child_job_id专用消费；公开run/export仍原inputs字典，不改schema、状态含义、动作或布局。因此本片免新增UI片，不声称重新验收浏览器；G39的可见一致性需独立评估。第一部分稳定；config/脚本/结果/截图/报告只本地，用户child-count不动。G38仅新记录限定关闭，旧空值明确保留；G39、follow在途unknown、G33等仍开放，N04未完成。唯一下一片Q2b。
 
 <a id="g39"></a>
-### G39 · P2 · follow失败先使root failed，父交接稍后收尾（已复现，待Q2b）
+### G39 · P2 · follow失败先使root failed，父交接稍后收尾（Q2b后端限定修复，页面待验）
 
 对齐R06/R11/R12，类别：失败交接过程/快照一致性，E1+E2。Q2a首轮`n04q2a-20261106-234724/`正常条通过、失败条重启前后attempt不等，未算失败链通过；因首轮未存首次终态响应，不据此猜原因。诊断轮`dev_work/artifacts/n04q2a-20261106-234919/malformed/first-terminal.json`明确root failed、follow failed但parent waiting；`after-restart.json`中的parent变done。递归逐值对照仅parent status/result.status waiting→done、runtime waiting_child→done、continuation_state变resumed及updated_at改变；follow attempt、Job与输入身份未变。
 
-静态`resume_coordinated_agent`先保存follow失败，再保存父交接done，分成两个写入。root failed是当时真实失败事实，但不代表全部交接写入已经收尾；不能要求首次root终态的所有attempt马上不可变化，也不能拿重启后状态说首次快照已一致。本轮在最终两链继续保存first-terminal，等待真实父done及resume返回后保存settled，再核重启不变；该观察条件不修复产品窗口，原失败不抹除。
+静态`resume_coordinated_agent`先保存follow失败，再保存父交接done，分成两个写入。root failed是当时真实失败事实，但不代表全部交接写入已经收尾；不能要求首次root终态的所有attempt马上不可变化，也不能拿重启后状态说首次快照已一致。Q2a当时在最终两链继续保存first-terminal，等待真实父done及resume返回后保存settled，再核重启不变；该轮观察条件没有修复产品窗口，原失败保留。
 
-下一Q2b只核这一失败收尾边界和现有消费者，决定以既有事务把对应结果一致结算，或用明确的持久交接状态表达尚未收尾；不得为了通过降低失败保留/唯一调用要求。需要固定窗口故障注入与正常对照，确认崩溃后保留follow失败、父child收据且不再调用模型；公开语义/消费者如有可见变化接最小接线并安排独立UI片。暂不把这几帧HTTP证据说成浏览器实际误导或已证明根本不能恢复，follow在途claimed崩溃仍另片，N04未完成。
+Q2b随后复用原SQLite事务实现`record_results`，单条record_result委托同一校验。resume的新模型结果与已保存follow结果的兼容收尾共用一处父/follow批结算，旧双提交退出；不更改状态含义、schema或图推进器。相同结果继续校验下一条，终态不可替换/child失败闩锁/节点状态校验保留；第二条失败整批回滚。每次读取`_workflow_run_record`从一次store.read取得完整attempt集合，未把多个HTTP请求说成同一快照。实际两个固定窗口的HTTP读分别是提交前旧完整状态、提交后新完整状态。
+
+这只保证落在这次事务中的两条结算一起提交；模型已返回但事务未提交时崩溃，结果尚无持久证据，只能沿原claimed→unknown拒绝自动重发，不能宣称找回原失败正文。提交后/图检查点前崩溃则保留真实失败并可恢复图，不再调用模型。后端与故障过程证据见下文；G39页面独立Q2b-UI待验，通用Provider在途未知恢复仍另片，N04未完成。
+
+### N04-Q2b：父/follow交接同事务结算（后端限定验收）
+
+只改`orchestration/run_store.py`、`state/workspaces/workflow_records.py`及二三文档。RunStore不推进流程，批写只更新本run已存在的attempt；空批/重复身份拒绝，原单条API仍服务Agent/Job/报告等现存调用者，不存在两份结果校验。resume只保留一处父done+follow结果批结算，旧已存follow失败可同值幂等继续父结算；claimed unknown分支仍单条保守blocked，不假标父done。无新依赖、表/版本迁移或外部通知消费者；第一部分稳定。
+
+自然新链`dev_work/artifacts/n04q2b-20261107-000438/`：normal run `20261107-000441-46fb6fe3`/Job `20261107-000444-408324a5`，实际advance10次/false7次/observe8次；malformed run `20261107-000511-efae3e56`/Job `20261107-000515-f7dde681`，实际11/8/9。两条child done读取2次/resume返回1次/3服务PID/累计3受控模型请求/1Job/2个a1/分母2。首次HTTP终态已同时是parent done与follow done/failed，first-terminal、settled-before-restart、after-restart的完整attempt逐值相同，不再以等待父单独收尾避开反证。child_job_id、plan/source/a1、真实user完整mapped_inputs及原Job身份吻合；等待/终态重启同request不增次数。
+
+真实故障`dev_work/artifacts/n04q2b-faults-20261107-000526/`固定在模型第三次已返回坏JSON之后：
+
+| 精确窗口 | 强杀前真实HTTP | SIGKILL后原服务恢复 | 计数与证据 |
+| --- | --- | --- | --- |
+| precommit：原事务第一UPDATE执行后、第二UPDATE前暂停 | parent waiting/follow running，follow仍claimed；读者看不到未提交的failed | root blocked、follow unknown，parent保留等待交接与child done证据；未提交失败正文不被冒充可恢复 | run `20261107-000528-3c348ed8`；3模型请求/1Job/2attempt，原键同run，新PID至少2次advance false |
+| postcommit：两条结果commit后、callback返回/图检查点前暂停 | parent done/follow failed、root failed | 图按持久事实继续，原完整attempt逐值不变，失败不丢且不重新claim/调用 | run `20261107-000558-af5a6949`；同样3请求/1Job/2attempt，原键同run，新PID至少2次false |
+
+四条实物start均精确字节`73746172740a`一份，原CPU命令自然执行10秒并退出0。故障launcher只包裹原事务/调用返回设置暂停点，随后真正SIGKILL；不手填结果、不补检查点、不释放Provider来制造终态。两个自然对照不使用暂停；所有Provider为受控协议接口，只证明流程。precommit发生一次未返回的旧resume属于被强杀调用，不能虚报所有call-return配对或把unknown写成failed已恢复。
+
+14项新SQLite事务/兼容契约加Q2a/E/F/G/H/M1/J1/P1回归共163项通过：事务中独立reader只见旧完整集合，提交后见新集合；第二条SQL错误/缺行/终态冲突/失败闩锁全批回滚；相同follow结果不提前跳出批处理，旧失败可收尾父且不发模型。compileall通过，根pytest无用例退出5不计通过。原G39旧反证保留，真实HTTP固定窗口与自然链补存储单测过程，不靠测试替身宣称产品恢复。
+
+公开API/schema/事件类型未改，无必要消费者格式接线；可见状态一致性改善仍必须独立Q2b-UI，后端通过不算页面已验。记录了读取/单条结果/唯一resume调用者后才删除被替代的双写，其他record_result入口因仍有消费者保留。本机config/脚本/trace/结果/本地报告不提交，child-count不动。唯一下一片Q2b-UI；G33、通用follow在途unknown与其他开放项仍在，N04未完成。
 
 ### N04完整需求总核（2026-11-06，77bbcbd审计快照，未达到完成条件）
 
@@ -865,7 +886,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [__init__.py](../total_control/orchestration/__init__.py) · 20 | R06/R09；节点执行/输入类型 → 公开导出 → 单节点兼容入口 | N03B2b 退出 WorkflowRunner 等同步推进导出；保留已有节点执行消费者。 | 文件整体/公开入口 |
 | [input_mapping.py](../total_control/orchestration/input_mapping.py) · 302 | R05/R09；引用/上下文/模型输出 → 解析映射与 JSON 输出校验 → 输入值/输出证据 | N00C导入唯一取值内核；N04-G增加显式preserve_mapped_inputs，仅N04 follow开启，映射序列化上限65536字节、超限拒绝且默认预览不变；日志作为证据而非指令。前缀/缺失/历史规则仍关联[G10](#g10)，未整体统一。 | `_is_mapping_ref:11`；`resolve_input_mapping_ref:16` |
 | [node_runner.py](../total_control/orchestration/node_runner.py) · 212 | R06/R09；节点/执行上下文 → 选择 Agent/Job、Agent 失败校验 → StepResult | 共用原 Agent 执行入口/映射和失败规则；N03B2c1 传递 output_value 到持久 step，不自建模型或推进循环。G02/G04 仍开放。 | `_node_handler_mode:51`；`_node_agent_id:56` |
-| [run_store.py](../total_control/orchestration/run_store.py) · 452 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N04 增加 `operation` 与 `child-job` 稳定提交键，schema 由1迁移到2；父 attempt/child 收据仍复用同一 submissions 表。RunStore 隔离检查通过，LangGraph 链尚未验收。N07A 文件回执与 Agent claim 保留；N04-F在原attempt JSON中原子保存首个child提交错误，record_result禁止丢弃或成功覆盖，不加表/迁移/推进逻辑。N04-H同事务核waiting/唯一submitted child/无follow，原子父stopped+停止receipt；begin/claim/prepare防新执行，既有terminal读取保留，schema仍2。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
+| [run_store.py](../total_control/orchestration/run_store.py) · 466 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N04 增加 `operation` 与 `child-job` 稳定提交键，schema 由1迁移到2；父 attempt/child 收据仍复用同一 submissions 表。RunStore 隔离检查通过，LangGraph 链尚未验收。N07A 文件回执与 Agent claim 保留；N04-F在原attempt JSON中原子保存首个child提交错误，record_result禁止丢弃或成功覆盖，不加表/迁移/推进逻辑。N04-H同事务核waiting/唯一submitted child/无follow，原子父stopped+停止receipt；begin/claim/prepare防新执行，既有terminal读取保留，schema仍2。Q2b新增同事务record_results且单条委派唯一校验，保留终态/失败闩锁，空批/重复身份拒绝；14新事务契约与相关共163项及真实提交前后强杀通过，无schema迁移，见[G39](#g39)。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
 | [types.py](../total_control/orchestration/types.py) · 90 | R06/R09/R11；计划/结果/上下文 → RunPlan/StepResult/ExecutionRunContext → 类型化边界 | N07A RunPlan追加可选report_output_root，副作用前冻结；旧计划缺字段不自动补文件。StepResult原inline执行证据与交付事实分开。 | `RunPlan:8`；`StepResult:22`；`ExecutionRunContext:73` |
 | [job_coordinator.py](../total_control/orchestration/job_coordinator.py) · 175 | R06/R11/R13；run/冻结计划、Job 回调 → 持久图/暂停、去重唤醒与身份检查 → attempt 事实及检查点 | N04等待/恢复的后续真实HTTP证据见G02；总验收未完，不沿用早期callback完成声明。N04-H在run_lock内读停止receipt后no-op，旧检查点不越过停止；其他engine不变。 | `JobCoordinator`；`advance`；`_validate_checkpoint` |
 | [workspace_mutations.py](../total_control/orchestration/workspace_mutations.py) · 143 | R02/R10；节点/配置或 artifact 内容 → 修改工作区内存快照 → 配置/产物元数据 | 问题/修补关联 [G06](#g06)；按登记方案处理，不另建平行服务。 | `find_workspace_node:29`；`apply_workflow_edit:45` |
@@ -944,7 +965,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 471 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)、[G31](#g31)；N04-D 接显式目标并同步 payload/runtime_binding/resource_plan；普通默认解析对照不变。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 668 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。P1全量helper退出raw覆盖，复用共享Job/graph投影并传全量limit，原默认workspace派生不变；G36后端限定修复。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:21` |
 | [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 两 Agent handoff 计划可经真实 HTTP 受理；旧单 Job/Job→报告入口不变。N04-D 已限定验证 CPU 目标保真和等待中恢复；正文/UI/其他恢复窗口仍待 G02 后续片。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 807 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；J1复用进程活动标志及精确身份的共用predicate，活动原提交投running/submitting且不被核对入口提前改未知；真实Job优先核对，重启/未知保护保留。自然网页及提交前后SIGKILL对照通过，UI独立待验收。Q2真实正常/后续协议失败及重启不重发已限定验收；Q2a在新attempt前核权威intent与父output身份并记录child，旧inputs兼容且不补写，见[G38](#g38)；149契约及新链/旧记录HTTP重开通过。父失败交接非一次结算窗口另记[G39](#g39)，待Q2b。N04全验收仍未完成，见G02/G04/G30/G31/G32/G34。 | `WorkflowRecordsMixin:21` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 803 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；J1复用进程活动标志及精确身份的共用predicate，活动原提交投running/submitting且不被核对入口提前改未知；真实Job优先核对，重启/未知保护保留。自然网页及提交前后SIGKILL对照通过，UI独立待验收。Q2真实正常/后续协议失败及重启不重发已限定验收；Q2a在新attempt前核权威intent与父output身份并记录child，旧inputs兼容且不补写，见[G38](#g38)；149契约及新链/旧记录HTTP重开通过。Q2b将新结果/旧follow收尾共用父follow同事务结算，删除旧双写；真实正常/失败及事务前后强杀通过，见[G39](#g39)，页面待独立Q2b-UI。N04全验收仍未完成，见G02/G04/G30/G31/G32/G34。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 

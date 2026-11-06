@@ -499,32 +499,25 @@ class WorkflowRecordsMixin:
                           "error": "Agent invocation outcome unknown; automatic replay refused"}
                 self.execution_store.record_result(run_id, follow["step_id"], number, result)
                 return result
-            self.execution_store.record_result(
-                run_id,
-                source["step_id"],
-                source_attempt["attempt_no"],
-                {**source_attempt["result"], "node_id": source["step_id"], "status": "done",
-                 "runtime_status": "done", "continuation_state": "resumed"},
-            )
-            return copy.deepcopy(existing_follow["result"])
-        execution_id = f"{run_id}:{follow['step_id']}:a{number}"
-        if not self.execution_store.claim_agent_invocation(run_id, follow["step_id"], number, execution_id):
-            raise RunConflictError("Agent invocation already claimed; automatic replay refused")
-        child_output = copy.deepcopy(source_attempt["result"].get("output_value", {}))
-        result = self.execute_workspace_agent_node(plan["workspace_id"], copy.deepcopy(follow["node"]),
-                                                   run_context=ExecutionRunContext(
-                                                       workspace_id=plan["workspace_id"], run_id=run_id,
-                                                       kind="workflow", step_index=1,
-                                                       previous_output=child_output or None,
-                                                       outputs={str(child_output.get("output_key") or ""): child_output}
-                                                       if child_output.get("output_key") else {},
-                                                   ),
-                                                   frozen_workspace=copy.deepcopy(plan["workspace_snapshot"]), execution_id=execution_id,
-                                                   expected_route_hash=follow.get("provider_route_hash", ""),
-                                                   preserve_job_evidence=True)
-        recorded = workspace_run_step_from_agent(follow["node"], result, follow["index"])
-        recorded.update(agent_execution_id=execution_id, continuation_state="resumed")
-        self.execution_store.record_result(run_id, follow["step_id"], number, recorded)
+            recorded = copy.deepcopy(existing_follow["result"])
+        else:
+            execution_id = f"{run_id}:{follow['step_id']}:a{number}"
+            if not self.execution_store.claim_agent_invocation(run_id, follow["step_id"], number, execution_id):
+                raise RunConflictError("Agent invocation already claimed; automatic replay refused")
+            child_output = copy.deepcopy(source_attempt["result"].get("output_value", {}))
+            result = self.execute_workspace_agent_node(plan["workspace_id"], copy.deepcopy(follow["node"]),
+                                                       run_context=ExecutionRunContext(
+                                                           workspace_id=plan["workspace_id"], run_id=run_id,
+                                                           kind="workflow", step_index=1,
+                                                           previous_output=child_output or None,
+                                                           outputs={str(child_output.get("output_key") or ""): child_output}
+                                                           if child_output.get("output_key") else {},
+                                                       ),
+                                                       frozen_workspace=copy.deepcopy(plan["workspace_snapshot"]), execution_id=execution_id,
+                                                       expected_route_hash=follow.get("provider_route_hash", ""),
+                                                       preserve_job_evidence=True)
+            recorded = workspace_run_step_from_agent(follow["node"], result, follow["index"])
+            recorded.update(agent_execution_id=execution_id, continuation_state="resumed")
         source_result = {
             **source_attempt["result"],
             "node_id": source["step_id"],
@@ -532,7 +525,10 @@ class WorkflowRecordsMixin:
             "runtime_status": "done",
             "continuation_state": "resumed",
         }
-        self.execution_store.record_result(run_id, source["step_id"], source_attempt["attempt_no"], source_result)
+        self.execution_store.record_results(run_id, [
+            (follow["step_id"], number, recorded),
+            (source["step_id"], source_attempt["attempt_no"], source_result),
+        ])
         return recorded.as_dict() if hasattr(recorded, "as_dict") else recorded
 
     def fail_coordinated_agent(self, run_id: str, observation: dict[str, Any]) -> dict[str, Any]:
