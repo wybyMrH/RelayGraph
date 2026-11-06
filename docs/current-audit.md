@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-I2 已完成启动分层诊断，历史G33未自然复现/未关闭；独立故障明确主脚本或必需helper未加载时仍提示普通刷新，前置故障缺少可见恢复。唯一下一片 N04-I3：前置脚本启动失败的明确提示与页面重载入口。N04未完成，G20/G04其余/G26保留。
+当前执行指针：N04-I3 已限定交付前置脚本加载/执行失败提示与显式页面重载，真实故障恢复和当前CPU正常链通过。唯一下一片 N04-I4：只诊断必需脚本请求后不完成/不报错的启动窗口。历史G33未证同因，N04仍未完成；G20/G04其余/G26保留。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -271,6 +271,14 @@ N04-I2（2026-11-07，86be346）进一步诊断：当前121个静态引用及JS�
 只读SQLite runs/attempts/submissions各4行整行不变、4个原Job身份不变，无新运行/模型请求；监控刷新不算新任务。独立分层检查通过，截图已人工核看。观察脚本在同page重启时重复注册被动load监听，事件数有重复，核对用唯一src集合121而非原条数，未用事件数量宣称执行次数；采集内存后落盘，耗时只是本轮样本而非SLA。手机/新任务运行中初始化/历史故障自然复现未验；本轮无业务/UI实现，不跑不相关后端测试。脚本/config/数据/结果仅本地，源码292文件台账不变。
 
 下一I3只处理有确定分支的前置启动失败提示与显式页面重载，不再通过堆正常样本推进；复用现有顶部反馈，不造第二状态读取器/加载器/自动重试，不掩盖API失败与后台运行状态。历史G33根因仍开放，I3不能借注入相似截图宣称历史原因已找到；N04仍未完成。
+
+N04-I3（2026-11-07）限定修复前置故障可见性：index在全部外部脚本前放独立短内联原生保护，不依赖app或feedback helper；原顶部反馈初始改“正在启动页面”、原刷新按钮暂禁用。启动期间同源.js资源加载错误或运行错误锁存为“页面未能启动”，只以textContent显示限长basename（去目录/query/hash，不显示error.message），保留浏览器原console。原button捕获监听显式“重新加载页面”，阻止半绑定时旧click双动作，不自动reload。app末尾先核失败门禁，restore/bind同步成功后complete移除临时监听，再由原bootstrapStatus和AppStatusFeedback负责正常/API失败；未新增读取器/加载器/轮询器或业务状态合并器。初始误导普通刷新说明退出；API刷新与其错误反馈仍有真实消费者，保留。
+
+真实Chromium `dev_work/artifacts/n04i3-20261107-010501/`：正常冷启/服务重启；app加载abort、helper200错误MIME、app语法错误、bindEvents后同步throw、超长组件名五组故障均明确提示，移除注入后实际键盘Enter重载一次恢复故障前经原UI选中的实例。无失败自动重试/人工填状态；bind后throw保留部分绑定仍无bootstrap请求，捕获重载未混入旧API请求。长名组HTML仅改资源别名并abort，属于布局故障条件，不冒称产品真实组件名。APIabort对照仍显示“状态读取失败/重试刷新”，Enter后原/api/refresh恢复而无document导航。SQL三表各4行整行不变、4个原Job身份不变，未提交工作流或调用模型；只有监控refresh POST。1440×900/768×900、按钮焦点、长名换行与查询参数/原异常消息不进UI通过，截图人工核看，无需新CSS。
+
+当前源码额外正常CPU网页回归`dev_work/artifacts/n04q2bui-i3-regression-20261107-010752/normal/`，run `20261107-010755-65de6490`：真实可见启动→原门禁/HTTP/scheduler/tmux→父/child/follow完成，3受控模型请求/1Job/父follow各a1/实物start一次，实际回放下载/原日志/刷新重启attempt一致，无pageerror。此新链与只读故障夹具分开，不拿受控模型回答证明理解。boot范围/原文隐私/锁存/capture重载/正常接管契约及J1/F/G/H、P1十四回归，inline/app语法、121外部引用/顺序均通过；未重跑无关后端套件。skill沿用已核Apache2的frontend-design，仅指导动作与可读性，无新运行依赖；源码仍292文件，相关index/app台账更新。
+
+I3只覆盖明确error的启动分支；内联本身无法执行、脚本一直pending不error、历史G33自然复现、手机/全站/3.10完整后端未验，不据此关历史原因。唯一下一I4先诊断必需脚本不完成/不报错窗口，正常对照与故障辅助区分，不先加watchdog或改变API预算。测试/config/数据/截图均本地，第一部分稳定，child-count不动，N04保持进行中。
 
 <a id="g30"></a>
 ### G30 · P1 · Provider 工具调用契约覆盖不足
@@ -1129,7 +1137,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本；P1-UI更新actions/replay/app/styles缓存版本，无新增脚本。 Q2b-UI更新4个已改JS缓存版本，无新脚本。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
+| [index.html](../web/index.html) · 1814 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本；P1-UI更新actions/replay/app/styles缓存版本，无新增脚本。 Q2b-UI更新4个已改JS缓存版本，无新脚本。 I3内联前置脚本故障保护、原顶部启动/重载、121外部引用不变；app缓存更新。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
 
 ### web/config-center
 
@@ -1149,7 +1157,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26532 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 P1-UI仅原实例reader装配actions.syncRunReplay，已加载打开回放按生命周期重读，复用原焦点/滚动恢复。 Q2b-UI只把根运行摘要状态标签接既有workspaceStatusLabel。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
+| [app.js](../web/core/app.js) · 26536 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 P1-UI仅原实例reader装配actions.syncRunReplay，已加载打开回放按生命周期重读，复用原焦点/滚动恢复。 Q2b-UI只把根运行摘要状态标签接既有workspaceStatusLabel。 I3仅末尾前置失败门禁、同步装配后交回原bootstrap；正常CPU链与原读取行为已验。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 63 | R12；用户事件/注入依赖 → 顶层导航动作 → 唯一回调 | N13B3a删除已退出moduleCards的委托绑定；其他导航保持，实际独立编辑入口由shell actions绑定。 | bind |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch/浏览器存储 → 页面结果 | 原通用fetchJson不自带deadline；N13C2外层标准signal透传/正文取消合同通过，本文件不改，不冒称其他调用都获预算。存储仍[G19](#g19)。 | fetchJson/loadStoredValue/saveStoredValue |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |

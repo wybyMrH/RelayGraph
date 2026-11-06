@@ -26526,7 +26526,11 @@ window.closeActiveOutputTab = closeActiveOutputTab;
 window.closeAllOutputTabs = closeAllOutputTabs;
 window.advanceWorkspaceAutomation = advanceWorkspaceAutomation;
 
-restoreStoredUiState();
-bindEvents();
-void bootstrapStatus();
-startLogPoller();
+// A failed prerequisite must not start a partially assembled application.
+if (!window.RelayGraphBootFeedback?.failed) {
+  restoreStoredUiState();
+  bindEvents();
+  window.RelayGraphBootFeedback?.complete();
+  void bootstrapStatus();
+  startLogPoller();
+}
