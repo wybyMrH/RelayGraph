@@ -274,8 +274,57 @@
     </section>`;
   }
 
+  function jobLogHandoffMarkup(step = {}, run = {}, deps = {}, options = {}) {
+    const output = step.output_value && typeof step.output_value === "object" ? step.output_value : {};
+    const evidence = output.log_evidence && typeof output.log_evidence === "object" ? output.log_evidence : {};
+    const notice = (text) => `<section class="workspace-job-handoff"><strong>本次日志交接</strong><p>${escapeFor(deps, text)}</p></section>`;
+    if (!evidence.schema) {
+      return step.status === "done" ? notice("此记录未登记日志交接完整性，请通过原任务日志核对；不能据此确认后续分析收到的文本。") : "";
+    }
+    const jobIds = [step.job_id, ...(Array.isArray(step.child_job_ids) ? step.child_job_ids : [])].filter(Boolean);
+    const identityMatches = run.id && (step.step_id || step.node_id) && step.attempt_id && output.host_id
+      && output.run_id === run.id && output.node_id === (step.step_id || step.node_id)
+      && output.attempt_id === step.attempt_id && jobIds.includes(output.job_id) && output.status === "done";
+    if (evidence.schema !== "job-log-handoff/v1" || !identityMatches) {
+      return notice("交接记录的版本或运行身份无法确认，暂不展示为本次日志；请核对原任务记录。");
+    }
+    const count = (key) => Number.isSafeInteger(evidence[key]) && evidence[key] >= 0;
+    const fullRange = ["offset", "next_offset", "file_size", "byte_count", "skipped_bytes"].every(count)
+      && evidence.offset === 0 && evidence.skipped_bytes === 0
+      && evidence.next_offset === evidence.file_size && evidence.byte_count === evidence.file_size;
+    const complete = evidence.state === "complete" && evidence.complete === true && evidence.exists === true
+      && fullRange && output.log_truncated === false && !evidence.delivery_limited
+      && !evidence.text_replacement_characters && !evidence.error && typeof output.log === "string";
+    const state = complete ? "complete" : evidence.state === "complete" || evidence.complete === true ? "unknown" : String(evidence.state || "unknown");
+    const descriptions = {
+      complete: ["完整日志", "本次读取覆盖完整日志。"],
+      partial: ["部分日志", "本次只交接部分日志，不能当作完整输出。"],
+      missing: ["日志缺失", "交接时没有取得日志文件，后续分析缺少这份日志。"],
+      error: ["读取失败", "交接时未能完整读取日志，不能据此确认完整输出。"],
+      unknown: ["需核对", "交接完整性信息不足或不一致，请核对原任务记录。"],
+    };
+    const [label, description] = descriptions[state] || descriptions.unknown;
+    const range = ["offset", "next_offset", "file_size"].every(count)
+      ? `原日志 ${evidence.file_size} 字节，本次读取范围 ${evidence.offset}–${evidence.next_offset}。` : "原日志读取范围未登记。";
+    const delivery = count("delivered_byte_count") ? `交接文本 ${evidence.delivered_byte_count} 字节。` : "交接文本字节数未登记。";
+    const flags = [evidence.redacted ? "文本已脱敏。" : "", evidence.delivery_limited ? "交接文本因大小限制再次裁短。" : "",
+      evidence.text_replacement_characters ? "含无法还原的字符。" : ""].join("");
+    const key = `${run.id}:${step.step_id || step.node_id}:${step.attempt_id}:${output.job_id}:job-log`;
+    const hasText = ["complete", "partial", "error"].includes(state) && typeof output.log === "string" && output.log.length > 0;
+    return `<section class="workspace-job-handoff" aria-label="本次日志交接">
+      <div class="workspace-job-target-head"><strong>本次日志交接</strong><span class="state ${complete ? "done" : "blocked"}">${escapeFor(deps, label)}</span></div>
+      <p>${escapeFor(deps, description)} 此处是保存给后续分析的证据，不表示后续步骤已经执行。</p>
+      <p class="muted">${escapeFor(deps, `${range} ${delivery} ${flags}`)}</p>
+      <p class="muted">主机 ${escapeFor(deps, output.host_id)}；“打开日志”查看原任务日志，可能与这份冻结文本不同。</p>
+      ${hasText ? `<details class="workspace-run-reader-evidence" data-reader-detail="${escapeFor(deps, key)}"${options.openDetails?.has(key) ? " open" : ""}>
+        <summary>查看本次交接文本</summary><pre tabindex="0" class="workspace-job-handoff-text" aria-label="本次交接文本">${escapeFor(deps, output.log)}</pre>
+      </details>` : complete ? "<p>日志文件存在，本次完整日志为空。</p>" : "<p>没有可展示的交接文本。</p>"}
+    </section>`;
+  }
+
   window.WorkspaceRunSummary = {
     actualJobTargetMarkup,
+    jobLogHandoffMarkup,
     agentRunCompactMarkup,
     deliveryClosureMarkup,
     eventDetail,

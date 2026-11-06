@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-G后端已限定验收，本次有界日志及完整性证据已进入follow实际请求，映射不再静默裁短。唯一下一片为 **N04-G-UI：日志交接完整性与本次证据阅读**。完成独立界面验收再推进父子取消等小片；N04整体仍开放。
+当前执行指针：N04-G与G-UI已限定验收，本次有界日志进入follow实际请求，页面展示冻结文本与完整性，普通/超长CPU链已通过真实浏览器验证。唯一下一片为 **N04-H：等待child时停止父流程的持久语义**，后端后再做独立H-UI；N04整体仍开放。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -769,7 +769,7 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 2026-11-02 新本地检查记录真实 Provider 请求，工具显式传 local/cwd/cpu/none，child 用追加标记并准备等待中重启；实际运行却得到 GPU 0（G31），因此停止验收，未改门禁/手填记录。首次重跑把提交瞬间的 blocked/submitting 当终态是观察脚本错误，已修脚本并重新复现实际目标覆盖；不将该瞬态直接定义为产品故障。
 
-修复后必须实际证明：完整计划分母为 2；child queued/running/done；waiting 时 follow pending；在运行中重启服务后同 Job 恢复；父/follow 各一个 invocation claim（父可含工具前后多次模型请求），child 追加标记一次；waiting/完成后同键请求和重复调度不增加副作用；failed/stopped 不调用 follow 且不建其 attempt；follow 请求输入含本次 run/step/attempt/Job 和 done 状态。当前实现的 handoff 仅交接身份、状态及产物声明，日志正文尚未交接；这只是现状，不降低 R09 本次输出消费要求，需另片验证正文/日志引用传递，不能用固定回答证明读过日志。父/子取消关系、提交未知窗口与浏览器另验；不接 child run、SSH/GPU/Transfer 或任意多 Agent。
+修复后必须实际证明：完整计划分母为 2；child queued/running/done；waiting 时 follow pending；在运行中重启服务后同 Job 恢复；父/follow 各一个 invocation claim（父可含工具前后多次模型请求），child 追加标记一次；waiting/完成后同键请求和重复调度不增加副作用；failed/stopped 不调用 follow 且不建其 attempt；follow 请求输入含本次 run/step/attempt/Job 和 done 状态。N04-B初验时handoff只交接身份、状态及产物声明；N04-G与G-UI随后已补有界正文与完整性、真实请求和浏览器证据，见下文，仍不能用固定回答证明模型理解日志。父/子取消关系、提交未知窗口与浏览器另验；不接 child run、SSH/GPU/Transfer 或任意多 Agent。
 
 ### N04-D：child Job 显式执行目标保真（后端已限定验收）
 
@@ -857,13 +857,23 @@ RunStore只保存first-error及校验结果不可丢弃/成功覆盖，不解释
 
 脚本仅本地dev_work/smokes/test_n04g_logs.py、n04g_http.py、n04g_limit_http.py；四链证据dev_work/artifacts/n04g-20261106-173528/，超限证据dev_work/artifacts/n04g-limit-20261106-173925/。UTF8替换计数字段在四链后补充，54契约重跑通过；四链普通ASCII日志逻辑不受该增补影响，不重复声称完整链已重跑。compileall/diff通过；根pytest无用例退出5，不记通过。测试、结果和本机config不提交。
 
-公开step.output_value只增字段；现有前端按原step.status/error及精确Job引用工作，JS契约检查仍通过，未改前端状态推进。现有页面尚无专门交接完整性说明，必须先做G-UI；本片未运行浏览器，不能用F-UI旧截图冒充。missing/error和磁盘读故障为隔离契约/adapter注入，未做真实故障HTTP；远程/真实供应商/旧已claim模型崩溃恢复均未重新验收。父子取消、通用预算与Provider协议仍开放。
+公开step.output_value只增字段；现有前端按原step.status/error及精确Job引用工作，JS契约检查仍通过，未改前端状态推进。本后端片当时尚无专门交接完整性说明，随后G-UI已独立验收（见下）；本后端片未运行浏览器，不能用F-UI旧截图冒充。missing/error和磁盘读故障为隔离契约/adapter注入，未做真实故障HTTP；远程/真实供应商/旧已claim模型崩溃恢复均未重新验收。父子取消、通用预算与Provider协议仍开放。
 
-### N04-G-UI：日志交接完整性与本次证据阅读（唯一下一片）
+### N04-G-UI：日志交接完整性与本次证据阅读（已限定验收）
 
-按本次持久output_value.log_evidence/log_truncated/host_id与run/step/attempt/Job列输入，状态只展示complete/partial/missing/error及原范围、脱敏/交付字节含义，不以“Job完成”暗示日志完整。先核对原运行阅读/日志入口与Notes，使用合适frontend-design指导小布局：本次交接摘要→完整/截断/不可用说明→按需查看交接文本或原Job日志；不要把长日志正文塞到配置页，不新增状态合并器。旧无schema记录明确未登记完整性，不自动称完整。
+对应G01/G02与R06/R09/R11/R12。范围只改app.js、workspace_run_summary.js、styles.css、index.html及二三文档，后端/API/稳定规格不改。frontend-design已重读并核对Apache-2.0来源，无版本，沿用前片SHA256；仅作内容层次/空失败状态/响应式指导，不引入依赖、外部字体、hero或装饰。开片与布局取舍在本地dev_work/reports/n04g-ui-opening.md。
 
-真实网页分别启动普通和超长child，确认完整/截断提示与实际交付尾部、身份/Job入口匹配，刷新与等待重启不改变已冻结证据；缺失/错误/长文本仅可控布局或故障测试须分别说明。检查桌面/窄窗、键盘与实时更新。后端必要消费者不再扩展；完成本片并提交推送后，再选择父子取消关系等N04剩余小片。
+运行阅读父步骤新增平级“本次日志交接”：摘要/完整性→原日志范围及交付字节→主机与原日志区别→单层按需正文。输入严格为本attempt持久output；run/step/attempt/Job/done/schema相符且冻结host_id非空才展示正文（不另查live主机来源），未知身份/版本明确需核对，不从live Job补文本。complete需完整范围、exists、无截断/限制/错误/替换字符等相容；矛盾保守需核对，旧无schema完成记录明确未登记；等待尚无证据不报日志缺失。完整空日志与缺失分开，partial/error可查看已有部分文本但不称完整。日志全文HTML转义，只有正文局部滚动，其余自然主滚动；展开键含run/step/attempt/Job，实时DOM重建保留相同身份的展开、焦点及正文滚动。原“打开日志”保留当前任务日志职责，不是冻结文本的替代。没有新状态合并器/轮询器/后端存储。
+
+**实际验收**：真实Chromium在可见驾驶舱点击启动普通和超长CPU/tmux链，受控SSE Provider只证明接线，不证明真实模型理解。普通原/交接2248字节且完整；超长原14858、读取6666–14858/交接8192且部分。页面文本=持久output=实际follow请求映射，运行时随机END在400字后；每链3次真实模型请求、1child/1追加，parent/follow各1attempt、完整两步。每链等待中重启、完成后重启/刷新保持同run/冻结证据；1440×900/768×900、Enter展开、summary和pre焦点及正文scroll跨2400ms更新、点击原日志看到同END；无pageerror，没有关门禁/手填终态/人工补回执。截图已人工查看。证据仅本地dev_work/artifacts/n04gui-20261106-175225/。
+
+本地n04gui_contract.cjs覆盖状态/完整性矛盾/schema/身份/旧/空/转义/展开键，F-UI回归、相关node --check、121脚本引用/顺序、diff通过。n04gui_layout.py在1440/768/390独立夹具验证缺失/读取失败/长主机/长正文/旧/完整空；dev_work/artifacts/n04gui-layout-20261106-175201/不是实际磁盘故障或完整移动导航证据。首次浏览器脚本错误假定输入用文本标题分段，实际是既有JSON封装，改脚本后完整重跑，产品未为断言改schema。历史回放点击、真实供应商、SSH/GPU与Python3.10完整运行本片未测。前端片不重跑无关Python任务；根pytest仍无用例，不记通过。脚本/配置/结果不提交，第一部分不改。N04整体仍未完成。
+
+### N04-H：等待child时停止父流程的持久语义（唯一下一片，未实现）
+
+对应R06/R09/R11、G02/G04。先核对现有cancel_agent_execution的进程内信号、已结束父Agent与waiting parent attempt、Job停止入口及其消费者，复现等待时取消能否阻止follow；不把inactive Agent信号返回当作工作流已停止。只做一个“停止后续流程”的持久父run意图：重复请求/服务重启后仍禁止新的follow attempt，保留已提交child事实，并明确这不自动停止child；child停止仍走既有Job生命周期入口，不造第二执行器。请求取消不等于外部任务已停，未知提交/已claim follow等边界须先审查并明确拒绝或等待核对，不能伪造终态。此片不扩展通用deadline、多child或Provider协议。
+
+开片先列精确文件、状态变更/迁移影响及验收；先真实HTTP/tmux验证waiting窗口的停止、重复请求、重启、child继续/单独停止和follow不调用，保留完整计划/身份/证据。公开API与必要消费者最小同步后更新台账并只读监督；任何可见动作/状态需独立H-UI浏览器片后再推进依赖能力，不把后端完成当界面交付。上面是下一片目标，尚无完成声明；若现有状态模型不支持，先记录实证并调整边界，不能为现有实现降低规格。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 
@@ -927,4 +937,4 @@ N13A/N13B1/N07A/N07A-UI 已分别交付当前链的步骤、运行阅读与本�
 
 消融：没有新增提交器、轮询器、状态机或配置入口；复用 `workspaceLaunchClosure`、`workspace_workflow_submission.js` 的 request_id、后端持久 run/Job/Agent 协调器及运行阅读器。第一部分不变，G10/G11 不因这一条无工具 Agent 链整体关闭。
 
-本地 smoke 脚本、截图、配置、运行数据和结果不提交；提交范围只包括本次文档更新。当前唯一下一片为 **N04：Agent 子任务续跑**，先做本机 CPU 的一个 child Job/Agent 恢复切片，完成后再决定是否进入更长报告或远程资源。
+本地 smoke 脚本、截图、配置、运行数据和结果不提交；提交范围只包括本次文档更新。本条验收当时下一片为 **N04：Agent 子任务续跑**（当前指针以文首为准），先做本机 CPU 的一个 child Job/Agent 恢复切片，完成后再决定是否进入更长报告或远程资源。

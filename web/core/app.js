@@ -12346,6 +12346,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
       ${isChildHandoff && status === "pending" ? `<p class="workspace-run-step-agent-meta">${predecessorUnsuccessful ? "前置步骤未成功，本次未执行。" : "尚未执行，等待前置步骤成功。"}</p>` : ""}
       ${notesFirst ? stepNotes : ""}
       ${targetMarkup}
+      ${isChildParent ? workspaceRunSummaryApi().jobLogHandoffMarkup(step, run, workspaceRunSummaryDeps(), options) : ""}
       ${liveAgentLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(liveAgentLine)}</p>` : ""}
       ${isAgent && (mappedInputsLine || agentTrace) ? `
         <details class="workspace-run-reader-evidence" data-reader-detail="${escapeHtml(detailKey)}"${options.openDetails?.has(detailKey) ? " open" : ""}>
@@ -15327,6 +15328,12 @@ function renderWorkspaceRuns() {
   if ($("workspaceRunReaderEditBtn")) $("workspaceRunReaderEditBtn").disabled = !workspace?.id;
   const openDetails = new Set(Array.from(list.querySelectorAll("details[data-reader-detail][open]"),
     (item) => item.dataset.readerDetail));
+  const handoffReaders = Array.from(list.querySelectorAll(".workspace-job-handoff details[data-reader-detail]"));
+  const handoffScroll = new Map(handoffReaders.map((item) => [item.dataset.readerDetail,
+    item.querySelector("pre")?.scrollTop || 0]));
+  const focusedHandoff = document.activeElement?.closest(".workspace-job-handoff details[data-reader-detail]");
+  const handoffFocus = focusedHandoff && list.contains(focusedHandoff)
+    ? { key: focusedHandoff.dataset.readerDetail, text: document.activeElement?.tagName === "PRE" } : null;
   const focusedOrigin = document.activeElement?.closest(".workspace-run-step-origin[data-reader-detail]");
   const focusedOriginKey = focusedOrigin && list.contains(focusedOrigin) ? focusedOrigin.dataset.readerDetail : null;
   const focusedButton = document.activeElement?.closest("button[data-action]");
@@ -15399,6 +15406,13 @@ function renderWorkspaceRuns() {
     list.innerHTML = filteredRuns.length
       ? `${filterMarkup}${filteredRuns.slice(0, 12).map((run) => workspaceExecutionRunItemMarkup(run, { openDetails })).join("")}`
       : `${filterMarkup}<div class="empty">没有匹配的运行记录。可以重置筛选，或换一个状态、节点、Job/Agent ID。</div>`;
+    for (const detail of list.querySelectorAll(".workspace-job-handoff details[data-reader-detail]")) {
+      const text = detail.querySelector("pre");
+      if (text) text.scrollTop = handoffScroll.get(detail.dataset.readerDetail) || 0;
+      if (handoffFocus?.key === detail.dataset.readerDetail) {
+        detail.querySelector(handoffFocus.text ? "pre" : "summary")?.focus({ preventScroll: true });
+      }
+    }
     if (focusedOriginKey) {
       Array.from(list.querySelectorAll(".workspace-run-step-origin[data-reader-detail]"))
         .find((item) => item.dataset.readerDetail === focusedOriginKey)?.querySelector("summary")?.focus({ preventScroll: true });

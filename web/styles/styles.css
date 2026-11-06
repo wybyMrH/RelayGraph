@@ -23036,3 +23036,10 @@ body.has-log-pane .workspace-node-execution-bundle pre {
   .workspace-instance-editor-header { flex-direction: column; }
   .workspace-instance-editor .form-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Frozen handoff evidence is distinct from the live Job log. */
+.workspace-job-handoff { min-width: 0; border-top: 1px solid var(--border); padding-top: 10px; }
+.workspace-job-handoff > strong { font-size: 13px; }
+.workspace-job-handoff > p { margin: 6px 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.workspace-job-handoff-text { margin: 0; padding: 12px; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; background: var(--bg); }
+.workspace-job-handoff-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
