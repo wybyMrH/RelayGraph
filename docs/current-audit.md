@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-K2已限定修复回放加载时键盘焦点丢失，沿用原reader恢复与同key忙碌门禁；真实基线/成功/失败/重试/移焦/切实例与运行、日志/H回归通过。唯一下一片为N04完整需求总核；G26其他界面问题、G33与N04总体仍开放。
+当前执行指针：N04总核确认核心CPU续跑/身份/等待与终态重启已有证据，但取消后仍新建child（G04当前真实复现）、回放关联child终态错误（G36）、G33初始化可靠性及精确重复通知验证仍阻碍整体完成。唯一下一片N04-M1只修模型返回后的取消/截止复核；不得据已有小片宣称N04完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -72,6 +72,34 @@ H/F/G本地JS契约、3个JS语法、121脚本路径和helper先于app装配通�
 第二轮`n04k2-terminal-20261106-202432/`复制本轮真实CPU日志回归产生的已完成数据，再跑上述检查，切到另一实例的真实run按钮后，旧响应不抢焦点；回放按钮成功后ARIA已移除。复制数据/真实GET只证明本片阅读交互，不能冒充重新执行这些历史任务。另实际重跑`n04k1-logs-20261106-202152/`普通/超长日志两链，各1追加/3受控模型请求/2attempt、真实映射/日志正文与焦点保持通过；`n04k2-stop-20261106-202239/`原H停止后续、单独停止child及原控制焦点通过。受控Provider不证明真实模型理解。
 
 过程失败保留：202043首轮用Playwright locator.click时被ARIA enabled检查拦住；后改真实坐标mouse.click验证产品门禁，没有force/去ARIA/关实时。202141初始化超时列G33；H首次并行回归撞日志回归端口，未启动，后仅本地脚本换独立端口重跑。J1UI/H/G/K1既有契约、121脚本装配与node语法通过；纯前端未重跑无关Python。跨run并发busyKey、切实例后的迟到全局提示继续开放。代码与缓存/本台账/计划共4文件提交，测试/配置/结果/截图仅本地。下一片只做N04完整需求总核，不以本片宣称N04已完成。
+
+
+<a id="g36"></a>
+### G36 · P1 · 已完成child在回放关联记录仍显示等待（当前HTTP复现）
+
+对齐R11/R12，类别：重复记录投影不一致，E1+E2。K2终态截图已出现实际child“已完成”、回放关联项“等待中”。总核以`dev_work/artifacts/n04-completion-probe-20261106-203151/`复制本轮两条真实已完成CPU链的隔离数据，正常服务入口启动，真实GET父run/replay/jobs，未提交任何任务或调用Provider：两父run均done、parent/follow均done，linked_jobs中同Job均done，而linked_runs的同job.run-agent-runtime项仍queued。不是浏览器自己猜状态或旧截图单独构成的结论。
+
+静态原因：`total_control/state/workspaces/runs.py::_workspace_public_payload_with_full_runs`先得到实时公开投影，随后以raw runs归一化覆盖`public_workspace.runs`；replay/export/比较调用它，关联timeline沿原始queued值输出。独立agent-tool run保留了早期提交状态，Job metadata已归父run；不能让另一个推进器或前端按最新Job强行补终态。方案：独立小片核完整读取投影与所有调用者，在保留全量/关联闭包/脱敏/历史边界的同时复用唯一事实刷新；不重写原始attempt，不顺手删除有消费者的兼容独立run。后端完成后单独前端点击回放/导出验收。当前先处理副作用控制G04，G36不与其混改。
+
+### N04完整需求总核（2026-11-06，未达到目标完成条件）
+
+本次以`77bbcbd`当前代码为基线，重新核对原目标、R06/R07/R09/R11/R12与原N04-A/B计划；没有修改业务/稳定规格，也没有从历史标题继承“通过”。本地只读证据交叉检查逐值核两Agent计划、parent/follow:a1、稳定child-job key、SQLite/Job CPU身份、follow实际映射与既有失败/未知事实；9组检查中7组支持相应有限结论、2组当前反证，不能把检查脚本退出0说成产品全部通过。详细核验表与原始探针仅本地`dev_work/reports/n04-completion-audit.md`、`n04-completion-evidence.json`。
+
+| 原要求/边界 | 当前核到的事实 | 判定与仍缺的证据 |
+| --- | --- | --- |
+| CPU父Agent→受控child Job→后续Agent | K1自然链200628、最新日志回归202152各1真实CPU Job/1追加/3受控模型请求，父follow各a1；实际follow输入逐值等于持久父输出，含本次run/step/attempt/Job/host/done及随机日志尾 | 支持此最小链；不证明真实模型理解，也不外推独立child Agent run |
+| 首副作用前保存完整计划、等待不偷跑 | workflow.py先register_planned_workflow_run再返回，scheduler唯一唤醒；自然观测waiting时follow pending/分母2，终态才2/2 | 支持；单图/账本/Job服务各职责保留，无新推进器 |
+| attempt/幂等/重复HTTP与恢复 | 最新SQLite两attempt各no1、唯一run/parent/a1/child-job key；等待/终态后重启同request返回原run，追加/调用不增 | 支持已验收窗口；不宣称任意副作用exactly-once |
+| 重复完成通知 | 原scheduler每轮观察Job事实，事件publish本身不推进；旧检查终态后等待4秒/重发无新增副作用 | 仅支持重复终态观察机会/同键重放；未记录精确wake次数或重复通知消费，专门真实通知/重连回放证据仍缺，不虚构completion API |
+| child失败/停止不调用follow | G真实四链173528保存失败/停止observations，follow pending/零attempt；H真实三链及K2 H回归显式keep_running、独立child停止 | 支持这些分支；follow自身失败/活动调用中断及deadline须补，不拿child失败替代 |
+| 取消/截止时间门禁 | 当前取消探针203416：请求已受理后仍新建并运行child；父follow普通路径缺调用后检查 | **反证，G04优先阻碍**；单调用报告路径/H等待后停止不能抵消 |
+| 提交未知与收据恢复 | J1 faults193412创建前/创建后SIGKILL，前者blocked且0Job，后者核真实receipt恢复同Job/follow；未补记录 | 支持这两个故障窗口；Provider在途/已claim follow中断为保守unknown边界，尚非所有异常的真实验收 |
+| 执行目标与冲突 | D/E/F实际CPU/目录/环境与同key不同目标拒绝、旧回执保留；G31/G32各有限交付 | 支持对应范围；旧独立工具run有真实调用者，不能凭重复删掉 |
+| 正文与证据完整性 | G及最新日志回归完整/partial正文、截断范围和实际follow输入一致，页面可读，旧日志入口仍供当前日志读取 | 支持有界日志交接；长报告/任意产物在本目标排除范围，不据此关G06 |
+| 页面启动、实时、重启及回放 | K1修快照漏重绘、K2修焦点；但G33初始化仍偶发失败，G36回放child与实际Job矛盾 | **整体未通过**；后轮成功不能抹去初次加载失败，回放不能看似完成即验收 |
+| 配置/隐私/交付规则 | 运行配置与本地探针留config忽略目录；本轮仅二三文档提交，原用户child-count.txt不动 | 本轮范围支持；3.10适配/真实供应商/SSH/GPU/Transfer均未验证或排除，不混入此审计 |
+
+下一步只开N04-M1模型返回后控制门禁。其后按更新证据分别处理必需前端验收、G36读取投影、G33诊断及精确通知/异常恢复证据，不能一次批量实现。G26迟到回放提示与跨run busyKey另记录，影响选择归属但不冒充本次执行结果；仍需按目标影响复核。N04保持未完成，第一部分不变。
 
 <a id="g33"></a>
 ### G33 · P2 · N04 网页初次加载/重启刷新偶发未装配（I1未复现，原因仍未定）
@@ -179,6 +207,8 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - agent_executor.py:303–407 只在循环开头检查；Provider 返回后可直接 success 或继续工具副作用。llm_client 使用独立网络超时，未消费 Agent 剩余预算。
 - 复现总预算 10ms，假 Provider 30ms 后返回并设置取消信号，结果 success=True、timed_out=False、cancelled=False。
 - N03B2c1 仅对单次无工具报告启用单调时钟和调用后检查，并禁用 stream 失败后的第二次 fallback；真实延迟响应及取消 HTTP 验收通过，取消请求时仍显示 running，返回后才记失败/停止。网络调用不能立即中断，通用多轮 Agent 及网络剩余预算未解决，G04 保持开放。N04-H随后仅交付父Agent已返回且等待child窗口的持久停止后续意图，明确keep_running，H-UI随后交付可见动作与独立child控制；不是活动调用/网络或child停止传播的完整取消实现。
+- **N04总核新增当前E1**：`dev_work/artifacts/n04-completion-cancel-20261106-203416/` 经正式工作区/原门禁启动CPU链，受控Provider先接请求并等待；正式Agent取消接口返回cancelled=true时真实GET仍0Job，然后才释放Provider返回合法job.run指令。最终父stopped、follow pending，但新增1个真实tmux Job且追加启动标记1次，模型请求1次。时间顺序记录为provider_enter→cancel_accepted→provider_return；未补终态/绕过门禁。取消后副作用确实发生，故不能以最终stopped验收通过。
+- 当前源码核实N04父/follow未传report_only，均使用AgentExecutor普通多轮路径；调用后复核仍限single_call，stream失败fallback也未先复核。G04直接影响N04，不是可划出的无关全局问题。唯一下一片M1先补返回后的控制检查；网络剩余预算/全部fallback共用预算与在途强停须继续拆片验证，不能借M1一次关闭G04。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
 <a id="g05"></a>
