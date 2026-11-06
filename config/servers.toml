@@ -5,7 +5,7 @@ remote_timeout_seconds = 6
 # 首次请求也使用此值；修改后重启服务并重新加载页面，不影响正在运行的任务。
 status_load_timeout_seconds = 30
 # 页面启动等待预算，整数1–300秒；从内联保护开始到同步装配完成。
-# 当前先提供配置与首页输出；超时提示/重载由下一独立前端切片接入。
+# 超时后需显式重载页面；不影响后台任务，不覆盖HTML未到达或主线程死循环。
 page_startup_timeout_seconds = 30
 idle_min_free_mib = 1024
 idle_max_gpu_util = 10

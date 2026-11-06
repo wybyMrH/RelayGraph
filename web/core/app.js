@@ -26530,7 +26530,8 @@ window.advanceWorkspaceAutomation = advanceWorkspaceAutomation;
 if (!window.RelayGraphBootFeedback?.failed) {
   restoreStoredUiState();
   bindEvents();
-  window.RelayGraphBootFeedback?.complete();
-  void bootstrapStatus();
-  startLogPoller();
+  if (window.RelayGraphBootFeedback?.complete() !== false) {
+    void bootstrapStatus();
+    startLogPoller();
+  }
 }

@@ -1643,26 +1643,41 @@
       (function () {
         "use strict";
         let handedOff = false;
+        let timedOut = false;
+        const configuredSeconds = Number(document.querySelector('meta[name="relaygraph-page-startup-timeout-seconds"]')?.content);
+        const timeoutSeconds = Number.isInteger(configuredSeconds) && configuredSeconds >= 1 && configuredSeconds <= 300 ? configuredSeconds : 30;
+        const deadline = performance.now() + timeoutSeconds * 1000;
         const failedComponents = new Set();
         const button = document.getElementById("refreshBtn");
         function text(id, value) { document.getElementById(id).textContent = value; }
-        function fail(source) {
-          let url;
-          try { url = new URL(source, location.href); } catch { return; }
-          if (url.origin !== location.origin || !url.pathname.endsWith(".js")) return;
-          const component = url.pathname.split("/").pop().slice(0, 96);
-          failedComponents.add(component);
+        function showFailure(label, detail, error) {
           document.getElementById("statusLoadFeedback").dataset.phase = "error";
-          text("statusLoadLabel", "页面未能启动");
-          text("statusLoadDetail", "页面组件未能加载或执行。请重新加载页面；此操作不会再次提交任务。");
-          text("statusLoadError", "需要重新加载的组件：" + [...failedComponents].join("、"));
-          document.getElementById("statusLoadError").hidden = false;
-          text("statusLoadAnnouncement", "页面未能启动，请重新加载页面。");
+          text("statusLoadLabel", label);
+          text("statusLoadDetail", detail);
+          text("statusLoadError", error);
+          document.getElementById("statusLoadError").hidden = !error;
+          text("statusLoadAnnouncement", label + "，请重新加载页面。");
           text("refreshBtnLabel", "重新加载页面");
           button.disabled = false;
           button.setAttribute("aria-busy", "false");
           button.setAttribute("aria-label", "重新加载页面");
           button.title = "重新打开页面，不会再次提交任务";
+        }
+        function timeout() {
+          if (handedOff || failedComponents.size || timedOut) return;
+          timedOut = true;
+          showFailure("页面启动超时", "等待 " + timeoutSeconds + " 秒后，页面仍未就绪。请重新加载页面；此操作不会再次提交任务。", "");
+        }
+        const timer = setTimeout(timeout, timeoutSeconds * 1000);
+        function fail(source) {
+          let url;
+          try { url = new URL(source, location.href); } catch { return; }
+          if (url.origin !== location.origin || !url.pathname.endsWith(".js")) return;
+          clearTimeout(timer);
+          if (timedOut) return;
+          const component = url.pathname.split("/").pop().slice(0, 96);
+          failedComponents.add(component);
+          showFailure("页面未能启动", "页面组件未能加载或执行。请重新加载页面；此操作不会再次提交任务。", "需要重新加载的组件：" + [...failedComponents].join("、"));
         }
         function onError(event) {
           if (handedOff) return;
@@ -1671,7 +1686,7 @@
           // Keep the browser's original error visible in the console.
         }
         function reload(event) {
-          if (!failedComponents.size) return;
+          if (!failedComponents.size && !timedOut) return;
           event.preventDefault();
           event.stopImmediatePropagation();
           location.reload();
@@ -1679,13 +1694,19 @@
         window.addEventListener("error", onError, true);
         button.addEventListener("click", reload, true);
         window.RelayGraphBootFeedback = Object.freeze({
-          get failed() { return failedComponents.size > 0; },
+          get failed() {
+            if (!handedOff && performance.now() >= deadline) timeout();
+            return timedOut || failedComponents.size > 0;
+          },
           complete() {
-            if (failedComponents.size) return;
+            if (!handedOff && performance.now() >= deadline) timeout();
+            if (timedOut || failedComponents.size) return false;
             handedOff = true;
+            clearTimeout(timer);
             window.removeEventListener("error", onError, true);
             button.removeEventListener("click", reload, true);
             button.disabled = false;
+            return true;
           },
         });
       })();
@@ -1810,6 +1831,6 @@
     <script src="/transfer/transfer_progress_markup.js?v=20260706transferprogressmarkup"></script>
     <script src="/transfer/transfer_surface_actions.js?v=20260707transfersurfaceactions"></script>
     <script src="/core/status_load_feedback.js?v=20261014n13c2ui"></script>
-    <script src="/core/app.js?v=20261107n04i3"></script>
+    <script src="/core/app.js?v=20261107n04i5ui"></script>
   </body>
 </html>

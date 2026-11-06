@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-I5 已交付独立页面启动预算校验与首页meta；前端计时尚未接入，pending脚本仍无应用层截止。唯一下一片 N04-I5-UI：接入现有boot保护的单次计时、超时锁存与显式重载。历史G33未证同因，N04未完成。
+当前执行指针：N04-I5-UI 已交付页面启动单次计时、超时锁存与显式重载，默认30秒真实pending/迟到/键盘reload及旧错误回归通过。唯一下一片 N04-Q5：原始N04需求与当前代码证据总核，补当前源码自然CPU网页链及重启。历史G33未证同因，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -279,6 +279,8 @@ N04-I3（2026-11-07）限定修复前置故障可见性：index在全部外部�
 当前源码额外正常CPU网页回归`dev_work/artifacts/n04q2bui-i3-regression-20261107-010752/normal/`，run `20261107-010755-65de6490`：真实可见启动→原门禁/HTTP/scheduler/tmux→父/child/follow完成，3受控模型请求/1Job/父follow各a1/实物start一次，实际回放下载/原日志/刷新重启attempt一致，无pageerror。此新链与只读故障夹具分开，不拿受控模型回答证明理解。boot范围/原文隐私/锁存/capture重载/正常接管契约及J1/F/G/H、P1十四回归，inline/app语法、121外部引用/顺序均通过；未重跑无关后端套件。skill沿用已核Apache2的frontend-design，仅指导动作与可读性，无新运行依赖；源码仍292文件，相关index/app台账更新。
 
 I3只覆盖明确error的启动分支；内联本身无法执行、脚本一直pending不error、历史G33自然复现、手机/全站/3.10完整后端未验，不据此关历史原因。唯一下一I4先诊断必需脚本不完成/不报错窗口，正常对照与故障辅助区分，不先加watchdog或改变API预算。测试/config/数据/截图均本地，第一部分稳定，child-count不动，N04保持进行中。
+
+N04-I5-UI（2026-11-07）沿现有inline guard消费独立meta，单timer从保护开始到同步装配；超时“页面启动超时”/原按钮“重新加载页面”，锁存后迟到app不bootstrap。getter与complete均核deadline，后者false由app消费，防同步装配跨截止后仍接管；正常complete/error清timer，API反馈沿旧路径。真实正式服务+Chromium默认30秒，固定app/helper网络延迟35.0029/35.0031秒，在31.2421/31.2415秒已超时且可reload、无目标finish/error和api/status；自然返回后仍锁存、实际Enter一次document reload恢复原UI选择。正常31秒后不误超时。产物 `dev_work/artifacts/n04i5ui-20261107-014010/`；1440/768截图/键盘焦点/无横溢出已核。I3全回归 `n04i3-20261107-014031/`，五脚本故障及API失败恢复均通过；两轮隔离旧终态数据，各三SQL表4/4/4完整行与4Jobs不变。故障为route固定延迟/abort/MIME/语法/半绑定注入，不冒充自然故障；无新任务/Provider或手填终态。VM核timer未获执行时截止、取消/锁存/meta界限，node检查及121引用通过。showFailure消融重复按钮/文案，保留既有唯一状态反馈；未新增加载器/重试/推进器。详情本地n04i5ui-result。HTML未到达/主线程死循环不保证，超时不等于后台失败；历史G33未证同因。唯一下一片Q5按原目标核证，不先宣称N04完成。
 
 N04-I5（2026-11-07）已新增独立 `app.page_startup_timeout_seconds` 默认30、严格整数1..300，旧配置缺省兼容；沿唯一首页send_head输出独立meta，原status预算不变。配置与真实Handler HTTP本地15项通过：缺省/边界/非法类型、GET/HEAD两首页以新17/旧41核独立值、长度/no-store/无占位。隔离STATE仅含config，无后台调度/任务/Provider，不能冒充完整应用或浏览器验收。compileall通过，根pytest无测试退出5不算通过。本地 `dev_work/reports/n04i5-result.md` 与contract输出保存过程。尚无timer，pending缺口仍开放；唯一下一片I5-UI。未新增加载器/API/状态机，原status消费者保留；新meta仅预留给紧接的前端片。
 
@@ -1147,7 +1149,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1815 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本；P1-UI更新actions/replay/app/styles缓存版本，无新增脚本。 Q2b-UI更新4个已改JS缓存版本，无新脚本。 I3内联前置脚本故障保护、原顶部启动/重载、121外部引用不变；app缓存更新。I5只增独立启动预算meta，timer尚未接入。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
+| [index.html](../web/index.html) · 1836 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1/K2及M1-UI各只更新app缓存版本；P1-UI更新actions/replay/app/styles缓存版本，无新增脚本。 Q2b-UI更新4个已改JS缓存版本，无新脚本。 I3内联前置脚本故障保护、原顶部启动/重载、121外部引用不变；app缓存更新。I5增独立启动预算meta；I5-UI单timer/超时锁存/截止复核，抽共用showFailure，正常清timer交接、迟到不接管，app缓存同步。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
 
 ### web/config-center
 
@@ -1167,7 +1169,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26536 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 P1-UI仅原实例reader装配actions.syncRunReplay，已加载打开回放按生命周期重读，复用原焦点/滚动恢复。 Q2b-UI只把根运行摘要状态标签接既有workspaceStatusLabel。 I3仅末尾前置失败门禁、同步装配后交回原bootstrap；正常CPU链与原读取行为已验。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
+| [app.js](../web/core/app.js) · 26537 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 P1-UI仅原实例reader装配actions.syncRunReplay，已加载打开回放按生命周期重读，复用原焦点/滚动恢复。 Q2b-UI只把根运行摘要状态标签接既有workspaceStatusLabel。 I3仅末尾前置失败门禁、同步装配后交回原bootstrap；正常CPU链与原读取行为已验。I5-UI仅消费complete成功信号，跨deadline不启动bootstrap/poller；旧API错误恢复保持。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 63 | R12；用户事件/注入依赖 → 顶层导航动作 → 唯一回调 | N13B3a删除已退出moduleCards的委托绑定；其他导航保持，实际独立编辑入口由shell actions绑定。 | bind |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch/浏览器存储 → 页面结果 | 原通用fetchJson不自带deadline；N13C2外层标准signal透传/正文取消合同通过，本文件不改，不冒称其他调用都获预算。存储仍[G19](#g19)。 | fetchJson/loadStoredValue/saveStoredValue |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |
@@ -1314,7 +1316,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件 | 检查结论与解决方向 |
 | --- | --- |
-| [config/servers.toml](../config/servers.toml) | R01/R10/R12/R13/R14；安全本地默认/SSH发现、N07A报告目录示例；N13C2公开status_load_timeout_seconds=30与1–300/重启生效说明；I5公开独立page_startup_timeout_seconds=30及未接timer边界，无真实目录/凭据。 |
+| [config/servers.toml](../config/servers.toml) | R01/R10/R12/R13/R14；安全本地默认/SSH发现、N07A报告目录示例；N13C2公开status_load_timeout_seconds=30与1–300/重启生效说明；I5公开独立page_startup_timeout_seconds=30，I5-UI同步超时显式reload/不影响后台及计时边界注释，无真实目录/凭据。 |
 | [config/user_servers.example.toml](../config/user_servers.example.toml) | R01/R13；保留覆盖模板；后续输入校验统一，实际用户覆盖仍忽略。 |
 | [config/secrets.example.toml](../config/secrets.example.toml) | R13；保留 SSH 密码格式示例；不等于推荐明文密码，真实 secrets 不入库。 |
 | [data/agent_definitions.json](../data/agent_definitions.json) | R03；保留公开 Agent 目录；与真实 adapter/Provider 绑定校验，关联 G10/G11。 |
@@ -1326,7 +1328,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 ### 台账完整性与维护
 
-正式代码台账包含 292 行，一文件一行；README.md同步真实能力/报告配置与API及M2b四直接依赖/请求期限边界、I5独立启动预算与未接timer边界，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
+正式代码台账包含 292 行，一文件一行；README.md同步真实能力/报告配置与API及M2b四直接依赖/请求期限边界、I5独立启动预算及I5-UI超时重载/后台与主线程边界，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
 ### N03B2c2c-UI：ready 隔离执行包的真实启动闭环（已验收）
 
 对应 R06/R12、G10/G11/G26。使用独立 `TOTAL_CONTROL_DATA_DIR`、端口 8771、本机 CPU 主机和显式 `tools=[]` 报告 Agent；夹具先经正式 automation/apply，再用公开工作区更新接口恢复空 allowlist，最后由 `/cockpit` 读取 `execution_bundle.ready_to_execute=true` 且 `missing=[]`。浏览器只通过可见驾驶舱点击，API 仅用于准备、观察和重放核对。
