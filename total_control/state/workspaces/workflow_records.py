@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from ...agent_runtime import agent_run_is_active
 from ...orchestration.run_store import RunConflictError, RunStoreError, content_hash
 from ...orchestration.job_coordinator import (
     AGENT_CHILD_JOB_ENGINE_VERSION,
@@ -174,6 +175,37 @@ class WorkflowRecordsMixin:
             raise RunConflictError("durable Job receipt identity conflict")
         return job
 
+    def _active_child_submission(self, evidence: dict[str, Any], intent: dict[str, Any]) -> bool:
+        """Recognize only the current process's exact N04 in-flight submission.
+
+        This is a momentary projection hint, never permission to replay a claim.
+        Persisted claims alone cannot establish liveness after a restart.
+        """
+        plan = evidence["plan"]
+        if (plan["engine_version"] != AGENT_CHILD_JOB_ENGINE_VERSION
+                or evidence["error"] or evidence["record"].get("continuation_stop")
+                or len(evidence["attempts"]) != 1 or len(evidence["submissions"]) != 1):
+            return False
+        parent = plan["steps"][0]
+        attempt = evidence["attempts"][0]
+        result = attempt["result"]
+        execution_id = f"{plan['run_id']}:{parent['step_id']}:a{attempt['attempt_no']}"
+        return bool(
+            parent["executor"] == "agent" and parent["index"] == 0
+            and attempt["step_id"] == parent["step_id"]
+            and attempt["status"] == result.get("status") == "running"
+            and result.get("invocation_state") == "claimed"
+            and result.get("agent_execution_id") == execution_id
+            and not result.get("error") and not result.get("child_submission_error")
+            and intent["run_id"] == plan["run_id"]
+            and intent["step_id"] == parent["step_id"]
+            and intent["attempt_no"] == attempt["attempt_no"]
+            and intent["operation"] == "child-job" and intent["state"] == "submitting"
+            and intent["submit_key"] == f"{plan['run_id']}/{parent['step_id']}/a{attempt['attempt_no']}/child-job"
+            and not intent["external_ref"] and not intent["error"]
+            and agent_run_is_active(execution_id)
+        )
+
     def project_workflow_run(self, workspace_id: str, run_id: str) -> dict[str, Any]:
         evidence = self.execution_store.read(run_id)
         plan = evidence["plan"]
@@ -194,8 +226,12 @@ class WorkflowRecordsMixin:
                 result["job_id"] = intent["external_ref"]
             status = result.get("status") or (latest["status"] if latest else "skipped" if planned["executor"] == "skip" else "pending")
             if intent and intent["state"] in {"submitting", "reconciling"}:
-                status = "blocked"
-                result.update(runtime_status="reconciling", error=intent["error"] or "Job submission requires reconciliation")
+                if self._active_child_submission(evidence, intent):
+                    status = "running"
+                    result.update(runtime_status="submitting")
+                else:
+                    status = "blocked"
+                    result.update(runtime_status="reconciling", error=intent["error"] or "Job submission requires reconciliation")
             if latest and plan.get("report_output_root") and node.get("kind") == "eval.report" and status == "done":
                 output = result.get("output_value", {})
                 if output.get("storage") == "inline-answer":
@@ -246,7 +282,8 @@ class WorkflowRecordsMixin:
             job = self._job_for_submission(intent, workspace_id)
             if job:
                 self.execution_store.bind_submission(intent["submit_key"], job["id"])
-            elif intent["state"] in {"submitting", "reconciling", "submitted"}:
+            elif (intent["state"] in {"submitting", "reconciling", "submitted"}
+                  and not self._active_child_submission(evidence, intent)):
                 self.execution_store.reconcile_submission(intent["submit_key"], "Job receipt missing; automatic resubmission refused")
 
     def refresh_workflow_records(self, workspace: dict[str, Any]) -> None:

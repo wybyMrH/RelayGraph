@@ -11,6 +11,7 @@
     blocked: "等待 Profile",
     queued: "等待中",
     starting: "启动中",
+    submitting: "提交中",
     running: "运行中",
     done: "已完成",
     completed: "已完成",

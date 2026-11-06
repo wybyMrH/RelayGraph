@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-C1已限定验收OpenAI-compatible application/json正文响应，复用既有解析且不重发，非法/原生工具结构明确失败。真实网页SSE/JSON两链均等待child完成并重启续跑；过程中另确认G34活动提交也被投影为blocked。唯一下一片N04-J1先区分当前活动提交与真正未知收据，不改低恢复门禁；G33原因、N04-B总验收及其他协议/控制边界仍开放。
+当前执行指针：N04-J1后端已限定验收：精确身份且本进程原Agent仍活动的child提交显示running/submitting，不再误报待核对；真正未知仍blocked，绝不盲目重提。自然网页CPU链及提交前/后中断恢复对照已验证。唯一下一片N04-J1-UI独立优化提交、等待与未知的可见说明；G34界面验收、G33原因与N04总体仍开放。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -95,7 +95,14 @@ N04-C1（2026-11-06）：真实HTTP复现 `dev_work/artifacts/n04c1-probe-202611
 
 - 对齐R06/R12，类别：过程状态误导；E1真实浏览器/HTTP快照，E2源码。`state/workspaces/workflow_records.py.project_workflow_run` 对submitting与reconciling一律投影blocked及“Job submission requires reconciliation”，即使本进程父Agent正在原提交中、attempt recorded_status仍running且无错误。
 - C1最终SSE/JSON各采到一次该窗口，随后沿原提交正常完成，未人工补记录/改状态。原blocked保护不能整体删除：服务崩溃后的同一submitting/旧claim确实可能未知，不能把它显示为正在执行或自动重提。
-- 唯一下一片N04-J1先核现有`agent_run_is_active`与execution_id、run/step/attempt/intent绑定是否足以证明当前活动；只收敛这一投影边界，不新增活性注册器/调度器。重启、缺活动标志、身份不符或真正reconciling仍保守待核对；如果无法可靠区分则先留调查结论，不假装修复。后端若新增可见状态呈现，下一片独立UI验收后再扩功能。
+- N04-J1后端限定修复：复用现有进程内`agent_run_is_active`，仅在N04引擎、唯一父attempt/child-job intent、精确run/step/attempt/execution_id/submit_key、running+claimed、无错误/停止/外部回执且intent仍submitting时，公开running/runtime_status=submitting。共用一个严格predicate供投影和原收据核对入口使用；核对先找真实Job，找到仍按原身份/摘要绑定，未找到且原提交仍活动才保留submitting。没有新增注册器、存储、推进器或重试；RunStore读取仍先校验计划/载荷摘要。缺活动标志、重启旧claim、真正reconciling、其他engine、多attempt/intent或身份不符不豁免。
+- 活性是瞬时提示，不是持久事实或重放许可。检查后活动标志刚释放可能延后一轮未知核对，下次读取仍保守；不声称活性检查与跨存储提交原子。最小消费者只增加“提交中”标签及缓存版本，完整界面尚未交付，唯一下一片N04-J1-UI。
+
+N04-J1证据（2026-11-06）：`dev_work/artifacts/n04j1-natural-20261106-193117/`真实Chromium点击启动，经受控JSON Provider和原HTTP/scheduler/tmux运行本机CPU链。100次HTTP观测自然捕获1次submitting、0次blocked；1个child/1次实际追加、3次Provider请求、父/follow各1attempt、完整计划2步。child运行中重启并同键重放，完成后再重启/重放仍同run/Job/attempt；follow实际映射等于本次持久父输出，含620字之后的运行时随机END。20ms采样仅捕获短窗口，不是性能结论。1440/768截图与无pageerror是既有消费者回归，不代替J1-UI、完整移动导航/键盘验收；本轮未自然复现G33，不能关闭。
+
+故障对照`dev_work/artifacts/n04j1-faults-20261106-193412/`：本地wrapper仅暂停真实create_job前，或允许真实Job写入后拦住匹配的bind_submission；不直接写状态、不关门禁、不补终态。提交前3次GET/同键POST保持原活动提交，0Job/1次Provider；SIGKILL后用正常服务入口重启，8次观察仍blocked/reconciling、0Job、1次Provider、follow pending，不盲目重提。提交后先只读SQLite与真实jobs记录确认submitting/空ref但已有1Job，再SIGKILL；正常入口按原metadata/key/hash绑定同一Job并恢复到两步done，1次实际追加。该链共2次Provider请求：父第一次工具调用后被中断，第二次是follow，未发生父第二次模型调用；实际follow输入与恢复后持久父输出相等。尚未返回的完整父模型trace不能凭空恢复，wrapper也不是产品暂停/恢复功能。首轮193228故障脚本误把POST重放之前的旧GET当重放结果，保留失败；后改为绑定屏障固定真实故障点，只修本地观察条件。
+
+24项J1契约与D/E/F/G/H合计97项通过，覆盖真实SQLite/活动注册、释放、独立进程不继承活动、身份/错误/多intent/其他engine及摘要损坏拒绝；这些受控夹具不冒充真实恢复。compileall、相关JS语法、原merge在running/submitting与blocked/reconciling间转换、121脚本存在/加载顺序通过；根pytest无用例退出5不计通过。受控Provider只证明流程，不证明真实模型理解；Python3.10完整后端、真实供应商/SSH/GPU未验收。代码、公开标签及二/三文档提交，测试/结果/配置仅本地。
 
 <a id="g31"></a>
 ### G31 · P1 · child Job 显式 CPU 目标被执行包默认覆盖（N04-D 后端及 N04-D-UI 已限定验收）
@@ -733,7 +740,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 471 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)、[G31](#g31)；N04-D 接显式目标并同步 payload/runtime_binding/resource_plan；普通默认解析对照不变。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 665 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
 | [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 两 Agent handoff 计划可经真实 HTTP 受理；旧单 Job/Job→报告入口不变。N04-D 已限定验证 CPU 目标保真和等待中恢复；正文/UI/其他恢复窗口仍待 G02 后续片。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 742 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；C1发现活动submitting也无条件投blocked（G34），下一片先核当前活性/身份而不删除未知收据保护。本文件本片未改。N04全验收仍未完成，见G02/G04/G30/G31/G32/G34。 | `WorkflowRecordsMixin:21` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 779 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；J1复用进程活动标志及精确身份的共用predicate，活动原提交投running/submitting且不被核对入口提前改未知；真实Job优先核对，重启/未知保护保留。自然网页及提交前后SIGKILL对照通过，UI独立待验收。N04全验收仍未完成，见G02/G04/G30/G31/G32/G34。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 
@@ -848,7 +855,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；121脚本引用与顺序已核对。无新网络/状态页。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
+| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
 
 ### web/config-center
 
@@ -875,7 +882,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [status_load_feedback.js](../web/core/status_load_feedback.js) · 59 | R12/规格§3；显式读取投影/busy/DOM → 安全文字与按钮反馈 → 加载/失败/超时/完成/替代展示 | N13C2-UI新无状态renderer，textContent保留完整错误；无网络/计时器/缓存/领域判断。app唯一实际消费者，原混合写入退出；合同/四视口/键盘验证通过。 | AppStatusFeedback.describe/render |
 | [display_formatters.js](../web/core/display_formatters.js) · 57 | R12；页面数据/注入依赖 → 单位/时间/摘要格式 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `fmtMiB:4`；`formatBytes:10` |
 | [input_parsers.js](../web/core/input_parsers.js) · 38 | R12；页面数据/注入依赖 → 基础输入解析 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `positiveNumberOrBlank:4`；`parseLineList:9` |
-| [status_labels.js](../web/core/status_labels.js) · 91 | R12；页面数据/注入依赖 → 公开状态文案 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `zhStatus:30`；`zhKind:34` |
+| [status_labels.js](../web/core/status_labels.js) · 92 | R12；页面数据/注入依赖 → 公开状态文案 → 派生状态/界面结果 | J1仅增加submitting“提交中”文案；原merge转换与脚本装配契约通过，完整J1-UI待独立验收。保留公共标签，不新建状态合并器。 | `zhStatus:30`；`zhKind:34` |
 
 ### web/monitoring
 
