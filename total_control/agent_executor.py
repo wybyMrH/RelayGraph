@@ -262,8 +262,7 @@ class AgentExecutor:
         Returns:
             AgentExecutionResult with the execution trace and result
         """
-        start_time = datetime.now()
-        report_started = time.monotonic()
+        started = time.monotonic()
         steps: list[AgentStep] = []
         total_tokens = 0
 
@@ -307,40 +306,33 @@ class AgentExecutor:
         ]
         last_model = ""
 
+        def received_response(response: LLMResponse) -> LLMResponse:
+            nonlocal total_tokens, last_model
+            total_tokens += response.total_tokens
+            last_model = getattr(response, "model", "") or last_model
+            return response
+
+        def control_result() -> AgentExecutionResult | None:
+            # Calls already in flight are not interrupted. Refuse the next effect
+            # or success using the original cancellation signal and total budget.
+            cancelled = bool(self.cancel_check and self.cancel_check())
+            elapsed = time.monotonic() - started
+            timed_out = self.timeout_seconds is not None and elapsed >= self.timeout_seconds
+            if not cancelled and not timed_out:
+                return None
+            timeout_error = ("agent deadline exceeded" if self.single_call
+                             else f"agent timeout after {self.timeout_seconds}s")
+            return AgentExecutionResult(
+                success=False, final_answer="", steps=steps, total_tokens=total_tokens,
+                total_steps=len(steps), error="agent cancelled" if cancelled else timeout_error,
+                execution_time_ms=elapsed * 1000, max_iterations=self.max_iterations,
+                timeout_seconds=self.timeout_seconds or 0.0, cancelled=cancelled,
+                timed_out=timed_out, model=last_model,
+            )
+
         for iteration in range(self.max_iterations):
-            # Cancel/timeout checks happen between iterations, so a long single
-            # provider/tool call is not interrupted mid-flight but the loop yields
-            # control before the next step.
-            if self.cancel_check and self.cancel_check():
-                return AgentExecutionResult(
-                    success=False,
-                    final_answer="",
-                    steps=steps,
-                    total_tokens=total_tokens,
-                    total_steps=len(steps),
-                    error="agent cancelled",
-                    execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
-                    max_iterations=self.max_iterations,
-                    timeout_seconds=self.timeout_seconds or 0.0,
-                    cancelled=True,
-                    model=last_model,
-                )
-            elapsed = (time.monotonic() - report_started if self.single_call
-                       else (datetime.now() - start_time).total_seconds())
-            if self.timeout_seconds is not None and elapsed > self.timeout_seconds:
-                return AgentExecutionResult(
-                    success=False,
-                    final_answer="",
-                    steps=steps,
-                    total_tokens=total_tokens,
-                    total_steps=len(steps),
-                    error=f"agent timeout after {self.timeout_seconds}s",
-                    execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
-                    max_iterations=self.max_iterations,
-                    timeout_seconds=self.timeout_seconds,
-                    timed_out=True,
-                    model=last_model,
-                )
+            if stopped := control_result():
+                return stopped
             # Call LLM
             if self.token_callback or self.event_callback:
                 stream_state = {"mode": "undecided"}
@@ -367,26 +359,17 @@ class AgentExecutor:
                         accumulated=text,
                     )
 
-                response = self.llm_client.chat_stream(messages, on_delta=on_stream_delta)
+                response = received_response(self.llm_client.chat_stream(messages, on_delta=on_stream_delta))
                 if (not self.single_call and not response.success and not response.content
                         and not getattr(response, "raw_response", {}).get("protocol_error")):
-                    response = self.llm_client.chat(messages)
+                    if stopped := control_result():
+                        return stopped
+                    response = received_response(self.llm_client.chat(messages))
             else:
-                response = self.llm_client.chat(messages)
+                response = received_response(self.llm_client.chat(messages))
 
-            # The report-only path permits one provider call and no tool effects.
-            # Recheck after the blocking call; a late answer is not a successful run.
-            if self.single_call:
-                cancelled = bool(self.cancel_check and self.cancel_check())
-                elapsed = time.monotonic() - report_started
-                timed_out = self.timeout_seconds is not None and elapsed > self.timeout_seconds
-                if cancelled or timed_out:
-                    return AgentExecutionResult(
-                        success=False, final_answer="", steps=steps, total_tokens=total_tokens,
-                        error="agent cancelled" if cancelled else "agent deadline exceeded",
-                        cancelled=cancelled, timed_out=timed_out, execution_time_ms=elapsed * 1000,
-                        max_iterations=self.max_iterations, model=getattr(response, "model", ""),
-                    )
+            if stopped := control_result():
+                return stopped
 
             if not response.success:
                 return AgentExecutionResult(
@@ -396,15 +379,11 @@ class AgentExecutor:
                     total_tokens=total_tokens,
                     total_steps=len(steps),
                     error=f"LLM error: {response.error}",
-                    execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+                    execution_time_ms=(time.monotonic() - started) * 1000,
                     max_iterations=self.max_iterations,
                     timeout_seconds=self.timeout_seconds or 0.0,
                     model=last_model,
                 )
-
-            total_tokens += response.total_tokens
-            if getattr(response, "model", ""):
-                last_model = response.model
 
             # Check if we have a final answer (no tool call)
             tool_call = self._parse_tool_call(response.content)
@@ -413,12 +392,14 @@ class AgentExecutor:
                 return AgentExecutionResult(
                     success=False, final_answer="", steps=steps, total_tokens=total_tokens,
                     error="single-call report does not permit tool calls",
-                    execution_time_ms=(time.monotonic() - report_started) * 1000,
+                    execution_time_ms=(time.monotonic() - started) * 1000,
                     max_iterations=self.max_iterations, model=last_model,
                 )  # Do not publish raw arguments or create a tool trace for this mode.
 
             if not tool_call:
                 # No tool call = final answer
+                if stopped := control_result():
+                    return stopped
                 final_answer = str(response.content or "")
                 if final_answer.strip():
                     self._emit_trace_event(
@@ -426,7 +407,9 @@ class AgentExecutor:
                         step_number=len(steps) + 1,
                         accumulated=final_answer,
                     )
-                execution_time = (datetime.now() - start_time).total_seconds() * 1000
+                if stopped := control_result():
+                    return stopped
+                execution_time = (time.monotonic() - started) * 1000
                 return AgentExecutionResult(
                     success=True,
                     final_answer=final_answer,
@@ -456,6 +439,8 @@ class AgentExecutor:
             step.side_effect = _tool_side_effect(tool_id)
             step.controlled = step.side_effect == ToolSideEffect.MUTATE_RUNTIME.value
 
+            if stopped := control_result():
+                return stopped
             self._emit_trace_event(
                 "agent.tool.called",
                 step_number=step.step_number,
@@ -466,6 +451,8 @@ class AgentExecutor:
             )
 
             # Execute tool and get observation
+            if stopped := control_result():
+                return stopped
             observation = self._execute_tool(tool_id, arguments)
             step.observation = observation
             runtime_metadata = _tool_runtime_metadata(observation)
@@ -491,13 +478,15 @@ class AgentExecutor:
             steps.append(step)
             if self.step_callback:
                 self.step_callback(step)
+            if stopped := control_result():
+                return stopped
 
             # Add to conversation history
             messages.append(ChatMessage(role="assistant", content=response.content))
             messages.append(ChatMessage(role="user", content=f"Tool result:\n{observation}"))
 
         # Max iterations reached
-        execution_time = (datetime.now() - start_time).total_seconds() * 1000
+        execution_time = (time.monotonic() - started) * 1000
         return AgentExecutionResult(
             success=False,
             final_answer="",
