@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-G与G-UI已限定验收，本次有界日志进入follow实际请求，页面展示冻结文本与完整性，普通/超长CPU链已通过真实浏览器验证。唯一下一片为 **N04-H：等待child时停止父流程的持久语义**，后端后再做独立H-UI；N04整体仍开放。
+当前执行指针：N04-H后端已限定验收，等待child时可显式keep_running停止后续流程，持久回执跨重启且不影响child独立生命周期。唯一下一片为 **N04-H-UI：停止后续流程入口与独立子任务状态**，先界面验收再推进新后端能力；N04整体仍开放。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -869,11 +869,25 @@ RunStore只保存first-error及校验结果不可丢弃/成功覆盖，不解释
 
 本地n04gui_contract.cjs覆盖状态/完整性矛盾/schema/身份/旧/空/转义/展开键，F-UI回归、相关node --check、121脚本引用/顺序、diff通过。n04gui_layout.py在1440/768/390独立夹具验证缺失/读取失败/长主机/长正文/旧/完整空；dev_work/artifacts/n04gui-layout-20261106-175201/不是实际磁盘故障或完整移动导航证据。首次浏览器脚本错误假定输入用文本标题分段，实际是既有JSON封装，改脚本后完整重跑，产品未为断言改schema。历史回放点击、真实供应商、SSH/GPU与Python3.10完整运行本片未测。前端片不重跑无关Python任务；根pytest仍无用例，不记通过。脚本/配置/结果不提交，第一部分不改。N04整体仍未完成。
 
-### N04-H：等待child时停止父流程的持久语义（唯一下一片，未实现）
+### N04-H：等待child时停止父流程的持久语义（后端已限定验收）
 
-对应R06/R09/R11、G02/G04。先核对现有cancel_agent_execution的进程内信号、已结束父Agent与waiting parent attempt、Job停止入口及其消费者，复现等待时取消能否阻止follow；不把inactive Agent信号返回当作工作流已停止。只做一个“停止后续流程”的持久父run意图：重复请求/服务重启后仍禁止新的follow attempt，保留已提交child事实，并明确这不自动停止child；child停止仍走既有Job生命周期入口，不造第二执行器。请求取消不等于外部任务已停，未知提交/已claim follow等边界须先审查并明确拒绝或等待核对，不能伪造终态。此片不扩展通用deadline、多child或Provider协议。
+对应R06/R09/R11/R12、G02/G04；开片见本地dev_work/reports/n04h-opening.md。范围仅run_store.py、job_coordinator.py、workflow_records.py、post_routes.py、workspace/execution/run_records.py及二三文档，稳定规格不改。旧Agent cancel只发活动调用的内存信号，父返回后的waiting不能靠它停止后续，因此新增单一明确动作，不将其改成暗含级联停止。
 
-开片先列精确文件、状态变更/迁移影响及验收；先真实HTTP/tmux验证waiting窗口的停止、重复请求、重启、child继续/单独停止和follow不调用，保留完整计划/身份/证据。公开API与必要消费者最小同步后更新台账并只读监督；任何可见动作/状态需独立H-UI浏览器片后再推进依赖能力，不把后端完成当界面交付。上面是下一片目标，尚无完成声明；若现有状态模型不支持，先记录实证并调整边界，不能为现有实现降低规格。
+**接口**：POST `/api/workspaces/{workspace_id}/runs/{run_id}/stop-continuation`，JSON为 `{"parent_attempt_id":"a1","child_job_id":"本次Job ID","child_policy":"keep_running"}`。parent/Job身份必须精确，policy只支持keep_running；无/不合法参数400，其他workspace/不存在记录沿当前ValueError封装400，状态/身份/锁busy冲突409，不支持的其他engine拒绝。成功200返回run、continuation_stop（run/step/attempt/child/policy/status/stopped_at）、replayed及child_stop_requested=false；不是子任务停止回执。精确重复返回原回执/时间，不以新的child状态重做受理。
+
+**状态与并发**：只受理N04唯一父attempt已waiting_child、唯一submitted且精确metadata核对的child、无提交错误/未知、无follow attempt的窗口；child刚done且follow尚未开始允许。验证时child已failed/stopped/unknown则拒绝，保留原观察原因；已claim follow或协调器忙也拒绝，不承诺立即打断网络。先run_lock再短self.lock读取workspace/Job；事务复核plan/hash/engine、waiting状态/唯一intent/无其他attempt，原子写父attempt stopped和record.continuation_stop。父stopped含义是后续推进已经禁止，不是child stopped。保留trace/output/receipt、完整两步，follow仍pending且没有假attempt；进度0/2不显示成功100%。Job状态核对与SQLite写不是跨存储原子，child在其后失败/停止仍保持独立事实。
+
+唯一图在原run_lock内读marker后no-op，不恢复旧检查点去调用follow；store在新begin/claim/prepare入口共享一个停止守卫，防其他句柄新开副作用，同输入旧terminal attempt可继续读取，直接resume也按stopped早退。没有新推进器/轮询/取消线程。SQLite schema仍2，marker在已有JSON内增加，旧run无marker不变；公共normalizer保留新字段，现有前端merge和父/child独立状态兼容，尚无新按钮。原Job stop与Agent cancel仍各有独立消费者，保留，不抽一个混淆语义的统一停止器。
+
+**实际验收**：73项本地pytest（H19+D/E/F/G54）通过：stop/new follow两独立store句柄竞争只允许一个成功、plan engine事务复核、写入record故障回滚父状态、commit后投影失败重发、未知/不匹配/已claim拒绝、旧callback早退、schema/公共字段。真实HTTP→受控SSE Provider→scheduler/tmux三条CPU链：①停止父后续，child继续到done；②停止后续后经原Job stop使child stopped；③正常对照等待follow请求已到Provider，此时stop409，放行后整链done，终态stop仍409。两停止链各2次父模型请求、1child/1追加、只有父1attempt，follow pending/零调用；分别waiting中及child终态后真实重启、原run请求重放、重复stop和多次调度后不变。正常链3次请求/2attempt/1Job/1追加、2/2 done。每链先确认旧Agent cancel返回404/inactive，不能把它当停止成功；外部进程真实持flock时新入口409，释放后正常受理。没有关闭门禁、手填终态或补回执，Provider固定回复不代表真实模型能力。
+
+证据仅本地dev_work/artifacts/n04h-20261106-180914/，契约及smoke仅dev_work/smokes/test_n04h_stop.py、n04h_http.py、n04h_consumer.cjs。首次本地脚本按文件路径调用缺仓库import、随后过早读取未生成jobs.json、注入锁与scheduler竞争未等待分别失败；仅改脚本为模块调用、正式GET /api/jobs和有限获取注入锁后完整重跑，产品未改来迎合断言。缺失/SQLite写故障/并发store/刚done窗口是契约注入，未假称实际HTTP磁盘故障。compileall、原前端merge兼容与F-UI契约、diff/文档链接通过；根pytest无用例退出5不记通过。未运行新动作浏览器、活动父或follow强停、真实Provider、SSH/GPU/Python3.10部署，通用预算/网络取消、其他恢复窗口仍开放。
+
+### N04-H-UI：停止后续流程入口与独立子任务状态（唯一下一片，未实现）
+
+先列真实run/parent attempt/child引用、continuation_stop、当前子任务状态和409/网络失败动作，使用合适frontend-design指导简单布局。只在N04等待且引用完整时提供“停止后续流程”，显式说明“子任务继续运行”；提交中禁重复，成功后按后端run/receipt展示“后续流程已停止”，子任务区继续显示自身运行/完成/停止。已开始follow的409要保留原run并刷新真实状态，不能前端先改stopped。响应未知先读取原run核对，不自造成功；旧Job停止入口仍控制子任务，不把两个动作写成同一按钮。不得顺带补活动Agent强停或全站按钮。
+
+先核调用者、画状态/输入/动作草图并开片监督；真实网页启动、等待时点击、重复/刷新/重启、child继续及单独停止、busy/已claim拒绝、桌面/窄窗/键盘/长错误验收。只有前端片通过后才推进Provider协议等后续N04小片；N04-H后端通过不等于界面交付。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 

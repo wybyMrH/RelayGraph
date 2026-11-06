@@ -193,6 +193,7 @@ class RunStore:
                 if last["inputs_json"] != canonical_json(inputs):
                     raise RunConflictError("attempt identity reused with different input provenance")
                 return last["attempt_no"]
+            self._require_continuation_enabled(db, run_id)
             if last and last["status"] not in self.TERMINAL:
                 raise RunConflictError("active attempt must be reconciled before retry")
             number = last["attempt_no"] + 1 if last else 1
@@ -247,11 +248,76 @@ class RunStore:
         result = {"node_id": step_id, "status": "running", "executor": "agent",
                   "agent_execution_id": execution_id, "invocation_state": "claimed"}
         with self._db(write=True) as db:
+            self._require_continuation_enabled(db, run_id)
             return db.execute(
                 "UPDATE attempts SET result_json=?,updated_at=? "
                 "WHERE run_id=? AND step_id=? AND attempt_no=? AND status='running' AND result_json='{}'",
                 (canonical_json(result), now_iso(), run_id, step_id, attempt_no),
             ).rowcount == 1
+
+    @staticmethod
+    def _require_continuation_enabled(db: sqlite3.Connection, run_id: str) -> None:
+        row = db.execute("SELECT record_json FROM runs WHERE run_id=?", (run_id,)).fetchone()
+        if not row:
+            raise ValueError("execution plan not found")
+        if json.loads(row[0]).get("continuation_stop"):
+            raise RunConflictError("workflow continuation has been stopped")
+
+    def stop_waiting_continuation(self, run_id: str, step_id: str, attempt_no: int,
+                                  child_job_id: str, *, expected_engine_version: str) -> tuple[dict[str, Any], bool]:
+        """Atomically close a waiting parent; this never stops an external Job.
+
+        The service validates the engine and exact Job receipt under run_lock.
+        This transaction excludes new attempts/claims even from another handle.
+        """
+        with self._db(write=True) as db:
+            row = db.execute("SELECT record_json,plan_json,plan_hash,error FROM runs WHERE run_id=?", (run_id,)).fetchone()
+            if not row:
+                raise ValueError("execution plan not found")
+            plan = json.loads(row["plan_json"])
+            self.validate_plan(plan)
+            if content_hash(plan) != row["plan_hash"]:
+                raise RunStoreError("execution plan integrity mismatch; existing record preserved")
+            if (plan["engine_version"] != expected_engine_version
+                    or len(plan["steps"]) != 2 or plan["steps"][0]["step_id"] != step_id
+                    or any(step["executor"] != "agent" for step in plan["steps"])):
+                raise RunConflictError("continuation stop does not match the waiting child plan")
+            record = json.loads(row[0])
+            identity = {"run_id": run_id, "step_id": step_id, "attempt_id": f"a{attempt_no}",
+                        "child_job_id": child_job_id, "child_policy": "keep_running"}
+            prior = record.get("continuation_stop")
+            if prior:
+                if any(prior.get(key) != value for key, value in identity.items()):
+                    raise RunConflictError("continuation stop identity conflict")
+                return prior, False
+            if row["error"]:
+                raise RunConflictError("workflow requires reconciliation before stopping continuation")
+            attempts = db.execute("SELECT * FROM attempts WHERE run_id=?", (run_id,)).fetchall()
+            if len(attempts) != 1 or (attempts[0]["step_id"], attempts[0]["attempt_no"]) != (step_id, attempt_no):
+                raise RunConflictError("continuation stop requires only the waiting parent attempt")
+            attempt = attempts[0]
+            result = json.loads(attempt["result_json"])
+            if (attempt["status"] != "waiting" or result.get("status") != "waiting"
+                    or result.get("runtime_status") != "waiting_child" or result.get("child_submission_error")
+                    or result.get("continuation_state") == "resumed"):
+                raise RunConflictError("parent is not waiting for a confirmed child")
+            intents = db.execute("SELECT * FROM submissions WHERE run_id=?", (run_id,)).fetchall()
+            if (len(intents) != 1 or intents[0]["operation"] != "child-job"
+                    or intents[0]["step_id"] != step_id or intents[0]["attempt_no"] != attempt_no
+                    or intents[0]["state"] != "submitted" or intents[0]["external_ref"] != child_job_id
+                    or not child_job_id or intents[0]["error"]):
+                raise RunConflictError("child submission requires reconciliation before stopping continuation")
+            timestamp = now_iso()
+            receipt = {**identity, "status": "stopped", "stopped_at": timestamp}
+            result.update(status="stopped", runtime_status="stopped", runtime_control="stop_continuation",
+                          continuation_state="stopped", completed_at=timestamp,
+                          error="Workflow continuation stopped; child Job was not stopped")
+            record.update(continuation_stop=receipt, updated_at=timestamp)
+            db.execute("UPDATE attempts SET status='stopped',result_json=?,updated_at=? "
+                       "WHERE run_id=? AND step_id=? AND attempt_no=?",
+                       (canonical_json(result), timestamp, run_id, step_id, attempt_no))
+            db.execute("UPDATE runs SET record_json=? WHERE run_id=?", (canonical_json(record), run_id))
+            return receipt, True
 
     def prepare_report_file(self, run_id: str, step_id: str, attempt_no: int,
                             descriptor: dict[str, Any]) -> dict[str, Any]:
@@ -309,6 +375,7 @@ class RunStore:
         key = f"{run_id}/{step_id}/a{attempt_no}/{operation}"
         digest = content_hash(payload)
         with self._db(write=True) as db:
+            self._require_continuation_enabled(db, run_id)
             row = db.execute("SELECT * FROM submissions WHERE submit_key=?", (key,)).fetchone()
             if row and row["payload_hash"] != digest:
                 raise RunConflictError("submission key reused with a different payload")

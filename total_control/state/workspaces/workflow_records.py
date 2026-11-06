@@ -30,6 +30,48 @@ from ...workspace.execution import (
 
 
 class WorkflowRecordsMixin:
+    def stop_workspace_run_continuation(self, workspace_id: str, run_id: str,
+                                         body: dict[str, Any]) -> dict[str, Any]:
+        """Stop only a confirmed waiting N04 continuation, retaining its child."""
+        if (not isinstance(body, dict) or body.get("child_policy") != "keep_running"
+                or not isinstance(body.get("parent_attempt_id"), str)
+                or not isinstance(body.get("child_job_id"), str) or not body["child_job_id"]):
+            raise ValueError("parent_attempt_id, child_job_id and child_policy=keep_running are required")
+        with self.execution_store.run_lock(run_id):
+            evidence = self.execution_store.read(run_id)
+            plan = evidence["plan"]
+            if plan["workspace_id"] != workspace_id:
+                raise ValueError("execution plan belongs to another workspace")
+            if (plan["engine_version"] != AGENT_CHILD_JOB_ENGINE_VERSION
+                    or len(plan["steps"]) != 2):
+                raise RunConflictError("only a waiting N04 child continuation can be stopped")
+            step_id = plan["steps"][0]["step_id"]
+            attempt = next((item for item in reversed(evidence["attempts"]) if item["step_id"] == step_id), None)
+            if not attempt or body["parent_attempt_id"] != f"a{attempt['attempt_no']}":
+                raise RunConflictError("parent attempt identity conflict")
+            if not evidence["record"].get("continuation_stop"):
+                intent = next((item for item in evidence["submissions"] if item["step_id"] == step_id
+                               and item["attempt_no"] == attempt["attempt_no"] and item["operation"] == "child-job"), None)
+                if not intent or intent["state"] != "submitted" or intent["external_ref"] != body["child_job_id"]:
+                    raise RunConflictError("child submission requires reconciliation before stopping continuation")
+                with self.lock:
+                    if not self.workspace_by_id(workspace_id):
+                        raise ValueError("workspace not found")
+                    job = self._job_for_submission(intent, workspace_id)
+                    if not job or job["id"] != body["child_job_id"]:
+                        raise RunConflictError("confirmed child Job receipt required")
+                    # A just-completed child is allowed if no follow attempt exists.
+                    # Known failure/stop must keep its original causal outcome.
+                    if job.get("status") not in {"queued", "starting", "running", "done"}:
+                        raise RunConflictError("child outcome requires observation before stopping continuation")
+            receipt, changed = self.execution_store.stop_waiting_continuation(
+                run_id, step_id, attempt["attempt_no"], body["child_job_id"],
+                expected_engine_version=AGENT_CHILD_JOB_ENGINE_VERSION,
+            )
+            run = self.update_workspace_execution_run_steps(workspace_id, run_id)
+            return {"run": run, "continuation_stop": receipt, "replayed": not changed,
+                    "child_policy": "keep_running", "child_stop_requested": False}
+
     def _job_log_handoff(self, job: dict[str, Any]) -> dict[str, Any]:
         """Bounded, redacted evidence shared by report and child continuations."""
         try:

@@ -141,6 +141,8 @@ class JobCoordinator:
             evidence = self.store.read(run_id)
             if evidence["plan"]["engine_version"] not in GRAPH_ENGINE_VERSIONS:
                 return False  # Historical runners are never replayed as a new graph.
+            if evidence["record"].get("continuation_stop"):
+                return False  # Durable stop wins over an older graph checkpoint.
             config = {"configurable": {"thread_id": run_id}}
             self._validate_checkpoint()
             with SqliteSaver.from_conn_string(str(self.path)) as saver:

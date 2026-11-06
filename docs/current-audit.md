@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-G与G-UI已限定验收：本次child日志有界交接且页面可读冻结文本，区分完整、部分、缺失、读取失败与旧记录；真实网页启动普通/超长CPU链，页面文本与实际follow输入及持久output一致，等待/完成后重启保持。唯一下一片为N04-H：等待child时停止父流程的持久语义。N04-B总验收、父子取消关系、Provider协议和其他恢复边界仍开放。
+当前执行指针：N04-H后端已限定验收，等待child时可显式keep_running停止父流程后续推进；停止回执与父stopped原子保存，重启/重复调度不再创建follow。真实HTTP三链验证child继续完成、另走Job入口停止、follow已claim拒绝。唯一下一片N04-H-UI：可见停止动作与父/child独立状态。N04-B总验收、通用取消预算、Provider协议和其他恢复窗口仍开放。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -46,6 +46,15 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 N04-G-UI（2026-11-06）补充证据：真实Chromium可见网页启动普通/超长CPU child两链，经受控SSE Provider、真实HTTP/scheduler/tmux完成；每链3次模型请求、1个child/1次追加、parent/follow各1attempt，完整计划2步。普通2248字节完整；超长原14858字节、读取6666–14858、交接8192字节且明确部分。页面展开文本逐值等于实际follow请求映射和持久output，随机END在400字之后，不以受控回复证明模型理解。每链等待中重启、完成后重启/刷新同run/证据，1440×900和768×900、键盘Enter展开、summary/pre焦点和pre滚动跨2400ms实时更新、点击原Job日志核对随机END，无pageerror。截图已人工核看，证据仅本地dev_work/artifacts/n04gui-20261106-175225/。
 
 纯JS覆盖身份/schema不符拒绝正文、矛盾完整性不标绿、完整空文件、旧无登记、partial/missing/error、转义及按attempt/Job展开键；F-UI回归、两个JS语法、121脚本引用/加载顺序与diff检查通过。独立布局夹具在1440/768/390覆盖长主机/长正文、缺失/读错/旧/空完整，不算实际磁盘故障或完整手机导航；证据dev_work/artifacts/n04gui-layout-20261106-175201/。首轮浏览器脚本错按不存在的文本标题解析模型输入，改为既有JSON封装后完整重跑，未改产品迎合断言。旧“打开日志”仍读当前原任务日志，与冻结交接不同，保留；没有第二状态合并器、轮询器或日志存储。后端/API/配置/稳定规格不改；历史回放点击、真实供应商/SSH/GPU及Python3.10完整运行本片未验证。测试和结果不提交。
+
+
+N04-H（2026-11-06）补充：新增精确运行入口POST `/api/workspaces/{workspace_id}/runs/{run_id}/stop-continuation`，必须传parent_attempt_id、child_job_id、child_policy=keep_running。只受理N04唯一父waiting_child/确认child收据且无follow attempt的窗口；子任务刚done但follow未开始可受理，验证快照已failed/stopped/未知则拒绝，不能替代观察既有因果。run_lock与协调器互斥，忙或已开始follow返回409。事务再核plan/hash/engine、父状态、唯一submitted intent及无其他attempt，原子写父stopped+record.continuation_stop，保留原trace/输出/完整计划/receipt；不创建假follow attempt或把pending改done。该stopped仅说明后续流程已禁止，不声称子任务停止。Job状态读取与SQLite写入不是跨存储原子，随后发生的child失败/停止仍保留独立事实。
+
+同身份请求返回原停止时间/回执，child后来变化或缺失不影响已接受停止的精确重放；新attempt、Agent claim和submission准备受持久marker保护；唯一图推进器在run_lock内见marker后no-op，不恢复旧checkpoint去调用follow。直接resume也由父stopped早退；原terminal attempt的同输入读取保留，停止后重新开始/重试不在本片。公开run增加continuation_stop，旧记录为空；原父stopped/child独立与follow前置未成功显示兼容，H-UI另做可见动作。旧Agent cancel只控制活动调用，Job stop只控制child，都有不同真实调用者，保留；不增取消线程/第二推进器/轮询器。
+
+实际证据：73项本地契约（H19+D/E/F/G54）通过，包括两个RunStore句柄并发stop/begin只一个成功、写record故障回滚父attempt、commit后投影失败重发原receipt、缺/未知/冲突/已claim拒绝、terminal旧入口不重启和图no-op。真实HTTP/scheduler/tmux三条CPU链：停止后child自然done；停止后child经原Job stop变stopped；不停止对照中follow已进入Provider时停止返回409，之后正常done，终态再次停止仍409。两停止链waiting中及child终态后重启、原run请求重发和多轮调度仍同run/1Job/1追加，父stopped、follow pending/零attempt，模型只有父的2次请求；正常链3次/2attempt。每链先验证旧Agent cancel已inactive返回404，未当作流程停止；额外进程实际持flock时新入口409，释放后正常受理。完整计划分母2，停止链进度0而非100。Provider是受控SSE，不代表真实供应商/模型分析。证据仅dev_work/artifacts/n04h-20261106-180914/，脚本仅dev_work/smokes/n04h_http.py、test_n04h_stop.py、n04h_consumer.cjs。
+
+compileall、原前端merge兼容stop字段/拒绝旧waiting回退与F-UI契约、diff通过；根pytest无用例退出5不记通过。首次smoke以文件路径调用导致仓库导入路径错误，改用模块入口；随后读尚未产生的jobs.json、故障夹具未等待scheduler释放flock分别失败，只修观察脚本为正式GET /api/jobs和有限重试获取注入锁后完整重跑，未修改产品门禁/记录。缺失、SQLite故障、两句柄竞争和child刚done窗口属契约夹具；实际HTTP未伪造这些状态。尚未浏览器点击新动作，未覆盖活动父Agent/已claim follow强停、网络中断取消、多child、SSH/GPU或Python3.10部署。稳定规格不变。
 
 <a id="g30"></a>
 ### G30 · P1 · Provider 工具调用契约覆盖不足
@@ -93,7 +102,7 @@ N04-G-UI（2026-11-06）补充证据：真实Chromium可见网页启动普通/�
 - 对齐 R09，类别：控制风险，证据 E1。
 - agent_executor.py:303–407 只在循环开头检查；Provider 返回后可直接 success 或继续工具副作用。llm_client 使用独立网络超时，未消费 Agent 剩余预算。
 - 复现总预算 10ms，假 Provider 30ms 后返回并设置取消信号，结果 success=True、timed_out=False、cancelled=False。
-- N03B2c1 仅对单次无工具报告启用单调时钟和调用后检查，并禁用 stream 失败后的第二次 fallback；真实延迟响应及取消 HTTP 验收通过，取消请求时仍显示 running，返回后才记失败/停止。网络调用不能立即中断，通用多轮 Agent 及网络剩余预算未解决，G04 保持开放。
+- N03B2c1 仅对单次无工具报告启用单调时钟和调用后检查，并禁用 stream 失败后的第二次 fallback；真实延迟响应及取消 HTTP 验收通过，取消请求时仍显示 running，返回后才记失败/停止。网络调用不能立即中断，通用多轮 Agent 及网络剩余预算未解决，G04 保持开放。N04-H随后仅交付父Agent已返回且等待child窗口的持久停止后续意图，明确keep_running，不是活动调用/网络或child停止传播的完整取消实现。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
 <a id="g05"></a>
@@ -576,7 +585,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [delete_routes.py](../total_control/http_api/delete_routes.py) · 55 | R12；资源删除路径 → 匹配并调用删除 → 结果响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 | `handle_delete:9` |
 | [get_routes.py](../total_control/http_api/get_routes.py) · 470 | R12；查询路径/参数 → 调用状态服务、回放/下载/SSE → 查询响应 | N07A 增量 GET runs/{id}/report，按workspace/run取绑定文件投影、缺失明确不完整，不接受任意path；原回放/导出保留。G19/G20其余边界未关闭。 | `_workspace_jobs_snapshot:14`；`_workspace_stream_snapshot_event:27` |
 | [path_utils.py](../total_control/http_api/path_utils.py) · 14 | R12；API 路径/前缀 → 单资源路径段匹配 → id 或空 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `single_segment_path_id:6` |
-| [post_routes.py](../total_control/http_api/post_routes.py) · 416 | R06/R12；POST 命令 → 现有状态服务/公开封装 → 启动/配置响应 | N02 工作流 request_id/提交冲突返回 409；其余路由不批量改写，关联 [G19](#g19)。 | `_public_job_response:14`；`handle_post:30` |
+| [post_routes.py](../total_control/http_api/post_routes.py) · 429 | R06/R12；POST 命令 → 现有状态服务/公开封装 → 启动/配置响应 | N02 工作流 request_id/提交冲突返回 409；N04-H新增精确stop-continuation路径与body边界，参数400/身份或busy409，领域受理交service；其余路由不批量改写，关联 [G19](#g19)。 | `_public_job_response:14`；`handle_post:30` |
 | [put_routes.py](../total_control/http_api/put_routes.py) · 44 | R12；资源更新请求 → 匹配资源与调用更新 → 更新响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 | `handle_put:9` |
 
 ### total_control/infra
@@ -611,9 +620,9 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [__init__.py](../total_control/orchestration/__init__.py) · 20 | R06/R09；节点执行/输入类型 → 公开导出 → 单节点兼容入口 | N03B2b 退出 WorkflowRunner 等同步推进导出；保留已有节点执行消费者。 | 文件整体/公开入口 |
 | [input_mapping.py](../total_control/orchestration/input_mapping.py) · 302 | R05/R09；引用/上下文/模型输出 → 解析映射与 JSON 输出校验 → 输入值/输出证据 | N00C导入唯一取值内核；N04-G增加显式preserve_mapped_inputs，仅N04 follow开启，映射序列化上限65536字节、超限拒绝且默认预览不变；日志作为证据而非指令。前缀/缺失/历史规则仍关联[G10](#g10)，未整体统一。 | `_is_mapping_ref:11`；`resolve_input_mapping_ref:16` |
 | [node_runner.py](../total_control/orchestration/node_runner.py) · 212 | R06/R09；节点/执行上下文 → 选择 Agent/Job、Agent 失败校验 → StepResult | 共用原 Agent 执行入口/映射和失败规则；N03B2c1 传递 output_value 到持久 step，不自建模型或推进循环。G02/G04 仍开放。 | `_node_handler_mode:51`；`_node_agent_id:56` |
-| [run_store.py](../total_control/orchestration/run_store.py) · 385 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N04 增加 `operation` 与 `child-job` 稳定提交键，schema 由1迁移到2；父 attempt/child 收据仍复用同一 submissions 表。RunStore 隔离检查通过，LangGraph 链尚未验收。N07A 文件回执与 Agent claim 保留；N04-F在原attempt JSON中原子保存首个child提交错误，record_result禁止丢弃或成功覆盖，不加表/迁移/推进逻辑。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
+| [run_store.py](../total_control/orchestration/run_store.py) · 452 | R06/R11/R13；完整计划/attempt/提交意图 → SQLite 事务、hash 与单机互斥 → 可核对证据 | N04 增加 `operation` 与 `child-job` 稳定提交键，schema 由1迁移到2；父 attempt/child 收据仍复用同一 submissions 表。RunStore 隔离检查通过，LangGraph 链尚未验收。N07A 文件回执与 Agent claim 保留；N04-F在原attempt JSON中原子保存首个child提交错误，record_result禁止丢弃或成功覆盖，不加表/迁移/推进逻辑。N04-H同事务核waiting/唯一submitted child/无follow，原子父stopped+停止receipt；begin/claim/prepare防新执行，既有terminal读取保留，schema仍2。 | `canonical_json:19`；`content_hash:23`；`RunConflictError:27` |
 | [types.py](../total_control/orchestration/types.py) · 90 | R06/R09/R11；计划/结果/上下文 → RunPlan/StepResult/ExecutionRunContext → 类型化边界 | N07A RunPlan追加可选report_output_root，副作用前冻结；旧计划缺字段不自动补文件。StepResult原inline执行证据与交付事实分开。 | `RunPlan:8`；`StepResult:22`；`ExecutionRunContext:73` |
-| [job_coordinator.py](../total_control/orchestration/job_coordinator.py) · 126 | R06/R11/R13；run/冻结计划、Job 回调 → 持久图/暂停、去重唤醒与身份检查 → attempt 事实及检查点 | N04 隔离 callback 验证 waiting/child_status 路由、恢复与重复 wake；旧 N03 engine 不变。真实 HTTP 全验收因 G31 未完成，不能用 callback 外推失败/停止/重启。 | `JobCoordinator`；`advance`；`_validate_checkpoint` |
+| [job_coordinator.py](../total_control/orchestration/job_coordinator.py) · 175 | R06/R11/R13；run/冻结计划、Job 回调 → 持久图/暂停、去重唤醒与身份检查 → attempt 事实及检查点 | N04等待/恢复的后续真实HTTP证据见G02；总验收未完，不沿用早期callback完成声明。N04-H在run_lock内读停止receipt后no-op，旧检查点不越过停止；其他engine不变。 | `JobCoordinator`；`advance`；`_validate_checkpoint` |
 | [workspace_mutations.py](../total_control/orchestration/workspace_mutations.py) · 143 | R02/R10；节点/配置或 artifact 内容 → 修改工作区内存快照 → 配置/产物元数据 | 问题/修补关联 [G06](#g06)；按登记方案处理，不另建平行服务。 | `find_workspace_node:29`；`apply_workflow_edit:45` |
 
 ### total_control/state
@@ -690,7 +699,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 471 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)、[G31](#g31)；N04-D 接显式目标并同步 payload/runtime_binding/resource_plan；普通默认解析对照不变。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 665 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
 | [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 两 Agent handoff 计划可经真实 HTTP 受理；旧单 Job/Job→报告入口不变。N04-D 已限定验证 CPU 目标保真和等待中恢复；正文/UI/其他恢复窗口仍待 G02 后续片。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 700 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04全验收仍未完成，见G02/G30/G31/G32；G-UI、取消等另验。 | `WorkflowRecordsMixin:21` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 742 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链通过，UI动作待H-UI。N04全验收仍未完成，见G02/G04/G30/G31/G32。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 
@@ -781,7 +790,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [run_delivery.py](../total_control/workspace/execution/run_delivery.py) · 187 | R06/R10/R11；包预期/step artifact → 路径匹配与完成度派生 → delivery closure | N07A 当前受管报告交付来自实物投影；缺失/损坏/写失败保持incomplete及具体原因，不改变Agent执行终态。旧声明型判断仍属G06。 | `_workspace_delivery_path_candidates:9`；`workspace_execution_run_delivery_closure:43` |
 | [run_events.py](../total_control/workspace/execution/run_events.py) · 326 | R06/R10/R11；事件/流摘要 → 裁剪、脱敏、计数 → run event/delta_evidence | N16A同步step事件摘要detail/recorded_error，沿用原裁剪规则；旧事件保留原error。G20其它事件/保留边界不变。 | `_compact_run_event_text:8`；`_compact_run_event_payload:15` |
 | [run_export.py](../total_control/workspace/execution/run_export.py) · 341 | R06/R10/R11；run/关联任务 → 有界日志、artifact、manifest 组合 → JSON 导出 | 问题/修补关联 [G06](#g06)、[G20](#g20)；按登记方案处理，不另建平行服务。 | `workspace_run_export_manifest:18`；`workspace_run_export_readme:147` |
-| [run_records.py](../total_control/workspace/execution/run_records.py) · 250 | R06/R10/R11；完整 steps/历史 run → 状态/进度/规范化 → 兼容 run 记录 | N04 保留 waiting child 的运行/进度投影字段，完整计划分母不缩小；真实 UI/服务投影待验收。N16A detail/recorded_error 与 N02 边界保持。 | `make_workspace_execution_run_id:12`；`make_agent_execution_id:16`；`derive_workspace_execution_run_status:20` |
+| [run_records.py](../total_control/workspace/execution/run_records.py) · 255 | R06/R10/R11；完整 steps/历史 run → 状态/进度/规范化 → 兼容 run 记录 | N04 保留 waiting child 的运行/进度投影字段，完整计划分母不缩小；真实 UI/服务投影待验收。N16A detail/recorded_error 与 N02 边界保持。N04-H公开normalizer增continuation_stop，旧记录空值、停止回执在刷新/HTTP重启中保留。 | `make_workspace_execution_run_id:12`；`make_agent_execution_id:16`；`derive_workspace_execution_run_status:20` |
 | [run_refresh.py](../total_control/workspace/execution/run_refresh.py) · 284 | R06/R10/R11；计划/attempt 与旧 Job/子 run → 按 engine 区分只读投影 → 当前 run | N04 仅把 authoritative child Job 事实投影为 waiting_child/done/failed；查询/SSE 不独立推进。旧 child run 兼容分支保留待后续切片。 | `_workspace_child_run_status:22`；`_workspace_child_run_error:29`；`_workspace_agent_child_runtime_status:44` |
 | [run_refs.py](../total_control/workspace/execution/run_refs.py) · 194 | R06/R10/R11；run/step 引用 → 去重、闭包与归属过滤 → 关联 Job/子 run | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `_unique_run_ref_list:11`；`workspace_run_step_job_ids:20` |
 | [run_replay.py](../total_control/workspace/execution/run_replay.py) · 171 | R06/R10/R11；run/关联 Job → 组装历史时间线 → 摘要回放 | N16A显式timeline保留detail/recorded_error，回放与export复用同一投影；历史来源可追查。没有新回放状态机，G20余项保持。 | `workspace_execution_run_timeline:19`；`workspace_execution_run_replay_run_summary:63` |

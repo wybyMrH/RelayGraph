@@ -278,6 +278,19 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         result = state.apply_workspace_automation_defaults(workspace_id, handler.read_body())
         handler.send_json(result)
         return True
+    if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/stop-continuation"):
+        parts = parsed.path.split("/")
+        if len(parts) != 7 or parts[4] != "runs" or not parts[3] or not parts[5]:
+            handler.send_json({"error": "invalid run continuation path"}, HTTPStatus.BAD_REQUEST)
+            return True
+        try:
+            result = state.stop_workspace_run_continuation(parts[3], parts[5], handler.read_body())
+            handler.send_json(result)
+        except RunConflictError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.CONFLICT)
+        except ValueError as exc:
+            handler.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+        return True
     if parsed.path.startswith("/api/workspaces/") and parsed.path.endswith("/runs"):
         parts = parsed.path.split("/")
         workspace_id = parts[3] if len(parts) > 3 else ""

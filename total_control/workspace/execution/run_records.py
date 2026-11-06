@@ -116,6 +116,7 @@ def normalize_workspace_execution_run(
         "attempts": copy.deepcopy(payload.get("attempts", current.get("attempts", []))),
         "submissions": copy.deepcopy(payload.get("submissions", current.get("submissions", []))),
         "submission_error": str(payload.get("submission_error", current.get("submission_error", ""))),
+        "continuation_stop": copy.deepcopy(payload.get("continuation_stop", current.get("continuation_stop", {}))),
         "workspace_id": workspace_id,
         "kind": kind,
         "status": status,
