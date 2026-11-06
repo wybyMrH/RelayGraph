@@ -8,8 +8,11 @@ from ._deps import *  # noqa: F403
 def _workspace_public_payload_with_full_runs(state: Any, workspace: dict[str, Any]) -> dict[str, Any]:
     public_workspace = state.workspace_public_payload(workspace)
     raw_runs = workspace.get("runs") if isinstance(workspace.get("runs"), list) else []
-    public_workspace["runs"] = normalize_workspace_execution_runs(
+    # Keep the ordinary workspace summaries, but refresh the complete history
+    # through the same Job/graph projection used by the normal run reader.
+    public_workspace["runs"] = workspace_execution_runs_public(
         raw_runs,
+        getattr(state, "jobs", []),
         limit=max(len(raw_runs), 1),
     )
     return public_workspace

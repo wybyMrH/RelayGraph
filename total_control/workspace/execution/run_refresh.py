@@ -269,13 +269,15 @@ def refresh_workspace_execution_run(
 def workspace_execution_runs_public(
     runs: Any,
     jobs: list[dict[str, Any]],
+    *,
+    limit: int = WORKSPACE_EXECUTION_RUN_MAX,
 ) -> list[dict[str, Any]]:
     jobs_by_id = {
         str(job.get("id") or "").strip(): job
         for job in jobs
         if isinstance(job, dict) and str(job.get("id") or "").strip()
     }
-    normalized = normalize_workspace_execution_runs(runs)
+    normalized = normalize_workspace_execution_runs(runs, limit=limit)
     runs_by_id = {
         str(run.get("id") or "").strip(): run
         for run in normalized
