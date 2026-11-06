@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-Q2b-UI 已限定完成失败交接及提交前未知结果的真实页面验收，G39后端窗口与对应页面已修复/验收。唯一下一片 N04-Q3：follow 已发出但尚未取得模型响应时的崩溃恢复验证。G20/G04其余/G33仍开放，N04未完成。
+当前执行指针：N04-Q3 已限定验证follow请求在途时真实强杀/重启，原claimed保守转unknown，无重复模型/Job。唯一下一片 N04-Q4：按当前代码与原始证据重新逐项总核N04目标；先核验再决定剩余最小缺口，不沿用历史完成声明。G20/G04其余/G33仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -198,6 +198,16 @@ Q2b随后复用原SQLite事务实现`record_results`，单条record_result委托
 每链真实点击/键盘展开回放跨实时终态，焦点跨2400ms刷新保持；实际下载JSON核原run及replay.timeline父/follow状态，点击原Job日志核Q2BUI END；服务重启/网页reload保留原选择和回放。1440×900、768×900无文档横溢、空记录/长实例名均检查，无pageerror；人工核看正常/失败/unknown截图。回放步骤统计包含关联child记录（3条），根计划分母仍2，不是多执行一个计划节点。手机/完整长错误日志矩阵/真实供应商/SSH/GPU/Python3.10完整后端及一般follow在途强杀均未验。G26仍有启动提示浮层残留、普通Agent显示报告待交付等既有非本片展示职责，截图可见，未借此宣称全站排版已完成；G33本轮未自然复现，不关闭。
 
 8项中文解释状态guard/原文/转义检查、J1/F/G/H页面契约及P1回放14项回归通过；4个改动JS语法、121脚本引用及先后装配、diff检查通过。首次本地浏览器脚本误读export.run.steps（实际步骤在replay.timeline）失败保留于`n04q2bui-baseline-20261107-001654/`，只修脚本后重跑，未为断言改产品；第二轮基线三链通过仍因截图文案问题继续修复，不能替代最终版本。局部借用frontend-design的文案/层次/截图复核（Apache2，无版本，无运行依赖），不引入装饰/字体/新面板。源码台账相应更新；脚本/config/下载/截图及本地报告不提交，child-count不动。唯一下一片Q3，N04仍未完成。
+
+### N04-Q3 · follow请求在途崩溃恢复（2026-11-07，限定验证，无产品修改）
+
+对齐R06/R11/R12及G04/G39剩余故障窗口。实际正式`python -m total_control.server`，未装trace/替换协调器、未写终态或补checkpoint；真实HTTP门禁、scheduler与tmux CPU子任务。受控Provider只在故障链第3请求固定延迟20秒，不靠人工放行；正常对照无延迟/暂停。配置集中`config/n04q3-*-local/`，运行数据/脚本/结果仅本地。现有唯一claim/unknown恢复入口符合此窗口，不新增框架/重试/轮询/兼容分支，无需为测试改代码。
+
+最终证据`dev_work/artifacts/n04q3-20261107-003641/`：normal run `20261107-003643-4abae752`，Job `20261107-003644-7ee3487f`，自然完成父done/follow done，重启后保持；inflight run `20261107-003706-14e3a970`，Job `20261107-003707-d71af763`，Provider已收到第3请求，GET与只读SQLite保存follow running/claimed、child done及原输入身份，收到请求0.2175秒后真实SIGKILL（退出-9），明显早于原模型默认60秒等待上限。重启首次终态是root blocked、parent waiting/child_status done、follow blocked/unknown，未冒充模型调用失败或父交接完成。父仍waiting表示结果交接未确认，不说child仍执行。
+
+Provider跨重启持续存活，20.0002秒后旧socket的响应写调用返回成功（response-written），不能据此认定死去服务收到/保存回答。四次原request重发/约1.1秒间隔观察、迟到写出后、再重启后三次约1.1秒观察，完整attempt均与首次终态逐值一致；正式HTTP不额外调用推进，未用trace，故不声称精确advance次数。两链分别2/3个服务PID；每链始终3模型请求、1Job、parent/follow各a1、根分母2、实物start字节`73746172740a`一份；原Job日志含Q3 END和exit_code=0。杀前/最终SQLite submissions整行不变，唯一键为`run/parent/a1/child-job`、external_ref为本次Job，plan及plan_hash不变，follow inputs.child_job_id、source_attempt_id和agent_execution_id均对应本次原身份。两链未新增attempt或重发模型。
+
+本地独立review逐值检查上述SQLite/公开记录/物理文件/时序通过，摘要仅`dev_work/reports/n04q3-review.json`。第一轮`n04q3-20261107-003519/`在正常完成/重启后观察脚本误读不存在的公开Job.exit_code而失败；实际退出码在日志，随后修脚本走正式Job日志API核验，同时核对公开attempt字段为attempt_id，未改产品迎合脚本；旧失败目录保留，不计通过。受控接口不证明真实供应商；请求未知只能保守停，未提供人工找回答/重放新能力。无代码/API/状态/UI变化，按规则免新增前端实现片，Q2b-UI截图仅历史页面证据，本片没有重跑浏览器。3.10完整部署、G33、手机/全站布局、SSH/GPU/Transfer/LiteLLM等未验且排除。文档独立检查链接/diff/台账，未重跑不相关Python套件。唯一下一片Q4总核，N04仍未完成。
 
 ### N04完整需求总核（2026-11-06，77bbcbd审计快照，未达到完成条件）
 
