@@ -250,6 +250,32 @@
   `;
   }
 
+  function childSubmissionPresentation(step = {}, run = {}, deps = {}) {
+    // Wording only: the backend owns liveness, receipts and progression.
+    const parent = run.execution_plan?.steps?.[0];
+    if (run.execution_plan?.engine_version !== "langgraph-agent-child-job/n04"
+        || !run.id || step.index !== 0 || step.executor !== "agent"
+        || parent?.index !== 0 || parent.executor !== "agent" || !parent.step_id
+        || (step.step_id || step.node_id) !== parent.step_id
+        || (step.node_id && step.node_id !== parent.step_id)) return null;
+    const ids = [step.job_id, ...(Array.isArray(step.child_job_ids) ? step.child_job_ids : [])].filter(Boolean);
+    let label, description, kind;
+    if (step.status === "running" && step.runtime_status === "submitting" && !ids.length) {
+      label = "提交中";
+      description = "正在提交本次子任务，尚未取得任务回执。提交成功后仍需等待任务执行完成。";
+      kind = "submitting";
+    } else if (step.status === "waiting" && step.runtime_status === "waiting_child" && ids.length) {
+      label = "等待子任务";
+      description = "已取得子任务回执，正在等待任务结果与后续交接；提交成功不代表执行完成。";
+      kind = "waiting";
+    } else if (step.status === "blocked" && step.runtime_status === "reconciling") {
+      label = "提交结果需核对";
+      description = "暂时无法确认本次子任务的提交结果。系统不会自动重新提交；请核对任务记录、后续步骤与下方错误。";
+      kind = "unknown";
+    } else return null;
+    return { label, markup: `<p class="workspace-child-submission is-${kind}">${escapeFor(deps, description)}</p>` };
+  }
+
   function continuationContext(run = {}) {
     if (run.execution_plan?.engine_version !== "langgraph-agent-child-job/n04" || !run.id || !run.workspace_id) return null;
     const parent = (Array.isArray(run.steps) ? run.steps : []).find((step) => Number(step.index) === 0);
@@ -366,6 +392,7 @@
 
   window.WorkspaceRunSummary = {
     actualJobTargetMarkup,
+    childSubmissionPresentation,
     continuationContext,
     continuationControlMarkup,
     jobLogHandoffMarkup,

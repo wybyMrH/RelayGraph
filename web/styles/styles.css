@@ -23051,3 +23051,7 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 .workspace-continuation-feedback.is-error { color: var(--bad, #c23535); }
 .workspace-job-target:focus-visible,
 .workspace-continuation-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.workspace-child-submission { margin: 0; padding: 6px 0 6px 10px; border-left: 3px solid var(--accent); min-width: 0; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.workspace-child-submission.is-unknown { border-color: var(--warn); }
+.workspace-run-replay-steps .workspace-child-submission { grid-column: 1 / -1; color: var(--text); font-size: 13px; line-height: 1.6; white-space: normal; overflow: visible; }

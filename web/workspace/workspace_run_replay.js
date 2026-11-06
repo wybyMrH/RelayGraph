@@ -144,6 +144,7 @@
       return step.linked
         || ["failed", "blocked", "stopped"].includes(stepStatus)
         || String(step.error || "").trim()
+        || Boolean(options.submissionPresentation?.(step))
         || Number(step.child_job_ref_count || 0) > 0
         || Number(step.child_run_ref_count || 0) > 0;
     });
@@ -151,6 +152,7 @@
     const visibleSteps = [...highlightedSteps, ...notedSteps].slice(0, 4).map((step) => ({
       ...stepLine(step, deps),
       notes: options.renderStepNotes?.(step) || "",
+      submission: options.submissionPresentation?.(step),
     }));
     const linkedJobs = (Array.isArray(replay.linked_jobs) ? replay.linked_jobs : [])
       .filter((item) => item && typeof item === "object")
@@ -185,8 +187,9 @@
             ${visibleSteps.map((item) => `
               <li class="status-${escapeFor(deps, item.status || "pending")}">
                 <strong>${escapeFor(deps, item.title)}</strong>
-                ${item.status ? `<span>${escapeFor(deps, statusFor(deps, item.status))}</span>` : ""}
+                ${item.status ? `<span>${escapeFor(deps, item.submission?.label || statusFor(deps, item.status))}</span>` : ""}
                 ${item.meta ? `<em title="${escapeFor(deps, item.meta)}">${escapeFor(deps, item.meta)}</em>` : ""}
+                ${item.submission?.markup || ""}
                 ${item.notes}
               </li>
             `).join("")}

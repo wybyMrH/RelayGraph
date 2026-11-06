@@ -12251,6 +12251,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     .filter(Boolean);
   const targetJobIds = [...new Set([jobId, ...childJobIds].filter(Boolean))];
   const continuation = isChildParent ? workspaceRunSummaryApi().continuationContext(run) : null;
+  const submissionPresentation = isChildParent ? workspaceRunSummaryApi().childSubmissionPresentation(step, run, workspaceRunSummaryDeps()) : null;
   const targetMarkup = isChildHandoff ? targetJobIds.map((id) => (
     workspaceRunSummaryApi().actualJobTargetMarkup((state.jobs || []).find((job) => String(job.id) === id), workspaceRunSummaryDeps(), { parentStatus: isChildParent ? step.status : "", allowChildStop: continuation?.stopped, childJobId: continuation?.childJobId })
   )).join("") : "";
@@ -12334,19 +12335,19 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     <article class="workspace-execution-run-step status-${escapeHtml(effectiveStatus)}${isAgent ? " executor-agent" : ""}${step._live_agent_synthetic ? " live-synthetic" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
       <div class="workspace-execution-run-step-head">
         <strong>${escapeHtml(`${Number(step.index) + 1}. ${nodeTitle}`)}</strong>
-        <span class="state ${escapeHtml(effectiveStatus)}">${escapeHtml(isChildParent && effectiveStatus === "failed" ? "父步骤失败" : isChildParent && effectiveStatus === "blocked" ? "父步骤需核对" : isChildHandoff && effectiveStatus === "waiting" ? "等待交接" : isChildHandoff && effectiveStatus === "blocked" ? "需核对" : zhStatus(effectiveStatus))}</span>
+        <span class="state ${escapeHtml(effectiveStatus)}">${escapeHtml(submissionPresentation ? submissionPresentation.label : isChildParent && effectiveStatus === "failed" ? "父步骤失败" : isChildParent && effectiveStatus === "blocked" ? "父步骤需核对" : isChildHandoff && effectiveStatus === "waiting" ? "等待交接" : isChildHandoff && effectiveStatus === "blocked" ? "需核对" : zhStatus(effectiveStatus))}</span>
       </div>
       <div class="workspace-execution-run-step-meta">
         <span>${escapeHtml(isAgent ? "Agent" : step.node_kind || "")}</span>
         ${jobId ? `<span>任务 ${escapeHtml(jobId)}</span>` : ""}
         ${isAgent && childJobIds.some((id) => id !== jobId) ? `<span>子任务 ${escapeHtml(childJobIds.filter((id) => id !== jobId).join("、"))}</span>` : ""}
         ${isAgent && childRunIds.length ? `<span>子运行 ${escapeHtml(childRunIds[0])}${childRunIds.length > 1 ? ` +${childRunIds.length - 1}` : ""}</span>` : ""}
-        ${isAgent && runtimeStatus ? `<span>${escapeHtml(runtimeStatus === "waiting_child" ? "等待子任务交接" : zhStatus(runtimeStatus))}</span>` : ""}
+        ${isAgent && runtimeStatus && !submissionPresentation ? `<span>${escapeHtml(runtimeStatus === "waiting_child" ? "等待子任务交接" : zhStatus(runtimeStatus))}</span>` : ""}
         ${isAgent && agentExecutionId ? `<span>${escapeHtml(agentExecutionId)}</span>` : ""}
         ${isAgent && outputKey ? `<span>${escapeHtml(outputKey)}</span>` : ""}
         ${executionMetaLine ? `<span>${escapeHtml(executionMetaLine)}</span>` : ""}
       </div>
-      ${isChildHandoff && status === "waiting" ? '<p class="workspace-run-step-agent-meta">正在等待子任务与后续交接；提交成功不代表执行完成。</p>' : ""}
+      ${submissionPresentation?.markup || ""}
       ${isChildHandoff && status === "pending" ? `<p class="workspace-run-step-agent-meta">${predecessorUnsuccessful ? "前置步骤未成功，本次未执行。" : "尚未执行，等待前置步骤成功。"}</p>` : ""}
       ${isChildParent ? workspaceRunSummaryApi().continuationControlMarkup(run, workspaceRunSummaryDeps(), state.ui?.workspaceContinuationControls?.[continuation?.key] || {}) : ""}
       ${notesFirst ? stepNotes : ""}
@@ -12491,6 +12492,8 @@ function workspaceRunReplayPreviewMarkup(run = {}, options = {}) {
     run,
     replayState,
     ...workspaceRunReplayDeps(),
+    submissionPresentation: (step) => !step.linked && step.replay_run_id === runId
+      ? workspaceRunSummaryApi().childSubmissionPresentation(step, run, workspaceRunSummaryDeps()) : null,
     hasStepNotes: window.WorkspaceRunStepNotes.hasNotes,
     renderStepNotes: (step) => window.WorkspaceRunStepNotes.markup(step, { escapeHtml }, {
       runId: step.replay_run_id || runId, surface: "replay", openDetails: options.openDetails,
