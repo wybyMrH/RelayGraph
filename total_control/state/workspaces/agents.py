@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...orchestration.run_store import RunConflictError
 from ._deps import *  # noqa: F403
 from .agent_runtime_safety import (
     RUNTIME_OBSERVATION_SECRET_PATTERN,
@@ -343,7 +344,33 @@ class AgentsMixin:
             parent = parent if isinstance(parent, dict) else {}
             child_intent = None
             if parent.get("run_id") and parent.get("step_id") and parent.get("attempt_no"):
-                child_payload = {"tool": tool, "command": command, "node_id": str(node_copy.get("id") or "")}
+                # Freeze config-dependent defaults in the very payload passed to
+                # create_job, rather than hashing absent/default sentinel values.
+                config_defaults = getattr(self, "config", AppConfig())
+                job_payload["min_free_mib"] = safe_int(job_payload.get("min_free_mib"), config_defaults.idle_min_free_mib)
+                job_payload["max_gpu_util"] = safe_int(job_payload.get("max_gpu_util"), config_defaults.idle_max_gpu_util)
+                child_payload = {
+                    "identity_version": 2,
+                    "tool": tool,
+                    "node_id": str(node_copy.get("id") or ""),
+                    "job": {key: copy.deepcopy(job_payload[key]) for key in (
+                        "kind", "server_id", "command", "cwd", "env_name", "gpu_index",
+                        "min_free_mib", "max_gpu_util", "wait_for_idle", "target_job_ids",
+                    )},
+                    # Policy is a request constraint; scheduler-assigned GPU/host
+                    # and resource snapshots must never change retry identity.
+                    "gpu_policy": metadata.get("runtime_binding", {}).get("gpu_policy", ""),
+                }
+                for key in ("candidate_server_ids", "profile_key"):
+                    if key in job_payload:
+                        child_payload["job"][key] = copy.deepcopy(job_payload[key])
+                prior = next((item for item in self.execution_store.read(str(parent["run_id"]))["submissions"]
+                              if item["operation"] == "child-job" and item["step_id"] == str(parent["step_id"])
+                              and item["attempt_no"] == int(parent["attempt_no"])), None)
+                if prior and "identity_version" not in json.loads(prior["payload_json"]):
+                    # Legacy hashes prove no execution target. Keep their original
+                    # recovery/read path, but never reinterpret or replay them.
+                    raise RunConflictError("legacy child submission identity requires reconciliation; automatic resubmission refused")
                 child_intent = self.execution_store.prepare_submission(
                     str(parent["run_id"]), str(parent["step_id"]), int(parent["attempt_no"]),
                     child_payload, operation="child-job",

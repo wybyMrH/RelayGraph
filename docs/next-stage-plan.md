@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-D 与 N04-D-UI 已限定验收。实际目标、等待状态和精确日志入口已有浏览器证据；唯一下一片为 **N04-E：child submission 完整执行目标身份与旧回执兼容**。仅补这一副作用幂等边界，不同时实施正文交接、父子取消、Provider 或其他功能；N04 整体仍开放。
+当前执行指针：N04-E 已限定验收，同键不同目标已拒绝且旧回执不改写。唯一下一片为 **N04-F：child 提交工具冲突后的父流程错误传播（G32）**。先修本次实测的“工具冲突后仍可 done”，不同时实施正文交接、父子取消、Provider 或其他功能；N04 整体仍开放。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -799,11 +799,25 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 消融：同一 Job 原“打开日志/子任务”重复入口及重复 meta 合并，child ID 数组去重；独立 child run 是不同身份仍保留。N04 旧实时 Agent 运行文字不覆盖持久 waiting/终态；其他 engine 的实时路径保留。全局实例摘要聚合仍可能因兼容 child run 显示运行中，已登记现状，不扩本片。测试/截图/静态布局预览/配置仅本地，根 child-count.txt 不属于本片，不删除或提交。真实供应商/SSH/GPU/取消关系/正文输出消费仍未验收。
 
-### N04-E：child submission 完整执行目标身份与旧回执兼容（唯一下一片）
+### N04-E：child submission 完整执行目标身份与旧回执兼容（已限定验收）
 
-对齐 G31 剩余静态风险及 R06/R07/R13。当前 child key 稳定，但 hash 仅覆盖 tool/command/node_id；同命令换主机、cwd、环境或 GPU 可能误复用。只把实际解析目标和必要命令字段纳入可版本化的副作用身份，明确同身份重发复用、同 key 不同目标冲突且无新副作用；不得通过每次换 key 避免冲突。
+对齐 G31 剩余风险及 R06/R07/R13。仅修改 agents.py 和二三文档，稳定规格不变。新 child payload 用 identity_version=2，包含 tool/node_id、最终生成的 command（不是原工具 command）、kind、请求 server/GPU、cwd/env、资源阈值、wait_for_idle、依赖，以及存在时的候选与 profile。主机/GPU 为 auto 时保留请求约束，不能把调度后分配混入重试身份。min_free_mib/max_gpu_util 缺省在提交前从 config 显式固定，交给 create_job 的就是被取指纹的 payload。名称、时间、来源说明和动态资源采样不入 hash；候选/依赖保留顺序。当前 node payload 不产生候选/profile 可选字段，不宣称未来任意外部 payload 的缺省/显式空值都语义等价。
 
-先查 RunStore prepare/claim/bind 与旧 child Job metadata 调用者，开片限定 agents.py/必要 RunStore 边界与二三文档；旧记录必须可解释读取，不能改写已提交证据。真实入口验证相同目标重复/重启仍同 Job，改目标不能悄悄返回旧 Job，提交未知保持核对而非盲重试。正常路径保留原门禁。先确定旧回执可安全核对的边界再实现，不借此重构 Provider、输出日志/正文、父子取消或前端布局；如公开字段变化，同步必要消费者并安排独立前端片。
+继续使用唯一 RunStore prepare/claim/bind 和稳定 `run/step/attempt/child-job` key；相同输入复用，同键变化冲突，不通过换 key 重提。不加依赖、第二归一化器或新迁移系统。旧无版本回执的 payload/hash 保持原样：原读取/恢复仍核对旧 metadata，工具重新提交明确报 legacy identity requires reconciliation，既不猜测目标相同，也不升级旧证据。顺带修正旧异常路径漏导入 RunConflictError；首次本地检查暴露该 NameError，补导入后重跑通过。
+
+**实际验收**（Linux/WSL、Python 3.13.5，受控 SSE Provider，不代表真实供应商）：
+
+- 本片15项本地契约，加 N04-D 的17项回归，共32项通过。使用真实 RunStore/create_job；隔离 queue adapter 不真正执行。覆盖同目标复用、名称变化不影响、换主机/cwd/env/GPU/命令/阈值冲突、配置默认变化、0值、repo.clone 最终生成命令、旧回执读取/重入和未知回执拒绝。非本地主机/GPU/clone 只检查入队身份，不算真实外部执行。
+- 正常 HTTP →受控 Provider→scheduler/tmux：父 Agent 连续调用两次相同 job.run，四次实际 Provider 请求（父工具前后共三次、follow一次），只建一 Job；完整计划两步，等待时 follow pending；等待中重启并同键重发，完成后再重发和多轮调度，仍同 Job、追加记录一条。另一条链第二次工具只改 cwd，真实后续 Provider 请求中收到不同 payload 冲突，未出现第二 Job/副作用，原目标不变。**该冲突链最终仍 done/follow 被调用，这是 G32，不把它算作错误传播验收。** 正常联调没有关门禁、手填终态或人工补记录。
+- 兼容/故障独立检查：先从正式入口启动真实等待中的 Job，停服务后把 submission payload/hash 及 Job 的 hash 引用制作成历史无版本格式夹具，再启动。未手写任何终态，沿原生产恢复入口完成，原 Job 和旧 payload/hash 均保留，实际追加一次。另在同样的停机夹具中移除 Job 回执，重启后进入 blocked/reconciling，Provider 维持父工具前后两次、follow未调用、未重提；已有 tmux 任务仍会自行运行，这不代表取消能力。此处修改文件仅是历史格式/丢回执故障准备，不能冒充无人工步骤的正常路径或自然旧部署样本。
+
+脚本仅本地：dev_work/smokes/test_n04e_identity.py、n04e_http.py、n04e_legacy_http.py。证据仅本地：dev_work/artifacts/n04e-http-20261106-164635/、n04e-legacy-20261106-164800/。compileall 和 diff-check 通过；仓库根 pytest 无用例、退出5，不记通过。未运行3.10完整兼容、SSH/GPU、真实Provider或新浏览器验收。公开 REST/SSE 字段、状态和动作没有变化，本片只加强内部提交指纹，沿用既有错误消费者，因此免新 UI 实现片；D-UI历史浏览器验收不算本片重跑。旧回执核对/独立 agent_tool 兼容记录均保留，有真实恢复/展示调用者，不能仅因看似重复删除。
+
+### N04-F：child 提交工具冲突后的父流程错误传播（唯一下一片）
+
+对齐 G32/R06/R09。当前一次父 Agent 中先成功提交、后再次提交不同目标，工具虽报冲突，流程仍可能等待旧 child 后成功。这次只把这类受控提交错误成为持久、不能被模型文本或恢复抹掉的事实；不改 child key，不重提，不自动停止已创建 Job，不扩大为通用 Agent 或取消体系。
+
+开片先定位 Agent step/trace→workspace_run_step_from_agent→submit_coordinated_agent/resume 的错误来源及公开消费者，确定最小允许文件和归属策略；已有 child 的错误与 child 本身运行事实分开记录。真实正常相同调用仍可成功，先成功再冲突不得调用 follow 或报 done，错误重启后仍可见且已有 Job不重复；补无child错误和重复恢复检查。结果可见变化完成必要消费者同步后，再安排独立前端错误展示与浏览器小片，随后才推进正文交接等依赖功能。禁止只用测试补终态、通配所有工具错误或隐藏出错调用让链变绿。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 

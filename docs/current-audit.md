@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-D 后端与 N04-D-UI 已限定验收。运行记录按本次 Job 显示实际 CPU/主机/目录/环境、持久等待状态和唯一日志入口；真实浏览器成功/失败/停止、刷新与窄窗通过，详见第三部分。唯一下一片为 N04-E：child submission 完整执行目标身份与旧回执兼容。N04-B 总验收、正文/日志交接、父子取消关系仍未完成。
+当前执行指针：N04-E 已限定验收：child 提交身份覆盖最终执行输入，相同请求复用，换目标冲突；旧回执不改写，原恢复入口仍可用。真实 HTTP 重复工具/等待重启及历史格式、丢回执故障见第三部分。唯一下一片为 N04-F：child 提交工具冲突后的父流程错误传播（G32）；本次实测发现工具返回冲突后运行仍可 done，不能把“没重复执行”当成“错误处理完整”。N04-B 总验收、正文/日志交接、父子取消关系仍未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -60,7 +60,15 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 消融：run.command 的 host.exec 不再事后再改 GPU，复用同一 binding；显式 node_id 可选非 command 节点的 CPU 兼容分支保留，待这类调用者迁移并验证后退出。不扩 repo.clone/env.prepare，不改推进器/hash/旧 run。
 - N04-D-UI 已用独立前端片验收：run 步骤按 job_id/child_job_ids 集合精确读取实际 Job，缺失不回退包默认或历史任务；明确列 CPU/主机/cwd/env，N04 的状态使用持久 step，等待/未执行有文字，成功后不沿用旧实时运行文案。同 Job 日志和重复 ID 展示合并，仍保留独立 child run 入口。浏览器可见启动→等待→成功/失败/停止、真实日志、刷新实例保留、1440/768 视口及焦点通过。独立长路径/缺 Job/GPU 0 布局夹具不冒充任务结果；实际测的是受控 Provider，不代表真实供应商。
 - 页面刷新曾使日志按钮失焦：仅在原运行记录重建时按所属 run/node 和完整按钮 dataset 恢复焦点，保留原 summary 恢复，不保存 DOM、不加状态合并器。一般全局运行摘要可能仍显示实例运行中（子运行兼容记录等聚合），本片不修改全局聚合；步骤以本次持久事实展示。
-- 另有 E2 风险：child submission hash 当前只覆盖 tool/command/node_id，没有 host/cwd/env/GPU；同命令不同目标可能被误复用。应在目标解析稳定后独立做完整副作用身份及旧记录兼容片，不在本片顺手修改 hash。
+- N04-E 已修复上述 hash 风险：新 payload 的 identity_version=2，覆盖最终 Job 命令、请求主机、cwd/env/GPU、策略、排队/依赖与资源阈值；阈值缺省先按本机 config 固定后，同一 payload 交给 create_job。同键不同输入仍由原 RunStore 拒绝；名称/时间/动态调度结果不入身份。没有迁移数据库或重写旧 hash。旧无版本工具重入明确要求核对，原读取/恢复仍按旧回执；不能证明旧目标相同，所以不自动重提。32 项本地契约（本片15项及 D 回归17项）通过，真实 HTTP 两次相同工具只建一 Job，换 cwd 的第二次调用返回冲突且无新 Job，均在等待中重启后保留原任务和一次追加。历史格式夹具重启复用原 Job，丢失回执故障进入 blocked/reconciling 而不重提；夹具制作过程明确见第三部分，不冒充自然产生的旧部署记录。首次契约检查另发现原异常分支漏导入 RunConflictError，已补显式导入。父流程仍可在工具冲突后 done，单列 G32，不关闭 N04 整体。
+
+<a id="g32"></a>
+### G32 · P1 · child 工具提交冲突未阻止父流程成功
+
+- 对齐 R06/R09，类别：错误传播缺口、伪成功风险，证据 E1（N04-E 真实 HTTP/scheduler/tmux，受控 SSE Provider）。
+- 同一父 attempt 先成功提交 child，再以相同命令/不同 cwd 调用：第二次工具明确返回 `submission key reused with a different payload`，Job 数仍为 1，实际追加一次。但受控模型随后返回普通文本，父步骤仍等待首个 child，首个成功后 follow 被调用，整条 run 可为 done。冲突没有执行第二个目标，但运行终态不能证明全部工具成功。
+- 静态路径：Agent 工具错误作为观察传回模型；`submit_coordinated_agent` 发现 child_job_ids 后把 recorded 改为 waiting 并清 error，后续恢复会把父步骤写 done。尚未判定每类错误在哪层应成为权威失败，不能只改一处状态或把错误藏在成功文本。
+- 唯一下一片 N04-F：仅收敛受控 child 提交失败/冲突的持久错误传播，明确已提交 child 的归属与继续运行事实，不自动停止或重提；保留正常相同请求复用。真实验证“先成功后冲突”不调用 follow、不报成功、重启不抹错；无 child 的冲突/失败也要有可解释状态。取消策略、Provider 协议和正文交接仍各自独立。
 
 <a id="g03"></a>
 ### G03 · P1 · 提交异常替换已记录步骤（N02 新工作流已修复）
@@ -663,7 +671,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [agent_runtime_inputs.py](../total_control/state/workspaces/agent_runtime_inputs.py) · 100 | R05/R06/R09；映射/节点位置/历史输出 → 检查运行时引用 → refs/blockers | 问题/修补关联 [G10](#g10)、[G01](#g01)；按登记方案处理，不另建平行服务。 | `_agent_node_runtime_input_refs:10` |
 | [agent_runtime_observation.py](../total_control/state/workspaces/agent_runtime_observation.py) · 156 | R05/R06/R09；子 Job/run id/观察限额 → 等待与读取受限快照 → runtime observation | 问题/修补关联 [G02](#g02)、[G04](#g04)；按登记方案处理，不另建平行服务。 | `workspace_tool_observe_options:9`；`workspace_tool_job_snapshot:35` |
 | [agent_runtime_safety.py](../total_control/state/workspaces/agent_runtime_safety.py) · 327 | R05/R06/R09；命令/观测文本 → 允许诊断边界与密钥脱敏 → 拒绝原因/安全文本 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `redact_runtime_observation_text:18`；`workspace_tool_command_block_reason:29` |
-| [agents.py](../total_control/state/workspaces/agents.py) · 932 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | N04 在父 attempt 上下文中为受控 `job.run/host.exec` 工具建立 child submission metadata，N04-D 只把 command 工具显式目标传给唯一 binding，HTTP CPU/cwd/环境验证通过；非command host.exec 与独立 agent-tool run 兼容入口保留。G02/G30 与 UI/hash 边界未关闭。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
+| [agents.py](../total_control/state/workspaces/agents.py) · 959 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | N04 在父 attempt 上下文中为受控 `job.run/host.exec` 工具建立 child submission metadata，N04-D 只把 command 工具显式目标传给唯一 binding，HTTP CPU/cwd/环境验证通过；非command host.exec 与独立 agent-tool run 兼容入口保留。N04-E 冻结 v2 完整执行身份与资源缺省，同键目标变化拒绝；旧回执不改写、重入需核对，原恢复保留。32契约及HTTP/历史格式故障通过，G02/G30/G32与正文/取消边界仍开放。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
 | [automation.py](../total_control/state/workspaces/automation.py) · 138 | R06/R12；用户推进请求/权威 run 与 Job 投影 → 活跃运行保护、发现/受理命令 → watch/blocked/run 反馈 | 受理窗口 watch 保护同时涵盖 B2b/B2c1；当前运行未完成或未知时不另开发现任务。不是图推进入口，G17 建议投影仍开放。 | `AutomationMixin:8`；`advance_workspace_automation:9` |
 | [chat.py](../total_control/state/workspaces/chat.py) · 902 | R09/R12；聊天/反思/流请求 → 路由、Agent、消息更新 → 聊天与事件 | 问题/修补关联 [G05](#g05)、[G04](#g04)、[G21](#g21)；按登记方案处理，不另建平行服务。 | `ChatMixin:7`；`_chat_agent_execution_trace:33` |
 | [crud.py](../total_control/state/workspaces/crud.py) · 365 | R02；工作区与迁移请求 → 创建/更新/模板差异与草稿 → 工作区快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `CrudMixin:7`；`workspace_by_id:8` |
