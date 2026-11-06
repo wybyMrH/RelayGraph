@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-H及H-UI已限定验收；N04-I1完成有限加载调查，26次正常样本未复现G33，原因仍开放，不作产品修复声明。唯一下一片N04-C1只验证非流式content工具调用，与流式基线对照；保留低干扰浏览器记录，若G33自然复现先保存并暂停该次验收。N04-B总验收、通用取消预算及其他恢复窗口仍开放。
+当前执行指针：N04-C1已限定验收OpenAI-compatible application/json正文响应，复用既有解析且不重发，非法/原生工具结构明确失败。真实网页SSE/JSON两链均等待child完成并重启续跑；过程中另确认G34活动提交也被投影为blocked。唯一下一片N04-J1先区分当前活动提交与真正未知收据，不改低恢复门禁；G33原因、N04-B总验收及其他协议/控制边界仍开放。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -79,8 +79,23 @@ N04-I1（2026-11-06）有限诊断结果：复制183408失败轮已终态的隔�
 ### G30 · P1 · Provider 工具调用契约覆盖不足
 
 - 对齐 R06/R09，类别：能力缺口、伪完成风险，证据 E2/E4；旧 N04-B 失败不足以确定产品解析缺陷或端口根因。
-- 本地受控 OpenAI-compatible SSE 文本协议可以触发工具步骤；原生 `tool_calls`、分片 JSON 参数、流式/非流式一致性及真实供应商差异尚未系统验证。不能用固定 Provider 回答宣称实际读取结果。
+- 本地受控 OpenAI-compatible SSE文本可触发工具步骤；C1现已补齐明确application/json的文本响应，原生tool_calls仍未支持且在该JSON分支明确拒绝。SSE原生tool_calls/分片参数、其他媒体类型与真实供应商差异仍未系统验证，G30不整体关闭。不能用固定Provider回答宣称实际读取结果。
 - 方案：N04-C 单独核对 LLMClient/AgentExecutor 的输入、工具步骤、错误与副作用次数，再决定是否采用 LiteLLM 薄适配；不新增双协议主路径。
+
+N04-C1（2026-11-06）：真实HTTP复现 `dev_work/artifacts/n04c1-probe-20261106-185937/` 显示N04因事件回调总走chat_stream，Provider对stream:true返回标准JSON时，旧SSE迭代器忽略正文却空success，父done/无child、整run blocked，实际模型请求1次。没有关闭回调或改用测试专用调用入口来绕开。现仅在OpenAI-compatible、Content-Type为application/json（允许大小写/charset）时消费同一响应，校验非空文本envelope/usage，复用原_parse_response；整体正文回调一次，不伪造分片，内部raw保留requested_stream与实际格式。空/错误结构、非法UTF8、混合error、非文本content、native tool_calls/legacy function_call及相应finish_reason明确protocol_error；Agent仅对此终止协议错误禁止旧chat fallback，不新增请求层。收到正文后回调失败仍保留已接收content，不能再次请求。其他网络/HTTP fallback、全局success、普通chat与原SSE处理不改，通用预算仍G04。
+
+最终 `dev_work/artifacts/n04c1-20261106-191342/` 真实网页启动四条隔离CPU链：SSE/JSON各3次实际模型请求（均stream:true）、1child/1次追加、父/follow各1attempt、完整2步done。child running等待期间服务重启与同键重放，终态后再重启/重放仍同run/attempt；follow实际映射逐值等于本次持久parent output，保留620字之后的运行时随机END及run/parent/a1/Job/host/done身份。非法空choices与native+content混合链各仅1请求、0Job/0追加、父failed/follow pending；浏览器原错误/状态消费者正确显示，无pageerror。1440/768截图仅这次原页面回归，不冒称完整移动导航/键盘重验。Provider受控，不证明真实模型理解。
+
+两正常链均记录一次活动submitting被公开投影blocked（G34），原65秒期限内只观察既有提交自然结算，不触发恢复/重提。逐快照复核唯一child-job、精确parent/a1/attempt_no1、external_ref/error空、recorded_status running及claim、无child_submission_error/submission_error；不豁免真正reconciling，不以重启后旧claim当活跃。190710 JSON与190902 SSE轮曾因脚本把所有blocked立即当终态而提前停止，保留失败；190542首轮漏选实例无启动按钮，改为原下拉真实选择；后只修观察脚本，不改产品门禁/终态。正常链仍有G34过程呈现问题，不能写成全程无阻塞。后补静态回看首次scroll_into_view等待稳定时遇实时DOM替换，只改本地滚动操作；不关闭实时或改变DOM业务内容。
+
+27项本地真实HTTP client/Agent契约与D/E/F/G/H的73项回归通过，compileall通过；根pytest无用例退出5不计通过。只改llm_client.py、agent_executor.py和二/三文档；公开REST/SSE字段、状态枚举与动作不变，免新UI实现片，已真实回归既有浏览器消费者。原chat仍有无回调/debug消费者，保留；复用原JSON parser、urllib和队列，无新依赖、第二Provider/推进器。无Content-Type/text/plain JSON、Anthropic JSON、原SSE非法/空响应、一般网络fallback和原生工具执行仍未交付；Python3.10完整后端、真实供应商/SSH/GPU未验收。测试、结果、配置仅本地。
+
+<a id="g34"></a>
+### G34 · P2 · 活动child提交被投影成需要核对
+
+- 对齐R06/R12，类别：过程状态误导；E1真实浏览器/HTTP快照，E2源码。`state/workspaces/workflow_records.py.project_workflow_run` 对submitting与reconciling一律投影blocked及“Job submission requires reconciliation”，即使本进程父Agent正在原提交中、attempt recorded_status仍running且无错误。
+- C1最终SSE/JSON各采到一次该窗口，随后沿原提交正常完成，未人工补记录/改状态。原blocked保护不能整体删除：服务崩溃后的同一submitting/旧claim确实可能未知，不能把它显示为正在执行或自动重提。
+- 唯一下一片N04-J1先核现有`agent_run_is_active`与execution_id、run/step/attempt/intent绑定是否足以证明当前活动；只收敛这一投影边界，不新增活性注册器/调度器。重启、缺活动标志、身份不符或真正reconciling仍保守待核对；如果无法可靠区分则先留调查结论，不假装修复。后端若新增可见状态呈现，下一片独立UI验收后再扩功能。
 
 <a id="g31"></a>
 ### G31 · P1 · child Job 显式 CPU 目标被执行包默认覆盖（N04-D 后端及 N04-D-UI 已限定验收）
@@ -570,7 +585,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/__init__.py) · 5 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [agent_executor.py](../total_control/agent_executor.py) · 511 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；普通多轮路径保持，G04/G21 未关闭；构造/查ID未滤enabled为G11 E2风险。 | `_tool_side_effect:31`；`_metadata_value:39` |
+| [agent_executor.py](../total_control/agent_executor.py) · 512 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；其他多轮路径保持，G04/G21 未关闭；构造/查ID未滤enabled为G11 E2风险。 | `_tool_side_effect:31`；`_metadata_value:39` |
 | [agent_runtime.py](../total_control/agent_runtime.py) · 49 | R09；execution_id/取消请求 → 进程内注册与信号 → active/cancel 检查 | 问题/修补关联 [G04](#g04)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `register_agent_cancel:20`；`cancel_agent_run:30` |
 | [compat.py](../total_control/compat.py) · 21 | R14；公开门面名/默认实现 → 查询 override → 兼容调用入口 | 问题/修补关联 [G16](#g16)；按登记方案处理，不另建平行服务。 | `public_api_override:7`；`public_api_value:17` |
 | [config.py](../total_control/config.py) · 340 | R01/R12/R13/R14；config/ TOML → 校验主机/路径及状态加载秒数 → AppConfig | N13C2增加status_load_timeout_seconds默认30、严格int 1–300（拒bool/float/string/非有限值）；首页先送预算。N07A目录/SSH兼容保留，无秘密透出。 | AppConfig/load_config |
@@ -578,7 +593,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [context_refs.py](../total_control/context_refs.py) · 18 | R05/R09；数据和点分路径 → 字典键/列表下标查找 → 原值或 None | N00C 唯一纯取值内核；执行映射与上下文投影均已接入；不承担引用前缀或就绪规则。 | `context_ref_value:8` |
 | [events.py](../total_control/events.py) · 207 | R12；业务事件/游标 → 有界队列、gap 与 SSE 编码 → 实时通知 | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `EventBroker:12`；`sse_encode:135` |
 | [handler.py](../total_control/handler.py) · 197 | R12/R13/R14；HTTP/首页 → 路由/安全数值meta → JSON/文件/配置化HTML | N13C2仅/与/index.html由send_head替数值占位、no-store；GET/HEAD长度相同，其他静态保持。首次status前有预算，不新增配置API；原RunStoreError503/G19边界保留；I1静态核实默认抑制状态/静态GET日志，既有verbose仅用于诊断，历史无日志不代表无请求，未改本文件。 | Handler.send_head/do_GET |
-| [llm_client.py](../total_control/llm_client.py) · 578 | R03/R09；Profile/消息 → 供应商请求、流解析 → LLMResponse | N00C 已删除无调用者的 simple_chat 包装；协议维护与预算问题仍按 [G04](#g04)/[G21](#g21) 解决。 | `LLMResponse:17`；`ChatMessage:37` |
+| [llm_client.py](../total_control/llm_client.py) · 621 | R03/R09；Profile/消息 → 供应商请求、流解析 → LLMResponse | N00C 已删除无调用者的 simple_chat 包装；C1仅chat_stream明确JSON文本响应校验并复用_parse_response、同响应一次消费/整体回调、记录实际格式；非法/native结构protocol_error阻止Agent回退洗白，SSE/JSON真实链及失败门禁通过；其他协议维护与预算问题仍按 [G04](#g04)/[G21](#g21) 解决。 | `LLMResponse:17`；`ChatMessage:37` |
 | [path_safety.py](../total_control/path_safety.py) · 37 | R04/R13；原始/解析路径 → 敏感目录规则 → 拒绝原因 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `sensitive_path_block_reason:19`；`sensitive_path_block_reason_for_path:30` |
 | [preset_matrix.py](../total_control/preset_matrix.py) · 90 | R02/R07；数据集选项 → 硬编码实验组合排序 → preset 参数矩阵 | 问题/修补关联 [G18](#g18)；按登记方案处理，不另建平行服务。 | `PresetExperiment:12`；`dataset_rank:26` |
 | [secrets_crypto.py](../total_control/secrets_crypto.py) · 68 | R13/R14；明文或密文 → Fernet/主密钥处理 → 加密存储或内存明文 | 问题/修补关联 [G08](#g08)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `_load_or_create_master_key:26`；`_fernet_instance:42` |
@@ -718,7 +733,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 471 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)、[G31](#g31)；N04-D 接显式目标并同步 payload/runtime_binding/resource_plan；普通默认解析对照不变。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 665 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:18` |
 | [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 两 Agent handoff 计划可经真实 HTTP 受理；旧单 Job/Job→报告入口不变。N04-D 已限定验证 CPU 目标保真和等待中恢复；正文/UI/其他恢复窗口仍待 G02 后续片。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 742 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链通过，UI动作待H-UI。N04全验收仍未完成，见G02/G04/G30/G31/G32。 | `WorkflowRecordsMixin:21` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 742 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；C1发现活动submitting也无条件投blocked（G34），下一片先核当前活性/身份而不删除未知收据保护。本文件本片未改。N04全验收仍未完成，见G02/G04/G30/G31/G32/G34。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 

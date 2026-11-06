@@ -343,6 +343,7 @@ class LLMClient:
         finish_reason = ""
         usage: dict[str, Any] = {}
         raw_events: list[dict[str, Any]] = []
+        response_stream = True
 
         try:
             req = urllib.request.Request(
@@ -352,6 +353,48 @@ class LLMClient:
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=kwargs.get("timeout", 60)) as response:
+                media_type = str(response.headers.get("Content-Type", "")).split(";", 1)[0].strip().lower()
+                if self.provider != "anthropic" and media_type == "application/json":
+                    response_stream = False
+                    # Some compatible endpoints return a complete JSON answer even
+                    # when stream was requested. Consume this response, never resend.
+                    try:
+                        data = json.loads(response.read().decode("utf-8"))
+                        if isinstance(data, dict) and data.get("error"):
+                            raise ValueError("JSON content response contains an error envelope")
+                        choices = data.get("choices") if isinstance(data, dict) else None
+                        choice = choices[0] if isinstance(choices, list) and choices else None
+                        message = choice.get("message") if isinstance(choice, dict) else None
+                        if not isinstance(message, dict):
+                            raise ValueError("JSON content response requires choices[0].message")
+                        calls = message.get("tool_calls")
+                        if calls is not None and not isinstance(calls, list):
+                            raise ValueError("JSON content response has invalid tool_calls")
+                        if (calls or message.get("function_call")
+                                or choice.get("finish_reason") in ("tool_calls", "function_call")):
+                            raise ValueError("JSON content response does not support native tool_calls")
+                        text = message.get("content")
+                        if not isinstance(text, str) or not text.strip():
+                            raise ValueError("JSON content response requires nonempty text content")
+                        usage = data.get("usage", {})
+                        if not isinstance(usage, dict) or any(
+                            key in usage and (type(usage[key]) is not int or usage[key] < 0)
+                            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+                        ):
+                            raise ValueError("JSON content response has invalid usage")
+                        parsed = self._parse_response(data, model, (datetime.now() - start_time).total_seconds() * 1000)
+                    except (ValueError, TypeError, UnicodeError) as exc:
+                        reason = "invalid UTF-8 encoding" if isinstance(exc, UnicodeError) else str(exc)
+                        return LLMResponse(
+                            content="", model=model, provider=self.provider,
+                            error=f"Invalid JSON content response: {reason}",
+                            raw_response={"stream": False, "requested_stream": True, "protocol_error": True},
+                        )
+                    parsed.raw_response = {"stream": False, "requested_stream": True, "response": data}
+                    content = parsed.content
+                    if on_delta:
+                        on_delta(parsed.content, parsed.content, data)
+                    return parsed
                 for event_data in self._iter_sse_data(response):
                     if event_data == "[DONE]":
                         break
@@ -404,7 +447,7 @@ class LLMClient:
                 model=model,
                 provider=self.provider,
                 error=f"HTTP {e.code}: {error_body}",
-                raw_response={"stream": True, "partial": content},
+                raw_response={"stream": response_stream, "partial": content},
             )
         except urllib.error.URLError as e:
             return LLMResponse(
@@ -412,7 +455,7 @@ class LLMClient:
                 model=model,
                 provider=self.provider,
                 error=f"URL Error: {e.reason}",
-                raw_response={"stream": True, "partial": content},
+                raw_response={"stream": response_stream, "partial": content},
             )
         except Exception as e:
             return LLMResponse(
@@ -420,7 +463,7 @@ class LLMClient:
                 model=model,
                 provider=self.provider,
                 error=f"Error: {str(e)}",
-                raw_response={"stream": True, "partial": content},
+                raw_response={"stream": response_stream, "partial": content},
             )
 
     @staticmethod

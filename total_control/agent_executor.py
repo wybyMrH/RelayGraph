@@ -368,7 +368,8 @@ class AgentExecutor:
                     )
 
                 response = self.llm_client.chat_stream(messages, on_delta=on_stream_delta)
-                if not self.single_call and not response.success and not response.content:
+                if (not self.single_call and not response.success and not response.content
+                        and not getattr(response, "raw_response", {}).get("protocol_error")):
                     response = self.llm_client.chat(messages)
             else:
                 response = self.llm_client.chat(messages)

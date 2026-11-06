@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-H/H-UI已限定验收；I1有限加载调查完成，26个正常样本未复现G33，根因与风险仍开放。唯一下一片 **N04-C1：非流式content工具调用契约**，同时保留低干扰加载记录；自然复现G33时先留证并暂停该次通过判定。N04整体仍开放。
+当前执行指针：N04-C1的明确JSON文本响应已限定验收，SSE/JSON真实CPU链及非法/native拒绝链通过；活动提交期间短暂blocked的G34仍开放。唯一下一片 **N04-J1：区分活动提交与未知child收据的公开投影**，先确认现有活性/身份依据，再最小修复；有可见变化则独立UI片随后验收。G33原因与N04总体仍开放。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -903,9 +903,21 @@ RunStore只保存first-error及校验结果不可丢弃/成功覆盖，不解释
 
 下一步恢复下列C1，带低干扰被动记录；若自然复现加载问题，立即保存请求/完成/失败、console/pageerror、DOM及截图并暂停该次通过判定。待具体失败证据支持后再开最小修复片，不以反复刷新或加超时使验收变绿。
 
-### N04-C1：非流式content工具调用契约（唯一下一片）
+### N04-C1：非流式content响应契约（已限定验收）
 
-仅G30的一个协议切面：受控非流式content触发同一个CPU child并续跑，与既有流式content基线对照解析、错误、幂等身份与真实副作用次数。先证明当前行为，不预设需改代码；不同时做原生tool_calls、分片JSON、多供应商或LiteLLM接入。实现前按实际调用者收紧文件/契约范围，不新增第二协议主路径。
+对齐G30、R06/R09/R12。先通过原HTTP入口复现，未关闭事件回调：N04始终请求stream:true，Provider返回明确application/json正文时，旧解析空success导致父done但0child、run blocked（`dev_work/artifacts/n04c1-probe-20261106-185937/`）。本片交付的是**流式请求收到完整JSON文本的兼容**，不是新增用户可选的非流式开关，也不支持原生工具调用。
+
+允许文件收紧为llm_client.py、agent_executor.py和二/三文档。chat_stream按明确JSON媒体类型选择，严格验证非空文本envelope/usage，再复用既有_parse_response；一次读响应/一次整体回调，内部raw区分requested_stream和实际格式，不重发、不模拟分片。非法JSON/UTF8、空/非文本content、错误混杂、native tool_calls/legacy function_call及相应finish_reason明确protocol_error；Agent只对此禁止旧chat fallback，防第二次空success。回调失败保留已接收内容，不能重新请求。原普通chat、SSE、其他HTTP/网络fallback不改；G04总预算仍开放。复用现有stdlib/parser足够，不引LiteLLM或另一Provider层；chat有无回调/debug消费者，保留而非删除。
+
+最终实际证据 `dev_work/artifacts/n04c1-20261106-191342/`：真实网页SSE/JSON各1CPU child/1追加、3模型请求（仍stream:true）、父/follow各1attempt、完整2步done；等待child running中重启并原键重发、终态再重启重放不变，follow映射逐值等于本次持久output，含620字后的运行时随机END与精确身份。非法空choices/native+content混合两链各1请求/0Job/父failed/follow pending，未发生chat回退；无pageerror。既有页面在1440/768显示状态与错误，非全手机/键盘重验。公开字段、状态枚举、动作未新增，属内部协议修复，免另造UI片但回归既有消费者。受控回复不证明模型理解，真实Provider/SSH/GPU/Python3.10完整后端未验收。
+
+过程事实：最终两正常链各采到1个submitting被投blocked（G34），只对精确无错误且recorded attempt仍running/claimed的提交窗口在原65秒内继续观察，不恢复/重提/写终态，真正reconciling或超时仍失败。190542漏选实例、190710 JSON与190902 SSE把该快照过早当终态的失败均保留，未更改产品条件；修本地选择/观察方式后才完整通过。补充回看首次滚动因实时重建元素脱离而失败，后仅改本地滚动，不关实时。27项协议契约+73项原D/E/F/G/H回归、compileall通过，根pytest无用例退出5不计通过。脚本/配置/结果仅本地。无媒体类型/text/plain JSON、Anthropic完整JSON、SSE非法/空响应与原生工具执行仍不在本片范围，G30不关闭。
+
+### N04-J1：区分活动提交与未知child收据的公开投影（唯一下一片）
+
+对齐G34、R06/R12。只解决父Agent确实正在本次child提交时，页面误显示“需要核对”的过程状态。先核对`project_workflow_run`的消费者、现有`agent_run_is_active`的注册/释放时点及精确execution_id与run/step/attempt/intent绑定。不能把旧claim、磁盘running或Job存在当当前活跃；不能新增第二活性注册器或改变Job/图推进。开片后据实际调用者收紧允许文件，稳定规格不降低。
+
+验收应在真实原入口捕获活动提交窗口，并与服务在submitting中退出/重启、缺活动标志、身份冲突及真正reconciling对照：只有可证明当前活动的原提交可显示提交中，其他未知仍阻塞且绝不自动重提；记录同键/副作用/证据不变。故障注入与自然正常路径分开，若活性不足以可靠区分先交付调查，不凭空改状态。后端可见状态/语义变更须最小消费者接线及契约检查，随后独立J1-UI设计/浏览器验收，再继续新能力；不批量修Provider或配置。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 
