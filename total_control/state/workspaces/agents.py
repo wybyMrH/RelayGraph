@@ -751,6 +751,7 @@ class AgentsMixin:
         execution_id: str = "",
         expected_route_hash: str = "",
         report_only: bool = False,
+        preserve_job_evidence: bool = False,
     ) -> StepResult:
         workspace_id = str(workspace_id or "").strip()
         node = copy.deepcopy(node) if isinstance(node, dict) else {}
@@ -846,14 +847,19 @@ class AgentsMixin:
                               "node_config": node_config}, ensure_ascii=False)
         if not input_text:
             goal_text = str(input_data.get("goal_text") or "").strip()
-            input_text = build_agent_node_input_text(
-                node_kind=node_kind,
-                node_title=str(node.get("title") or node_kind or "node").strip(),
-                output_key=output_key,
-                mapped_inputs=mapped_inputs,
-                goal_text=goal_text,
-                node_config=node_config,
-            )
+            try:
+                input_text = build_agent_node_input_text(
+                    node_kind=node_kind,
+                    node_title=str(node.get("title") or node_kind or "node").strip(),
+                    output_key=output_key,
+                    mapped_inputs=mapped_inputs,
+                    goal_text=goal_text,
+                    node_config=node_config,
+                    preserve_mapped_inputs=preserve_job_evidence,
+                )
+            except ValueError as exc:
+                return StepResult(status="blocked", executor="agent", reason="job_evidence_input_limit",
+                                  detail=str(exc), validation={"status": "failed", "errors": [str(exc)]})
 
         def agent_executor(_workspace_id: str, _agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
             execution = self._execute_agent_on_mutable_workspace(

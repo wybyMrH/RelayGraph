@@ -30,6 +30,49 @@ from ...workspace.execution import (
 
 
 class WorkflowRecordsMixin:
+    def _job_log_handoff(self, job: dict[str, Any]) -> dict[str, Any]:
+        """Bounded, redacted evidence shared by report and child continuations."""
+        try:
+            chunk = self.job_log_payload(job, offset=0, max_bytes=8192)
+        except (OSError, ValueError, RuntimeError):
+            chunk = {"exists": False, "error": "Job log read failed"}
+        raw = str(chunk.get("log") or "")
+        replacement_characters = raw.count("\ufffd")
+        # Snapshot adapters can return a character-bounded tail: enforce the
+        # delivery byte limit too, without pretending it is the original range.
+        delivery_limited = len(raw.encode("utf-8")) > 8192
+        if delivery_limited:
+            raw = raw.encode("utf-8")[-8192:].decode("utf-8", errors="ignore")
+        text = redact_runtime_observation_text(raw)
+        redacted = text != raw
+        if len(text.encode("utf-8")) > 8192:
+            text = text.encode("utf-8")[-8192:].decode("utf-8", errors="ignore")
+            delivery_limited = True
+        evidence = {key: chunk.get(key) for key in (
+            "mode", "source", "exists", "offset", "requested_offset", "next_offset", "file_size",
+            "byte_count", "skipped_bytes", "snapshot_captured_at", "snapshot_schema",
+        )}
+        truncated = bool(delivery_limited or chunk.get("truncated") or chunk.get("skipped_bytes")
+                         or (isinstance(chunk.get("offset"), int) and chunk["offset"] > 0))
+        offsets = [chunk.get(key) for key in ("offset", "next_offset", "file_size", "byte_count")]
+        valid_range = all(isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in offsets)
+        truncated = truncated or (valid_range and offsets[1] < offsets[2]) or delivery_limited
+        complete = (valid_range and chunk.get("exists") is True and not chunk.get("error") and not truncated
+                    and not replacement_characters
+                    and offsets[0] == 0 and offsets[1] == offsets[2] and offsets[3] == offsets[1])
+        if valid_range and offsets[1] - offsets[0] > offsets[3]:
+            evidence["error"] = "Job log range could not be fully read"
+        if chunk.get("error"):
+            evidence["error"] = "Job log read failed"  # Never expose adapter paths/commands.
+        state = ("error" if evidence.get("error") else "missing" if chunk.get("exists") is False and not raw
+                 else "complete" if complete else "partial")
+        evidence.update(schema="job-log-handoff/v1", complete=bool(complete), state=state,
+                        delivery_limited=delivery_limited, redacted=redacted,
+                        text_replacement_characters=replacement_characters,
+                        delivered_byte_count=len(text.encode("utf-8")))
+        return {"host_id": str(job.get("server_id") or ""), "log": text,
+                "log_evidence": evidence, "log_truncated": truncated}
+
     def _settle_child_submission_error(self, run_id: str, step_id: str, attempt_no: int,
                                        result: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """One interpretation of the durable failure, shared by finish and recovery."""
@@ -370,7 +413,8 @@ class WorkflowRecordsMixin:
                                                        if child_output.get("output_key") else {},
                                                    ),
                                                    frozen_workspace=copy.deepcopy(plan["workspace_snapshot"]), execution_id=execution_id,
-                                                   expected_route_hash=follow.get("provider_route_hash", ""))
+                                                   expected_route_hash=follow.get("provider_route_hash", ""),
+                                                   preserve_job_evidence=True)
         recorded = workspace_run_step_from_agent(follow["node"], result, follow["index"])
         recorded.update(agent_execution_id=execution_id, continuation_state="resumed")
         self.execution_store.record_result(run_id, follow["step_id"], number, recorded)
@@ -428,6 +472,16 @@ class WorkflowRecordsMixin:
                         "artifact_manifest": {"items": copy.deepcopy(result.get("artifacts", [])),
                                               "verification": "Child Job declarations; files not verified by this handoff"},
                     }
+                    if child_status == "done":
+                        previous = attempt["result"].get("output_value", {})
+                        identity = {"run_id": run_id, "node_id": step["step_id"],
+                                    "attempt_id": f"a{attempt['attempt_no']}", "job_id": job_id,
+                                    "host_id": str(job["server_id"]), "status": "done"}
+                        if (all(previous.get(key) == value for key, value in identity.items())
+                                and previous.get("log_evidence", {}).get("schema") == "job-log-handoff/v1"):
+                            output = copy.deepcopy(previous)
+                        else:
+                            output.update(self._job_log_handoff(job))
                     return {
                         **attempt["result"],
                         "node_id": step["step_id"],
@@ -444,18 +498,13 @@ class WorkflowRecordsMixin:
                         "output_value": output,
                     }
                 if evidence["plan"]["engine_version"] == REPORT_ENGINE_VERSION and result["status"] == "done":
-                    log = self.job_log_payload(job, offset=0, max_bytes=8192)
                     result["output_value"] = {
                         "run_id": run_id, "node_id": step["step_id"], "attempt_id": f"a{attempt['attempt_no']}",
                         "job_id": job_id, "host_id": job["server_id"], "status": "done",
                         "output_key": workspace_contract_output_key_for_node(step["node"], step["index"]),
                         "artifact_manifest": {"items": copy.deepcopy(result["artifacts"]),
                                               "verification": "Job declarations; files not verified by this handoff"},
-                        "log": redact_runtime_observation_text(log.get("log", "")),
-                        "log_evidence": {key: log.get(key) for key in (
-                            "mode", "exists", "offset", "next_offset", "file_size", "byte_count", "skipped_bytes", "error",
-                        )},
-                        "log_truncated": bool(log.get("truncated") or log.get("next_offset", 0) < log.get("file_size", 0)),
+                        **self._job_log_handoff(job),
                     }
                 return result
         return {"index": step["index"], "node_id": step["step_id"], "job_id": job_id,

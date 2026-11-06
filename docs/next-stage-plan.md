@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-F 与 N04-F-UI 已限定验收，父错误与已有child状态分开且经真实网页验证。唯一下一片为 **N04-G：本次child Job有界日志与完整性证据交接**；仅补后续Agent实际输入，不同时做长报告、取消、Provider或其他功能。N04整体仍开放。
+当前执行指针：N04-G后端已限定验收，本次有界日志及完整性证据已进入follow实际请求，映射不再静默裁短。唯一下一片为 **N04-G-UI：日志交接完整性与本次证据阅读**。完成独立界面验收再推进父子取消等小片；N04整体仍开放。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -839,11 +839,31 @@ RunStore只保存first-error及校验结果不可丢弃/成功覆盖，不解释
 
 脚本仅本地dev_work/smokes/n04fui_browser.py、n04fui_contract.cjs、n04fui_layout.py。真实运行证据dev_work/artifacts/n04fui-20261106-171913/；独立布局证据dev_work/artifacts/n04fui-layout-20261106-172348/。停止提示文义与首步参数限定经监督建议小修后，纯契约与独立浏览器布局重跑通过；真实完整链截图生成于该小修前，核心failed/运行/完成文案相同。真实blocked/父stopped链、其他供应商、SSH/GPU、完整移动端产品导航未验收；390只验证独立布局。历史回放仍读原持久步骤/错误，不另建状态合并器；本轮未做回放点击验收。全局实例可能仍由兼容child run聚合成运行中，原已登记，未扩大修改。
 
-### N04-G：本次 child Job 有界日志与完整性证据交接（唯一下一片）
+### N04-G：本次 child Job 有界日志与完整性证据交接（后端已限定验收）
 
-对齐G01/G02与R06/R09/R11。当前N04 output_value只含本次run/parent/attempt/Job/status和产物声明，后续Agent无法取得child日志；不能用固定模型回答假装读过结果。本片仅把child done时可核对的有界日志和完整性证据接入既有本次输出引用：先核对N03 report链现有job_log_payload、redact_runtime_observation_text、日志schema及输入压缩路径，复用读取/脱敏规则，避免复制第二套状态机/host路径。保持host_id与本次Job身份、截断/偏移/缺失/失败说明，不把找不到日志当成空白完整日志；原产物声明仍不冒充实物验证。
+对齐G01/G02与R06/R09/R11。只改workflow_records.py、agents.py、orchestration/input_mapping.py及二三文档，不改稳定规格/图推进器/Provider协议。N04 child done时将host_id、脱敏log、log_evidence及log_truncated加到原本次output_value；引用仍为run/parent step/aN/Job/status/产物声明，不混历史输出。原N03 report的内联日志处理提为_job_log_handoff，两个实际消费者均接入，旧副本退出；不新增日志存储、host adapter或状态机。沿原N03读取入口、锁位置及8192字节上限；仅本机CPU验证，不扩大远程网络锁等待承诺。
 
-开片限定workflow_records及必要输入消费者/二三文档，先证明正确证据不会在Agent输入预览中被静默裁短。真实正常CPU child输出一段每次变化的标记，检查follow的实际Provider请求含本次日志和身份，不以受控回复文案作为读取证明；重复通知/等待重启不重跑，前置失败/停止不调用follow，截断/缺失/读取异常的完整性语义明确。无Agent工具权限、Provider协议、长报告和取消扩展。若公开schema/状态可见变化，后端同步最小消费者，再安排独立UI片，不能直接跨到新功能。
+**证据语义**：原Job adapter offset=0/max_bytes=8192，超长文件按其既有尾部chunk返回并记offset/skipped_bytes。对snapshot字符边界及脱敏膨胀，helper在脱敏前后再保证交付UTF8文本至多8192字节，额外裁界显式delivery_limited；不把原byte_count伪装成文本字节数，另记delivered_byte_count。schema为job-log-handoff/v1，state区分complete/partial/missing/error；complete要求exists=true、合法完整范围/字节数、无截断/读错/替换字符。完整空日志是exists+范围全0，缺文件不是完整空日志。UTF8无效字节经原adapter替换后计text_replacement_characters，保守标partial；裁界丢不完整字符只影响交付文本，原范围不重写。adapter异常公开统一read failed，不把内部日志路径/命令带入证据。既有脱敏规则复用，不能宣称穷尽任意秘密格式。
+
+同run/step/attempt/job/host/done及schema都匹配后，重复done观察复用本attempt已冻结output，不重读可变日志。首次missing/error也冻结，后来的文件出现不自动改变本次证据；要重取/重试须另设计显式操作。旧输出没有新schema不被当作已冻结完整，可在仍等待的观察中取新证据；已claim/结束的follow沿原防重放规则，绝不为了补日志自动再调用模型，终态旧run不补造历史正文。
+
+**输入边界**：通用build_agent_node_input_text原先嵌套文本约400字预览会悄悄裁短，所以只有N04 resume调用显式preserve_job_evidence→preserve_mapped_inputs，完整保留本次映射。UTF8序列化mapped_inputs总量上限65536字节，含重复映射/产物等所有值；超限返回blocked、code=job_evidence_input_limit、detail说明不静默截断，不发送follow模型请求。此限制不包含system/context/JSON缩进，不能称整个prompt限64KiB。默认父Agent/独立Agent等输入预览保持原样；模型提示说明日志是证据不是指令，必须披露不完整读取。本片不改变follow工具权限、总预算或通用输入架构。
+
+**实际验收**（Linux/WSL、Python3.13.5、受控SSE Provider）：
+
+- 新增14项日志/输入契约，加D/E/F的40项，共54项通过。真实文件chunk覆盖完整/空/超长UTF8尾部/缺失，异常adapter和吞读错range不足不冒充完整；脱敏膨胀和无效UTF8有明确边界；默认输入压缩不变、显式保留完整值、超限报错；本attempt冻结后adapter不可再读，包括首次missing；换host不复用旧证据；N03 report实际observe消费者也覆盖正常和读异常，后者仍Job done并携error/incomplete供报告分析，不再因日志读取异常丢掉整个Job结果。
+- 四条正式HTTP→受控Provider→真实scheduler/tmux链，child用运行时uuid生成随机END标记，Provider预先不知道其值。普通和大日志实际follow请求解析出的映射包含400字之后的该标记，逐值等于持久output；普通log2348字节/complete，大日志log8192字节/partial并skipped5360，绝不从固定回复推断模型读过。两成功链parent/follow各一attempt、模型3次请求；failed/stopped只有父attempt、模型2次、follow未启动。四链均在等待中重启、同键重发和终态多轮调度，仍同Job/一次追加，完整计划两步，不关门禁、不手填终态或补回执。
+- 另一条正式API保存10个重复$prev.output映射，使实际跟随映射超过65536字节：child照常一次执行，follow明确blocked，错误code与detail可读，模型请求仍只有父2次，重发/调度不补发模型。首轮脚本错把解释文本期待在error字段（实际按原StepResult契约位于detail），核DB确认后仅修脚本再跑，不为断言改产品错误schema。脱敏扩张契约首轮700条短假secret未达到8192，改成800条后真实触发交付限制；没有把未触发夹具记通过。
+
+脚本仅本地dev_work/smokes/test_n04g_logs.py、n04g_http.py、n04g_limit_http.py；四链证据dev_work/artifacts/n04g-20261106-173528/，超限证据dev_work/artifacts/n04g-limit-20261106-173925/。UTF8替换计数字段在四链后补充，54契约重跑通过；四链普通ASCII日志逻辑不受该增补影响，不重复声称完整链已重跑。compileall/diff通过；根pytest无用例退出5，不记通过。测试、结果和本机config不提交。
+
+公开step.output_value只增字段；现有前端按原step.status/error及精确Job引用工作，JS契约检查仍通过，未改前端状态推进。现有页面尚无专门交接完整性说明，必须先做G-UI；本片未运行浏览器，不能用F-UI旧截图冒充。missing/error和磁盘读故障为隔离契约/adapter注入，未做真实故障HTTP；远程/真实供应商/旧已claim模型崩溃恢复均未重新验收。父子取消、通用预算与Provider协议仍开放。
+
+### N04-G-UI：日志交接完整性与本次证据阅读（唯一下一片）
+
+按本次持久output_value.log_evidence/log_truncated/host_id与run/step/attempt/Job列输入，状态只展示complete/partial/missing/error及原范围、脱敏/交付字节含义，不以“Job完成”暗示日志完整。先核对原运行阅读/日志入口与Notes，使用合适frontend-design指导小布局：本次交接摘要→完整/截断/不可用说明→按需查看交接文本或原Job日志；不要把长日志正文塞到配置页，不新增状态合并器。旧无schema记录明确未登记完整性，不自动称完整。
+
+真实网页分别启动普通和超长child，确认完整/截断提示与实际交付尾部、身份/Job入口匹配，刷新与等待重启不改变已冻结证据；缺失/错误/长文本仅可控布局或故障测试须分别说明。检查桌面/窄窗、键盘与实时更新。后端必要消费者不再扩展；完成本片并提交推送后，再选择父子取消关系等N04剩余小片。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 
