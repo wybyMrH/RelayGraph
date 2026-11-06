@@ -250,7 +250,25 @@
   `;
   }
 
+  function actualJobTargetMarkup(job, deps = {}) {
+    if (!job) return '<p class="workspace-job-target-missing muted">尚未取得本次任务目标，请等待状态更新或刷新。</p>';
+    const index = String(job.gpu_index ?? "").trim();
+    const cpu = ["none", "cpu", "no_gpu"].includes(index.toLowerCase());
+    const fields = [
+      ["主机", job.server_id || "尚未分配"],
+      ["计算方式", cpu ? "CPU" : index === "auto" ? "GPU 待分配" : index ? `GPU ${index}` : "尚未取得"],
+      ["工作目录", job.cwd || "主机默认目录"],
+      ["环境", job.env_name || "主机现有环境（未激活指定环境）"],
+    ];
+    return `<section class="workspace-job-target" aria-label="本次任务目标">
+      <strong>本次任务目标</strong>
+      <p class="muted">来自本次任务记录，配置中的执行包是默认快照。</p>
+      <dl>${fields.map(([label, value]) => `<div><dt>${escapeFor(deps, label)}</dt><dd>${escapeFor(deps, value)}</dd></div>`).join("")}</dl>
+    </section>`;
+  }
+
   window.WorkspaceRunSummary = {
+    actualJobTargetMarkup,
     agentRunCompactMarkup,
     deliveryClosureMarkup,
     eventDetail,

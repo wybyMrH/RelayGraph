@@ -22911,6 +22911,15 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 .workspace-run-reader-evidence > summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 6px 0; }
 .workspace-run-reader-evidence[open] > summary { margin-bottom: 8px; }
 .workspace-run-reader-evidence > p { overflow-wrap: anywhere; }
+.workspace-job-target { min-width: 0; border-top: 1px solid var(--border); padding-top: 10px; }
+.workspace-job-target > strong { font-size: 13px; }
+.workspace-job-target > p, .workspace-job-target-missing { font-size: 12px; line-height: 1.6; margin: 6px 0; }
+.workspace-job-target dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 8px 0 0; }
+.workspace-job-target dl > div { min-width: 0; }
+.workspace-job-target dl > div:nth-child(n+3) { grid-column: 1 / -1; }
+.workspace-job-target dt { color: var(--muted); font-size: 12px; }
+.workspace-job-target dd { margin: 3px 0 0; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
+@media (max-width: 560px) { .workspace-job-target dl { grid-template-columns: minmax(0, 1fr); } }
 .workspace-run-reader .form-message:empty { display: none; }
 .workspace-run-reader button:focus-visible,
 .workspace-run-reader select:focus-visible,

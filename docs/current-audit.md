@@ -1,10 +1,10 @@
 # 第二部分：现状、问题与逐文件审查
 
-审查日期：2026-11-05。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
+审查日期：2026-11-06。目标基线为[第一部分](project-spec.md)，解决顺序为[第三部分](next-stage-plan.md)。本文随代码变化更新，不能作为永久完成证明。
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-D 后端已限定验收，修复受控 run.command child 的显式目标被包默认覆盖（G31）。真实 HTTP 已验证 CPU、独立 cwd、已有环境及等待中重启/失败/停止，详见第三部分 N04-D。下一片只做 N04-D-UI 的实际目标与等待状态浏览器验收；N04-B 总验收、正文/日志交接、hash 和取消关系仍未完成，不将后端结果外推为整阶段或页面通过。
+当前执行指针：N04-D 后端与 N04-D-UI 已限定验收。运行记录按本次 Job 显示实际 CPU/主机/目录/环境、持久等待状态和唯一日志入口；真实浏览器成功/失败/停止、刷新与窄窗通过，详见第三部分。唯一下一片为 N04-E：child submission 完整执行目标身份与旧回执兼容。N04-B 总验收、正文/日志交接、父子取消关系仍未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -49,15 +49,17 @@ N03B2a 已补齐唯一运行依赖清单和 Python 3.12/3.13 隔离启动验证�
 - 方案：N04-C 单独核对 LLMClient/AgentExecutor 的输入、工具步骤、错误与副作用次数，再决定是否采用 LiteLLM 薄适配；不新增双协议主路径。
 
 <a id="g31"></a>
-### G31 · P1 · child Job 显式 CPU 目标被执行包默认覆盖（N04-D 后端已修复，界面待验收）
+### G31 · P1 · child Job 显式 CPU 目标被执行包默认覆盖（N04-D 后端及 N04-D-UI 已限定验收）
 
 - 对齐 R06/R07/R09，类别：错误执行目标风险，证据 E1（2026-11-02 真实 HTTP 重跑）。
 - 父 Agent 的 `job.run` 工具已明确传 `server_id=local`、隔离 cwd、`gpu_policy=cpu` 和 `gpu_index=none`；持久 Job 的 resource_plan 仍记 CPU/none，但顶层与 runtime_binding 变成 GPU 0/auto。`workspace_node_job_payload` 采用 `workspace_execution_package_runtime_binding` 后覆盖了工具的明确设置。不能依赖本机恰有 GPU 使 CPU 验收通过。
 - N04-D 已修复受控 run.command child：Agent 工具只传显式参数给原 payload/binding 入口，统一生成实际 server/cwd/env/GPU/阈值并更新 runtime_binding/resource_plan；包与 scheduler 保留为默认来源快照，`source=agent.tool.arguments`、`overridden_fields` 标明覆盖字段。普通工作流不传此参数，九组默认解析对照修改前一致。
 - GPU policy/index 视作成对选择：只显式 CPU policy 得 none，只显式索引 0 保留 0 并使用 auto policy；非 CPU policy 单独指定则 index=auto，不继承旧 CPU。显式矛盾对拒绝；env 空串可清空，主机/cwd 空串拒绝，显存阈值 0 保留。未知主机仍经原入口拒绝。
 - 2026-11-05 三条真实 HTTP→受控 SSE Provider→scheduler/tmux CPU 链通过 done/failed/stopped：waiting 中重启并同键重发后沿同一 Job；追加标记各一条；成功 parent/follow 各一 attempt、模型请求 3 次（父工具前后两次），失败/停止只有父 attempt、模型请求 2 次。额外成功链实际使用独立 child cwd 和已有 venv，日志 sys.prefix 证明激活，follow 请求 mapped_inputs 精确对应本次 parent/a1/run/Job/done。没有关门禁、手写终态或补记录。
-- 17 项本地契约通过，包括 GPU 0、CPU/none、空环境、阈值 0、未知主机/空目标/矛盾参数拒绝、adapter 参数接线和普通解析前后对照。未知/其他主机仅静态夹具，未做 SSH/GPU 实际执行；浏览器未验收。独立无 context 工具的旧 wait_for_idle 展示差异仍未解决，不能宣称所有字段/所有工具一致。
+- 17 项本地契约通过，包括 GPU 0、CPU/none、空环境、阈值 0、未知主机/空目标/矛盾参数拒绝、adapter 参数接线和普通解析前后对照。未知/其他主机仅静态夹具，未做 SSH/GPU 实际执行；后端片当时未验收浏览器，后续 D-UI 见下条。独立无 context 工具的旧 wait_for_idle 展示差异仍未解决，不能宣称所有字段/所有工具一致。
 - 消融：run.command 的 host.exec 不再事后再改 GPU，复用同一 binding；显式 node_id 可选非 command 节点的 CPU 兼容分支保留，待这类调用者迁移并验证后退出。不扩 repo.clone/env.prepare，不改推进器/hash/旧 run。
+- N04-D-UI 已用独立前端片验收：run 步骤按 job_id/child_job_ids 集合精确读取实际 Job，缺失不回退包默认或历史任务；明确列 CPU/主机/cwd/env，N04 的状态使用持久 step，等待/未执行有文字，成功后不沿用旧实时运行文案。同 Job 日志和重复 ID 展示合并，仍保留独立 child run 入口。浏览器可见启动→等待→成功/失败/停止、真实日志、刷新实例保留、1440/768 视口及焦点通过。独立长路径/缺 Job/GPU 0 布局夹具不冒充任务结果；实际测的是受控 Provider，不代表真实供应商。
+- 页面刷新曾使日志按钮失焦：仅在原运行记录重建时按所属 run/node 和完整按钮 dataset 恢复焦点，保留原 summary 恢复，不保存 DOM、不加状态合并器。一般全局运行摘要可能仍显示实例运行中（子运行兼容记录等聚合），本片不修改全局聚合；步骤以本次持久事实展示。
 - 另有 E2 风险：child submission hash 当前只覆盖 tool/command/node_id，没有 host/cwd/env/GPU；同命令不同目标可能被误复用。应在目标解析稳定后独立做完整副作用身份及旧记录兼容片，不在本片顺手修改 hash。
 
 <a id="g03"></a>
@@ -786,7 +788,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1760 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；新增helper在app前，脚本/ID/HTML装配按切片核对。无新网络/状态页。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
+| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI 更新现有 summary/app/CSS 缓存标识，helper 在 app 前；引用顺序已核对。无新网络/状态页。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
 
 ### web/config-center
 
@@ -806,7 +808,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26407 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；配置与运行记录仍分区，G11旧诊断不隐藏。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
+| [app.js](../web/core/app.js) · 26457 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；配置/运行仍分区。G11旧诊断不隐藏。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 63 | R12；用户事件/注入依赖 → 顶层导航动作 → 唯一回调 | N13B3a删除已退出moduleCards的委托绑定；其他导航保持，实际独立编辑入口由shell actions绑定。 | bind |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch/浏览器存储 → 页面结果 | 原通用fetchJson不自带deadline；N13C2外层标准signal透传/正文取消合同通过，本文件不改，不冒称其他调用都获预算。存储仍[G19](#g19)。 | fetchJson/loadStoredValue/saveStoredValue |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |
@@ -844,7 +846,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [styles.css](../web/styles/styles.css) · 23007 | R12/规格§3；执行包状态/授权说明 → 入口状态色、自然换行、窄屏动作换行 → 启动闭环可读布局 | N03B2c2a-UI 只补完整运行入口、缺项列表和授权说明响应式样式；N13B3b2c-UI补充空/有效/无效模型聊天 Agent 状态文字样式；letter-spacing保持0，无固定局部滚动、动画或外部字体。旧共享样式仍有消费者，G15旧样式债保留。 | workspace-launch-runtime-entry/workspace-model-chat-agent-status |
+| [styles.css](../web/styles/styles.css) · 23037 | R12/规格§3；执行包状态/授权说明 → 入口状态色、自然换行、窄屏动作换行 → 启动闭环可读布局 | N03B2c2a-UI 只补完整运行入口、缺项列表和授权说明响应式样式；N13B3b2c-UI补充空/有效/无效模型聊天 Agent 状态文字样式；letter-spacing保持0，无固定局部滚动、动画或外部字体。N04-D-UI 目标dl自然换行、窄窗无固定高；旧共享样式仍有消费者，G15旧样式债保留。 | workspace-launch-runtime-entry/workspace-model-chat-agent-status |
 
 ### web/transfer
 
@@ -938,7 +940,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [workspace_run_report.js](../web/workspace/workspace_run_report.js) · 188 | R10/R12；run/attempt与API正文/文件元数据 → 有身份的读取、失效与布局 → 独立报告阅读视图 | N07A-UI唯一阅读控制器，显式依赖，无正文持久缓存/轮询；11组件契约、真实主链/15边界/历史读取通过。正文失败清空、旧响应丢弃；文件watch与修复不在本片。 | `statusInfo`；`entryMarkup`；`load`；`sync`；`handleClick` |
 | [workspace_run_step_notes.js](../web/workspace/workspace_run_step_notes.js) · 31 | R09/R12；step.detail/error/recorded_error与显式escape/展开依赖 → 安全无状态说明标记 → 当前步骤/回放共同展示 | N16A-UI新增，两个现存消费者；不判状态/清洗错误，无新缓存/轮询。去重/真实错误/原文/长文本/键盘通过；[G25](#g25)已修。 | `hasNotes`；`markup` |
 | [workspace_run_state_merge.js](../web/workspace/workspace_run_state_merge.js) · 382 | R02/R06/R09/R12；页面数据/注入依赖 → HTTP/SSE run/step 版本合并 → 派生状态/界面结果 | N16A事件摘要接detail/recorded_error，真实run.updated合并及4局部字段/新attempt契约通过；N13A稳定身份保持，未新增前端错误清洗。G02/G20余项开放。 | `defaultTimestampMs:17`；`timestampMs:22` |
-| [workspace_run_summary.js](../web/workspace/workspace_run_summary.js) · 265 | R02/R06/R09/R12；页面数据/注入依赖 → 运行进度/交付摘要 → 派生状态/界面结果 | N07A-UI受管报告按file_verified/incomplete说明交付，退出重复正文摘要；legacy无report_id仍有消费者，保留原摘要。不修一般旧声明语义，G06余项开放。 | `escapeFor:17`；`statusFor:21` |
+| [workspace_run_summary.js](../web/workspace/workspace_run_summary.js) · 283 | R02/R06/R09/R12；页面数据/注入依赖 → 运行进度/交付摘要 → 派生状态/界面结果 | N07A-UI受管报告按file_verified/incomplete说明交付，退出重复正文摘要；legacy无report_id仍有消费者，保留原摘要。N04-D-UI 新增 actualJobTargetMarkup(job,deps) 纯展示，缺记录有提示，GPU0/空环境/长内容/转义契约通过；不读全局或包默认。不修一般旧声明语义，G06余项开放。 | `escapeFor:17`；`statusFor:21` |
 | [workspace_shell_actions.js](../web/workspace/workspace_shell_actions.js) · 54 | R02/R12；可见编辑/返回动作 → 注入回调 → 独立edit/原页 | N13B3a退出drawer toggle绑定，接唯一编辑/返回按钮；原运行阅读编辑入口复用同回调。 | bind |
 | [workspace_template_diff.js](../web/workspace/workspace_template_diff.js) · 282 | R02/R06/R09/R12；页面数据/注入依赖 → 模板/实例差异 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:13`；`diffStatusLabel:17` |
 | [workspace_template_migration_actions.js](../web/workspace/workspace_template_migration_actions.js) · 174 | R02/R06/R09/R12；用户事件/注入依赖 → 模板迁移动作动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `selectedWorkspace:8`；`cachedDiff:12` |

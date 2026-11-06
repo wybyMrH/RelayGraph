@@ -12241,24 +12241,29 @@ function workspaceAgentStreamTraceMarkup(records = []) {
 
 function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
   const jobId = String(step.job_id || "").trim();
-  const childJobIds = (Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
+  const isChildHandoff = run.execution_plan?.engine_version === "langgraph-agent-child-job/n04";
+  const childJobIds = [...new Set((Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
     .map((item) => String(item || "").trim())
-    .filter(Boolean);
+    .filter(Boolean))];
   const childRunIds = (Array.isArray(step.child_run_ids) ? step.child_run_ids : [])
     .map((item) => String(item || "").trim())
     .filter(Boolean);
+  const targetJobIds = [...new Set([jobId, ...childJobIds].filter(Boolean))];
+  const targetMarkup = isChildHandoff ? targetJobIds.map((id) => (
+    workspaceRunSummaryApi().actualJobTargetMarkup((state.jobs || []).find((job) => String(job.id) === id), workspaceRunSummaryDeps())
+  )).join("") : "";
   const nodeTitle = String(step.node_title || step.node_kind || "步骤").trim();
   const status = String(step.status || "queued");
   const isAgent = String(step.executor || "") === "agent";
   const liveAgentRecord = isAgent ? workspaceLiveAgentRecordForStep(step, run) : null;
   const liveStatus = liveAgentRecord ? workspaceLiveAgentStatus(liveAgentRecord) : "";
-  const effectiveStatus = liveAgentRecord && (
+  const effectiveStatus = !isChildHandoff && liveAgentRecord && (
     workspaceLiveAgentRecordIsActive(liveAgentRecord)
     || ["failed", "stopped", "blocked"].includes(liveStatus)
   )
     ? liveStatus
     : status;
-  const runtimeStatus = String(step.runtime_status || (liveAgentRecord?.status ? workspaceLiveAgentStatus(liveAgentRecord) : "") || "").trim();
+  const runtimeStatus = String(step.runtime_status || (!isChildHandoff && liveAgentRecord?.status ? workspaceLiveAgentStatus(liveAgentRecord) : "") || "").trim();
   const mappedInputsLine = isAgent ? workspaceMappedInputsCompactLine(step.mapped_inputs || [], 2) : "";
   const outputKey = String(step.output_key || "").trim();
   const nodeId = String(step.node_id || "").trim();
@@ -12290,7 +12295,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
   const validationLine = isAgent && validation.status && validation.status !== "ok"
     ? `输出校验 ${validation.status}${Array.isArray(validation.errors) && validation.errors.length ? `：${validation.errors[0]}` : ""}`
     : "";
-  const liveAgentLine = liveAgentRecord && workspaceLiveAgentRecordIsActive(liveAgentRecord)
+  const liveAgentLine = (!isChildHandoff || status === "running") && liveAgentRecord && workspaceLiveAgentRecordIsActive(liveAgentRecord)
     ? `实时 Agent：${zhStatus(liveStatus)}${liveAgentRecord.total_steps ? ` · ${Number(liveAgentRecord.total_steps)} step` : ""}`
     : "";
   const canCancelAgent = isAgent && agentExecutionId && !agentExecutionId.startsWith("agent-") && ["running", "queued"].includes(effectiveStatus);
@@ -12306,7 +12311,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
   const childRuntimeActions = isAgent && (childJobIds.length || childRunIds.length)
     ? `
         <div class="workspace-execution-run-step-actions">
-          ${childJobIds.map((childJobId, index) => (
+          ${childJobIds.filter((childJobId) => childJobId !== jobId).map((childJobId, index) => (
             `<button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(childJobId)}" title="打开 Agent 触发的受控子任务日志">子任务${childJobIds.length > 1 ? ` ${index + 1}` : ""}</button>`
           )).join("")}
           ${childRunIds.map((childRunId, index) => (
@@ -12320,18 +12325,21 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     <article class="workspace-execution-run-step status-${escapeHtml(effectiveStatus)}${isAgent ? " executor-agent" : ""}${step._live_agent_synthetic ? " live-synthetic" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
       <div class="workspace-execution-run-step-head">
         <strong>${escapeHtml(`${Number(step.index) + 1}. ${nodeTitle}`)}</strong>
-        <span class="state ${escapeHtml(effectiveStatus)}">${escapeHtml(zhStatus(effectiveStatus))}</span>
+        <span class="state ${escapeHtml(effectiveStatus)}">${escapeHtml(isChildHandoff && effectiveStatus === "waiting" ? "等待交接" : isChildHandoff && effectiveStatus === "blocked" ? "需核对" : zhStatus(effectiveStatus))}</span>
       </div>
       <div class="workspace-execution-run-step-meta">
         <span>${escapeHtml(isAgent ? "Agent" : step.node_kind || "")}</span>
         ${jobId ? `<span>任务 ${escapeHtml(jobId)}</span>` : ""}
-        ${isAgent && childJobIds.length ? `<span>子任务 ${escapeHtml(childJobIds[0])}${childJobIds.length > 1 ? ` +${childJobIds.length - 1}` : ""}</span>` : ""}
+        ${isAgent && childJobIds.some((id) => id !== jobId) ? `<span>子任务 ${escapeHtml(childJobIds.filter((id) => id !== jobId).join("、"))}</span>` : ""}
         ${isAgent && childRunIds.length ? `<span>子运行 ${escapeHtml(childRunIds[0])}${childRunIds.length > 1 ? ` +${childRunIds.length - 1}` : ""}</span>` : ""}
-        ${isAgent && runtimeStatus ? `<span>runtime ${escapeHtml(zhStatus(runtimeStatus))}</span>` : ""}
+        ${isAgent && runtimeStatus ? `<span>${escapeHtml(runtimeStatus === "waiting_child" ? "等待子任务交接" : zhStatus(runtimeStatus))}</span>` : ""}
         ${isAgent && agentExecutionId ? `<span>${escapeHtml(agentExecutionId)}</span>` : ""}
         ${isAgent && outputKey ? `<span>${escapeHtml(outputKey)}</span>` : ""}
         ${executionMetaLine ? `<span>${escapeHtml(executionMetaLine)}</span>` : ""}
       </div>
+      ${isChildHandoff && status === "waiting" ? '<p class="workspace-run-step-agent-meta">正在等待子任务与后续交接；提交成功不代表执行完成。</p>' : ""}
+      ${isChildHandoff && status === "pending" ? '<p class="workspace-run-step-agent-meta">尚未执行，等待前置步骤成功。</p>' : ""}
+      ${targetMarkup}
       ${liveAgentLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(liveAgentLine)}</p>` : ""}
       ${isAgent && (mappedInputsLine || agentTrace) ? `
         <details class="workspace-run-reader-evidence" data-reader-detail="${escapeHtml(detailKey)}"${options.openDetails?.has(detailKey) ? " open" : ""}>
@@ -15315,6 +15323,12 @@ function renderWorkspaceRuns() {
     (item) => item.dataset.readerDetail));
   const focusedOrigin = document.activeElement?.closest(".workspace-run-step-origin[data-reader-detail]");
   const focusedOriginKey = focusedOrigin && list.contains(focusedOrigin) ? focusedOrigin.dataset.readerDetail : null;
+  const focusedButton = document.activeElement?.closest("button[data-action]");
+  const focusedAction = focusedButton && list.contains(focusedButton) ? {
+    runId: focusedButton.closest(".workspace-execution-run-item")?.dataset.runId,
+    nodeId: focusedButton.closest(".workspace-execution-run-step")?.dataset.nodeId,
+    data: { ...focusedButton.dataset },
+  } : null;
   if (!workspace?.id) {
     meta.textContent = "未保存项目";
     summary.innerHTML = '<div class="empty">先选择一个已保存实例，或返回驾驶舱创建实例。</div>';
@@ -15382,6 +15396,13 @@ function renderWorkspaceRuns() {
     if (focusedOriginKey) {
       Array.from(list.querySelectorAll(".workspace-run-step-origin[data-reader-detail]"))
         .find((item) => item.dataset.readerDetail === focusedOriginKey)?.querySelector("summary")?.focus({ preventScroll: true });
+    }
+    if (focusedAction) {
+      Array.from(list.querySelectorAll("button[data-action]")).find((button) => (
+        button.closest(".workspace-execution-run-item")?.dataset.runId === focusedAction.runId
+        && button.closest(".workspace-execution-run-step")?.dataset.nodeId === focusedAction.nodeId
+        && Object.entries(focusedAction.data).every(([key, value]) => button.dataset[key] === value)
+      ))?.focus({ preventScroll: true });
     }
     return;
   }
