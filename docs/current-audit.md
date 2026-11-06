@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-P1-UI 已限定修复并验收已展开回放缓存失效，真实正常/退出7/父失败child独立完成及导出下载、重启同键通过。唯一下一片 N04-Q1：补精确重复完成通知/真实调度唤醒证据。G20保留策略、G04其余、G33与follow异常仍开放，N04未完成。
+当前执行指针：N04-Q1 已限定验证真实周期唤醒、重复完成事件发布及HTTP SSE同游标重连交付不增加执行。唯一下一片 N04-Q2：后续Agent自身失败的事实与恢复边界。G20/G04其余/G33及follow在途崩溃仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -108,6 +108,25 @@ P1-UI真实反证与修复：`dev_work/artifacts/n04p1ui-baseline-20261106-22473
 终审补充：只读监管指出GET已done但页面源仍running时可能反复读取；本地固定源且真实renderer回调sync的契约复现9次GET后被测试上限截住，保留`dev_work/reports/n04p1ui-ahead-red.txt`。改用同一entry的已消费源指纹后，该固定源仅1次读取；新源变化才再读取，无新缓存服务或本地终态合并。上述前期四链证据保留；最终源码正常/退出7另经`dev_work/artifacts/n04p1ui-source-fixed-20261106-231301/`重新验收，父失败/读取503边界另经`dev_work/artifacts/n04p1ui-source-fixed-boundaries-20261106-231427/`重新验收，两条均通过；最终源码四链均无pageerror，重启后Job/请求/attempt与实物追加次数不增。
 
 过程审查：第一份反证截图未滚到preview，第二次用真实滚动补拍矛盾区域；首组fixed截图暴露窄窗排版缺口，未把状态通过当布局通过。首次fault测试脚本先unroute再fulfill导致Route already handled，实际未注入503，原失败保留；仅修本地拦截顺序/条件后独立完整重跑，产品未为断言放宽。旧组件/日志/原摘要/默认工作区派生均保留，无被替代重复面板可删。第一部分不变；本地测试/config/结果/截图/下载不提交。G36仅当前保留记录的后端与页面一致性限定通过；G20历史裁剪、G33启动及G26公共消息等仍开放。下一片N04-Q1核精确重复完成通知/真实调度唤醒，N04总目标未完成。
+
+### N04-Q1：真实调度、重复完成事件及SSE重连（限定验收）
+
+对齐R06/R07/R11/R12，补N04总核的精确重复完成证据缺口。静态核对唯一生产链为`scheduler_loop → monitor_jobs → advance_workflow_runs → _advance_workflow_runs → JobCoordinator.advance → observe_coordinated_job → resume_coordinated_agent`。前者每轮最少间隔2秒；唯一worker仍活跃时不再创建另一个。`publish_event`只写broker和运行事件记录，SSE/replay只读取，不消费消息推进图。没有独立completion提交API，因此不能用“完成事件消费次数”描述不存在的组件。
+
+正式HTTP与原scheduler/tmux两条新CPU链证据在`dev_work/artifacts/n04q1-20261106-232413/`：
+
+| 路径 | 精确观察结果 | 副作用与身份 |
+| --- | --- | --- |
+| natural，只有观察，无完成消息注入 | 3个服务进程，advance返回13次（其中false 10次），observe返回11次，child_status=done实际读取2次，resume返回1次 | run `20261106-232415-ff6d467f`；1Job `20261106-232418-6b6a8cef`；3模型请求；父/follow各a1、分母2 |
+| duplicate，自然Job完成时额外发布两次同payload消息 | 3个服务进程，同样13次advance/10次false/11次observe/2次child done读取/1次resume；原完成事件id3，注入id4/5，均早于唯一resume | run `20261106-232449-e89445b7`；1Job `20261106-232450-68bc7826`；仍3请求、2个a1、分母2 |
+
+两链等待中重启和终态后重启均经原POST同request复用原run；等待前先计数至少2次未变化advance，完成后至少2次终态advance false，再重启并计数新进程至少2次false，不能以固定sleep冒充精确观察。父/后续attempt内容重启前后相等，plan_hash唯一；child-job submit_key分别固定为`<本次run>/parent/a1/child-job`，external_ref唯一。每条实际文件字节`73746172740a`仅一份，真实Job退出0且日志有Q1 END。后台线程及三个PID的advance/observe/resume call-return逐身份配对通过，done读取先于resume；未把父waiting状态误记为child未完成，图barrier仍负责后续交接。
+
+正式`events/replay?since=0&limit=200`重复读取后，还实际两次连接`/events`并带相同`Last-Event-ID`：natural完成消息id3/9、duplicate的id3/4/5/11在同进程broker中再次交付，两个连接的消息逐值一致。随后原worker继续自然观察，最后重启计数不增。`event-replays.json`与`sse-deliveries.json`保存原响应/交付；这是HTTP SSE协议客户端验收，未冒充浏览器EventSource重连或跨重启永久游标。新事件ID也不是副作用幂等键，两者分别核对。
+
+过程与边界：本地profile launcher用sys/threading profile观察原函数，不改参数、返回值、门禁或终态；有采集开销，不作性能证明。duplicate仅在原完成publish返回时经原publish_event显式注入2次，测试辅助不进入产品，也不是新增产品能力；natural无该注入。Provider固定回复仅证明流程，CPU命令自然执行14秒供等待/重启观察，未暂停产品/手填事实。第一轮`n04q1-20261106-232225/`只有事件发布/replay证据，未声称SSE交付；最终补真实SSE后两链重跑，纠正本地summary把父status=waiting误当child done计数的口径，未改产品迎合测试。
+
+本片只更新二三文档，不改API/schema/页面，故无需新增前端片；未重跑无关Python或浏览器套件。已有观察、事件发布、单worker/图推进器各有调用者，未发现本片需删除的重复主路径，不为测试增加通知消费者。第一部分稳定，本地脚本/config/追踪/结果不提交；用户child-count.txt不动。限定关闭本地最小链上述精确通知/唤醒证据缺口，不承诺任意副作用exactly-once。follow自身失败、已claim调用中断和G33仍需独立验收，N04未完成；唯一下一片Q2只核follow失败。
 
 ### N04完整需求总核（2026-11-06，77bbcbd审计快照，未达到完成条件）
 
