@@ -210,9 +210,96 @@
     }
   }
 
+  async function continuationRequest(url, options, deps) {
+    // Reuse the configured local HTTP wait budget; abort is not server cancellation.
+    const timeoutMs = fn(deps, "controlTimeoutMs", () => 0)();
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 300000) throw new Error("页面缺少有效的请求等待预算，请重新加载。");
+    const controller = new AbortController();
+    const deadline = Date.now() + timeoutMs;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const payload = await fn(deps, "fetchJson", async () => ({}))(url, { ...options, signal: controller.signal });
+      if (controller.signal.aborted || Date.now() >= deadline) throw new Error("请求等待已超时，执行结果需要核对。");
+      return payload;
+    } finally { clearTimeout(timer); }
+  }
+
+  async function controlContinuation(key, readOnly = false, deps = {}) {
+    const state = appState(deps);
+    const contextFor = fn(deps, "continuationContext", () => null);
+    const run = (state.workspaces || []).flatMap((workspace) => workspace.runs || [])
+      .find((item) => contextFor(item)?.key === key);
+    const context = run && contextFor(run);
+    if (!context) return;
+    state.ui ||= {};
+    const controls = state.ui.workspaceContinuationControls ||= {};
+    if (["submitting", "checking"].includes(controls[key]?.phase)) return;
+    if (!readOnly && (!context.canStop || controls[key]?.phase === "unknown")) return;
+    const control = { phase: readOnly ? "checking" : "submitting", message: "正在核对后端结果，子任务按自身状态运行。", error: false };
+    controls[key] = control;
+    const render = () => fn(deps, "renderWorkspaceRunSurfaces", () => {})();
+    const merge = (payload) => {
+      if (payload.run?.id !== context.runId || payload.run?.workspace_id !== context.workspaceId) throw new Error("返回记录与原运行身份不符。");
+      return fn(deps, "mergeWorkspaceRunDetailPayload", () => null)(context.workspaceId, payload);
+    };
+    const url = `/api/workspaces/${encodeValue(deps, context.workspaceId)}/runs/${encodeValue(deps, context.runId)}`;
+    let rejected = false;
+    let failure = "";
+    render();
+    try {
+      if (!readOnly) {
+        try {
+          const payload = await continuationRequest(`${url}/stop-continuation`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parent_attempt_id: context.attemptId, child_job_id: context.childJobId, child_policy: "keep_running" }),
+          }, deps);
+          const updated = merge(payload);
+          if (contextFor(updated)?.key === key && contextFor(updated)?.stopped) {
+            control.phase = "idle";
+            control.message = "后续流程已停止。";
+            return;
+          }
+          failure = "响应未能确认停止回执。";
+        } catch (error) {
+          rejected = Number(error.status) >= 400 && Number(error.status) < 500;
+          failure = rejected ? (Number(error.status) === 409
+            ? "停止未受理：运行正在推进、状态已变化，或任务引用需要核对。"
+            : "停止未受理：请求未通过服务器校验，请刷新记录后核对。")
+            : "停止请求的结果未确认，正在读取原运行核对。";
+        }
+      }
+      control.phase = "checking";
+      control.message = failure || "正在重新读取原运行核对停止结果。";
+      render();
+      try {
+        const updated = merge(await continuationRequest(url, {}, deps));
+        const current = contextFor(updated);
+        if (current?.key === key && current.stopped) {
+          control.phase = "idle";
+          control.message = "已核对持久停止回执。";
+          control.error = false;
+        } else {
+          control.phase = rejected || !current?.canStop ? "idle" : "uncertain";
+          control.error = true;
+          control.message = rejected ? `${failure} 已重新读取当前状态；${current?.canStop ? "当前仍在等待，可稍后重试。" : "当前已不在可停止的等待阶段。"}`
+            : "尚未读到停止回执，不能确认原请求是否仍在处理。可重新核对；若仍在等待，也可按原身份再次请求停止。";
+        }
+      } catch (error) {
+        control.phase = "unknown";
+        control.error = true;
+        control.message = "停止结果仍未确认，原运行暂时无法读取。请重新核对结果；不要据此认为流程已停止。";
+      }
+    } finally { render(); }
+  }
+
   function handleRunSurfaceClick(event, deps = {}) {
     if (fn(deps, "handleReportClick", () => false)(event)) return true;
     const button = event.target.closest("[data-action]");
+    if (["stop-run-continuation", "check-run-continuation"].includes(button?.dataset.action) && button.dataset.continuationKey) {
+      fn(deps, "consumeClick", () => {})(event);
+      void controlContinuation(button.dataset.continuationKey, button.dataset.action === "check-run-continuation", deps);
+      return true;
+    }
     if (button?.dataset.action === "reset-workspace-run-filters") {
       fn(deps, "consumeClick", () => {})(event);
       fn(deps, "resetWorkspaceRunFilters", () => {})();
@@ -265,6 +352,7 @@
         void fn(deps, "showLog", async () => {})(button.dataset.jobId);
       } else if (button.dataset.action === "stop-workspace-run") {
         void fn(deps, "stopJob", async () => {})(actionEvent, button.dataset.jobId);
+        button.closest(".workspace-job-target[data-child-job-id]")?.focus({ preventScroll: true });
       } else if (button.dataset.action === "retry-workspace-run") {
         void fn(deps, "retryJob", async () => {})(actionEvent, button.dataset.jobId);
       } else if (button.dataset.action === "copy-workspace-run") {
@@ -297,6 +385,7 @@
   }
 
   window.WorkspaceRunDetailActions = {
+    controlContinuation,
     compareRunToBase,
     copyRunReplay,
     downloadRunExport,

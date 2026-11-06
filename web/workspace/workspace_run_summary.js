@@ -250,6 +250,47 @@
   `;
   }
 
+  function continuationContext(run = {}) {
+    if (run.execution_plan?.engine_version !== "langgraph-agent-child-job/n04" || !run.id || !run.workspace_id) return null;
+    const parent = (Array.isArray(run.steps) ? run.steps : []).find((step) => Number(step.index) === 0);
+    if (!parent || !parent.attempt_id || !/^a[1-9]\d*$/.test(parent.attempt_id)) return null;
+    const stepId = parent.step_id || parent.node_id;
+    if (!stepId || (parent.step_id && parent.node_id && parent.step_id !== parent.node_id)) return null;
+    const ids = [...new Set([parent.job_id, ...(Array.isArray(parent.child_job_ids) ? parent.child_job_ids : [])].filter(Boolean))];
+    if (ids.length !== 1) return null;
+    const marker = run.continuation_stop || {};
+    const stopped = parent.status === "stopped" && marker.status === "stopped"
+      && marker.run_id === run.id && marker.step_id === stepId && marker.attempt_id === parent.attempt_id
+      && marker.child_job_id === ids[0] && marker.child_policy === "keep_running" && Boolean(marker.stopped_at);
+    const canStop = !Object.keys(marker).length && run.status === "waiting" && parent.status === "waiting"
+      && parent.runtime_status === "waiting_child" && Array.isArray(run.attempts) && run.attempts.length === 1
+      && run.attempts[0].step_id === stepId && run.attempts[0].attempt_id === parent.attempt_id;
+    return { workspaceId: run.workspace_id, runId: run.id, stepId, attemptId: parent.attempt_id,
+      childJobId: ids[0], key: JSON.stringify([run.workspace_id, run.id, stepId, parent.attempt_id, ids[0]]),
+      stopped, canStop, unconfirmedMarker: Boolean(Object.keys(marker).length) && !stopped };
+  }
+
+  function continuationControlMarkup(run = {}, deps = {}, control = {}) {
+    const context = continuationContext(run);
+    if (!context || (!context.canStop && !context.stopped && !context.unconfirmedMarker && !control.message)) return "";
+    const busy = ["submitting", "checking"].includes(control.phase);
+    const uncertain = ["unknown", "uncertain"].includes(control.phase);
+    const attrs = `data-continuation-key="${escapeFor(deps, context.key)}"`;
+    const description = context.stopped ? "本次后续 Agent 不会再启动。子任务没有随之停止，其状态在下方独立更新。"
+      : context.unconfirmedMarker ? "停止记录与本次运行身份不一致，请重新核对，暂不提供停止操作。"
+      : !context.canStop ? "当前记录已不在可停止的等待阶段；请按下方步骤状态核对进度。"
+      : "停止后，后续 Agent 不再启动；已提交的子任务继续运行。需要结束子任务时，请单独停止子任务。";
+    return `<section class="workspace-continuation-control" ${attrs} tabindex="-1" aria-label="后续流程控制">
+      <strong>${context.stopped ? "后续流程已停止" : "后续流程"}</strong>
+      <p>${escapeFor(deps, description)}</p>
+      ${!context.stopped && control.message ? `<p class="workspace-continuation-feedback ${control.error ? "is-error" : "muted"}" role="status">${escapeFor(deps, control.message)}</p>` : ""}
+      ${!context.stopped && !context.unconfirmedMarker && (context.canStop || uncertain) ? `<div class="workspace-execution-run-step-actions">
+        ${context.canStop && control.phase !== "unknown" ? `<button type="button" class="secondary mini danger" data-action="stop-run-continuation" ${attrs}${busy ? " disabled" : ""}>${busy ? "正在核对停止结果…" : control.phase === "uncertain" ? "按原身份再次请求停止" : "停止后续流程"}</button>` : ""}
+        ${uncertain ? `<button type="button" class="secondary mini" data-action="check-run-continuation" ${attrs}>重新核对结果</button>` : ""}
+      </div>` : ""}
+    </section>`;
+  }
+
   function actualJobTargetMarkup(job, deps = {}, options = {}) {
     if (!job) return '<p class="workspace-job-target-missing muted">未取得本次子任务记录，无法确认状态与目标；请刷新后核对。</p>';
     const index = String(job.gpu_index ?? "").trim();
@@ -266,10 +307,11 @@
       ["工作目录", job.cwd || "主机默认目录"],
       ["环境", job.env_name || "主机现有环境（未激活指定环境）"],
     ];
-    return `<section class="workspace-job-target" aria-label="本次任务目标">
+    return `<section class="workspace-job-target" data-child-job-id="${escapeFor(deps, job.id || "")}" tabindex="-1" aria-label="本次任务目标">
       <div class="workspace-job-target-head"><strong>已提交的子任务</strong><span class="state ${escapeFor(deps, jobStatus)}">${escapeFor(deps, labels[jobStatus] || "状态未知")}</span></div>
       ${parentFailed ? `<p>${parentNotice}</p>` : ""}
       <p class="muted">实际执行目标来自本次任务记录。</p>
+      ${options.allowChildStop && job.id === options.childJobId && ["queued", "blocked", "starting", "running"].includes(jobStatus) ? `<button type="button" class="secondary mini danger" data-action="stop-workspace-run" data-job-id="${escapeFor(deps, job.id)}">单独停止子任务</button>` : ""}
       <dl>${fields.map(([label, value]) => `<div><dt>${escapeFor(deps, label)}</dt><dd>${escapeFor(deps, value)}</dd></div>`).join("")}</dl>
     </section>`;
   }
@@ -324,6 +366,8 @@
 
   window.WorkspaceRunSummary = {
     actualJobTargetMarkup,
+    continuationContext,
+    continuationControlMarkup,
     jobLogHandoffMarkup,
     agentRunCompactMarkup,
     deliveryClosureMarkup,

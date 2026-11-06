@@ -12250,8 +12250,9 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     .map((item) => String(item || "").trim())
     .filter(Boolean);
   const targetJobIds = [...new Set([jobId, ...childJobIds].filter(Boolean))];
+  const continuation = isChildParent ? workspaceRunSummaryApi().continuationContext(run) : null;
   const targetMarkup = isChildHandoff ? targetJobIds.map((id) => (
-    workspaceRunSummaryApi().actualJobTargetMarkup((state.jobs || []).find((job) => String(job.id) === id), workspaceRunSummaryDeps(), { parentStatus: isChildParent ? step.status : "" })
+    workspaceRunSummaryApi().actualJobTargetMarkup((state.jobs || []).find((job) => String(job.id) === id), workspaceRunSummaryDeps(), { parentStatus: isChildParent ? step.status : "", allowChildStop: continuation?.stopped, childJobId: continuation?.childJobId })
   )).join("") : "";
   const nodeTitle = String(step.node_title || step.node_kind || "步骤").trim();
   const status = String(step.status || "queued");
@@ -12324,7 +12325,10 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     : "";
   const detailKey = `${run.id || ""}:${step.step_id || nodeId || step.index}:inputs`;
   const notesFirst = isChildParent && ["failed", "blocked", "stopped"].includes(status);
-  const stepNotes = window.WorkspaceRunStepNotes.markup(step, { escapeHtml }, { runId: run.id, surface: "list", openDetails: options.openDetails });
+  const stopNotice = "Workflow continuation stopped; child Job was not stopped";
+  const stepNotesSource = continuation?.stopped && step.error === stopNotice
+    ? { ...step, error: "", recorded_error: step.recorded_error === stopNotice ? "" : step.recorded_error } : step;
+  const stepNotes = window.WorkspaceRunStepNotes.markup(stepNotesSource, { escapeHtml }, { runId: run.id, surface: "list", openDetails: options.openDetails });
   const predecessorUnsuccessful = isChildHandoff && (run.steps || []).some((item) => Number(item.index) < Number(step.index) && ["failed", "blocked", "stopped"].includes(item.status));
   return `
     <article class="workspace-execution-run-step status-${escapeHtml(effectiveStatus)}${isAgent ? " executor-agent" : ""}${step._live_agent_synthetic ? " live-synthetic" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
@@ -12344,6 +12348,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
       </div>
       ${isChildHandoff && status === "waiting" ? '<p class="workspace-run-step-agent-meta">正在等待子任务与后续交接；提交成功不代表执行完成。</p>' : ""}
       ${isChildHandoff && status === "pending" ? `<p class="workspace-run-step-agent-meta">${predecessorUnsuccessful ? "前置步骤未成功，本次未执行。" : "尚未执行，等待前置步骤成功。"}</p>` : ""}
+      ${isChildParent ? workspaceRunSummaryApi().continuationControlMarkup(run, workspaceRunSummaryDeps(), state.ui?.workspaceContinuationControls?.[continuation?.key] || {}) : ""}
       ${notesFirst ? stepNotes : ""}
       ${targetMarkup}
       ${isChildParent ? workspaceRunSummaryApi().jobLogHandoffMarkup(step, run, workspaceRunSummaryDeps(), options) : ""}
@@ -15334,6 +15339,15 @@ function renderWorkspaceRuns() {
   const focusedHandoff = document.activeElement?.closest(".workspace-job-handoff details[data-reader-detail]");
   const handoffFocus = focusedHandoff && list.contains(focusedHandoff)
     ? { key: focusedHandoff.dataset.readerDetail, text: document.activeElement?.tagName === "PRE" } : null;
+  const focusedContinuation = document.activeElement?.closest(".workspace-continuation-control[data-continuation-key]");
+  const continuationFocus = focusedContinuation && list.contains(focusedContinuation)
+    ? { key: focusedContinuation.dataset.continuationKey, action: document.activeElement?.dataset.action } : null;
+  const focusedTarget = document.activeElement?.closest(".workspace-job-target[data-child-job-id]");
+  const childTargetFocus = focusedTarget && list.contains(focusedTarget) ? {
+    jobId: focusedTarget.dataset.childJobId,
+    runId: focusedTarget.closest(".workspace-execution-run-item")?.dataset.runId,
+    nodeId: focusedTarget.closest(".workspace-execution-run-step")?.dataset.nodeId,
+  } : null;
   const focusedOrigin = document.activeElement?.closest(".workspace-run-step-origin[data-reader-detail]");
   const focusedOriginKey = focusedOrigin && list.contains(focusedOrigin) ? focusedOrigin.dataset.readerDetail : null;
   const focusedButton = document.activeElement?.closest("button[data-action]");
@@ -15412,6 +15426,20 @@ function renderWorkspaceRuns() {
       if (handoffFocus?.key === detail.dataset.readerDetail) {
         detail.querySelector(handoffFocus.text ? "pre" : "summary")?.focus({ preventScroll: true });
       }
+    }
+    if (continuationFocus) {
+      const control = Array.from(list.querySelectorAll(".workspace-continuation-control[data-continuation-key]"))
+        .find((item) => item.dataset.continuationKey === continuationFocus.key);
+      const action = control && Array.from(control.querySelectorAll("button[data-action]"))
+        .find((item) => item.dataset.action === continuationFocus.action && !item.disabled);
+      (action || control)?.focus({ preventScroll: true });
+    }
+    if (childTargetFocus) {
+      Array.from(list.querySelectorAll(".workspace-job-target[data-child-job-id]")).find((item) => (
+        item.dataset.childJobId === childTargetFocus.jobId
+        && item.closest(".workspace-execution-run-item")?.dataset.runId === childTargetFocus.runId
+        && item.closest(".workspace-execution-run-step")?.dataset.nodeId === childTargetFocus.nodeId
+      ))?.focus({ preventScroll: true });
     }
     if (focusedOriginKey) {
       Array.from(list.querySelectorAll(".workspace-run-step-origin[data-reader-detail]"))
@@ -22722,6 +22750,8 @@ function workspaceRunDetailActionDeps() {
     selectedWorkspace,
     fetchJson,
     mergeWorkspaceRunDetailPayload,
+    continuationContext: (run) => workspaceRunSummaryApi().continuationContext(run),
+    controlTimeoutMs: () => Number(document.querySelector('meta[name="relaygraph-status-load-timeout-seconds"]')?.content) * 1000,
     renderWorkspaceRunSurfaces,
     handleReportClick: (event) => window.WorkspaceRunReport.handleClick(event, workspaceRunReportDeps()),
     showLog,
