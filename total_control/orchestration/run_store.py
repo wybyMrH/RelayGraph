@@ -213,12 +213,34 @@ class RunStore:
                              (run_id, step_id, attempt_no)).fetchone()
             if not row:
                 raise ValueError("attempt not found")
+            failure = json.loads(row["result_json"]).get("child_submission_error")
+            if failure and (result.get("child_submission_error") != failure or status != failure["status"]):
+                raise RunConflictError("child submission failure cannot be cleared")
             if row["result_json"] == encoded:
                 return
             if row["status"] in self.TERMINAL:
                 raise RunConflictError("terminal attempt evidence cannot be replaced; append a retry")
             db.execute("UPDATE attempts SET status=?,result_json=?,updated_at=? WHERE run_id=? AND step_id=? AND attempt_no=?",
                        (status, encoded, now_iso(), run_id, step_id, attempt_no))
+
+    def record_child_submission_error(self, run_id: str, step_id: str, attempt_no: int,
+                                      failure: dict[str, Any]) -> None:
+        """Latch the first tool failure without discarding the pending Agent trace."""
+        if failure.get("status") not in {"failed", "blocked"} or not failure.get("error"):
+            raise ValueError("invalid child submission failure")
+        with self._db(write=True) as db:
+            row = db.execute("SELECT status,result_json FROM attempts WHERE run_id=? AND step_id=? AND attempt_no=?",
+                             (run_id, step_id, attempt_no)).fetchone()
+            if not row:
+                raise ValueError("attempt not found")
+            result = json.loads(row["result_json"])
+            if result.get("child_submission_error"):
+                return
+            if row["status"] in self.TERMINAL:
+                raise RunConflictError("terminal attempt cannot accept another tool submission")
+            result["child_submission_error"] = failure
+            db.execute("UPDATE attempts SET result_json=?,updated_at=? WHERE run_id=? AND step_id=? AND attempt_no=?",
+                       (canonical_json(result), now_iso(), run_id, step_id, attempt_no))
 
     def claim_agent_invocation(self, run_id: str, step_id: str, attempt_no: int, execution_id: str) -> bool:
         """Persist intent before a model call. An occupied claim is never replay permission."""

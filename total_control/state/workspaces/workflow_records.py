@@ -30,6 +30,42 @@ from ...workspace.execution import (
 
 
 class WorkflowRecordsMixin:
+    def _settle_child_submission_error(self, run_id: str, step_id: str, attempt_no: int,
+                                       result: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        """One interpretation of the durable failure, shared by finish and recovery."""
+        evidence = self.execution_store.read(run_id)
+        attempt = next(item for item in evidence["attempts"] if item["step_id"] == step_id
+                       and item["attempt_no"] == attempt_no)
+        failure = attempt["result"].get("child_submission_error")
+        if not failure:
+            return None
+        if attempt["status"] in self.execution_store.TERMINAL:
+            return copy.deepcopy(attempt["result"])
+        settled = {**attempt["result"], **(result or {}), "node_id": step_id,
+                   "status": failure["status"], "runtime_status": failure["status"],
+                   "error": failure["error"], "child_submission_error": failure}
+        # A Job may already exist when the model response/trace is interrupted.
+        # Preserve its authoritative receipt, without declaring it stopped/done.
+        for intent in evidence["submissions"]:
+            if intent["step_id"] == step_id and intent["attempt_no"] == attempt_no and intent["operation"] == "child-job":
+                settled.update(child_submit_key=intent["submit_key"], child_payload_hash=intent["payload_hash"])
+                child_id = intent["external_ref"]
+                if not child_id:
+                    # Creation may have persisted before binding its receipt.
+                    # Reuse the exact metadata matcher; do not bind or guess.
+                    with self.lock:
+                        try:
+                            job = self._job_for_submission(intent, evidence["plan"]["workspace_id"])
+                        except RunConflictError:
+                            job = None
+                    child_id = str(job["id"]) if job else ""
+                if child_id:
+                    settled.update(child_job_id=child_id,
+                                   child_job_ids=list(dict.fromkeys([*settled.get("child_job_ids", []), child_id])))
+        settled.pop("child_status", None)  # Parent failure must not route as child success.
+        self.execution_store.record_result(run_id, step_id, attempt_no, settled)
+        return settled
+
     def _job_for_submission(self, intent: dict[str, Any], workspace_id: str) -> dict[str, Any] | None:
         matches = [job for job in self.jobs
                    if job.get("metadata", {}).get("submission_key") == intent["submit_key"]
@@ -228,6 +264,9 @@ class WorkflowRecordsMixin:
         })
         attempt = next(item for item in self.execution_store.read(run_id)["attempts"]
                        if item["step_id"] == step["step_id"] and item["attempt_no"] == attempt_no)
+        failure = self._settle_child_submission_error(run_id, step["step_id"], attempt_no)
+        if failure or attempt["status"] in self.execution_store.TERMINAL:
+            return str((failure or attempt["result"]).get("child_job_id") or "")
         if attempt["result"].get("child_job_id"):
             return str(attempt["result"]["child_job_id"])
         prior_intent = next((item for item in evidence["submissions"]
@@ -270,7 +309,13 @@ class WorkflowRecordsMixin:
         )
         recorded = workspace_run_step_from_agent(step["node"], result, step["index"])
         recorded.update(agent_execution_id=execution_id, invocation_state="recorded")
+        failure = self._settle_child_submission_error(run_id, step["step_id"], attempt_no, recorded)
+        if failure:
+            return str(failure.get("child_job_id") or "")
         child_ids = recorded.get("child_job_ids") if isinstance(recorded.get("child_job_ids"), list) else []
+        if recorded["status"] in {"failed", "blocked", "stopped"}:
+            self.execution_store.record_result(run_id, step["step_id"], attempt_no, recorded)
+            return str(child_ids[0]) if child_ids else ""
         if child_ids:
             recorded.update(status="waiting", runtime_status="waiting_child", completed_at="", error="")
         self.execution_store.record_result(run_id, step["step_id"], attempt_no, recorded)
@@ -286,6 +331,9 @@ class WorkflowRecordsMixin:
         source = plan["steps"][0]
         follow = plan["steps"][1]
         source_attempt = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == source["step_id"])
+        failure = self._settle_child_submission_error(run_id, source["step_id"], source_attempt["attempt_no"])
+        if failure or source_attempt["status"] in {"failed", "stopped", "blocked"}:
+            return copy.deepcopy(failure or source_attempt["result"])
         if source_attempt["result"].get("continuation_state") == "resumed":
             return copy.deepcopy(source_attempt["result"])
         number = self.execution_store.begin_attempt(run_id, follow["step_id"], inputs={
@@ -353,6 +401,10 @@ class WorkflowRecordsMixin:
         evidence = self.execution_store.read(run_id)
         step = evidence["plan"]["steps"][0]
         attempt = next(item for item in reversed(evidence["attempts"]) if item["step_id"] == step["step_id"])
+        if evidence["plan"]["engine_version"] == AGENT_CHILD_JOB_ENGINE_VERSION:
+            failure = self._settle_child_submission_error(run_id, step["step_id"], attempt["attempt_no"])
+            if failure:
+                return failure
         if attempt["status"] in self.execution_store.TERMINAL:
             return copy.deepcopy(attempt["result"])
         intent = next(item for item in evidence["submissions"] if item["step_id"] == step["step_id"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ...orchestration.run_store import RunConflictError
+from ...orchestration.job_coordinator import AGENT_CHILD_JOB_ENGINE_VERSION
 from ._deps import *  # noqa: F403
 from .agent_runtime_safety import (
     RUNTIME_OBSERVATION_SECRET_PATTERN,
@@ -42,14 +43,54 @@ class AgentsMixin:
         }
 
     def workspace_tool_runtime(self, workspace: dict[str, Any], parent: dict[str, Any] | None = None) -> dict[str, Any]:
+        first_failure: dict[str, Any] = {}
+
+        def submit_job(tool_id: str, arguments: dict[str, Any], context: Any) -> dict[str, Any]:
+            nonlocal first_failure
+            if parent:
+                evidence = self.execution_store.read(str(parent["run_id"]))
+                plan = evidence["plan"]
+                if (plan["engine_version"] != AGENT_CHILD_JOB_ENGINE_VERSION
+                        or plan["workspace_id"] != workspace["id"]
+                        or plan["steps"][0]["step_id"] != parent["step_id"]):
+                    raise RunConflictError("child submission parent does not match the frozen plan")
+                attempt = next(item for item in evidence["attempts"] if item["step_id"] == parent["step_id"]
+                               and item["attempt_no"] == int(parent["attempt_no"]))
+                first_failure = first_failure or attempt["result"].get("child_submission_error", {})
+                if first_failure:
+                    return {"status": "error", "tool": tool_id, "controlled": True,
+                            "error": first_failure["error"]}
+                if attempt["status"] in self.execution_store.TERMINAL:
+                    raise RunConflictError("terminal parent attempt cannot submit a child Job")
+            result = self.submit_workspace_tool_job(workspace, tool_id, arguments, context, parent=parent)
+            if parent and result.get("status") in {"error", "blocked"}:
+                first_failure = {"tool": tool_id, "status": "blocked",
+                                 "error": redact_runtime_observation_text(result.get("error") or "child submission blocked")}
+                evidence = self.execution_store.read(str(parent["run_id"]))
+                intent = next((item for item in evidence["submissions"] if item["operation"] == "child-job"
+                               and item["step_id"] == parent["step_id"]
+                               and item["attempt_no"] == int(parent["attempt_no"])), None)
+                status = "blocked" if result["status"] == "blocked" else "failed"
+                if intent:
+                    try:
+                        receipt = self._job_for_submission(intent, workspace["id"])
+                    except RunConflictError:
+                        receipt = None
+                    if (intent["state"] in {"submitting", "reconciling"}
+                            or (intent["state"] == "submitted" and not receipt)
+                            or "identity_version" not in json.loads(intent["payload_json"])):
+                        status = "blocked"
+                first_failure["status"] = status
+                # Keep the in-memory latch too: a failed evidence write must not
+                # allow the next model tool call to create another side effect.
+                self.execution_store.record_child_submission_error(
+                    str(parent["run_id"]), str(parent["step_id"]), int(parent["attempt_no"]), first_failure,
+                )
+            return result
+
         return {
-            "submit_job": lambda tool_id, arguments, context: self.submit_workspace_tool_job(
-                workspace,
-                tool_id,
-                arguments,
-                context,
-                parent=parent,
-            ),
+            "submit_job": submit_job,
+            "child_submission_failure": lambda: copy.deepcopy(first_failure),
             "bind_gpu": lambda arguments, context: self.bind_workspace_tool_gpu_allocation(
                 workspace,
                 arguments,
@@ -542,13 +583,14 @@ class AgentsMixin:
         ]
         allowed_tools = [] if report_only else [tool_map[tid] for tid in allowed_tool_ids]
         llm_client = LLMClient(profile)
+        runtime = self.workspace_tool_runtime(workspace, parent=parent_attempt)
         tool_executor = None if report_only else create_workspace_tool_executor(
             workspace,
             statuses=copy.deepcopy(self.statuses),
             jobs=copy.deepcopy(self.jobs),
             provider_profiles=copy.deepcopy(getattr(self, "provider_profiles", [])),
             tool_definitions=copy.deepcopy(getattr(self, "tool_definitions", [])),
-            runtime=self.workspace_tool_runtime(workspace, parent=parent_attempt),
+            runtime=runtime,
         )
         agent_config = dict(agent)
         if max_iterations is not None:
@@ -644,6 +686,9 @@ class AgentsMixin:
         finally:
             release_agent_cancel(execution_id)
         result = execution_result.to_dict()
+        submission_failure = runtime["child_submission_failure"]()
+        if submission_failure:
+            result.update(success=False, error=submission_failure["error"])
         result["id"] = execution_id
         result["trace_events"] = normalize_agent_trace_events(trace_events)
         if report_only:
@@ -666,7 +711,7 @@ class AgentsMixin:
             if result["success"]:
                 result["output_value"] = {"content": answer, "format": effective_output_format,
                                           "storage": "inline-answer", "file_verified": False}
-        elif execution_result.success and isinstance(node, dict):
+        elif result["success"] and isinstance(node, dict):
             if effective_output_key and not collect_agent_step_output(workspace, node, output_key=effective_output_key)[1]:
                 apply_final_answer_output(
                     workspace,

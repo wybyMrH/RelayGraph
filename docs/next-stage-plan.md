@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-E 已限定验收，同键不同目标已拒绝且旧回执不改写。唯一下一片为 **N04-F：child 提交工具冲突后的父流程错误传播（G32）**。先修本次实测的“工具冲突后仍可 done”，不同时实施正文交接、父子取消、Provider 或其他功能；N04 整体仍开放。
+当前执行指针：N04-F 后端已限定验收：child 提交首错持久，父失败不再被模型文本或child完成覆盖。唯一下一片为 **N04-F-UI：父失败与已有 child 运行事实分开呈现及浏览器验收**。完成该界面片后，再选择正文交接等依赖功能；N04 整体仍开放。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -813,11 +813,25 @@ detail是说明，不是新的成功依据；状态仍来自后端。error只要
 
 脚本仅本地：dev_work/smokes/test_n04e_identity.py、n04e_http.py、n04e_legacy_http.py。证据仅本地：dev_work/artifacts/n04e-http-20261106-164635/、n04e-legacy-20261106-164800/。compileall 和 diff-check 通过；仓库根 pytest 无用例、退出5，不记通过。未运行3.10完整兼容、SSH/GPU、真实Provider或新浏览器验收。公开 REST/SSE 字段、状态和动作没有变化，本片只加强内部提交指纹，沿用既有错误消费者，因此免新 UI 实现片；D-UI历史浏览器验收不算本片重跑。旧回执核对/独立 agent_tool 兼容记录均保留，有真实恢复/展示调用者，不能仅因看似重复删除。
 
-### N04-F：child 提交工具冲突后的父流程错误传播（唯一下一片）
+### N04-F：child 提交工具冲突后的父流程错误传播（后端已限定验收）
 
-对齐 G32/R06/R09。当前一次父 Agent 中先成功提交、后再次提交不同目标，工具虽报冲突，流程仍可能等待旧 child 后成功。这次只把这类受控提交错误成为持久、不能被模型文本或恢复抹掉的事实；不改 child key，不重提，不自动停止已创建 Job，不扩大为通用 Agent 或取消体系。
+对齐 G32/R06/R09。只改 agents.py、workflow_records.py、run_store.py 和二三文档，没有改框架图、Provider、key、重试或取消体系。工具封装验证N04 parent的工作区、首步和attempt，在受控提交返回error/blocked时先缓存并原子保存首个错误。已有marker则后续提交直接拒绝；读写存储失败也不能让同进程的下一次模型调用再产生child副作用。普通无parent工具不启用该规则。已知payload冲突为failed；legacy身份、submitting/reconciling或缺失持久Job回执为blocked，保留“未确认”语义。
 
-开片先定位 Agent step/trace→workspace_run_step_from_agent→submit_coordinated_agent/resume 的错误来源及公开消费者，确定最小允许文件和归属策略；已有 child 的错误与 child 本身运行事实分开记录。真实正常相同调用仍可成功，先成功再冲突不得调用 follow 或报 done，错误重启后仍可见且已有 Job不重复；补无child错误和重复恢复检查。结果可见变化完成必要消费者同步后，再安排独立前端错误展示与浏览器小片，随后才推进正文交接等依赖功能。禁止只用测试补终态、通配所有工具错误或隐藏出错调用让链变绿。
+RunStore只保存first-error及校验结果不可丢弃/成功覆盖，不解释Job状态；标记写入时attempt仍活动，正常模型返回后再保存完整steps/trace。workflow_records一个结算函数负责领域状态，在start的旧child快路之前、final、observe、resume中复用。已有Job可能只在submission中，所以从其权威引用恢复child_job_ids及key/hash；若Job已保存但bind失败，复用原唯一metadata匹配器只读恢复引用，不猜、不额外bind、保持blocked；父失败的child_status不再被当作成功路由。模型成功文本被保留为原始观察，但执行结果为失败，不发agent.completed，也不应用该文本为最终业务输出。父失败不会自动停止、重提或删除已有Job。父执行本身失败/停止/阻塞时也不再仅凭存在child就改回waiting。
+
+**实际验收**（Linux/WSL、Python 3.13.5）：
+
+- 新增8项本地契约及D/E的32项回归共40项通过。覆盖首错不可清、后续提交拒绝、正常trace保留、存储重开与start快路、无child的真实LangGraph图结束、未知回执blocked及重复观察证据不变、无parent工具不变；故障注入写入失败时仅证明当前进程内存保护；另用真实create_job入队后注入bind故障，验证首次结算即保留准确child引用、原intent仍submitting且external_ref为空、重复结算不改变证据。第一次本地脚本用了错误的方法名submit_coordinated_agent，修正为实际start_coordinated_agent后重跑；未因此修改产品接口。
+- 正式HTTP→受控SSE Provider→真实scheduler/tmux四条链均通过：相同两次调用正常done，4次模型请求、1Job/1追加；先成功后换cwd，模型虽说“All operations succeeded”，父failed、follow pending，3次请求、1Job/1追加；未知主机导致提交前失败，无child，父failed/follow pending，2次请求/0追加；第三次Provider请求先阻塞，确认DB已保存marker且父attempt仍running后终止服务，再启动同键请求，父failed/follow pending、模型请求仍3次、Job/追加仍1。崩溃点由受控Provider等待制造，没有人工写状态或补回执。
+- 每条有child的链均等待真实Job自行done，再同键重发/重复调度，父错误不消失；三条错误链都只有父attempt，正常链父/follow各一attempt，完整计划仍两步。正常失败返回保留2步/6事件，提交前失败1步/4事件；模型返回前崩溃没有已完成的Agent steps/trace可恢复，只保留claim/首错/child回执，不能冒充完整token审计。磁盘持续不可写、未进入runtime提交封装的其他工具失败、真实Provider及父子取消仍未验证/未实现。
+
+本地脚本：dev_work/smokes/test_n04f_failure.py、n04f_http.py。主要证据：dev_work/artifacts/n04f-http-20261106-170035/。旧回执恢复/丢回执HTTP回归也已重跑通过，bound恢复原Job后done、missing保持blocked不重提，证据dev_work/artifacts/n04e-legacy-20261106-170357/；此处仍是E片说明过的停机历史格式/故障夹具，不能当成自然旧部署或正常路径。compileall通过；根pytest无用例退出5，不计通过；脚本与结果不提交。attempt.result增加首错证据，原有公开step.status/error、child_job_ids保持语义和读取入口；HTTP回归验证公开失败/引用，现有前端继续读取这些字段，不另造错误映射或推进器。由于可见运行状态改变，必须先完成下述独立UI片，不能拿后端检查替代界面交付。第一部分不变；不删除仍有调用者的旧receipt/独立agent_tool记录。
+
+### N04-F-UI：父失败与已有 child 分开呈现（唯一下一片）
+
+先按G32列真实输入：持久父step.status/error、child_job_ids所指Job的状态/目标、pending的follow、完整两步计划；动作只有查看错误/打开本次日志/查看已有child，不提供假恢复或自动取消。使用已评估frontend-design指导并重新核对当前适用性，画小型布局草图：步骤主状态明确“父步骤失败/需核对”，旁边说明已有任务是否仍在排队/运行/结束，错误持续可见，follow说明未执行。不能把Job的done升格为父成功，不能把父failed说成child已停止；只迁移该阅读职责，不改配置页/全局实例聚合。
+
+先核对D-UI的持久步骤优先逻辑、实际Job/日志入口及历史回放消费者；必要时最小调整原helper/文案，不加第二状态合并器。浏览器从正式可见入口分别走正常重复与先成功后冲突，验证父失败、child仍运行→done、follow未启动、错误/日志可见，以及刷新/服务重启保留同一run和错误；检查常用桌面/窄窗、长错误、缺Job、键盘焦点。空/长内容夹具明确只算布局，不冒充任务结果；受控Provider边界说明。完成并提交推送后，再选择本次child输出正文交接等小片。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 
