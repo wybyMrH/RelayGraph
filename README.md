@@ -2,9 +2,9 @@
 
 RelayGraph 是一个本地研究与运维工作台，把 GPU 监控、远程任务、文件传输和 Agent 工作流串成可执行、可追溯的研究流程。
 
-已有能力包括本地/SSH 机器监控、tmux 任务与空闲 GPU 队列、rsync 传输、浏览器终端、工作区、模板与能力配置、Agent 执行、SSE 反馈、运行摘要回放和导出。异步工作流的等待/恢复与交付验证仍有已登记缺口；当前状态见[代码审查](docs/current-audit.md)，不要把模块存在当成整个闭环已验收。
+已有能力包括本地/SSH 机器监控、tmux 任务与空闲 GPU 队列、rsync 传输、浏览器终端、工作区、模板与能力配置、Agent 执行、SSE 反馈、运行摘要回放和导出。更广的异步工作流和交付验证仍有已登记缺口；当前状态见[代码审查](docs/current-audit.md)，不要把模块存在当成整个闭环已验收。
 
-后端是 Python，HTTP 服务使用标准库；前端是静态 HTML/CSS/JavaScript，没有 Node 构建步骤。密钥加密依赖 cryptography，工作流推进使用 LangGraph core + SQLite。当前新工作流支持单 Job，以及一个本地 Job → 无工具报告 Agent 的等待和恢复；新报告可落盘并验证。更长链、Agent 子任务和 LiteLLM 仍待后续切片。
+后端是 Python，HTTP 服务使用标准库；前端是静态 HTML/CSS/JavaScript，没有 Node 构建步骤。密钥加密依赖 cryptography，工作流推进使用 LangGraph core + SQLite。当前新工作流支持单 Job、一个本地 Job → 无工具报告 Agent，以及本机 CPU 父 Agent → 一个受控 child Job → 后续 Agent 的持久等待与恢复。N04 已验证运行中/完成后重启、幂等与重复通知，证据和限制见[当前审查的 Q5 总核](docs/current-audit.md)。报告文件落盘仅覆盖已有指定报告链，N04 的执行成功不代表报告文件已交付。任意多 child/更长链与 LiteLLM 仍待后续切片。
 
 ## 本地启动
 
@@ -54,7 +54,7 @@ config/ 默认只跟踪公开默认和 *.example.toml 模板，本机配置与�
 2. [当前问题与逐文件审查](docs/current-audit.md)。
 3. [下一阶段计划、技术复用与消融验证](docs/next-stage-plan.md)。
 
-开发规则见 [AGENTS.md](AGENTS.md)。N02/N03A 已接完整计划和稳定提交身份，N03B1/J1a/J1b 修正实际计划门禁及可选环境，B2a 补齐依赖。N03B2b/B2c1 已接入单 Job 和 Job → 无工具 eval.report Agent 的 LangGraph 持久等待；旧同步推进器已删除。新工作流 POST 保存计划后返回，jobs 可以暂为空，调度器随后提交和核对；重复请求保留同一个 run/Job。Agent 只消费本次 Job 的结果，前置失败/停止不调用模型。其他多节点计划明确拒绝；之前两节点 shell 链是旧路径的历史验收，当前不会回退运行。旧 N02 记录仍能查询/核对，未提交的旧节点不自动重放。
+开发规则见 [AGENTS.md](AGENTS.md)。N02/N03A 已接完整计划和稳定提交身份，N03B1/J1a/J1b 修正实际计划门禁及可选环境，B2a 补齐依赖。N03B2b/B2c1 已接入单 Job 和 Job → 无工具 eval.report Agent 的 LangGraph 持久等待；旧同步推进器已删除。新工作流 POST 保存计划后返回，jobs 可以暂为空，调度器随后提交和核对；重复请求保留同一个 run/Job。Agent 只消费本次 Job 的结果，前置失败/停止不调用模型。除上述已验收的 N04 父 Agent/单 child Job/follow 链外，其他多节点计划明确拒绝；之前两节点 shell 链是旧路径的历史验收，当前不会回退运行。旧 N02 记录仍能查询/核对，未提交的旧节点不自动重放。
 
 检查点位于领域账本旁的 `<账本文件主名>-checkpoints.sqlite3`，沿用 config/ 中的 execution_db_path 确定目录，不新增配置源。损坏检查点会阻塞协调器并保留文件；已提交外部任务仍由原 Job 服务管理。单 Job 检查点丢失时可用冻结计划和稳定回执重新核对；无回执的未知提交、未知 Agent 调用不盲目重放，也不宣称任意外部进程 exactly-once。
 
