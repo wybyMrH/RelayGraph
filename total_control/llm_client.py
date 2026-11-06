@@ -5,12 +5,18 @@ Supports multiple providers: OpenAI, DeepSeek, Anthropic, and OpenAI-compatible 
 
 from __future__ import annotations
 
+import asyncio
 import json
+import ssl
+import time
+from contextlib import asynccontextmanager
 import urllib.request
 import urllib.error
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator
+from typing import Any, AsyncIterator, Callable, Coroutine
 from datetime import datetime
+
+import httpx
 
 
 @dataclass
@@ -210,7 +216,63 @@ class LLMClient:
                 latency_ms=latency_ms,
             )
 
+    def _run_request(
+        self,
+        request: Callable[[], Coroutine[Any, Any, LLMResponse]],
+        deadline: float | None,
+        model: str | None,
+    ) -> LLMResponse:
+        def failure(message: str) -> LLMResponse:
+            selected_model = model or (self.models[0] if self.models else "gpt-3.5-turbo")
+            return LLMResponse(content="", model=selected_model, provider=self.provider, error=message)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            return failure("Synchronous LLMClient cannot run inside an active event loop")
+
+        async def execute() -> LLMResponse:
+            if deadline is None:
+                return await request()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return failure("model request deadline exceeded")
+            # wait_for waits for cancellation and context cleanup, not a detached worker.
+            return await asyncio.wait_for(request(), remaining)
+
+        try:
+            return asyncio.run(execute())
+        except asyncio.TimeoutError:
+            return failure("model request deadline exceeded")
+        except Exception as exc:
+            return failure(f"Error: {exc}")
+
+    @asynccontextmanager
+    async def _post_response(self, url: str, body: dict[str, Any], timeout: float):
+        # Match urllib's system trust store, environment proxies and redirects.
+        async with httpx.AsyncClient(
+            timeout=timeout, verify=ssl.create_default_context(),
+            trust_env=True, follow_redirects=True,
+        ) as client:
+            async with client.stream(
+                "POST", url, content=json.dumps(body).encode("utf-8"), headers=self._headers(),
+            ) as response:
+                if response.is_error:
+                    await response.aread()
+                    response.raise_for_status()
+                yield response
+
     def chat(
+        self, messages: list[ChatMessage], model: str | None = None, **kwargs,
+    ) -> LLMResponse:
+        """Send one synchronous chat request; deadline is monotonic and transport-only."""
+        return self._run_request(
+            lambda: self._chat(messages, model, **kwargs), kwargs.get("deadline"), model,
+        )
+
+    async def _chat(
         self,
         messages: list[ChatMessage],
         model: str | None = None,
@@ -242,43 +304,23 @@ class LLMClient:
             url = f"{self.base_url}/messages"
 
         body = self._build_request_body(messages, model, **kwargs)
-        headers = self._headers()
 
         start_time = datetime.now()
 
         try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(body).encode("utf-8"),
-                headers=headers,
-                method="POST",
-            )
-
-            with urllib.request.urlopen(req, timeout=kwargs.get("timeout", 60)) as response:
-                response_data = json.loads(response.read().decode("utf-8"))
+            async with self._post_response(url, body, kwargs.get("timeout", 60)) as response:
+                response_data = json.loads((await response.aread()).decode("utf-8"))
 
             latency_ms = (datetime.now() - start_time).total_seconds() * 1000
             return self._parse_response(response_data, model, latency_ms)
 
-        except urllib.error.HTTPError as e:
-            error_body = ""
-            try:
-                error_body = e.read().decode("utf-8")
-            except Exception:
-                pass
+        except httpx.HTTPStatusError as e:
             return LLMResponse(
-                content="",
-                model=model,
-                provider=self.provider,
-                error=f"HTTP {e.code}: {error_body}",
+                content="", model=model, provider=self.provider,
+                error=f"HTTP {e.response.status_code}: {e.response.text}",
             )
-        except urllib.error.URLError as e:
-            return LLMResponse(
-                content="",
-                model=model,
-                provider=self.provider,
-                error=f"URL Error: {e.reason}",
-            )
+        except httpx.RequestError as e:
+            return LLMResponse(content="", model=model, provider=self.provider, error=f"URL Error: {e}")
         except Exception as e:
             return LLMResponse(
                 content="",
@@ -310,6 +352,16 @@ class LLMClient:
             return {"success": False, "models": [], "error": f"Error: {str(e)}"}
 
     def chat_stream(
+        self, messages: list[ChatMessage], model: str | None = None, *,
+        on_delta: Callable[[str, str, dict[str, Any]], None] | None = None, **kwargs,
+    ) -> LLMResponse:
+        """Stream one synchronous request with the same transport deadline."""
+        return self._run_request(
+            lambda: self._chat_stream(messages, model, on_delta=on_delta, **kwargs),
+            kwargs.get("deadline"), model,
+        )
+
+    async def _chat_stream(
         self,
         messages: list[ChatMessage],
         model: str | None = None,
@@ -337,7 +389,6 @@ class LLMClient:
         body["stream"] = True
         if self.provider != "anthropic":
             body.setdefault("stream_options", {"include_usage": True})
-        headers = self._headers()
         start_time = datetime.now()
         content = ""
         finish_reason = ""
@@ -345,21 +396,29 @@ class LLMClient:
         raw_events: list[dict[str, Any]] = []
         response_stream = True
 
-        try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(body).encode("utf-8"),
-                headers=headers,
-                method="POST",
+        def stream_failure(error: str, *, timed_out: bool = False) -> LLMResponse:
+            known = {key: value for key, value in usage.items() if type(value) is int and value >= 0}
+            prompt = known.get("prompt_tokens", known.get("input_tokens", 0))
+            completion = known.get("completion_tokens", known.get("output_tokens", 0))
+            raw = {"stream": response_stream, "partial": content}
+            if timed_out:
+                raw["timed_out"] = True
+            return LLMResponse(
+                content=content, model=model, provider=self.provider, error=error,
+                prompt_tokens=prompt, completion_tokens=completion,
+                total_tokens=known.get("total_tokens", prompt + completion), raw_response=raw,
+                latency_ms=(datetime.now() - start_time).total_seconds() * 1000,
             )
-            with urllib.request.urlopen(req, timeout=kwargs.get("timeout", 60)) as response:
+
+        try:
+            async with self._post_response(url, body, kwargs.get("timeout", 60)) as response:
                 media_type = str(response.headers.get("Content-Type", "")).split(";", 1)[0].strip().lower()
                 if self.provider != "anthropic" and media_type == "application/json":
                     response_stream = False
                     # Some compatible endpoints return a complete JSON answer even
                     # when stream was requested. Consume this response, never resend.
                     try:
-                        data = json.loads(response.read().decode("utf-8"))
+                        data = json.loads((await response.aread()).decode("utf-8"))
                         if isinstance(data, dict) and data.get("error"):
                             raise ValueError("JSON content response contains an error envelope")
                         choices = data.get("choices") if isinstance(data, dict) else None
@@ -395,7 +454,7 @@ class LLMClient:
                     if on_delta:
                         on_delta(parsed.content, parsed.content, data)
                     return parsed
-                for event_data in self._iter_sse_data(response):
+                async for event_data in self._iter_sse_data(response):
                     if event_data == "[DONE]":
                         break
                     try:
@@ -436,41 +495,21 @@ class LLMClient:
                 latency_ms=latency_ms,
             )
 
-        except urllib.error.HTTPError as e:
-            error_body = ""
-            try:
-                error_body = e.read().decode("utf-8")
-            except Exception:
-                pass
-            return LLMResponse(
-                content=content,
-                model=model,
-                provider=self.provider,
-                error=f"HTTP {e.code}: {error_body}",
-                raw_response={"stream": response_stream, "partial": content},
-            )
-        except urllib.error.URLError as e:
-            return LLMResponse(
-                content=content,
-                model=model,
-                provider=self.provider,
-                error=f"URL Error: {e.reason}",
-                raw_response={"stream": response_stream, "partial": content},
-            )
+        except asyncio.CancelledError:
+            # Async context managers have closed the response/client before this handler.
+            return stream_failure("model request deadline exceeded", timed_out=True)
+        except httpx.HTTPStatusError as e:
+            return stream_failure(f"HTTP {e.response.status_code}: {e.response.text}")
+        except httpx.RequestError as e:
+            return stream_failure(f"URL Error: {e}")
         except Exception as e:
-            return LLMResponse(
-                content=content,
-                model=model,
-                provider=self.provider,
-                error=f"Error: {str(e)}",
-                raw_response={"stream": response_stream, "partial": content},
-            )
+            return stream_failure(f"Error: {e}")
 
     @staticmethod
-    def _iter_sse_data(response: Any) -> Iterator[str]:
+    async def _iter_sse_data(response: Any) -> AsyncIterator[str]:
         data_lines: list[str] = []
-        for raw_line in response:
-            line = raw_line.decode("utf-8", errors="replace").strip()
+        async for raw_line in response.aiter_lines():
+            line = raw_line.strip()
             if not line:
                 if data_lines:
                     yield "\n".join(data_lines)

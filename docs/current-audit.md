@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-M2a-UI 已限定验收原页面自动显示网络超时失败、已有child独立运行/完成与正常CPU链，无需新增UI代码。唯一下一片 N04-M2b：读取总期限的最小验证与实现，先核成熟HTTP能力及真实持续滴流。G04总期限/G36/G33/精确重复通知及follow异常恢复仍开放，N04未完成。
+当前执行指针：N04-M2b 已限定接入同一Agent绝对deadline的模型POST总读取期限，真实持续SSE/半行/JSON/错误正文及连接关闭通过；正常CPU等待中重启仍单次执行。唯一下一片 N04-M2b-UI：真实网页验持续返回中的超时与已有child独立状态。同步回调/系统解析与清理不保证硬实时，主动取消网络/G36/G33/精确通知及follow异常恢复仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -215,7 +215,7 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - 下一步只复用 N02 的记录接口，N03 不再维护一份独立失败步骤表；Job 等待/续跑仍在 G01/G02。
 
 <a id="g04"></a>
-### G04 · P1 · deadline/cancel 与网络预算未完整贯通（M1/M2a部分修复）
+### G04 · P1 · deadline/cancel 与网络预算未完整贯通（M1/M2a/M2b部分修复）
 
 - 对齐 R09，类别：控制风险，证据 E1。
 - 原 agent_executor.py:303–407 只在循环开头检查；Provider 返回后可直接 success 或继续工具副作用。llm_client 使用独立网络超时，未消费 Agent 剩余预算。
@@ -231,8 +231,13 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - **N04-M2a后端限定验收**：run局部model_request_options按原monotonic起点计算min(既有60秒上限,剩余预算)，loop首次/后续及stream失败fallback均重新计算，再经原control_result拒绝耗尽；无预算返回空参数，旧行为不变。只给现有chat/chat_stream传timeout，LLMClient既有body白名单不透传；不改client协议/HTTP schema或新增网络库/线程/重试。
 - 真实正式HTTP/scheduler/tmux基线 `dev_work/artifacts/n04m2a-baseline-20261106-213202/`：预算1秒，静默Provider2.6秒才响应，父失败时执行2639.1ms/1请求/0Job。修后同输入 `n04m2a-fixed-20261106-213232/first/` 为1017.0ms/1请求/0Job。`n04m2a-cases:afterchild:fallback:natural-20261106-213439/`：先前模型消费0.4秒并提交child后，第二请求静默，父1001.1ms失败，保留1Job/1实际追加及收据，follow pending；stream在0.4秒返回503再fallback静默，1001.4ms失败，仅2请求/0Job；自然CPU链3请求/1Job/1追加、父follow各1attempt、完整2步100%。各条原键重发/终态后服务重启attempt/Job不增加，正常门禁不关闭、不补终态。child即使父失败仍经原队列自然完成，未伪称父超时会停止child。
 - 真实client/Agent检查覆盖无回调chat与有回调stream静默、stream503后fallback余量、无预算原60秒、实际请求正文无timeout/deadline。确定性契约覆盖耗尽不请求、长预算仍沿60秒上限、后续工具/模型消费与fallback余量、已有收据保留；与M1/C1共62项通过，compileall通过；根pytest无测试退出5不计通过。直接HTTP客户端证据与滴流测量留本地 `dev_work/artifacts/n04m2a-client-*`，不是供应商验收。新增测试/结果/config不提交。
-- **仍有真实反证**：预算0.3秒、SSE每0.12秒返回一段，实际约0.84秒后原guard才判timed_out，未成功也未产生工具，但没有在总deadline中止读取。urllib timeout约束空闲等待，不是总墙钟期限；DNS/TLS/多地址、慢速JSON/错误body、取消立即中断未交付。G04保持开放，后续M2b应单独处理读取总期限，不以丢弃后台线程冒充停止。M2a状态类型未变，但失败时间改变；独立M2a-UI现已限定验收原页面，见G26记录，不把超时信号等同child停止或持续读取总期限。
+- **M2a时的真实反证**：预算0.3秒、SSE每0.12秒返回一段，实际约0.84秒后原guard才判timed_out，未成功也未产生工具，但没有在总deadline中止读取。urllib timeout约束空闲等待，不是总墙钟期限；DNS/TLS/多地址、慢速JSON/错误body、取消立即中断未交付。该反证由下述M2b限定处理，G04其他边界仍开放，不以丢弃后台线程冒充停止。M2a状态类型未变，但失败时间改变；独立M2a-UI现已限定验收原页面，见G26记录，不把超时信号等同child停止或持续读取总期限。
 - 过程复核：首次afterchild脚本在父failed时立即要求starts=1，磁盘Job实际queued/CPU，观察条件错误；失败记录与原数据保留，仅改本地观察为等待Job经原调度自然终态后再计数，最终1追加。没有改产品调度/超时/门禁来迎合测试。旧60秒独立等待仅在有Agent预算时被替代；无预算/debug调用、原stream与chat消费者、独立Job生命周期全部保留，无第二推进器。
+- **N04-M2b选型与限定实现**：官方[HTTPX timeout](https://www.python-httpx.org/advanced/timeouts/)是每阶段/每chunk等待，直接换库不能解决；[aiohttp ClientTimeout](https://docs.aiohttp.org/en/stable/client_reference.html#aiohttp.ClientTimeout)有total，但另增一套依赖。本片选已间接安装的HTTPX0.28.1（BSD-3-Clause，Python>=3.8）显式列为直接依赖，配标准库[asyncio.wait_for](https://docs.python.org/3.10/library/asyncio-task.html#asyncio.wait_for)。真实原型 `dev_work/artifacts/n04m2b-probe-20261106-215919/`：idle.3耗1.277秒，total.3耗.301秒，服务端约.400秒观察断开，取消后仅caller task，不是后台弃置线程。
+- Agent三处模型调用额外传原started+timeout绝对deadline，idle仍min(60,remaining)，fallback不重置；body白名单不透传两个传输参数。LLMClient同步chat/chat_stream接口保留，私有async请求由asyncio.run/wait_for驱动，一个共享_post_response用HTTPX AsyncClient/stream管理响应及客户端关闭；POST旧urllib路径退出，JSON/原生SSE解析和JSON兼容一次消费规则保留。system SSL trust store、trust_env与follow_redirects显式设置，本地303重定向通过，真实代理/TLS未验收。过期和已有event loop误用先拒绝，不创建网络coroutine/另起线程；流取消在async上下文退出后返回明确error及已收partial/合法usage，不返回成功。partial在客户端结果保留不等于Agent最终正文持久化；原工具/Job收据保留，公开schema/状态不变。list_models GET仍有registry消费者且不消费Agent预算，保留原urllib，不是模型POST双主路径。
+- **真实正式入口证据**：`dev_work/artifacts/n04m2b-fixed-20261106-220713/` 的sse/json持续正文父1001.3/1002.7ms超时，1请求0Job；`n04m2b-cases:sse-20261106-221252/` 首SSE事件包含合法完整job.run候选，随后持续keepalive，父1001.1ms超时、总tokens7，1请求0Job/0实物，follow零attempt。`n04m2b-cases:afterchild:fallback:natural-20261106-220843/`：明确2秒预算的已有child后持续SSE，2000.8ms停止读取/2请求/1Job/1追加，Job由原队列自然完成、收据和父失败保留；1秒fallback经503后慢JSON，1000.8ms/2请求0Job；自然CPU链3请求/1Job/1追加/父follow各a1、完整2步done。各条均原键重放与终态后真实服务重启无新增attempt/Job，服务端观察到超时连接断开。`n04m2b-cases:natural-20261106-221121/` 再补CPU Job3秒自然工作，waiting_child期间真实重启并同键重发，之后自然done仍3请求/1Job/1追加/2attempt。均原门禁/真实scheduler/tmux，不写终态，不把受控Provider回复当模型理解或执行次数证明。
+- **过程与检查**：首次迁移脚本误把list_models GET改成await，compileall和用例收集直接失败，恢复该同步GET后再验收；未启动错误版本冒充通过。首次afterchild测试硬要求2请求，实际1秒预算在工具提交结束时已耗1357.2ms，产品正确保留1Job收据并阻止第二请求；保留该失败，另显式2秒预算场景验证第二读取中到期，不放松产品门禁/补请求。最终真实client/Agent的期限、SSE/comment/半行/JSON/错误正文、合法工具候选、partial/usage、expired零请求、active loop无未await警告、同源303与GET保留，结合C1/M1共74项通过；相关预算/F/G/H/J1等99项通过（两组有重叠不累加，迟到工具投影用例已补成真实wire另跑通过）。compileall、pip check和当前环境requirements dry-run通过；根pytest无测试退出5不计通过。HTTPX本来已安装，当前Python3.13接线通过，本片不声称3.12/3.10干净部署已重验。
+- **剩余边界**：wait_for会等待真实取消/清理完成；同步SSL上下文初始化、同步token/event callback、DNS默认executor/OS调用及清理可能拖延返回，不能承诺任意环境硬实时截止。主动cancel仍是原guard信号检查，尚不立即断开在途网络；私有stream CancelledError仅按当前唯一wait_for取消源处理，不新增主动取消语义。真实供应商/代理/TLS、多地址故障未验收。G04不整体关闭，独立M2b-UI尚待；G36/G33/精确通知/follow异常不混改。第一部分不变，脚本/配置/缓存/结果仅本地。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
 <a id="g05"></a>
@@ -707,7 +712,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/__init__.py) · 5 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [agent_executor.py](../total_control/agent_executor.py) · 513 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；M1将普通/single_call的取消/截止构造收敛到原run局部guard，模型/fallback/工具/成功边界复核并保留已收usage/既有工具证据；单调总预算不重置；M2a把min(60,剩余)传入三处原模型调用，每次/fallback重新计算再guard，无预算不传；socket空闲等待接通但持续读取总期限G04与G21未关闭；构造/查ID未滤enabled为G11 E2风险。 | `_tool_side_effect:31`；`_metadata_value:39` |
+| [agent_executor.py](../total_control/agent_executor.py) · 513 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；M1将普通/single_call的取消/截止构造收敛到原run局部guard，模型/fallback/工具/成功边界复核并保留已收usage/既有工具证据；单调总预算不重置；M2a把min(60,剩余)传入三处原模型调用，每次/fallback重新计算再guard，无预算不传；M2b同传原started绝对deadline到客户端，idle与总期限分开、fallback不重置；G04其余边界与G21未关闭；构造/查ID未滤enabled为G11 E2风险。 | `_tool_side_effect:31`；`_metadata_value:39` |
 | [agent_runtime.py](../total_control/agent_runtime.py) · 49 | R09；execution_id/取消请求 → 进程内注册与信号 → active/cancel 检查 | 问题/修补关联 [G04](#g04)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `register_agent_cancel:20`；`cancel_agent_run:30` |
 | [compat.py](../total_control/compat.py) · 21 | R14；公开门面名/默认实现 → 查询 override → 兼容调用入口 | 问题/修补关联 [G16](#g16)；按登记方案处理，不另建平行服务。 | `public_api_override:7`；`public_api_value:17` |
 | [config.py](../total_control/config.py) · 340 | R01/R12/R13/R14；config/ TOML → 校验主机/路径及状态加载秒数 → AppConfig | N13C2增加status_load_timeout_seconds默认30、严格int 1–300（拒bool/float/string/非有限值）；首页先送预算。N07A目录/SSH兼容保留，无秘密透出。 | AppConfig/load_config |
@@ -715,7 +720,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [context_refs.py](../total_control/context_refs.py) · 18 | R05/R09；数据和点分路径 → 字典键/列表下标查找 → 原值或 None | N00C 唯一纯取值内核；执行映射与上下文投影均已接入；不承担引用前缀或就绪规则。 | `context_ref_value:8` |
 | [events.py](../total_control/events.py) · 207 | R12；业务事件/游标 → 有界队列、gap 与 SSE 编码 → 实时通知 | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `EventBroker:12`；`sse_encode:135` |
 | [handler.py](../total_control/handler.py) · 197 | R12/R13/R14；HTTP/首页 → 路由/安全数值meta → JSON/文件/配置化HTML | N13C2仅/与/index.html由send_head替数值占位、no-store；GET/HEAD长度相同，其他静态保持。首次status前有预算，不新增配置API；原RunStoreError503/G19边界保留；I1静态核实默认抑制状态/静态GET日志，既有verbose仅用于诊断，历史无日志不代表无请求，未改本文件。 | Handler.send_head/do_GET |
-| [llm_client.py](../total_control/llm_client.py) · 621 | R03/R09；Profile/消息 → 供应商请求、流解析 → LLMResponse | N00C 已删除无调用者的 simple_chat 包装；C1仅chat_stream明确JSON文本响应校验并复用_parse_response、同响应一次消费/整体回调、记录实际格式；非法/native结构protocol_error阻止Agent回退洗白，SSE/JSON真实链及失败门禁通过；其他协议维护与预算问题仍按 [G04](#g04)/[G21](#g21) 解决。 | `LLMResponse:17`；`ChatMessage:37` |
+| [llm_client.py](../total_control/llm_client.py) · 660 | R03/R09；Profile/消息 → 供应商请求、流解析 → LLMResponse | N00C 已删除无调用者的 simple_chat 包装；C1仅chat_stream明确JSON文本响应校验并复用_parse_response、同响应一次消费/整体回调、记录实际格式；非法/native结构protocol_error阻止Agent回退洗白，SSE/JSON真实链及失败门禁通过；M2b两模型POST统一HTTPX异步传输+wait_for绝对期限，保留同步入口、原parser、失败partial/usage，过期/active loop早拒；旧POST退出，list_models GET有registry消费者保留urllib。持续读取/连接释放有限验收，主动取消/同步阻塞与真实代理TLS仍未交付；其他协议维护与预算问题仍按 [G04](#g04)/[G21](#g21) 解决。 | `LLMResponse:23`；`ChatMessage:43` |
 | [path_safety.py](../total_control/path_safety.py) · 37 | R04/R13；原始/解析路径 → 敏感目录规则 → 拒绝原因 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `sensitive_path_block_reason:19`；`sensitive_path_block_reason_for_path:30` |
 | [preset_matrix.py](../total_control/preset_matrix.py) · 90 | R02/R07；数据集选项 → 硬编码实验组合排序 → preset 参数矩阵 | 问题/修补关联 [G18](#g18)；按登记方案处理，不另建平行服务。 | `PresetExperiment:12`；`dataset_rank:26` |
 | [secrets_crypto.py](../total_control/secrets_crypto.py) · 68 | R13/R14；明文或密文 → Fernet/主密钥处理 → 加密存储或内存明文 | 问题/修补关联 [G08](#g08)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `_load_or_create_master_key:26`；`_fernet_instance:42` |
@@ -1145,11 +1150,11 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [data/workflow_templates.json](../data/workflow_templates.json) | R02/R05；保留起始链；顺序执行与拓扑预览分开，新增 Transfer 后版本化。 |
 | [config/workflow-poc.example.toml](../config/workflow-poc.example.toml) | R06/R13/R14；N01 无密钥配置模板，定义引擎、隔离状态目录和 worker 延迟；仅本地样机读取，正式服务尚未接入。 |
 | [pytest.ini](../pytest.ini) | R14；历史 testpaths=tests 与 scratch 排除；当前没有正式测试文件，后续按切片生成本地检查；无用例不算通过。 |
-| [requirements.txt](../requirements.txt) | R14/G08；唯一直接运行依赖声明，固定 cryptography/LangGraph/SQLite saver；两个独立 Python 环境安装/HTTP/框架持久化通过。间接依赖仍由 pip 解析；N03B2b 已接单 Job 生产协调器，不用开发工具包扩大启动要求。 |
+| [requirements.txt](../requirements.txt) | R14/G08；唯一直接运行依赖声明，固定 cryptography/LangGraph/SQLite saver；M2b增加原间接HTTPX0.28.1直接声明，BSD-3-Clause。前期两个独立 Python 环境安装/HTTP/框架持久化通过；本片仅当前3.13接线/解析及pip check通过，未重跑干净安装。间接依赖仍由 pip 解析；N03B2b 已接单 Job 生产协调器，不用开发工具包扩大启动要求。 |
 
 ### 台账完整性与维护
 
-正式代码台账包含 291 行，一文件一行；README.md同步真实能力/报告配置与API，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
+正式代码台账包含 292 行，一文件一行；README.md同步真实能力/报告配置与API及M2b四直接依赖/请求期限边界，.gitignore增加data/reports/私密运行正文排除；配置/公开数据/依赖与验证入口 9 行；本地样机/安装验证另说明职责，不列为生产源码。代码路径集合来自当前实际源码树，不按历史目录猜测。新增、删除或改职责时同步对应行和 G 问题状态；不把未跑过的场景写成已验收。
 ### N03B2c2c-UI：ready 隔离执行包的真实启动闭环（已验收）
 
 对应 R06/R12、G10/G11/G26。使用独立 `TOTAL_CONTROL_DATA_DIR`、端口 8771、本机 CPU 主机和显式 `tools=[]` 报告 Agent；夹具先经正式 automation/apply，再用公开工作区更新接口恢复空 allowlist，最后由 `/cockpit` 读取 `execution_bundle.ready_to_execute=true` 且 `missing=[]`。浏览器只通过可见驾驶舱点击，API 仅用于准备、观察和重放核对。

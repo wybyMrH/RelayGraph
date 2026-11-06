@@ -22,7 +22,11 @@ python -m total_control.server --host 127.0.0.1 --port 8765
 
 Debian/Ubuntu 如果提示缺少 ensurepip，需要先安装与 Python 版本匹配的 venv 系统包（例如 python3-venv 或 python3.12-venv）。本轮 3.12 遇到该问题，先在隔离环境补齐 pip 后才完成安装，未把环境准备算成产品恢复能力。无对应平台 wheel 时，依赖的源码安装可能还需要编译工具；当前没有验证离线安装。
 
-[requirements.txt](requirements.txt) 固定一起验证过的三个直接依赖版本：cryptography 49.0.0、LangGraph 1.2.7、SQLite saver 3.1.1。间接依赖由 pip 解析，这不是全依赖锁文件。N03B2a 解析出 44 个运行包；LangGraph 带入 LangChain core、LangSmith 等依赖。项目没有启用外部 tracing，但上游可受 LANGSMITH_/LANGCHAIN_ 环境变量或 tracing 上下文影响；验证显式关闭 tracing。pytest、Playwright、PyTorch 和 LiteLLM 均不属于当前运行清单，开发时按切片另行准备。
+[requirements.txt](requirements.txt) 固定四个直接运行依赖：cryptography 49.0.0、LangGraph 1.2.7、SQLite saver 3.1.1、HTTPX 0.28.1。间接依赖由 pip 解析，这不是全依赖锁文件。N03B2a 当时解析出 44 个运行包；N04-M2b 把已有间接依赖 HTTPX 提升为直接依赖，当前 Python 3.13 环境的依赖解析/检查及真实 HTTP/CPU 链通过，本片未重跑 3.12 干净安装。LangGraph 带入 LangChain core、LangSmith 等依赖。
+
+模型 POST 通过 HTTPX 异步传输消费同一 Agent 请求总期限，仍保留同步调用入口；模型目录 GET 继续原适配器。总期限到达会取消并等待连接清理，不承诺同步回调、系统解析和清理均能硬实时中断；主动取消信号尚不立即断开在途网络。
+
+项目没有启用外部 tracing，但上游可受 LANGSMITH_/LANGCHAIN_ 环境变量或 tracing 上下文影响；验证显式关闭 tracing。pytest、Playwright、PyTorch 和 LiteLLM 均不属于当前运行清单，开发时按切片另行准备。
 
 浏览器打开 `http://127.0.0.1:8765`。系统工具按功能准备：本地任务需要 tmux；远程连接需要 ssh，任务目标主机需要 tmux；传输需要相应端的 rsync；GPU 监控需要目标主机的 nvidia-smi。CPU 路径不要求 GPU 工具。默认监听本机，现有接口可执行命令，不应直接开放为公共服务。
 

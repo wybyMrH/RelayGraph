@@ -336,7 +336,7 @@ class AgentExecutor:
             remaining = self.timeout_seconds - (time.monotonic() - started)
             # Keep the client's existing 60s idle limit, sharing this run's budget.
             # The control check below rejects exhausted budgets before the request.
-            return {"timeout": min(60.0, remaining)}
+            return {"timeout": min(60.0, remaining), "deadline": started + self.timeout_seconds}
 
         for iteration in range(self.max_iterations):
             request_options = model_request_options()
