@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-Q1 已限定验收精确周期唤醒、重复完成消息及HTTP SSE同游标重连，未增加副作用。唯一下一片 **N04-Q2：后续Agent自身失败的事实与恢复边界**。G20/G04其余/G33与follow在途崩溃仍开放，N04未完成。
+当前执行指针：N04-Q2 已限定验收后续Agent协议失败与重启不重发；新增G38追溯字段空值。唯一下一片 **N04-Q2a：补齐新follow attempt的child Job身份**。G20/G04其余/G33及follow在途崩溃仍开放，N04未完成。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -1042,11 +1042,17 @@ M1a当时M1-UI仍唯一下一片：本次成功路径已证取消后1次Provider
 
 两条3模型请求/1Job/1物理追加/父follow各a1、完整2步done，重复终态观察和重启不增加执行。第一轮仅publish/replay证据保留，补SSE后最终两条重验；本地统计child done用child_status，不能误用仍waiting的父status。纯二三文档交付，无新通知消费者/推进器/接口/页面；既有组件各有调用者保留，无业务变更无需另开UI片。测试/config/结果仅本地。profile有开销，受控Provider不证明模型理解；未验浏览器EventSource重连、跨重启永久事件游标、follow自身失败及调用中断，不由Q1宣布N04完成。
 
-### N04-Q2：后续Agent自身失败的事实与恢复边界（唯一下一片，待开片）
+### N04-Q2：后续Agent自身失败的事实与恢复边界（已限定验收）
 
-对齐R06/R09/R11/R12，补总核的follow自身失败空白。先列原唯一resume入口、attempt claim/result保存和失败传播的现有调用者；允许文件与验收须开片明确，先复现再决定是否修改业务。只验证child自然done之后，follow的一次真实模型HTTP返回非法JSON/明确协议错误时，父提交收据、child成功与原日志保留，follow a1失败、run失败且完整计划分母2；随后重复调度/原键重放和服务重启不再调用模型，不把子任务成功覆盖follow失败。需要正常受控对照，固定Provider协议故障须披露；同时核输入引用确为本次父run/attempt/child结果。
+对齐R06/R09/R11/R12，真实正常对照与follow第三次HTTP返回非法JSON两链均完成验收：child自然done后，父收据/日志/成功保留，follow a1明确失败，root failed，计划分母2。重复自然调度、原request及等待/终态后重启不增加模型请求/Job/attempt/实物次数。实际完整user输入逐值对应本次父output；父/子/follow状态分开，不拿子任务成功覆盖follow失败。具体次数、路径、SQLite/日志及本地检查脚本错误集中第二部分Q2，不另复制台账。
 
-先做正式HTTP/持久事实验收；若存在用户可见修复，接必要最小消费者后再独立前端浏览器片。已有页面语义足够而无代码改变时也须记录实际呈现边界，不把后端状态直接算页面通过。本片不同时解决已claim调用被SIGKILL后的unknown恢复（后续独立片）、主动网络取消、G33初始化、历史保留、Python版本迁移或全站布局。失败恢复不能盲目重发已有副作用或新增attempt替历史失败；若缺少产品动作，先明确保守阻塞边界，另计划修复。
+本轮只更新二三文档，未改API/schema/业务/界面，无需另开前端片，HTTP结果不冒充浏览器呈现。无新通知/恢复器/重试层；原唯一resume/观察/映射主路径保留。真实映射正确但follow inputs.child_job_id为空，作为G38单独登记，元数据不齐不能写成身份全通过。受控Provider仅证明协议；已claim调用被SIGKILL后的unknown仍未验，N04未完成。
+
+### N04-Q2a：补齐新follow attempt的child Job身份（唯一下一片，待开片）
+
+仅对齐G38/R06/R09/R11。先核正常首次执行与收据恢复为什么分别有job_id/child_job_ids/child_job_id，找到现有权威Job回执及观察结果的共同来源。最小目标是新follow attempt.inputs.child_job_id与本次父output/唯一提交external_ref一致，在begin_attempt/claim/模型调用前记录；不从同名历史Job猜值、不新增第二引用内核。缺失或冲突时的拒绝行为、允许文件及本地契约在开片明确。
+
+旧run已有空inputs不自动补写、不借此重发模型、不改变已存attempt结果；说明历史空字段与可用父output/receipt的读取边界。新正常链与follow协议失败链均通过正式HTTP/tmux，对照当前空值反证，核新字段/plan_hash/step/attempt/Job、完整输入及重复请求/重启副作用次数。只修一个身份字段，不改重试流程、follow在途unknown、G33、前端技术栈或Python版本；若需API消费者同步做必要最小接线，再根据实际用户可见变化决定独立UI片，不能凭字段值变更宣称界面交付。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 
