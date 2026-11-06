@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-F 后端已限定验收：child 提交首错持久，父失败不再被模型文本或child完成覆盖。唯一下一片为 **N04-F-UI：父失败与已有 child 运行事实分开呈现及浏览器验收**。完成该界面片后，再选择正文交接等依赖功能；N04 整体仍开放。
+当前执行指针：N04-F 与 N04-F-UI 已限定验收，父错误与已有child状态分开且经真实网页验证。唯一下一片为 **N04-G：本次child Job有界日志与完整性证据交接**；仅补后续Agent实际输入，不同时做长报告、取消、Provider或其他功能。N04整体仍开放。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -827,11 +827,23 @@ RunStore只保存first-error及校验结果不可丢弃/成功覆盖，不解释
 
 本地脚本：dev_work/smokes/test_n04f_failure.py、n04f_http.py。主要证据：dev_work/artifacts/n04f-http-20261106-170035/。旧回执恢复/丢回执HTTP回归也已重跑通过，bound恢复原Job后done、missing保持blocked不重提，证据dev_work/artifacts/n04e-legacy-20261106-170357/；此处仍是E片说明过的停机历史格式/故障夹具，不能当成自然旧部署或正常路径。compileall通过；根pytest无用例退出5，不计通过；脚本与结果不提交。attempt.result增加首错证据，原有公开step.status/error、child_job_ids保持语义和读取入口；HTTP回归验证公开失败/引用，现有前端继续读取这些字段，不另造错误映射或推进器。由于可见运行状态改变，必须先完成下述独立UI片，不能拿后端检查替代界面交付。第一部分不变；不删除仍有调用者的旧receipt/独立agent_tool记录。
 
-### N04-F-UI：父失败与已有 child 分开呈现（唯一下一片）
+### N04-F-UI：父失败与已有 child 分开呈现（已限定验收）
 
-先按G32列真实输入：持久父step.status/error、child_job_ids所指Job的状态/目标、pending的follow、完整两步计划；动作只有查看错误/打开本次日志/查看已有child，不提供假恢复或自动取消。使用已评估frontend-design指导并重新核对当前适用性，画小型布局草图：步骤主状态明确“父步骤失败/需核对”，旁边说明已有任务是否仍在排队/运行/结束，错误持续可见，follow说明未执行。不能把Job的done升格为父成功，不能把父failed说成child已停止；只迁移该阅读职责，不改配置页/全局实例聚合。
+对齐G32/R06/R09/R12。真实输入为持久step.status/error、精确job_id/child_job_ids及state.jobs的Job状态与目标、本次run前置状态。布局草图和范围保存在本地dev_work/reports/n04f-ui-opening.md：首步标题/父状态→错误说明→已提交子任务/独立状态→实际目标dl→按需过程/唯一日志入口；follow说明本次未执行。沿用现有系统字体、蓝灰底与失败红，不加字体/依赖/装饰或固定高度。frontend-design技能来源、Apache-2.0许可和SHA256沿用D-UI核对值，本轮已重新读取；仅采用内容层级、失败/空态和截图复核指导，舍弃与运行阅读无关的hero/新配色/卡片网格。
 
-先核对D-UI的持久步骤优先逻辑、实际Job/日志入口及历史回放消费者；必要时最小调整原helper/文案，不加第二状态合并器。浏览器从正式可见入口分别走正常重复与先成功后冲突，验证父失败、child仍运行→done、follow未启动、错误/日志可见，以及刷新/服务重启保留同一run和错误；检查常用桌面/窄窗、长错误、缺Job、键盘焦点。空/长内容夹具明确只算布局，不冒充任务结果；受控Provider边界说明。完成并提交推送后，再选择本次child输出正文交接等小片。
+范围仅app.js、workspace_run_summary.js、styles.css、index.html及二三文档。summary纯helper的options.parentStatus用于首步提示；child状态独立从Job读取，done不改变父failed，父stopped不暗示child停止，缺Job说明无法确认且不回退包默认。父失败/需核对标签仅N04首步，follow失败不冒称父失败。Notes原组件只调用一次，首步错误前置；pending说明仅看本次前置持久状态。旧独立“重试Agent”按钮只在N04退出，因为其handler调用独立node运行，不能代表恢复原run；非N04仍有调用者，handler保留。后续若实现真正协调器retry再设计明确入口，不复用当前假恢复。
+
+**实际验收**：Playwright/Chromium经可见网页启动两条真实HTTP/scheduler/tmux CPU链，Provider是本机受控SSE。相同两次工具调用：等待交接→子任务运行→两步done，4次实际模型请求、1Job/1追加；第二次仅换cwd：首步“父步骤失败”且错误在目标区之前，子任务独立“运行中”→“已完成”，follow仍未运行，3次请求、1Job/1追加、仅父attempt。没有关门禁、手填终态、人工补记录或关闭实时更新。每链1440×900及768×900，通过键盘焦点跨2200ms真实更新、Enter打开本次日志并核对实际cwd、等待/失败期间真实服务重启与页面reload保持实例和同run、最后API状态/完整两步分母；无pageerror。截图已人工核看父失败+子运行桌面、父失败+子完成窄窗，状态同时有文字、目标自然换行。
+
+本地纯JS契约包含D-UI回归及F-UI父/child独立、错误唯一/顺序、前置说明、精确引用、非N04重试保留、转义/未知/停止分支；相关JS的node --check、121脚本引用/装配顺序、diff-check通过。首轮浏览器脚本错误期待原文案“完成”，实际为既有“已完成”，只修脚本后重跑，不改产品迎合断言。独立长错误/长主机/长路径、GPU0/空环境、缺Job、blocked和stopped夹具在1440/768/390无横溢，错误全文保留；夹具有单独可滚动host用于缺少app shell时查看全部内容，不改变产品CSS，也不算工作流验收。
+
+脚本仅本地dev_work/smokes/n04fui_browser.py、n04fui_contract.cjs、n04fui_layout.py。真实运行证据dev_work/artifacts/n04fui-20261106-171913/；独立布局证据dev_work/artifacts/n04fui-layout-20261106-172348/。停止提示文义与首步参数限定经监督建议小修后，纯契约与独立浏览器布局重跑通过；真实完整链截图生成于该小修前，核心failed/运行/完成文案相同。真实blocked/父stopped链、其他供应商、SSH/GPU、完整移动端产品导航未验收；390只验证独立布局。历史回放仍读原持久步骤/错误，不另建状态合并器；本轮未做回放点击验收。全局实例可能仍由兼容child run聚合成运行中，原已登记，未扩大修改。
+
+### N04-G：本次 child Job 有界日志与完整性证据交接（唯一下一片）
+
+对齐G01/G02与R06/R09/R11。当前N04 output_value只含本次run/parent/attempt/Job/status和产物声明，后续Agent无法取得child日志；不能用固定模型回答假装读过结果。本片仅把child done时可核对的有界日志和完整性证据接入既有本次输出引用：先核对N03 report链现有job_log_payload、redact_runtime_observation_text、日志schema及输入压缩路径，复用读取/脱敏规则，避免复制第二套状态机/host路径。保持host_id与本次Job身份、截断/偏移/缺失/失败说明，不把找不到日志当成空白完整日志；原产物声明仍不冒充实物验证。
+
+开片限定workflow_records及必要输入消费者/二三文档，先证明正确证据不会在Agent输入预览中被静默裁短。真实正常CPU child输出一段每次变化的标记，检查follow的实际Provider请求含本次日志和身份，不以受控回复文案作为读取证明；重复通知/等待重启不重跑，前置失败/停止不调用follow，截断/缺失/读取异常的完整性语义明确。无Agent工具权限、Provider协议、长报告和取消扩展。若公开schema/状态可见变化，后端同步最小消费者，再安排独立UI片，不能直接跨到新功能。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 

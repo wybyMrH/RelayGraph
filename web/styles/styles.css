@@ -22912,7 +22912,8 @@ body.has-log-pane .workspace-node-execution-bundle pre {
 .workspace-run-reader-evidence[open] > summary { margin-bottom: 8px; }
 .workspace-run-reader-evidence > p { overflow-wrap: anywhere; }
 .workspace-job-target { min-width: 0; border-top: 1px solid var(--border); padding-top: 10px; }
-.workspace-job-target > strong { font-size: 13px; }
+.workspace-job-target-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.workspace-job-target-head > strong { font-size: 13px; }
 .workspace-job-target > p, .workspace-job-target-missing { font-size: 12px; line-height: 1.6; margin: 6px 0; }
 .workspace-job-target dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; margin: 8px 0 0; }
 .workspace-job-target dl > div { min-width: 0; }

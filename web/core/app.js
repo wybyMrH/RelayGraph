@@ -12242,6 +12242,7 @@ function workspaceAgentStreamTraceMarkup(records = []) {
 function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
   const jobId = String(step.job_id || "").trim();
   const isChildHandoff = run.execution_plan?.engine_version === "langgraph-agent-child-job/n04";
+  const isChildParent = isChildHandoff && Number(step.index) === 0;
   const childJobIds = [...new Set((Array.isArray(step.child_job_ids) ? step.child_job_ids : [])
     .map((item) => String(item || "").trim())
     .filter(Boolean))];
@@ -12250,7 +12251,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     .filter(Boolean);
   const targetJobIds = [...new Set([jobId, ...childJobIds].filter(Boolean))];
   const targetMarkup = isChildHandoff ? targetJobIds.map((id) => (
-    workspaceRunSummaryApi().actualJobTargetMarkup((state.jobs || []).find((job) => String(job.id) === id), workspaceRunSummaryDeps())
+    workspaceRunSummaryApi().actualJobTargetMarkup((state.jobs || []).find((job) => String(job.id) === id), workspaceRunSummaryDeps(), { parentStatus: isChildParent ? step.status : "" })
   )).join("") : "";
   const nodeTitle = String(step.node_title || step.node_kind || "步骤").trim();
   const status = String(step.status || "queued");
@@ -12299,7 +12300,8 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
     ? `实时 Agent：${zhStatus(liveStatus)}${liveAgentRecord.total_steps ? ` · ${Number(liveAgentRecord.total_steps)} step` : ""}`
     : "";
   const canCancelAgent = isAgent && agentExecutionId && !agentExecutionId.startsWith("agent-") && ["running", "queued"].includes(effectiveStatus);
-  const canRetryAgent = isAgent && nodeId && ["failed", "stopped", "blocked"].includes(effectiveStatus);
+  // The standalone node retry does not resume a coordinated N04 attempt.
+  const canRetryAgent = !isChildHandoff && isAgent && nodeId && ["failed", "stopped", "blocked"].includes(effectiveStatus);
   const agentActions = isAgent && (canCancelAgent || canRetryAgent)
     ? `
         <div class="workspace-execution-run-step-actions">
@@ -12321,11 +12323,14 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
       `
     : "";
   const detailKey = `${run.id || ""}:${step.step_id || nodeId || step.index}:inputs`;
+  const notesFirst = isChildParent && ["failed", "blocked", "stopped"].includes(status);
+  const stepNotes = window.WorkspaceRunStepNotes.markup(step, { escapeHtml }, { runId: run.id, surface: "list", openDetails: options.openDetails });
+  const predecessorUnsuccessful = isChildHandoff && (run.steps || []).some((item) => Number(item.index) < Number(step.index) && ["failed", "blocked", "stopped"].includes(item.status));
   return `
     <article class="workspace-execution-run-step status-${escapeHtml(effectiveStatus)}${isAgent ? " executor-agent" : ""}${step._live_agent_synthetic ? " live-synthetic" : ""}" data-job-id="${escapeHtml(jobId)}" data-run-id="${escapeHtml(run.id || "")}" data-node-id="${escapeHtml(nodeId)}">
       <div class="workspace-execution-run-step-head">
         <strong>${escapeHtml(`${Number(step.index) + 1}. ${nodeTitle}`)}</strong>
-        <span class="state ${escapeHtml(effectiveStatus)}">${escapeHtml(isChildHandoff && effectiveStatus === "waiting" ? "等待交接" : isChildHandoff && effectiveStatus === "blocked" ? "需核对" : zhStatus(effectiveStatus))}</span>
+        <span class="state ${escapeHtml(effectiveStatus)}">${escapeHtml(isChildParent && effectiveStatus === "failed" ? "父步骤失败" : isChildParent && effectiveStatus === "blocked" ? "父步骤需核对" : isChildHandoff && effectiveStatus === "waiting" ? "等待交接" : isChildHandoff && effectiveStatus === "blocked" ? "需核对" : zhStatus(effectiveStatus))}</span>
       </div>
       <div class="workspace-execution-run-step-meta">
         <span>${escapeHtml(isAgent ? "Agent" : step.node_kind || "")}</span>
@@ -12338,7 +12343,8 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
         ${executionMetaLine ? `<span>${escapeHtml(executionMetaLine)}</span>` : ""}
       </div>
       ${isChildHandoff && status === "waiting" ? '<p class="workspace-run-step-agent-meta">正在等待子任务与后续交接；提交成功不代表执行完成。</p>' : ""}
-      ${isChildHandoff && status === "pending" ? '<p class="workspace-run-step-agent-meta">尚未执行，等待前置步骤成功。</p>' : ""}
+      ${isChildHandoff && status === "pending" ? `<p class="workspace-run-step-agent-meta">${predecessorUnsuccessful ? "前置步骤未成功，本次未执行。" : "尚未执行，等待前置步骤成功。"}</p>` : ""}
+      ${notesFirst ? stepNotes : ""}
       ${targetMarkup}
       ${liveAgentLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(liveAgentLine)}</p>` : ""}
       ${isAgent && (mappedInputsLine || agentTrace) ? `
@@ -12348,7 +12354,7 @@ function workspaceRunStepItemMarkup(step = {}, run = {}, options = {}) {
           ${agentTrace}
         </details>` : ""}
       ${validationLine ? `<p class="workspace-run-step-agent-meta muted">${escapeHtml(validationLine)}</p>` : ""}
-      ${window.WorkspaceRunStepNotes.markup(step, { escapeHtml }, { runId: run.id, surface: "list", openDetails: options.openDetails })}
+      ${notesFirst ? "" : stepNotes}
       ${jobId ? `
         <div class="workspace-execution-run-step-actions">
           <button class="secondary mini" type="button" data-action="open-workspace-run" data-job-id="${escapeHtml(jobId)}" title="打开这一步的任务日志">打开日志</button>
