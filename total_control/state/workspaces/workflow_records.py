@@ -458,11 +458,39 @@ class WorkflowRecordsMixin:
             return copy.deepcopy(failure or source_attempt["result"])
         if source_attempt["result"].get("continuation_state") == "resumed":
             return copy.deepcopy(source_attempt["result"])
-        number = self.execution_store.begin_attempt(run_id, follow["step_id"], inputs={
-            "plan_hash": evidence["plan_hash"], "source_step_id": source["step_id"],
-            "source_attempt_id": f"a{source_attempt['attempt_no']}",
-            "child_job_id": source_attempt["result"].get("child_job_id", ""),
-        })
+        prior_follow = next((item for item in reversed(evidence["attempts"])
+                             if item["step_id"] == follow["step_id"]), None)
+        if prior_follow:
+            # Historical provenance is immutable, including previously empty child IDs.
+            inputs = copy.deepcopy(prior_follow["inputs"])
+            expected_source = {"plan_hash": evidence["plan_hash"], "source_step_id": source["step_id"],
+                               "source_attempt_id": f"a{source_attempt['attempt_no']}"}
+            if (any(inputs.get(key) != value for key, value in expected_source.items())
+                    or (inputs.get("child_job_id") and inputs["child_job_id"]
+                        != source_attempt["result"].get("job_id"))):
+                raise RunConflictError("attempt identity reused with different input provenance")
+        else:
+            intents = [item for item in evidence["submissions"]
+                       if item["step_id"] == source["step_id"]
+                       and item["attempt_no"] == source_attempt["attempt_no"]
+                       and item.get("operation") == "child-job"]
+            child_id = str(intents[0].get("external_ref") or "") if len(intents) == 1 else ""
+            output = source_attempt["result"].get("output_value", {})
+            expected = {"run_id": run_id, "node_id": source["step_id"],
+                        "attempt_id": f"a{source_attempt['attempt_no']}",
+                        "job_id": child_id, "status": "done"}
+            if (not child_id or intents[0]["state"] != "submitted" or intents[0].get("error")
+                    or source_attempt["result"].get("job_id") != child_id
+                    or ("child_job_id" in source_attempt["result"]
+                        and source_attempt["result"]["child_job_id"] != child_id)
+                    or ("child_job_ids" in source_attempt["result"]
+                        and source_attempt["result"]["child_job_ids"] != [child_id])
+                    or not isinstance(output, dict)
+                    or any(output.get(key) != value for key, value in expected.items())):
+                raise RunConflictError("child Job input provenance unavailable or inconsistent")
+            inputs = {"plan_hash": evidence["plan_hash"], "source_step_id": source["step_id"],
+                      "source_attempt_id": f"a{source_attempt['attempt_no']}", "child_job_id": child_id}
+        number = self.execution_store.begin_attempt(run_id, follow["step_id"], inputs=inputs)
         existing_follow = next(item for item in self.execution_store.read(run_id)["attempts"]
                               if item["step_id"] == follow["step_id"] and item["attempt_no"] == number)
         if existing_follow["result"]:

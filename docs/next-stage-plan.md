@@ -2,7 +2,7 @@
 
 计划日期：2026-11-06。需求来自[第一部分](project-spec.md)，问题编号来自[第二部分](current-audit.md)。已完成文档收敛、N00C 清理、N00D 原有改动整合、N01 本地选型验证与 N02 完整计划/提交记录；N03J0/N03A0/N03A 小切片已交付，N03B2c1 已接本地最小 Job→无工具报告 Agent，N03B2c2b 已修正报告 Agent 直出与 Job 工具写入的诊断边界；N03 总体仍有更长链/真实模型与交付缺口，其余切片逐片实施，不能把“写入计划”标成已完成。
 
-当前执行指针：N04-Q2 已限定验收后续Agent协议失败与重启不重发；新增G38追溯字段空值。唯一下一片 **N04-Q2a：补齐新follow attempt的child Job身份**。G20/G04其余/G33及follow在途崩溃仍开放，N04未完成。
+当前执行指针：N04-Q2a 已限定补齐新follow attempt的child Job身份，旧空字段保持原样；新增G39失败交接快照窗口。唯一下一片 **N04-Q2b：失败交接的一致结算边界**。G20/G04其余/G33及follow在途崩溃仍开放，N04未完成。
 
 ## 1. 下一阶段的目标与执行方式
 
@@ -1048,11 +1048,19 @@ M1a当时M1-UI仍唯一下一片：本次成功路径已证取消后1次Provider
 
 本轮只更新二三文档，未改API/schema/业务/界面，无需另开前端片，HTTP结果不冒充浏览器呈现。无新通知/恢复器/重试层；原唯一resume/观察/映射主路径保留。真实映射正确但follow inputs.child_job_id为空，作为G38单独登记，元数据不齐不能写成身份全通过。受控Provider仅证明协议；已claim调用被SIGKILL后的unknown仍未验，N04未完成。
 
-### N04-Q2a：补齐新follow attempt的child Job身份（唯一下一片，待开片）
+### N04-Q2a：补齐新follow attempt的child Job身份（已限定验收）
 
-仅对齐G38/R06/R09/R11。先核正常首次执行与收据恢复为什么分别有job_id/child_job_ids/child_job_id，找到现有权威Job回执及观察结果的共同来源。最小目标是新follow attempt.inputs.child_job_id与本次父output/唯一提交external_ref一致，在begin_attempt/claim/模型调用前记录；不从同名历史Job猜值、不新增第二引用内核。缺失或冲突时的拒绝行为、允许文件及本地契约在开片明确。
+对齐G38/R06/R09/R11，只改原resume：新follow先核唯一同父attempt已提交child intent与父观察/output完整身份，一致才记录child_job_id，缺失/冲突在begin/claim前抛原错误。已有follow保留原inputs且核plan/source/aN/非空child来源，旧空值不补写，终态不重发，claimed仍unknown，未claim空result仍原执行语义。没有新引用内核/恢复器。
 
-旧run已有空inputs不自动补写、不借此重发模型、不改变已存attempt结果；说明历史空字段与可用父output/receipt的读取边界。新正常链与follow协议失败链均通过正式HTTP/tmux，对照当前空值反证，核新字段/plan_hash/step/attempt/Job、完整输入及重复请求/重启副作用次数。只修一个身份字段，不改重试流程、follow在途unknown、G33、前端技术栈或Python版本；若需API消费者同步做必要最小接线，再根据实际用户可见变化决定独立UI片，不能凭字段值变更宣称界面交付。
+新正常/后续坏JSON链、真实旧Q2服务重开/同request/原SQLite行不变均限定通过；32新契约及相关回归149项、compileall通过，根pytest无用例不算通过。精确身份/次数/目录/本地观察失败集中第二部分Q2a/G39。user完整输入与父output逐值相等；不把元数据修好说成新的模型理解能力。公开schema/状态/动作/布局不变，无前端专用字段消费者，依据记录后免UI片；未冒称浏览器已重验。G38仅新记录关闭，历史空值仍可解释。
+
+测试复现首次root failed时父仍waiting，稍后parent done（G39）。保留原失败快照，再等待真实resume收尾核重启一致；不是修掉该窗口，不由最终成功轮覆盖早期反证。下一片仅Q2b，follow已claim在途崩溃等仍留后片，N04未完成。
+
+### N04-Q2b：失败交接的一致结算边界（唯一下一片，待开片）
+
+对齐G39/R06/R11/R12。先列follow失败写入→父交接done→图检查点之间的真实窗口和读取/重启消费者，明确root失败与全部交接收尾的含义。开片固定一个最小交接窗口，保留已结束的真实模型结果与child Job事实，不把Provider在途未知并入本片。用真实服务HTTP/进程重启核首次快照、窗口中SIGKILL后恢复和重复唤醒，确认不重发模型、原follow失败不变、父child身份保留。
+
+先复现与评估，再确定最小允许文件；优先复用现有事务/单图/状态投影，使父和follow交接结果一致结算，不能新增第二推进器、前端假补终态或人工补记录。若需要显式持久交接状态，须说明规格/读取兼容影响，不偷换既有终态意义。任何API/schema/可见状态变化接必要最小消费者，后续独立UI片真实浏览器核失败/收尾/重启；无可见改变时给出依据。旧单独record_result入口只有核现有调用者及失败过程对照后才退出，不凭重复函数名删除。不要同时处理G33、Python版本、历史保留或主动网络取消。
 
 ### N04-C：Provider 工具调用契约收敛（后续独立片）
 

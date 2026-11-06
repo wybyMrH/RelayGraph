@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-Q2 已限定验收后续Agent协议失败保留及重启不重发。新增G38：follow attempt输入中的child_job_id为空，但真实模型输入正确；唯一下一片 N04-Q2a 修复这一个追溯字段。G20/G04其余/G33及follow在途崩溃仍开放，N04未完成。
+当前执行指针：N04-Q2a 已限定修复新follow attempt的child Job身份，真实正常/失败链及旧空字段兼容重开通过。新增G39：root先显示failed，父步骤交接稍后才收尾。唯一下一片 N04-Q2b 核失败交接的一致性；G20/G04其余/G33及follow在途崩溃仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -129,13 +129,13 @@ P1-UI真实反证与修复：`dev_work/artifacts/n04p1ui-baseline-20261106-22473
 本片只更新二三文档，不改API/schema/页面，故无需新增前端片；未重跑无关Python或浏览器套件。已有观察、事件发布、单worker/图推进器各有调用者，未发现本片需删除的重复主路径，不为测试增加通知消费者。第一部分稳定，本地脚本/config/追踪/结果不提交；用户child-count.txt不动。限定关闭本地最小链上述精确通知/唤醒证据缺口，不承诺任意副作用exactly-once。follow自身失败、已claim调用中断和G33仍需独立验收，N04未完成；唯一下一片Q2只核follow失败。
 
 <a id="g38"></a>
-### G38 · P2 · follow attempt 的 child_job_id 追溯字段为空（已复现，待Q2a）
+### G38 · P2 · follow attempt 的 child_job_id 追溯字段为空（Q2a新记录限定修复，旧空值保留）
 
 对齐R06/R09/R11，类别：证据元数据缺口，E1+E2，不是已证明的实际输入丢失。Q2两条新正式HTTP链的SQLite `attempts.inputs_json`与公开run均显示follow的`child_job_id=""`；同条父`output_value.job_id`、`job_id`/`child_job_ids`、提交intent external_ref及真实模型mapped_inputs均指向正确的同一Job。旧Q1结果也有相同空值。
 
 静态原因：`resume_coordinated_agent`在begin_attempt时读取`source_attempt.result.get("child_job_id", "")`；正常观察器返回单数`job_id`、列表`child_job_ids`及`output_value.job_id`，初次正常结果没有该单数child字段。收据恢复的另一路可能有child_job_id，因此正常链与恢复链的元数据可能不同。未发现生产代码按follow inputs.child_job_id决定推进/实际输入；当前begin_attempt保存inputs，read/public/export保留，模型实际输入来自父output。故只认定追溯不完整，不声称已有模型调用错误或幂等失效。
 
-下一片Q2a只修新follow attempt记录的child身份来源，复用已有权威提交/观察事实并校验同一run/step/attempt/Job，避免再造引用解析器或从历史同名任务猜值；旧空值记录不能静默补写或触发重跑。保留现有字段兼容性，对缺失/冲突事实先明确保守拒绝行为。真实正常/失败新链与重启、原键不增副作用为验收；实际允许文件与边界在开片确定，不在Q2顺带修复。
+Q2a随后仅修`resume_coordinated_agent`的新attempt身份来源：唯一同父step/attempt的child-job intent必须submitted、无error且external_ref非空；父job_id、存在时的child_job_id/child_job_ids别名及output run/node/aN/Job/done必须一致，才在begin_attempt/claim前记录child_job_id。缺失/冲突抛原RunConflictError，专项契约验证零新follow/模型调用；原scheduler上层沿既有错误封装处理，未把它说成用户恢复动作。已有follow沿原inputs并保留plan_hash/source step/aN及非空child来源冲突校验，不补历史字段；旧终态不重发，claimed仍unknown，无result的已建attempt仍沿原claim执行，不能概括为所有已有attempt都不再调用。正式HTTP新链与旧记录重开证据见下文Q2a；没有新引用解析器/恢复器。
 
 ### N04-Q2：后续Agent自身协议失败（限定验收，G38开放）
 
@@ -146,6 +146,27 @@ P1-UI真实反证与修复：`dev_work/artifacts/n04p1ui-baseline-20261106-22473
 实际第三次请求的**user消息完整输入**中两个mapped_inputs逐值等于本次父attempt的output_value，run/parent/a1/child Job、原日志及host身份吻合；follow inputs的source_step_id/source_attempt_id/plan_hash正确，child_job_id空值另记G38，不能把映射正确说成元数据全齐。SQLite只读核两条各恰2个attempt，失败条follow a1 failed而父a1 done。
 
 过程：首轮`n04q2-20261106-233127/`本地脚本误解析system context的2400字符摘要，JSONDecodeError后停止，未算通过；完整映射已由原preserve_mapped_inputs放在user消息，修正检查位置后最终两链重新运行，产品不改。独立复核最初误要求公开Job.exit_code而KeyError，改为核原日志标记后通过；未补写结果/绕门禁。Provider是受控协议故障，不证明真实供应商/模型理解，CPU自然执行10秒供观察，profile有开销。只有二三文档，无业务/API/schema/界面改动，无需新前端片；未重跑无关测试，也未把HTTP当浏览器呈现验收。已有resume/观察/输入映射均有实际调用者保留，没有新恢复器/重试层。第一部分稳定，本地config/脚本/结果不提交，child-count不动。下一片仅Q2a补G38；follow已claim调用中断/unknown及G33仍开放，N04未完成。
+
+### N04-Q2a：补齐新follow attempt的child身份（限定验收）
+
+只改`state/workspaces/workflow_records.py`和二三文档。旧Q2 normal/malformed的SQLite与公开child_job_id空值作反证；最终新源码真实HTTP/scheduler/tmux证据`dev_work/artifacts/n04q2a-20261106-235110/`：normal run `20261106-235112-6d7691f4`/Job `20261106-235116-a170835f`，malformed run `20261106-235140-1593be6e`/Job `20261106-235143-4a82e99e`。两条follow inputs.child_job_id均精确等于提交external_ref、父job_id/output.job_id和真实Job；source parent/a1/plan_hash对应，user完整mapped_inputs逐值等于持久父output。正常父follow done；第三次坏JSON条父done/follow failed/root failed，分母2。
+
+每条累计3模型请求、1Job、2个a1、实际start字节`73746172740a`一份、原日志exit_code=0；3个服务PID，advance返回11次（8次false）/observe9次（2次child done）/resume1次。等待中重启、收尾后至少2次自然false再终态重启，新PID至少2次false，settled-before-restart与after-restart完整attempt逐值相同；失败follow首次终态与收尾后的attempt也逐值相同。没有放宽模型失败/副作用断言，不把root首次failed误当父交接也已完成，新增G39见下文。
+
+旧记录服务兼容另在`dev_work/artifacts/n04q2a-history-20261106-235322/`复制Q2两条已结束数据，正式服务重开且无Provider服务；原POST同request回原run，每条至少2次advance false、无resume，SQLite全部attempt行前后逐值不变，公开旧child_job_id仍空。不是手填历史ID或迁移旧数据。first history轮`235239/`正常条通过，失败条本地观察器在profile文件尚未创建时读文件报错，保留失败；只修本地等待条件后两条完整重跑。
+
+32项新契约与E/F/G/H/M1/J1/P1回归共149项通过，覆盖缺失/冲突拒绝、新身份调用前持久化、旧空值/旧终态/claimed/unclaimed及来源冲突。契约使用真实RunStore与隔离Job服务、显式受控终态/调用哨兵，只证明领域门禁；新真实两链补正常产品过程。compileall通过；根pytest无用例退出5，不计通过。自审补回旧inputs来源校验并新增非空child冲突检查后重跑最终源码，未沿用首轮结果。生产未增加框架/第二权威，复用原intent/observe/store/唯一resume；原错误/输出/claim各消费者保留。
+
+前端无按follow.inputs.child_job_id专用消费；公开run/export仍原inputs字典，不改schema、状态含义、动作或布局。因此本片免新增UI片，不声称重新验收浏览器；G39的可见一致性需独立评估。第一部分稳定；config/脚本/结果/截图/报告只本地，用户child-count不动。G38仅新记录限定关闭，旧空值明确保留；G39、follow在途unknown、G33等仍开放，N04未完成。唯一下一片Q2b。
+
+<a id="g39"></a>
+### G39 · P2 · follow失败先使root failed，父交接稍后收尾（已复现，待Q2b）
+
+对齐R06/R11/R12，类别：失败交接过程/快照一致性，E1+E2。Q2a首轮`n04q2a-20261106-234724/`正常条通过、失败条重启前后attempt不等，未算失败链通过；因首轮未存首次终态响应，不据此猜原因。诊断轮`dev_work/artifacts/n04q2a-20261106-234919/malformed/first-terminal.json`明确root failed、follow failed但parent waiting；`after-restart.json`中的parent变done。递归逐值对照仅parent status/result.status waiting→done、runtime waiting_child→done、continuation_state变resumed及updated_at改变；follow attempt、Job与输入身份未变。
+
+静态`resume_coordinated_agent`先保存follow失败，再保存父交接done，分成两个写入。root failed是当时真实失败事实，但不代表全部交接写入已经收尾；不能要求首次root终态的所有attempt马上不可变化，也不能拿重启后状态说首次快照已一致。本轮在最终两链继续保存first-terminal，等待真实父done及resume返回后保存settled，再核重启不变；该观察条件不修复产品窗口，原失败不抹除。
+
+下一Q2b只核这一失败收尾边界和现有消费者，决定以既有事务把对应结果一致结算，或用明确的持久交接状态表达尚未收尾；不得为了通过降低失败保留/唯一调用要求。需要固定窗口故障注入与正常对照，确认崩溃后保留follow失败、父child收据且不再调用模型；公开语义/消费者如有可见变化接最小接线并安排独立UI片。暂不把这几帧HTTP证据说成浏览器实际误导或已证明根本不能恢复，follow在途claimed崩溃仍另片，N04未完成。
 
 ### N04完整需求总核（2026-11-06，77bbcbd审计快照，未达到完成条件）
 
@@ -923,7 +944,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 471 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)、[G31](#g31)；N04-D 接显式目标并同步 payload/runtime_binding/resource_plan；普通默认解析对照不变。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 668 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。P1全量helper退出raw覆盖，复用共享Job/graph投影并传全量limit，原默认workspace派生不变；G36后端限定修复。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:21` |
 | [workflow.py](../total_control/state/workspaces/workflow.py) · 432 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 两 Agent handoff 计划可经真实 HTTP 受理；旧单 Job/Job→报告入口不变。N04-D 已限定验证 CPU 目标保真和等待中恢复；正文/UI/其他恢复窗口仍待 G02 后续片。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 779 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；J1复用进程活动标志及精确身份的共用predicate，活动原提交投running/submitting且不被核对入口提前改未知；真实Job优先核对，重启/未知保护保留。自然网页及提交前后SIGKILL对照通过，UI独立待验收。Q2真实正常/后续协议失败及重启不重发已限定验收；follow inputs.child_job_id空值复现，见[G38](#g38)，真实mapped_inputs未丢失，待Q2a单修追溯元数据。N04全验收仍未完成，见G02/G04/G30/G31/G32/G34。 | `WorkflowRecordsMixin:21` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 807 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；J1复用进程活动标志及精确身份的共用predicate，活动原提交投running/submitting且不被核对入口提前改未知；真实Job优先核对，重启/未知保护保留。自然网页及提交前后SIGKILL对照通过，UI独立待验收。Q2真实正常/后续协议失败及重启不重发已限定验收；Q2a在新attempt前核权威intent与父output身份并记录child，旧inputs兼容且不补写，见[G38](#g38)；149契约及新链/旧记录HTTP重开通过。父失败交接非一次结算窗口另记[G39](#g39)，待Q2b。N04全验收仍未完成，见G02/G04/G30/G31/G32/G34。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 
