@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-J1-UI已限定交付共享中文状态说明，真实自然CPU链、日志/停止入口、SIGKILL重启后未知和详情/回放读取通过；长提交自动呈现与回放焦点未通过，分别登记G35/G26，不能称完整实时UI完成。唯一下一片N04-K1先定位活动快照到页面的同步缺口；G33原因与N04总体仍开放。
+当前执行指针：N04-K1已修复接受周期status快照后当前实例运行阅读器漏重绘，真实基线与修复对照、自然链和日志/H回归通过；G35仅此同步职责限定修复。唯一下一片N04-K2只处理回放按钮在实时更新后失焦（G26）；G33与N04总体仍开放。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -119,7 +119,13 @@ H回归`dev_work/artifacts/n04j1ui-stop-20261106-194813/`：真实网页等待�
 
 - 对齐R12/C13，类别：过程显示滞后，E1故障浏览器真实HTTP/截图。创建前暂停时精确GET run为running/submitting，但194811页面仍“未运行”；195758初看“运行中”，实际status响应后来也带running/submitting，点击原运行详情GET后才显示“提交中”。不能断言所有自然路径滞后，也不能断言只缺后端事件。
 - 证据：J1-UI最终faults的network.json、before-detail-click.json/png，前轮failure.html/png与精确活动快照。正常无注入链自动进入waiting/done，但没有证明短submitting在页面自动出现。Job幂等/未知门禁未放宽，未写UI状态掩盖。
-- 唯一下一片N04-K1从status/SSE/详情入口的身份、revision、run/step合并、渲染触发与输入差异入手，只修这一同步职责；先重放真实捕获输入定位，不先加轮询/新状态机。根因未定，开片据证据收紧允许文件。回放焦点另属G26，不合并开发；同步片及必要UI验收后再做N04总验收。
+- N04-K1已定位并限定修复：原loadStatus周期renderWorkspace=false虽调用applyStatusPayload，却只绘resource-only，未绘实例运行阅读器；真实status重放原merger未丢身份/runtime/分母，新浏览器只读state与DOM基线直接确认。仅在当前workspace/runs/instance接原renderWorkspaceRuns，退出该分支重复report.sync（原reader已sync），并在响应返回、预算/请求世代检查后重取阅读位置。配置草稿、all概览、单主机资源刷新、后端/状态含义不变，无新增请求/轮询/合并器。
+
+K1实际证据：基线`dev_work/artifacts/n04k1-baseline-20261106-200355/`同run连续8次浏览器内存running/submitting，DOM仍未运行，原失败保留。最终`dev_work/artifacts/n04k1-fixed-20261106-201123/`真实创建前暂停固定窗口，8次页面与内存均提交中；无额外详情点击/手动刷新，产品启动后的原自动详情读取保留。筛选、输入过程展开、未保存实例名称草稿及切换返回保持。延迟真实status响应期间滚轮0→250，返回仍250；SIGKILL正常重启/刷新后未知0Job/1Provider/父1attempt/follow pending，原键不重提。1440/768截图已核看。暂停/网络延迟是披露的故障注入，不冒充自然链或产品暂停能力。
+
+自然`n04k1-natural-20261106-200628/`1Job/1追加/3请求/2attempt/完整2步，等待中及终态后重启同键不重复，Enter打开原Job日志，follow实际输入等于本次父输出含620字后随机END。H回归`n04k1-stop-20261106-200629/`停止后续再停止child、1追加/2父请求/follow零attempt，刷新重启与原动作焦点保持。普通/超长日志`n04k1-logs-20261106-200945/`两链各1追加/3请求/2attempt、完整/partial正文等于实际follow输入；重启/刷新、Enter展开、正文焦点与局部滚动跨2400ms周期更新、原Job日志均通过，无pageerror。上述目录均在本地dev_work/artifacts/，受控Provider只验证流程。
+
+K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/错误拒绝、不重拉Provider/cockpit；既有22项加载预算/世代、J1UI/G/H合同、JS语法/121装配通过。首轮本地harness漏传原生AbortController，只修测试上下文后通过。纯前端接线，未重跑无关Python；真实文件报告正文未单独复验，不能把现有report.sync委托/阅读滚动合同当完整报告交付验收。回放Enter仍失焦（G26），全局历史实时、G33初始化、真实供应商/SSH/GPU/Python3.10完整后端未验收。唯一下一片K2只修回放焦点，脚本/结果/截图/config不提交。
 
 <a id="g31"></a>
 ### G31 · P1 · child Job 显式 CPU 目标被执行包默认覆盖（N04-D 后端及 N04-D-UI 已限定验收）
@@ -352,7 +358,7 @@ H回归`dev_work/artifacts/n04j1ui-stop-20261106-194813/`：真实网页等待�
 <a id="g26"></a>
 ### G26 · P2 · 配置与运行界面混杂，多层容器挤压主要内容（部分修复）
 
-- J1-UI新增E1：回放按钮Enter加载成功，但提交/未知两快照在2400ms实时更新后焦点落BODY。只读定位尚未完成，不沿用H控制区焦点通过结论；后续独立小片修回放焦点，当前状态同步G35优先。
+- J1-UI新增E1：回放按钮Enter加载成功，但提交/未知两快照在2400ms实时更新后焦点落BODY。只读定位尚未完成，不沿用H控制区焦点通过结论；后续独立小片修回放焦点，G35已由K1限定修复，唯一下一片K2修此回放焦点。
 - 对齐规格§3/C13/R12，类别：功能入口错位、布局与可用性缺口。原阶段截图的拥挤/空白与 N13B1 的真实浏览器点击是 E1，HTML/事件/样式检查是 E2；当前实例与全局运行阅读区已分别验收，不宣称全站完成。
 - **N03B2c2a发现的完整启动入口缺口已由 N03B2c2a-UI 修复**（第三部分2.30）；随后真实旧实例点击揭示 G11 的 `required_tool_unbound/report.write` 误报，已由 N03B2c2b 修正。N03B2c2c-UI 是后续历史候选；先准备 execution bundle ready、`tools=[]` 的隔离实例，再经可见入口验收提交到本次 run 阅读。旧 markup 无消费者问题已核对，不再另造提交器。
 - **N13B1 已验收**：当前实例的运行列表、步骤详情、日志、回放、比较与导出从配置表单/抽屉移至顶层“运行记录”。驾驶舱同级入口直接到达，可选择实例、去编辑、返回；配置的旧记录页签/模块卡片与包住全部记录的 workspaceRunDetails 已退出，旧动作跳到同一个阅读区。复用唯一 run renderer/merger、现有日志与订阅，没有第二套推进器或轮询。无消费者的旧运行工具栏滚轮分支、workspace-runs-panel 单个选择器与卡片统计变量同步退出。
@@ -873,7 +879,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
+| [index.html](../web/index.html) · 1762 | R02/R03/R12/R14；安全预算meta/唯一装配 → 按职责页面与读取反馈 | N13C2-UI原按钮文字化、主滚动区单反馈/独立polite区域；N13B3b2c-UI为两个实例模型 Agent 选择器增加明确标签/状态文本；N04-D-UI、F-UI、G-UI及H-UI更新现有summary/actions/app/CSS缓存标识，helper在app前；J1只更新status_labels缓存标识；121脚本引用与顺序已核对。无新网络/状态页。 J1-UI同步summary/replay/app/styles缓存版本，无新入口。 K1只更新app缓存版本。 | refreshBtn/statusLoadFeedback/statusAnnouncement/workspaceModelChatAgentSelect |
 
 ### web/config-center
 
@@ -893,7 +899,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26510 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
+| [app.js](../web/core/app.js) · 26512 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复，回放焦点另K2。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 63 | R12；用户事件/注入依赖 → 顶层导航动作 → 唯一回调 | N13B3a删除已退出moduleCards的委托绑定；其他导航保持，实际独立编辑入口由shell actions绑定。 | bind |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch/浏览器存储 → 页面结果 | 原通用fetchJson不自带deadline；N13C2外层标准signal透传/正文取消合同通过，本文件不改，不冒称其他调用都获预算。存储仍[G19](#g19)。 | fetchJson/loadStoredValue/saveStoredValue |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`call:12` |

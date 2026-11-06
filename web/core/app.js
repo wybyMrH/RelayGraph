@@ -23784,9 +23784,10 @@ async function loadStatus(force = false, options = {}) {
     const payload = await fetchJson(endpoint, { signal: requestBudget.signal });
     requestBudget.check();
     if (requestId !== state.ui.statusRequestSeq) return;
-    // Report reading may move while the monitor request is in flight.
-    // Preserve the position just before repaint, rather than undoing that movement.
-    if (!renderWorkspace && state.ui.productTab === "workspace" && state.ui.workspaceMode === "runs" && state.ui.workspaceRunReport) {
+    // Reading may move while the monitor request is in flight.
+    // Preserve the current instance reader position just before repaint.
+    if (!renderWorkspace && state.ui.productTab === "workspace" && state.ui.workspaceMode === "runs"
+        && state.ui.workspaceRunScope === "instance") {
       scrollSnapshot = captureUiScrollSnapshot();
     }
     applyStatusPayload(payload, { preserveWorkspaceUi: !renderWorkspace });
@@ -23830,9 +23831,10 @@ async function loadStatus(force = false, options = {}) {
       renderWorkspaceWorkbench();
     } else if (state.ui.productTab === "workspace") {
       renderWorkspaceResourceSurfaces({ scope: "resource-only" });
-      // Monitor snapshots also refresh current file evidence without rebuilding configuration drafts.
-      if (state.ui.workspaceMode === "runs" && state.ui.workspaceRunReport) {
-        window.WorkspaceRunReport.sync(selectedWorkspace(), workspaceExecutionRuns(), workspaceRunReportDeps());
+      // The same accepted snapshot updates the instance reader, not configuration drafts.
+      // Its existing renderer also synchronizes current report evidence.
+      if (state.ui.workspaceMode === "runs" && state.ui.workspaceRunScope === "instance") {
+        renderWorkspaceRuns();
       }
     }
     if (scrollSnapshot) restoreUiScrollSnapshot(scrollSnapshot);
