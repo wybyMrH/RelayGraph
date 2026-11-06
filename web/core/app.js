@@ -12524,7 +12524,8 @@ function workspaceExecutionRunItemMarkup(run = {}, options = {}) {
   const replayLabel = replayState.open
     ? (replayState.busy ? "加载中" : replayState.replay ? "收起" : "加载回放")
     : "预览回放";
-  const replayAction = `<button class="secondary mini" type="button" data-action="toggle-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="${replayState.open && replayState.replay ? "收起这次运行的回放预览" : "按需读取并展开这次运行的结构化回放预览"}"${replayState.busy ? " disabled" : ""}>${replayLabel}</button>`;
+  // Keep the busy action focusable across reader redraws; toggleRunReplay guards duplicate requests.
+  const replayAction = `<button class="secondary mini" type="button" data-action="toggle-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="${replayState.open && replayState.replay ? "收起这次运行的回放预览" : "按需读取并展开这次运行的结构化回放预览"}"${replayState.busy ? ' aria-disabled="true" aria-busy="true"' : ""}>${replayLabel}</button>`;
   const evidenceKey = `${runId}:evidence`;
   return `
     <article class="workspace-execution-run-item status-${escapeHtml(status)}" role="button" tabindex="0" data-run-id="${escapeHtml(runId)}" title="刷新这条执行记录的详情；若有关联任务则打开第一条任务日志">
