@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-M1后端已限定修复模型返回后的取消/截止复核，真实HTTP七分支及正常CPU链/重启通过；G04网络剩余预算仍开放。唯一下一片N04-M1-UI，独立验收取消入口与请求中/实际停止/超时/已有child的页面呈现。G36回放、G33初始化及精确重复通知证据仍阻碍整体完成。
+当前执行指针：M1-UI真实网页基线发现编码执行ID取消404，已拆出N04-M1a仅复用单段路径解码修复；原网页encoded POST200、返回后停止且0Job通过。唯一下一片仍N04-M1-UI，处理信号说明、重复刷新与终态焦点等消费者问题；G04网络预算/G36/G33/精确通知仍开放。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -73,6 +73,20 @@ H/F/G本地JS契约、3个JS语法、121脚本路径和helper先于app装配通�
 
 过程失败保留：202043首轮用Playwright locator.click时被ARIA enabled检查拦住；后改真实坐标mouse.click验证产品门禁，没有force/去ARIA/关实时。202141初始化超时列G33；H首次并行回归撞日志回归端口，未启动，后仅本地脚本换独立端口重跑。J1UI/H/G/K1既有契约、121脚本装配与node语法通过；纯前端未重跑无关Python。跨run并发busyKey、切实例后的迟到全局提示继续开放。代码与缓存/本台账/计划共4文件提交，测试/配置/结果/截图仅本地。下一片只做N04完整需求总核，不以本片宣称N04已完成。
 
+
+
+<a id="g37"></a>
+### G37 · P1 · 网页取消的编码执行ID未解码（N04-M1a后端限定修复）
+
+对齐R09/R12，类别：HTTP与真实前端消费者契约缺口。M1此前直HTTP请求使用原始冒号ID，不能证明网页入口。M1-UI真实Chromium基线 `dev_work/artifacts/n04m1ui-baseline-20261106-210007/`：原网页可见取消Agent按钮Enter，实际POST路径execution ID内冒号按encodeURIComponent成为`%3A`，旧post_routes直接split原文，取消注册表不匹配，返回404，页面真实消息Not Found。不能把这个失败归咎于Provider或用直HTTP取消替代产品点击。
+
+N04-M1a只改post_routes：去掉固定/cancel后缀后复用已有single_segment_path_id，单次解码并拒绝空ID/原始或编码多段（400），不新增解析器、不二次解码；域服务/注册项和旧原始冒号ID入口保留，inactive仍404。现有前端encodeURIComponent和fetchJson错误消费者不变，不在浏览器写绕过编码的补丁。HTTP默认错误封装沿用既有error字段。
+
+修复后同原页面 `n04m1ui-baseline-20261106-210325/`（本地脚本仍名baseline，但此轮代码已含M1a）真实Enter触发encoded POST，server.log记录200；信号已发后Provider仍等待，step仍running、完整分母2/follow pending；释放真实HTTP模型响应后页面沿周期更新为stopped，1实际模型请求/0Job/0追加/父1attempt，follow未开始。重发原run、服务重启和页面reload仍同run/attempt，1440×900和768×900步骤截图已核看；没有手填终态/关闭门禁/伪造模型成功。Provider延迟仅固定测试窗口，不是产品暂停能力。
+
+9项路径契约使用实际取消注册表检查raw/%3A/小写编码同项取消、双重编码只解一次不误命中、其他ID不影响原项、空/原始/编码slash拒绝且不调用服务、inactive404；连同24项M1控制契约共33通过。compileall通过；根pytest无用例退出5不计通过。首次205922本地监听误比未编码URL而超时，只修观察脚本unquote后210007复现真实404；两轮失败/截图/网络保留，未改产品以通过错误断言。
+
+本片只完成取消URI契约，不算M1-UI完成。当前成功点击同时实测取消后额外Provider读取1次、cockpit2次（待消融），终态移除取消按钮后焦点BODY；已列下一片，不能因为200就把整个键盘/刷新流程记通过。迟到提示/切实例、child已提交、follow取消/超时的浏览器完整分支仍待M1-UI。前端没有改动，故不为本片重跑无关JS全套；原用户child-count不动，配置/探针/结果仅本地。
 
 <a id="g36"></a>
 ### G36 · P1 · 已完成child在回放关联记录仍显示等待（当前HTTP复现）
@@ -212,6 +226,7 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - **N04-M1后端限定验收**：`AgentExecutor.run`单一control_result复用原cancel_check与执行开始时的monotonic起点，循环前/stream返回后且fallback前/最终Provider返回后/tool.called回调前后/answer.delta回调前后/工具结果及step_callback落账后复核。预算到点即拒绝下一效果或成功，循环与fallback不重置；已收响应的model/token先登记，已经执行的工具observation与Job/run引用保留。旧循环前和single_call重复控制结果构造退出，single_call仍一调用/拒工具/不fallback；没有新增注册器、取消线程或传输协议。
 - 当前真实HTTP `dev_work/artifacts/n04m1-http-20261106-204548/` 七分支：首次返回前cancel工具/最终答案、1秒预算的迟到工具/答案、取消后503不fallback均1模型请求/0Job/0追加，父分别stopped/failed、follow pending且零attempt；已有child后第二调用cancel保留1Job/1追加/父attempt、follow零attempt；follow第三调用cancel保留1Job/1追加/2attempt，follow stopped而非成功。取消信号送达后Provider仍等待时未预写stopped；释放后才持久终态。七条均经服务重启和原request重放，attempt/Job不增加；原门禁、真实HTTP/scheduler/tmux，Provider等待是可控故障窗口，不是产品暂停/网络强停能力。
 - 正常回归 `dev_work/artifacts/n04k1-natural-20261106-204617/` 经真实网页启动JSON受控模型CPU链，3实际请求/1Job/1追加/父follow各a1、完整分母2，实际follow映射=持久本次父输出含620字后随机END；等待中与完成后重启/同键重放不重复。普通报告single_call/回调中取消/工具已执行后取消/跨迭代与fallback总预算等24项本地控制检查、C1/F/G/H/J1相关92项通过，compileall通过；根pytest无测试退出5不计通过。测试/结果/config仅本地。无公开字段/schema变更，原stopped/failed/cancelled/timed_out消费者接线保留；真实取消浏览器入口与反馈另M1-UI，当前不称UI交付。
+- M1-UI真实网页入口随后发现G37编码ID取消404，现M1a后端修复并验证原网页200；完整取消UI仍待下一片，不沿用M1直HTTP作为网页验收。
 - 剩余：LLMClient网络timeout尚未取Agent剩余预算，底层阻塞不能立即终止；检查点与下一行外部调用不是跨系统原子操作，不承诺任意时刻的强停。回放G36/入口G33/精确重复通知未随本片修复。第一部分稳定，M1只提交AgentExecutor与二三文档。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
@@ -697,7 +712,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [delete_routes.py](../total_control/http_api/delete_routes.py) · 55 | R12；资源删除路径 → 匹配并调用删除 → 结果响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 | `handle_delete:9` |
 | [get_routes.py](../total_control/http_api/get_routes.py) · 470 | R12；查询路径/参数 → 调用状态服务、回放/下载/SSE → 查询响应 | N07A 增量 GET runs/{id}/report，按workspace/run取绑定文件投影、缺失明确不完整，不接受任意path；原回放/导出保留。G19/G20其余边界未关闭。 | `_workspace_jobs_snapshot:14`；`_workspace_stream_snapshot_event:27` |
 | [path_utils.py](../total_control/http_api/path_utils.py) · 14 | R12；API 路径/前缀 → 单资源路径段匹配 → id 或空 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `single_segment_path_id:6` |
-| [post_routes.py](../total_control/http_api/post_routes.py) · 429 | R06/R12；POST 命令 → 现有状态服务/公开封装 → 启动/配置响应 | N02 工作流 request_id/提交冲突返回 409；N04-H新增精确stop-continuation路径与body边界，参数400/身份或busy409，领域受理交service；其余路由不批量改写，关联 [G19](#g19)。 | `_public_job_response:14`；`handle_post:30` |
+| [post_routes.py](../total_control/http_api/post_routes.py) · 434 | R06/R12；POST 命令 → 现有状态服务/公开封装 → 启动/配置响应 | N02 工作流 request_id/提交冲突返回 409；N04-H新增精确stop-continuation路径与body边界，参数400/身份或busy409，领域受理交service；M1a取消execution ID复用single_segment_path_id单次解码，非法单段400、inactive404；原encoded消费者不改。其余路由不批量改写，关联 [G19](#g19)。 | `_public_job_response:14`；`handle_post:30` |
 | [put_routes.py](../total_control/http_api/put_routes.py) · 44 | R12；资源更新请求 → 匹配资源与调用更新 → 更新响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 | `handle_put:9` |
 
 ### total_control/infra

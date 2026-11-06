@@ -129,7 +129,12 @@ def handle_post(handler: Any, state: Any, parsed: Any) -> bool:
         handler.send_json({"job": public_job_payload(job)}, HTTPStatus.CREATED)
         return True
     if parsed.path.startswith("/api/agent-executions/") and parsed.path.endswith("/cancel"):
-        execution_id = parsed.path.split("/")[3]
+        execution_id = single_segment_path_id(
+            parsed.path[:-len("/cancel")], "/api/agent-executions/",
+        )
+        if not execution_id:
+            handler.send_json({"error": "Invalid agent execution ID"}, HTTPStatus.BAD_REQUEST)
+            return True
         result = state.cancel_agent_execution(execution_id)
         status = HTTPStatus.OK if result.get("cancelled") else HTTPStatus.NOT_FOUND
         handler.send_json(result, status)
