@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-M2b 已限定接入同一Agent绝对deadline的模型POST总读取期限，真实持续SSE/半行/JSON/错误正文及连接关闭通过；正常CPU等待中重启仍单次执行。唯一下一片 N04-M2b-UI：真实网页验持续返回中的超时与已有child独立状态。同步回调/系统解析与清理不保证硬实时，主动取消网络/G36/G33/精确通知及follow异常恢复仍开放，N04未完成。
+当前执行指针：N04-M2b-UI 已通过持续SSE候选/慢JSON/已有child第二读取的真实页面限定验收，原页面无需新增代码；父失败、后续未执行、child独立完成及同键重启保留通过。唯一下一片 N04-P1：修复G36全量读取/回放关联投影不一致（后端）。G04主动取消/同步阻塞、G33/精确通知/follow异常仍开放，N04未完成。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -93,7 +93,7 @@ M1a当时只完成取消URI契约，不算M1-UI完成。当时成功点击同时
 
 对齐R11/R12，类别：重复记录投影不一致，E1+E2。K2终态截图已出现实际child“已完成”、回放关联项“等待中”。总核以`dev_work/artifacts/n04-completion-probe-20261106-203151/`复制本轮两条真实已完成CPU链的隔离数据，正常服务入口启动，真实GET父run/replay/jobs，未提交任何任务或调用Provider：两父run均done、parent/follow均done，linked_jobs中同Job均done，而linked_runs的同job.run-agent-runtime项仍queued。不是浏览器自己猜状态或旧截图单独构成的结论。
 
-静态原因：`total_control/state/workspaces/runs.py::_workspace_public_payload_with_full_runs`先得到实时公开投影，随后以raw runs归一化覆盖`public_workspace.runs`；replay/export/比较调用它，关联timeline沿原始queued值输出。独立agent-tool run保留了早期提交状态，Job metadata已归父run；不能让另一个推进器或前端按最新Job强行补终态。方案：独立小片核完整读取投影与所有调用者，在保留全量/关联闭包/脱敏/历史边界的同时复用唯一事实刷新；不重写原始attempt，不顺手删除有消费者的兼容独立run。后端完成后单独前端点击回放/导出验收。当前先处理副作用控制G04，G36不与其混改。
+静态原因：`total_control/state/workspaces/runs.py::_workspace_public_payload_with_full_runs`先得到实时公开投影，随后以raw runs归一化覆盖`public_workspace.runs`；replay/export/比较调用它，关联timeline沿原始queued值输出。独立agent-tool run保留了早期提交状态，Job metadata已归父run；不能让另一个推进器或前端按最新Job强行补终态。方案：独立小片核完整读取投影与所有调用者，在保留全量/关联闭包/脱敏/历史边界的同时复用唯一事实刷新；不重写原始attempt，不顺手删除有消费者的兼容独立run。后端完成后单独前端点击回放/导出验收。M2b及独立页面验收后，G36为当前唯一下一后端片N04-P1；不混入其他控制或页面重构。
 
 ### N04完整需求总核（2026-11-06，77bbcbd审计快照，未达到完成条件）
 
@@ -237,7 +237,7 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - Agent三处模型调用额外传原started+timeout绝对deadline，idle仍min(60,remaining)，fallback不重置；body白名单不透传两个传输参数。LLMClient同步chat/chat_stream接口保留，私有async请求由asyncio.run/wait_for驱动，一个共享_post_response用HTTPX AsyncClient/stream管理响应及客户端关闭；POST旧urllib路径退出，JSON/原生SSE解析和JSON兼容一次消费规则保留。system SSL trust store、trust_env与follow_redirects显式设置，本地303重定向通过，真实代理/TLS未验收。过期和已有event loop误用先拒绝，不创建网络coroutine/另起线程；流取消在async上下文退出后返回明确error及已收partial/合法usage，不返回成功。partial在客户端结果保留不等于Agent最终正文持久化；原工具/Job收据保留，公开schema/状态不变。list_models GET仍有registry消费者且不消费Agent预算，保留原urllib，不是模型POST双主路径。
 - **真实正式入口证据**：`dev_work/artifacts/n04m2b-fixed-20261106-220713/` 的sse/json持续正文父1001.3/1002.7ms超时，1请求0Job；`n04m2b-cases:sse-20261106-221252/` 首SSE事件包含合法完整job.run候选，随后持续keepalive，父1001.1ms超时、总tokens7，1请求0Job/0实物，follow零attempt。`n04m2b-cases:afterchild:fallback:natural-20261106-220843/`：明确2秒预算的已有child后持续SSE，2000.8ms停止读取/2请求/1Job/1追加，Job由原队列自然完成、收据和父失败保留；1秒fallback经503后慢JSON，1000.8ms/2请求0Job；自然CPU链3请求/1Job/1追加/父follow各a1、完整2步done。各条均原键重放与终态后真实服务重启无新增attempt/Job，服务端观察到超时连接断开。`n04m2b-cases:natural-20261106-221121/` 再补CPU Job3秒自然工作，waiting_child期间真实重启并同键重发，之后自然done仍3请求/1Job/1追加/2attempt。均原门禁/真实scheduler/tmux，不写终态，不把受控Provider回复当模型理解或执行次数证明。
 - **过程与检查**：首次迁移脚本误把list_models GET改成await，compileall和用例收集直接失败，恢复该同步GET后再验收；未启动错误版本冒充通过。首次afterchild测试硬要求2请求，实际1秒预算在工具提交结束时已耗1357.2ms，产品正确保留1Job收据并阻止第二请求；保留该失败，另显式2秒预算场景验证第二读取中到期，不放松产品门禁/补请求。最终真实client/Agent的期限、SSE/comment/半行/JSON/错误正文、合法工具候选、partial/usage、expired零请求、active loop无未await警告、同源303与GET保留，结合C1/M1共74项通过；相关预算/F/G/H/J1等99项通过（两组有重叠不累加，迟到工具投影用例已补成真实wire另跑通过）。compileall、pip check和当前环境requirements dry-run通过；根pytest无测试退出5不计通过。HTTPX本来已安装，当前Python3.13接线通过，本片不声称3.12/3.10干净部署已重验。
-- **剩余边界**：wait_for会等待真实取消/清理完成；同步SSL上下文初始化、同步token/event callback、DNS默认executor/OS调用及清理可能拖延返回，不能承诺任意环境硬实时截止。主动cancel仍是原guard信号检查，尚不立即断开在途网络；私有stream CancelledError仅按当前唯一wait_for取消源处理，不新增主动取消语义。真实供应商/代理/TLS、多地址故障未验收。G04不整体关闭，独立M2b-UI尚待；G36/G33/精确通知/follow异常不混改。第一部分不变，脚本/配置/缓存/结果仅本地。
+- **剩余边界**：wait_for会等待真实取消/清理完成；同步SSL上下文初始化、同步token/event callback、DNS默认executor/OS调用及清理可能拖延返回，不能承诺任意环境硬实时截止。主动cancel仍是原guard信号检查，尚不立即断开在途网络；私有stream CancelledError仅按当前唯一wait_for取消源处理，不新增主动取消语义。真实供应商/代理/TLS、多地址故障未验收。G04不整体关闭，独立M2b-UI已限定验收，见G26下对应记录；G36/G33/精确通知/follow异常不混改。第一部分不变，脚本/配置/缓存/结果仅本地。
 - 方案：单调 deadline，调用前后/工具前/成功前检查；重试与 fallback 共用剩余预算。区分取消请求和真正终止；已提交 Job 按策略处理，不宣称必定可立即中断网络或远程进程。
 
 <a id="g05"></a>
@@ -480,6 +480,16 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 本地纯JS覆盖原编码路径、同实例成功/失败归属、monitor-only请求、quiet/空ID、终态身份不符/仍在途不fallback、主动离开不抢焦点；J1UI/H/G/K1契约、121脚本装配和app语法通过。K2真实回放回归 `dev_work/artifacts/n04k2-terminal-20261106-212122/` 的busy/成功/失败/重试/Tab/切实例与run焦点通过，仅复制历史数据阅读，不是新执行链。纯前端未重跑无关Python。第一次最终全分支进程在switch中退出143且已无存活句柄，只计已落盘的四分支；剩余五分支独立重跑通过，未把中断当pass。先前六分支记录211319仅作补充，不替代最终代码断言。
 
 调用者消融：真实入口是 workspaceRunList → 原detail_actions → cancelAgentExecution；workspaceHomeRunsMarkup无调用且index无对应DOM，不保留假想兼容刷新，本片也不越界删除死markup。旧消息容器、其他动作的刷新、Job独立停止/日志保留。Provider为受控接口，延迟/一次浏览器503仅为故障窗口，不证明真实供应商理解、网络强停或产品暂停恢复。脚本/配置/结果仅本地；第一部分不变，G04网络预算/G36/G33/精确通知仍待后续。
+
+### N04-M2b-UI：持续返回超时的页面验收（G04/G26，2026-11-06）
+
+对齐R09/R12。现有运行阅读器无需新增代码；只读监管开片复核后，通过真实可见启动、正式门禁/HTTP/scheduler/tmux验收三条本机CPU路径。受控Provider首事件返回合法完整job.run候选再持续keepalive，Agent1001.6ms父失败，1请求/0Job/0实物；慢JSON持续写入1001.2ms父失败，1请求/0Job/0实物；已有child后的第二次持续SSE使用明确2秒预算，2001.4ms父失败，2请求/1CPU Job/1次start换行。三条follow pending/零attempt，父a1、完整计划分母2、0/2不伪报100%。已有child在页面独立运行→自然完成，父错误/回执保留，实际点击原Job日志读到开始行。
+
+页面先经原周期更新自动呈现failed，再GET权威run/jobs核对；不是API探针先驱动终态。Provider每80ms写入、自然结束上限约40秒，本轮14/14/21块后实际观察客户端断连，无normal_end、无人工release。表述中的毫秒来自Agent execution_time_ms，不是浏览器点击至渲染耗时；受控Provider只验协议/预算，不代表真实模型理解。合法候选未产生副作用以真实Job账本和文件核对，不以界面未展示推断未接收；客户端partial/usage不冒充最终报告。
+
+证据仅本地：`dev_work/artifacts/n04m2bui-20261106-222905/first/`及`dev_work/artifacts/n04m2bui-20261106-222924/`下json、child两个目录；各result.json保存自动DOM采样、真实请求、终态、次数和重启核对。1440×900/768×900截图人工核看；三条均实际Enter打开回放，周期更新后保留焦点，重放原POST及真实服务重启/reload后同run/attempt/Job；空长名称实例经真实选择显示无绑定任务。重启后等已配置1台且不再等待首次刷新才拍空页。三条无pageerror。未复验手机、长错误、接收中展开trace、自然成功链或真实Provider；不沿用前片证据说本片重跑。
+
+过程审查：旧本地观察器samples.provider_waiting残留release标志，只能作历史辅助字段，不能证明连接仍活；本轮断连判断来自records.client_closed及chunks/normal_end，事后脚本更正字段、不改原结果。无门禁绕过/手写终态/产品改动。截图中的早期submitted摘要与G36关联状态仍保留；打开回放不等于一致性验收。follow未运行绿色标识、窄窗可视空间/全站导航与公共提示仍归G26后续设计，未在本片重构。无需新增重复状态判断/请求器/面板，无被替代旧入口可删。第一部分稳定；仅更新正式二三文档，脚本/config/截图/报告不提交，用户child-count.txt不动。下一片N04-P1修G36全量读取投影，后续另开前端验收，N04未完成。
 
 ### N04-M2a-UI：网络超时后的原页面验收（G04/G26，2026-11-06）
 
