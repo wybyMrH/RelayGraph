@@ -265,8 +265,8 @@
       description = "正在提交本次子任务，尚未取得任务回执。提交成功后仍需等待任务执行完成。";
       kind = "submitting";
     } else if (step.status === "waiting" && step.runtime_status === "waiting_child" && ids.length) {
-      label = "等待子任务";
-      description = "已取得子任务回执，正在等待任务结果与后续交接；提交成功不代表执行完成。";
+      label = "等待结果交接";
+      description = "本步骤尚未完成结果交接。子任务的执行状态请看下方任务记录；子任务完成不代表后续步骤已完成。";
       kind = "waiting";
     } else if (step.status === "blocked" && step.runtime_status === "reconciling") {
       label = "提交结果需核对";

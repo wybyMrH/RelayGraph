@@ -25,6 +25,7 @@
   }
 
   function statusFor(deps, value) {
+    if (value === "blocked") return workspaceStatusFor(deps, value);
     return typeof deps.zhStatus === "function" ? deps.zhStatus(value) : String(value || "");
   }
 

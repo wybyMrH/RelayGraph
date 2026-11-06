@@ -12540,7 +12540,7 @@ function workspaceExecutionRunItemMarkup(run = {}, options = {}) {
           ${replayAction}
           ${exportAction}
           <button class="secondary mini" type="button" data-action="copy-workspace-run-replay" data-run-id="${escapeHtml(runId)}" title="复制这次运行的结构化回放 JSON，包含步骤、任务、执行包和交付闭环">复制回放</button>
-          <span class="state ${escapeHtml(status)}">${escapeHtml(zhStatus(status))}</span>
+          <span class="state ${escapeHtml(status)}">${escapeHtml(workspaceStatusLabel(status))}</span>
         </div>
       </div>
       ${workspaceRunProgressMarkup(run)}
