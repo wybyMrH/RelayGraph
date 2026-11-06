@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-H及独立H-UI已限定验收：网页可在等待child时停止父后续流程，子任务独立继续或经原Job入口单独停止；最终五链浏览器验证通过。复验中另发现G33初次加载/重启刷新偶发未装配，原因未定；唯一下一片N04-I1先定位该正常入口风险，再推进Provider协议。N04-B总验收、通用取消预算及其他恢复窗口仍开放。
+当前执行指针：N04-H及H-UI已限定验收；N04-I1完成有限加载调查，26次正常样本未复现G33，原因仍开放，不作产品修复声明。唯一下一片N04-C1只验证非流式content工具调用，与流式基线对照；保留低干扰浏览器记录，若G33自然复现先保存并暂停该次验收。N04-B总验收、通用取消预算及其他恢复窗口仍开放。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -63,13 +63,17 @@ N04-H-UI（2026-11-06）限定验收：运行记录父步骤提供“停止后�
 H/F/G本地JS契约、3个JS语法、121脚本路径和helper先于app装配通过。独立布局夹具 `dev_work/artifacts/n04hui-layout-20261106-183450/` 在1440/768/390覆盖加载、未知、超长错误/主机/cwd及转义，无横溢；不代表完整手机导航或真实磁盘故障。较早182546全轮属于旧文案/焦点版本，不替代最终代码；183051初次加载与183408第四链刷新失败保留在G33，未因最终通过宣称修复。183958普通停止遇真实409，脚本错误假定首点成功；仅改本地脚本为验证拒绝后有限显式点击重试并记录次数，没有改门禁/实时/终态。截图中既有启动提示浮层残留另待复核。保留原活动Agent cancel、原Job stop及实际故障Notes；仅退出匹配回执下同义英文停止说明，没有第二推进器/状态合并器/轮询器。后端/API/配置/稳定规格不变；Python3.10完整后端、真实Provider、SSH/GPU、多child和活动Agent强停未验收。脚本、配置、结果与截图不提交。
 
 <a id="g33"></a>
-### G33 · P2 · N04 网页初次加载/重启刷新偶发未装配（原因未定）
+### G33 · P2 · N04 网页初次加载/重启刷新偶发未装配（I1未复现，原因仍未定）
 
 - 对齐 R12/R14，类别：正常入口可靠性待调查；E1 仅指观察到的现象，不是已确认代码根因。
 - H-UI 本地复验 `dev_work/artifacts/n04hui-20261106-183051/` 首次进入页面后30秒仍“尚无监控快照”；`183408/` 的前三链通过，但第四链在child终态后重启/刷新，25秒实例select仍为空。服务就绪GET已200，日志中该次未看到浏览器bootstrap API请求；此前未完整记录静态资源/浏览器请求，不能从“未见请求”推断具体层出错。
 - 对183051同隔离配置只读重开后正常，无pageerror；这仅是复查结果，不代表根因已定位或产品已修复。183958增加网络记录后另遇普通停止点击409，属于真实scheduler锁冲突，不能与加载现象混为一谈；脚本原本假定首点成功的断言已更正为核拒绝后显式重试，产品未改。
-- 下一片N04-I1只调查初次加载/重启刷新：记录资源请求/响应/失败、控制台、首个API和服务就绪时间，对照加载正常/失效，保留原门禁、实时更新和等待阈值。区分浏览器/网络/服务与应用装配；不能预先认定需要重构，也不能靠多刷新几次或加长超时宣称修复。若定位产品缺陷，先收紧允许文件与验收再实施修复。
+- I1已查明观察盲点：`handler.py._suppress_access_log` 默认隐藏状态GET和静态资源日志，故历史“未见请求”不能推出未发请求。`app.js` 末尾依次恢复UI、绑定事件、启动bootstrap；脚本加载失败或前置同步异常均可能阻止首请求，但本次未证明历史属于哪一种，不据此改加载器。
 - 截图另观察到既有启动按钮提示浮层残留；只记录为待复核展示问题，未证明与加载现象同源，不混入停止功能修复。
+
+N04-I1（2026-11-06）有限诊断结果：复制183408失败轮已终态的隔离数据到新config/data，以真实服务和Chromium检查原30秒快照/25秒实例阈值，不提交任务、不用刷新重试掩盖单次失败。第一组 `dev_work/artifacts/n04i1-20261106-185012/` 开既有verbose日志，首次+9次同context重启、4次fresh context均正常；该组逐事件同步重写network JSON，观察耗时1.209→11.336秒，存在采集扰动，不能当产品性能基准。第二组 `dev_work/artifacts/n04i1-route-20261106-185226/` 保持默认日志、内存采集后每次导航集中保存，启用此前smoke使用的停止路由拦截但未触发它；首次+7次同context重启、4次fresh context均正常，0.733–1.329秒。通过真实页面切换运行记录/实例后，同context重启保持选择。两组无pageerror，只有终态的4个原Job且ID不变；只读SQLite核对原数据与三份复制的runs/attempts/submissions均4/4/4，无新增执行记录。未重验运行中N04或重启未知窗口。
+
+独立故障注入 `dev_work/artifacts/n04i1-injected-20261106-185334/` 只在浏览器阻断app.js资源：按原30秒阈值真实超时，记录net::ERR_FAILED、无首API、selectWorkspace未定义、其他helper已加载、快照为空和select零项；截图/DOM/请求均保存。这个**预期失败仅验证诊断记录有效**，与历史外观相似不等于历史根因。26个正常样本也不等于G33已修复。后续C1保留低干扰请求/完成/失败、console/pageerror和失败DOM/截图，若自然复现即暂停该次通过判定，不自动reload。I1只提交二/三文档；无业务、框架、缓存策略或阈值修改，无旧产品入口可删。既有提示浮层未在本片修复，G33继续开放。
 
 <a id="g30"></a>
 ### G30 · P1 · Provider 工具调用契约覆盖不足
@@ -573,7 +577,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [constants.py](../total_control/constants.py) · 2 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [context_refs.py](../total_control/context_refs.py) · 18 | R05/R09；数据和点分路径 → 字典键/列表下标查找 → 原值或 None | N00C 唯一纯取值内核；执行映射与上下文投影均已接入；不承担引用前缀或就绪规则。 | `context_ref_value:8` |
 | [events.py](../total_control/events.py) · 207 | R12；业务事件/游标 → 有界队列、gap 与 SSE 编码 → 实时通知 | 问题/修补关联 [G20](#g20)；按登记方案处理，不另建平行服务。 | `EventBroker:12`；`sse_encode:135` |
-| [handler.py](../total_control/handler.py) · 197 | R12/R13/R14；HTTP/首页 → 路由/安全数值meta → JSON/文件/配置化HTML | N13C2仅/与/index.html由send_head替数值占位、no-store；GET/HEAD长度相同，其他静态保持。首次status前有预算，不新增配置API；原RunStoreError503/G19边界保留。 | Handler.send_head/do_GET |
+| [handler.py](../total_control/handler.py) · 197 | R12/R13/R14；HTTP/首页 → 路由/安全数值meta → JSON/文件/配置化HTML | N13C2仅/与/index.html由send_head替数值占位、no-store；GET/HEAD长度相同，其他静态保持。首次status前有预算，不新增配置API；原RunStoreError503/G19边界保留；I1静态核实默认抑制状态/静态GET日志，既有verbose仅用于诊断，历史无日志不代表无请求，未改本文件。 | Handler.send_head/do_GET |
 | [llm_client.py](../total_control/llm_client.py) · 578 | R03/R09；Profile/消息 → 供应商请求、流解析 → LLMResponse | N00C 已删除无调用者的 simple_chat 包装；协议维护与预算问题仍按 [G04](#g04)/[G21](#g21) 解决。 | `LLMResponse:17`；`ChatMessage:37` |
 | [path_safety.py](../total_control/path_safety.py) · 37 | R04/R13；原始/解析路径 → 敏感目录规则 → 拒绝原因 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `sensitive_path_block_reason:19`；`sensitive_path_block_reason_for_path:30` |
 | [preset_matrix.py](../total_control/preset_matrix.py) · 90 | R02/R07；数据集选项 → 硬编码实验组合排序 → preset 参数矩阵 | 问题/修补关联 [G18](#g18)；按登记方案处理，不另建平行服务。 | `PresetExperiment:12`；`dataset_rank:26` |
