@@ -15450,11 +15450,24 @@ function renderWorkspaceRuns() {
         .find((item) => item.dataset.readerDetail === focusedOriginKey)?.querySelector("summary")?.focus({ preventScroll: true });
     }
     if (focusedAction) {
-      Array.from(list.querySelectorAll("button[data-action]")).find((button) => (
+      const buttons = Array.from(list.querySelectorAll("button[data-action]"));
+      const matchingButton = buttons.find((button) => (
         button.closest(".workspace-execution-run-item")?.dataset.runId === focusedAction.runId
         && button.closest(".workspace-execution-run-step")?.dataset.nodeId === focusedAction.nodeId
         && Object.entries(focusedAction.data).every(([key, value]) => button.dataset[key] === value)
-      ))?.focus({ preventScroll: true });
+      ));
+      // A terminal snapshot removes Cancel. Keep keyboard navigation in this run.
+      const settledStep = focusedAction.data.action === "cancel-agent-step"
+        ? runs.find((run) => run.id === focusedAction.runId)?.steps?.find((step) => (
+          step.node_id === focusedAction.nodeId
+          && step.agent_execution_id === focusedAction.data.agentExecutionId
+          && ["done", "failed", "stopped"].includes(step.status)
+        )) : null;
+      const fallback = !matchingButton && settledStep
+        ? buttons.find((button) => button.dataset.action === "toggle-workspace-run-replay"
+          && button.closest(".workspace-execution-run-item")?.dataset.runId === focusedAction.runId)
+        : null;
+      (matchingButton || fallback)?.focus({ preventScroll: true });
     }
     return;
   }
@@ -23090,17 +23103,20 @@ function workspaceWorkflowErrorMessage(error) {
 async function cancelAgentExecution(executionId, options = {}) {
   const id = String(executionId || "").trim();
   if (!id) return null;
+  const workspaceId = state.selectedWorkspaceId;
   try {
     const result = await fetchJson(`/api/agent-executions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+    if (state.selectedWorkspaceId !== workspaceId) return result;
     if (!options.quiet) {
-      setWorkspaceMessage(result.cancelled ? "已发送 Agent 取消信号。" : "该 Agent 执行已结束或不存在。");
+      setWorkspaceMessage(result.cancelled
+        ? "已发送 Agent 取消信号，请以步骤状态确认是否已停止。已提交的子任务需单独停止。"
+        : "该 Agent 执行已结束或不存在。");
     }
-    await loadStatus(true, { renderWorkspace: true });
-    await refreshWorkspaceCockpit(state.selectedWorkspaceId, { render: true, quiet: true });
-    renderWorkspaceRuns();
+    // The instance reader already redraws accepted status snapshots, preserving drafts.
+    await loadStatus(true, { renderWorkspace: false });
     return result;
   } catch (error) {
-    if (!options.quiet) setWorkspaceMessage(error.message, true);
+    if (!options.quiet && state.selectedWorkspaceId === workspaceId) setWorkspaceMessage(error.message, true);
     return null;
   }
 }
