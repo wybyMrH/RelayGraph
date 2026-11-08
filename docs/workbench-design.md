@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：WB01；更新于2026-11-08。状态：WB01职责与字段设计已建立；WB02创建及WB03A运行过程、WB03B历史/报告及WB04A项目资料环境设置、WB04B1模型连接目录、WB04B2既有步骤模型覆盖、WB04C1 Agent基本目录/绑定、WB04C2工具授权/只读目录、WB04D1流程目录/创建往返、WB04D2流程基本编辑/引用保真及WB04E按需Agent辅助对话独立模拟原型已验收；WB05整体体验及正式接线尚未交付，高级节点编辑按实际需求另片，正式页面未迁移。本文是[稳定规格](project-spec.md)的界面设计附件，不是第四份产品状态台账；实际问题和完成状态仍由[当前审查](current-audit.md)及[下一阶段计划](next-stage-plan.md)维护。
+设计版本：WB01；更新于2026-11-08。状态：WB01职责与字段设计已建立；WB02创建及WB03A运行过程、WB03B历史/报告及WB04A项目资料环境设置、WB04B1模型连接目录、WB04B2既有步骤模型覆盖、WB04C1 Agent基本目录/绑定、WB04C2工具授权/只读目录、WB04D1流程目录/创建往返、WB04D2流程基本编辑/引用保真及WB04E按需Agent辅助对话独立模拟原型已验收；WB05A整体需求/体验证据总核已完成，WB05整体体验及正式接线尚未交付，高级节点编辑按实际需求另片，正式页面未迁移。本文是[稳定规格](project-spec.md)的界面设计附件，不是第四份产品状态台账；实际问题和完成状态仍由[当前审查](current-audit.md)及[下一阶段计划](next-stage-plan.md)维护。
 
 ## 1. 要让用户完成什么
 
@@ -391,8 +391,9 @@
 | WB04D2 | 固定流程名称/说明/启用编辑与项目引用保真 | 新增删除流程、步骤/拓扑编辑、完整版本库、真实接线 | 独立模拟交互已验收，见下文 |
 | WB04E | 项目关联、按需Agent辅助对话及来源往返 | 配置自动修改、工作流控制、真实Provider/工具调用 | 独立模拟交互已验收，见下文 |
 | 后续候选 | 节点高级编辑/更多流程仅在实际需求证明后拆片 | 为配置齐全堆CRUD、与真实接线混片 | 不是当前执行片；现模拟目录不代表生产能力完成 |
-| WB05A | 整体需求/体验证据总核，字段/能力/缺口映射与唯一后续实现片计划 | 后端接线、批量改多页、提前宣称全站通过 | 唯一下一片，未开始 |
-| WB05后续 | 按职责精简视觉、补全链浏览器验收、正式迁移单片计划 | 一次迁移整站或批量实现后端 | 待WB05A明确每片范围 |
+| WB05A | 整体需求/体验证据总核，字段/能力/缺口映射与唯一后续实现片计划 | 后端接线、批量改多页、提前宣称全站通过 | 仅审计/设计交接已完成，见下文 |
+| WB05B1 | 项目设置页分区与配置诊断精简 | 创建/目录/运行重排、保存/门禁语义改变、真实API | 唯一下一片，未开始 |
+| WB05后续 | 按职责精简视觉、补全链浏览器验收、正式迁移单片计划 | 一次迁移整站或批量实现后端 | WB05A已选定WB05B1；其余逐片确定范围 |
 
 WB02开始前补本地切片开场记录，明确文件边界（仅dev_work下独立原型及相关文档）。每次完成后审查、更新二三部分、提交推送安全文档；原型/截图/测试不提交。原型入口与命令写在本地README，后续必须给用户可访问链接，而不是只给截图路径。
 
@@ -697,7 +698,7 @@ WB04B2当时交接WB04C1：Agent基本目录与当前既有步骤绑定，只做
 
 证据仅本地`dev_work/artifacts/wb04c1/`；脚本`dev_work/smokes/wb04c1_browser.py`、`wb04c1_contract.cjs`和本地装配检查。原型/测试/截图不提交，生产292源码未变；稳定规格不降要求，WB04/G40/G26/G27仍未整体完成。
 
-WB04C1当时交接WB04C2，随后WB04D1也已限定模拟验收，详见后续记录。当时交接WB04E，当前唯一WB05A的范围和验收见[第三部分](next-stage-plan.md)。
+WB04C1当时交接WB04C2，随后WB04D1也已限定模拟验收，详见后续记录。当时交接WB04E，该片当时交接WB05A，当前唯一WB05B1的范围和验收见[第三部分](next-stage-plan.md)。
 
 ### WB04C2 · Agent工具授权与只读能力目录（2026-11-08，限定模拟验收）
 
@@ -831,7 +832,7 @@ WB04C1当时交接WB04C2，随后WB04D1也已限定模拟验收，详见后续�
 | 项目明确采用 | flowSelection.flowSnapshot/source | build_template_snapshot、已有模板version_history和迁移预览 | 原型revision只作演示；接线优先使用真实版本标识/摘要，不另建完整历史平台。语义/拓扑改变要走真实迁移影响确认 |
 | 提交计划与回看 | run.snapshot.template/project | 现执行包/Run完整计划与持久快照 | 必须核对恢复/新启动的实际定义来源；原型通过不等真实任意模板执行通过 |
 
-证据`dev_work/artifacts/wb04d2/`、本地browser/contract及开片报告；预览`http://127.0.0.1:8933/#/flows`。生产292源码/正式页面不改，本机配置、原型、测试、截图不提交。WB04/G40/G26/G27仍未整体完成。该片当时交接WB04E，现已限定模拟验收，见下一节；唯一下一片WB05A先总核证据，不继续为配置齐全堆高级CRUD。
+证据`dev_work/artifacts/wb04d2/`、本地browser/contract及开片报告；预览`http://127.0.0.1:8933/#/flows`。生产292源码/正式页面不改，本机配置、原型、测试、截图不提交。WB04/G40/G26/G27仍未整体完成。该片当时交接WB04E，现已限定模拟验收，见下一节；当时交接WB05A先总核证据，现见下文验收；不继续为配置齐全堆高级CRUD。
 
 ### WB04E · 按需Agent辅助对话（2026-11-08，限定模拟验收）
 
@@ -881,7 +882,160 @@ Agent辅助对话                         所属项目
 | 等待/失败 | 显式按钮确定失败/完成，刷新不推进 | 现流式线程/消息事件基础可评估复用，但占位规则回复不能冒充真实Provider成功；真实中断/取消/重启未验，另片验证 |
 | 不自动改目标/任务 | 仅chat状态写入 | context reflection另有显式accept写inputs.context_blocks，本片不调用；正式辅助模式不得隐式接受建议或开放副作用工具 |
 
-证据仅本地`dev_work/artifacts/wb04e/`，独立browser/contract与生产静态核查在smokes/reports；预览仍为http://127.0.0.1:8933/，选择已有项目后点对话入口。原型、测试、截图及本机配置不提交；生产292源码与正式页面未改，不能据此关闭G40/G26/G27。下一片WB05A按第三部分先完成整体需求/证据总核和唯一视觉精简单片计划，不混真实后端接线。
+证据仅本地`dev_work/artifacts/wb04e/`，独立browser/contract与生产静态核查在smokes/reports；预览仍为http://127.0.0.1:8933/，选择已有项目后点对话入口。原型、测试、截图及本机配置不提交；生产292源码与正式页面未改，不能据此关闭G40/G26/G27。该片当时交接WB05A，现已完成证据总核见下文；当前唯一WB05B1先精简项目设置，不混真实后端接线。
+
+### WB05A · 整体需求、体验与接线证据总核（2026-11-08，仅审计/设计交接）
+
+本片不改原型、生产代码或稳定规格；依据当前11脚本消费者、WB01字段矩阵、已有验收原记录及本次实际网站点击重新核对。结论是**基础模拟闭环已可走通，整体设计与体验阶段仍未完成**；目录齐全不等于字段全覆盖，更不等于真实后端可用。以下覆盖状态用于选择下一片，不降低第一部分要求，不删除原高级字段。
+
+#### 用户要求与证据矩阵
+
+| 原要求/用户任务 | 页面与当前实际消费者 | 当前证据 | 缺口、决定与交接 |
+| --- | --- | --- | --- |
+| 明确项目入口/继续已有项目 | app.projectList/projectRows；projects+latest run投影 | WB02创建29组；本次四宽完整键盘主线从空列表开始 | 搜索名称/目标已建；更新时间仅演示保存时间，真实列表轻量投影未接。自动名与目标重复仍需精简，不删除两者独立保存语义 |
+| 简短三步创建/条件字段 | app.wizard/validate/saveProject，固定cpu-report/reading | WB02回归与本次四宽键盘创建/保存/启动 | 第3步仍较密；不是未实现创建。多资料→主仓库/论文映射未定，数据位置不等于通用references；不得直接拼接合并 |
+| 主机与目录/环境按流程出现 | settings/repair、host+path+environment | WB02/04A原缺主机/路径与返回证据；本次CPU正常键盘 | 模拟检查不是主机可写性/环境发现；旧env_manager/python/命令原值需接线保真。资料分析不出现主机项 |
+| 配置与运行分开 | 独立settingsPage、run_views、history_views | 本次四宽设置/运行/日志/报告截图；历史快照原契约 | 默认设置页“运行环境”包揽模型/流程/步骤，分区仍不准确，WB05B1优先；不把实时状态放回设置 |
+| 项目有效模型/步骤覆盖/版本 | F.effectiveModel、C/A/FV.diagnose、stepModels/stepAgents | B2/C/D原契约及浏览器覆盖；本次旧Agent诊断重复复现 | 保留唯一解析及显式采用，不新增状态；在设置精简重复文字，不能把未知/失效引用回退为默认 |
+| 密钥唯一位置/本地配置 | 原型connections不收真实key；生产Provider仍有旧存储路径 | CSP/no真实API证据；配置目录规范已写第一部分 | 真密钥编辑/清除/迁config、主密钥兼容仍未交付；本片未读取私密配置。连接“模拟凭据已配置”不能当测试成功 |
+| Agent/工具/流程目录职责 | agents唯一allowlist、tools只读、flows固定元数据 | WB04C/D限定模拟证据；静态反查消费者 | 工具注册/搜索连接/任意流程编辑未建，不为“完整目录”补空CRUD；未知高级字段保留且需后续专门编辑/诊断设计，不丢原要求 |
+| 运行进度/等待/失败/停止 | R唯一模拟解释器，V只读，完整plan+child | WB03A原状态矩阵；本次390阻塞/失败抽样、四宽正常路径 | 停止后续不等于子任务停止；真实attempt恢复/受理失败/SSE重同步未验。不增加自动模拟进度 |
+| 结果正文与交付分开 | H.reportPage/R.reportDelivery | WB03B证据；四宽键盘声明→写入→核验；390缺正文/核验不可用 | 正文阅读已建；原型文件下载/证据导出及下载错误未建，须在结果交付单片设计；真实文件验证另片，不改100%含义 |
+| 历史检索/回看 | H.historyPage/reportUrl | WB03B多run/隔离/返回；本次四宽历史键盘 | 列表可读，搜索/状态/节点类型等筛选未建；保留设计目标，后续按实际最小检索而非无声删除 |
+| 按需辅助聊天/精确返回 | CH.context/targets/消息冻结来源；app路由 | WB04E23浏览器/26契约；本次四宽键盘步骤聊天往返 | 真实chat工具副作用/写默认Agent/混上下文未解；390长错误把重试推远，后续单职责片优化，不混成运行控制 |
+| 一主滚动/长内容/响应式 | style系统字体、独立日志/报告阅读 | 本次31图采集+四宽无overflow，旧长报告/日志原证据 | 不是全部页面所有状态的响应式认证。设置过长有实测；不能靠固定高度/多层折叠藏必要字段 |
+| 键盘及焦点 | 原生控件、hash路由、返回视图记录 | 本次四宽156个键盘目标，主线全Tab/Space/ArrowDown/Enter；每目标focus-visible | fixture重置鼠标，其后产品主线纯键盘。未因此覆盖缺项修复、危险确认及每个目录编辑；屏幕阅读器/缩放未验，非首次真实用户研究 |
+| 取消/前后退/刷新/跨项目 | 单配置草稿事务与CH独立消息草稿 | 原各片；本次整页跳目录保草稿但无确认复现 | 同页离开确认可用；整文档离开无全局beforeunload确认，但不误保存/丢草稿，须另片定策略，不能误报数据丢失 |
+| 正常顶栏不放成功/30秒说明 | 原型topbar仅面包屑/演示标识 | HTML/网站图均无“状态读取完成/最多30秒”块 | 本地模拟没有状态采样时间和刷新，不能当真实状态读取交付；保存成功notice仍短时跨页，后续反馈片处理 |
+| 区域加载/超时/断线/启动失败恢复 | 原型只静态加载、模拟写入失败/聊天失败 | 仅固定故障模拟可重复；CSP禁止connect | 请求受理中/服务失联/读取超时等可点击状态未建；必须先做独立故障反馈设计/原型，再真实adapter接线。静态200不证明恢复 |
+| 监控/执行/活动必要导航 | 原型全局仅项目/配置；生产旧入口仍在web | index实际导航静态核对 | 深入改版仍排除，但必要入口/顶栏统一设计尚未在独立原型呈现，须补跨区导航设计，不能把整项省略 |
+| 开源复用与技术栈约束 | 仅借鉴Kestra/Dify/Langfuse组织；已有frontend-design | 来源/许可见§8；无新增运行依赖/外部字体 | 不引完整平台，不重造推进器。正式接线复用现API/route_hash/模板版本/运行reader；不复制模拟revision/chat状态机 |
+
+#### 本次网站审查与问题优先级
+
+13组调查检查、31张截图采集、156个键盘目标；证据仅本地`dev_work/artifacts/wb05a/`，result包含视口、精确路由、页面尺寸和键盘停靠记录。31是采集数，未宣称逐图独立人工审查。主代理实看默认设置1440，结合WB04E长错误390和来源截图审查；监督核范围/证据，不把工具脚本知道路线等同陌生用户已无需指导。
+
+| 优先/问题 | 本次事实 | 后续边界 |
+| --- | --- | --- |
+| P1 设置分区/阅读压力 | 默认设置页高1440=2604、1024=2580、768=2701、390=2723px（视口高1000）；“运行环境”内堆模型、位置/环境、流程版本、步骤/覆盖；agent-old同错误≥2处 | 唯一下一片WB05B1：项目设置分区及唯一诊断；字段/来源/门禁不减少，不以像素限额强藏内容 |
+| P2 短时跨页通知 | 保存项目后立即进目录，notice仍写项目已保存；约4.5秒后清，不是永久状态 | 后续局部反馈片，不在设置片同时重做全站toast |
+| P2 全文长错误 | 390聊天错误全文可读，重试在长错误之后 | 短原因+可达全文/恢复动作另片；不无声截断、不把正文藏多层 |
+| P2 创建/日志重复信息 | 创建第3步复用目录式版本/用途/摘要；日志展示内部任务ID且回总览需经步骤 | 创建、日志各自独立职责片；不把这些全部塞入WB05B1 |
+| P2 整页脏稿策略 | 整文档去只读目录不弹离开确认，草稿和已保存值分开且保留 | 明确同页/整页策略并验收另片，当前不能称全局离开保护 |
+| 设计覆盖缺项 | 历史检索/下载导出/故障反馈/必要跨区导航未建；高级命令/映射/预算等无专门完整原型 | 保留原字段与要求。基础闭环不需要的复杂编辑可延期，但要在正式接线计划给出专属位置/保真契约/开放条件，不能从需求表消失 |
+
+六组已核基础文本配色对比度均≥4.5:1（正文白底16.03、次要白底6.33、次要灰底5.90、蓝链接灰底5.68、蓝按钮白字6.10、页脚实际灰底5.90），未扫描全部交互态或做无障碍认证。首次静态把侧栏颜色误套页脚灰底得4.49，实际DOM核页脚为#526173后纠正，未登记为产品缺陷。
+
+本次四宽完整键盘主线：空列表创建CPU项目→设置返回→启动→Job日志→所属步骤→运行/模拟Job完成→Agent步骤/聊天发送回复→运行/模拟Agent完成→报告声明/写入/核验→历史→设置→模型目录返回。异常另在390抽样blocked/failed/缺正文/未核验，不冒称这四种异常本轮也四宽全验。原片其他异常/宽度证据仍保持各自限定，不用本轮取样覆盖全部。
+
+过程审查：检查器首次异常段没在重绘后重开演示动作，第二次把HTML布尔open属性空串当false而误关闭，保留两次失败log/json/截图，改检查器读DOM open布尔值后整条路径复跑；未修改原型、加等待或注入终态。原型没有真实网络，未运行无关Python业务测试或真实Job/Provider。只读现存各片结果与检查源，不能由总PASS数量推断未列场景通过。
+
+#### WB01静态字段的当前原型覆盖（58项，原ID不改）
+
+| 原控件ID | 当前原型实际消费者/字段 | 覆盖边界 | 处理决定及正式接线需要 |
+| --- | --- | --- | --- |
+| `workspaceTaskGoalInput` | app.js wizard(1)/settingsPage → draft.goal | 模拟覆盖；生产goal_text/brief映射未验 | 保留目标；正式接线不得把两个生产字段未经迁移合一 |
+| `workspaceTaskRepoInput` | wizard(1)/settingsPage → draft.repo | 部分：多行URL；主仓库语义未建 | 保留数组与主项区别，正式适配需确认主项 |
+| `workspaceTaskPaperInput` | wizard(1)/settingsPage → draft.paper | 部分：多行URL；主论文语义未建 | 保留数组与主项区别 |
+| `workspaceTaskReferenceInput` | wizard(1)/settingsPage → draft.data | 部分：仅数据位置文本，不等价完整references | 不得将通用参考资料静默改写成路径；高级旧值保真需接线验收 |
+| `workspaceTaskContextInput` | wizard(1)/settingsPage → draft.constraints | 部分：原型单文本，生产context_blocks数组未接 | 保留约束语义及逐行数据；不吞旧背景备注 |
+| `workspaceTemplateSelect` | wizard(2) → draft.templateId/flowSelection；flows.js select | 模拟覆盖固定两流程 | 保留选择/快照；任意流程尚未支持 |
+| `workspaceUseChatAgentSelect` | chat.js targets/resolve/page → thread Agent选择 | 模拟覆盖辅助对话入口；非生产默认Agent持久化 | 退出重复常驻编辑入口；历史绑定缺失不得猜测 |
+| `workspaceUseChatInput` | chat.js page/send → per-project+Agent draft/messages | 模拟覆盖；无真实Provider/工具调用 | 仅按需对话；接线审查会话隔离和副作用 |
+| `workspaceRunReaderProjectSelect` | app.js projectRows/projectPage；URL projectId | 模拟项目导航覆盖 | 保留唯一项目范围；不再增加运行内嵌项目选择 |
+| `workspaceExecutionOverviewSearch` | history_views.js history列表，无这些筛选消费者 | 未建；原历史检索设计要求仍保留 | 后续历史检索单片决定最小搜索/筛选，不删除原字段；正式接线先核数据量和语义 |
+| `workspaceExecutionOverviewStatusFilter` | history_views.js history列表，无这些筛选消费者 | 未建；原历史检索设计要求仍保留 | 后续历史检索单片决定最小搜索/筛选，不删除原字段；正式接线先核数据量和语义 |
+| `workspaceExecutionOverviewKindFilter` | history_views.js history列表，无这些筛选消费者 | 未建；原历史检索设计要求仍保留 | 后续历史检索单片决定最小搜索/筛选，不删除原字段；正式接线先核数据量和语义 |
+| `templateNameInput` | flows.js editor/save → flow.name | 模拟覆盖固定流程元数据 | 保留；历史/项目显式采用版本 |
+| `templateSourceTypeSelect` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateStatusSelect` | flows.js enabled仅可用开关，无整理status编辑 | 语义不等价，未建status | 不能用enabled替换draft/ready等整理状态；高级保留 |
+| `templateTagsInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateDescriptionInput` | flows.js editor/save → flow.description | 模拟覆盖；生产清空说明契约未验 | 保留原文、摘要与按需全文 |
+| `templateBriefInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateRepoUrlInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateRepoRefInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templatePaperUrlInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateWorkspaceDirInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateIdeaInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateEnvNameInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateEnvManagerSelect` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templatePythonVersionInput` | flows.js fixed definitions无对应编辑/保存消费者 | 未建高级模板资料/默认值 | 按真实流程需求再开放；生产既有值须无损保留，不默认置空 |
+| `templateChatAgentSelect` | 固定流程Agent预设；项目model/stepModels，非模板model对象 | 模板三字段未建；不能当项目覆盖已替代 | 保留模板默认与项目采用独立边界；正式路由契约另验 |
+| `templateProviderProfileSelect` | 固定流程Agent预设；项目model/stepModels，非模板model对象 | 模板三字段未建；不能当项目覆盖已替代 | 保留模板默认与项目采用独立边界；正式路由契约另验 |
+| `templateRoutingModeSelect` | 固定流程Agent预设；项目model/stepModels，非模板model对象 | 模板三字段未建；不能当项目覆盖已替代 | 保留模板默认与项目采用独立边界；正式路由契约另验 |
+| `workflowTemplateNodeKindSelect` | fixtures.js固定stepDefinitions；无节点编辑器 | 未建自由节点/DAG编辑 | 保留现有节点原JSON；按执行能力逐片证明，不新增空壳CRUD |
+| `workspaceIdInput` | URL/项目id；app.js saveProject系统生成 | 模拟隐藏身份覆盖 | 只读诊断保留；生产回执映射未接 |
+| `workspaceNameInput` | wizard(3)/settingsPage → draft.name | 模拟覆盖生成+允许改 | 保留；创建默认呈摘要，可明确修改 |
+| `workspaceSourceType` | app.js saveProject无对应新表单字段 | 未建高级项目字段；spread旧对象不证明生产往返 | 不合并idea/notes/goal；保持生产旧值后另做适配验收 |
+| `workspaceBrief` | app.js wizard(1)/settingsPage → draft.goal | 模拟覆盖；生产goal_text/brief映射未验 | 保留目标；正式接线不得把两个生产字段未经迁移合一 |
+| `workspaceReferences` | wizard(1)/settingsPage → draft.data | 部分：仅数据位置文本，不等价完整references | 不得将通用参考资料静默改写成路径；高级旧值保真需接线验收 |
+| `workspaceTags` | app.js saveProject无对应新表单字段 | 未建高级项目字段；spread旧对象不证明生产往返 | 不合并idea/notes/goal；保持生产旧值后另做适配验收 |
+| `workspaceStatus` | app.js saveProject无对应新表单字段 | 未建高级项目字段；spread旧对象不证明生产往返 | 不合并idea/notes/goal；保持生产旧值后另做适配验收 |
+| `workspaceRepoUrl` | wizard(1)/settingsPage → draft.repo | 部分：多行URL；主仓库语义未建 | 保留数组与主项区别，正式适配需确认主项 |
+| `workspaceRepoRef` | app.js saveProject无对应新表单字段 | 未建高级项目字段；spread旧对象不证明生产往返 | 不合并idea/notes/goal；保持生产旧值后另做适配验收 |
+| `workspacePaperUrl` | wizard(1)/settingsPage → draft.paper | 部分：多行URL；主论文语义未建 | 保留数组与主项区别 |
+| `workspaceDir` | wizard(3)/settingsPage/repair → host+draft.path | 模拟字段覆盖；真实主机权限/可写性未验 | 保留host语境；不能用本机同名目录替代 |
+| `workspaceIdeaText` | app.js saveProject无对应新表单字段 | 未建高级项目字段；spread旧对象不证明生产往返 | 不合并idea/notes/goal；保持生产旧值后另做适配验收 |
+| `workspaceNotes` | app.js saveProject无对应新表单字段 | 未建高级项目字段；spread旧对象不证明生产往返 | 不合并idea/notes/goal；保持生产旧值后另做适配验收 |
+| `workspaceEnvName` | settingsPage → draft.environment | 部分：环境引用文本；非完整环境模型 | 保留，勿宣称已安装/验证环境 |
+| `workspaceEnvManager` | 无对应表单；run_adapter固定模拟Job/报告 | 未建高级配置 | 不删除既有值；命令/预算/调度须真实契约后单片开放 |
+| `workspacePythonVersion` | 无对应表单；run_adapter固定模拟Job/报告 | 未建高级配置 | 不删除既有值；命令/预算/调度须真实契约后单片开放 |
+| `workspaceSetupCommand` | 无对应表单；run_adapter固定模拟Job/报告 | 未建高级配置 | 不删除既有值；命令/预算/调度须真实契约后单片开放 |
+| `workspaceRunCommand` | 无对应表单；run_adapter固定模拟Job/报告 | 未建高级配置 | 不删除既有值；命令/预算/调度须真实契约后单片开放 |
+| `workspaceReportCommand` | 无对应表单；run_adapter固定模拟Job/报告 | 未建高级配置 | 不删除既有值；命令/预算/调度须真实契约后单片开放 |
+| `workspaceSchedule` | 无对应表单；run_adapter固定模拟Job/报告 | 未建高级配置 | 不删除既有值；命令/预算/调度须真实契约后单片开放 |
+| `workspaceNodeKindSelect` | fixtures.js固定stepDefinitions；无节点编辑器 | 未建自由节点/DAG编辑 | 保留现有节点原JSON；按执行能力逐片证明，不新增空壳CRUD |
+| `workspaceChatAgentSelect` | chat.js targets/resolve/page → thread Agent选择 | 模拟覆盖辅助对话入口；非生产默认Agent持久化 | 退出重复常驻编辑入口；历史绑定缺失不得猜测 |
+| `workspaceChatInput` | chat.js page/send → per-project+Agent draft/messages | 模拟覆盖；无真实Provider/工具调用 | 仅按需对话；接线审查会话隔离和副作用 |
+| `workspaceToolSelect` | agents.js tools唯一授权；tools.js只读目录 | 项目tools[]专属配置未建；不等价Agent allowlist | 授权不增加第二入口；项目工具定义/专属连接保留待适配 |
+| `workspaceModelProfileSelect` | app.js modelField/stepFields + connections.js；draft.model/modelConnection | 模拟覆盖引用快照；生产profile/route_hash未接 | 唯一模型目录入口；保留默认与显式覆盖 |
+| `workspaceModelRoutingSelect` | stepModels显式覆盖是模拟规则，无routing_mode字段 | 未建生产routing枚举 | 不声称等价；已有workspace_default/agent_override往返保留 |
+| `workspaceModelChatAgentSelect` | chat.js显式临时Agent选择，未保存model.chat_agent_id | 未建默认对话Agent配置 | 临时选择不写默认；后续按需求证明才显高级项 |
+| `workspaceModelNotes` | 无专用消费者 | 未建高级路由备注 | 原值保留，不变prompt |
+
+#### WB01节点配置的当前原型覆盖（16类/50项）
+
+所有以下类型均无通用 `nodes[].config` 编辑器，故不能写成“节点字段已交付”。原型 `fixtures.js` 两种固定流程及 `run_adapter.js` 固定输入投影仅证明设计样例。下表逐kind完整列key；列在一行的key仍分别属于该kind，不自动合并、继承或清空。所有生产自定义额外config亦保留，未证明可删。
+
+| kind（完整key集） | 当前消费者及有限对应 | 覆盖决定/正式接线要求 |
+| --- | --- | --- |
+| `source.repo`：`source.repo.repo_url`、`source.repo.repo_ref` | draft.repo仅资料文本，不是节点repo_url/ref覆盖 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `source.paper`：`source.paper.paper_url` | draft.paper仅资料文本，不是节点paper_url覆盖 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `source.idea`：`source.idea.idea_text` | draft.goal是项目目标，不能替换独立idea_text | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `research.search`：`research.search.query`、`research.search.goal` | 无查询/检索目标消费者 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `repo.clone`：`repo.clone.repo_url`、`repo.clone.repo_ref`、`repo.clone.workspace_dir` | 无克隆消费者；host/path只运行位置 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `path.resolve`：`path.resolve.workspace_dir`、`path.resolve.data_roots`、`path.resolve.output_roots` | draft.data/path是位置线索，未做解析器或root覆盖 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `repo.inspect`：`repo.inspect.workspace_dir`、`repo.inspect.focus_paths`、`repo.inspect.questions` | 无仓库检查消费者 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `dataset.find`：`dataset.find.query`、`dataset.find.dataset_hints`、`dataset.find.data_roots`、`dataset.find.expected_layout` | draft.data是资料，不是数据集搜索配置 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `env.infer`：`env.infer.workspace_dir`、`env.infer.manifest_paths`、`env.infer.env_name`、`env.infer.python_version` | draft.environment仅环境名引用；不推断依赖或Python | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `env.prepare`：`env.prepare.workspace_dir`、`env.prepare.env_name`、`env.prepare.env_manager`、`env.prepare.python_version`、`env.prepare.setup_command` | 无安装/命令消费者；environment不证明环境准备 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `gpu.allocate`：`gpu.allocate.server_id`、`gpu.allocate.gpu_policy`、`gpu.allocate.min_free_memory_gib`、`gpu.allocate.notes` | 仅CPU固定流，host不等价GPU分配/预留 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `run.command`：`run.command.workspace_dir`、`run.command.env_name`、`run.command.server_id`、`run.command.gpu_policy`、`run.command.run_command`、`run.command.schedule` | run_adapter模拟Job读取host/path/environment；无真实命令或调度 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `artifact.collect`：`artifact.collect.workspace_dir`、`artifact.collect.artifact_paths`、`artifact.collect.metric_paths`、`artifact.collect.notes` | run_adapter报告交付模拟，不是通用文件收集 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `eval.report`：`eval.report.report_command`、`eval.report.metric_paths`、`eval.report.notes` | 模拟报告声明/正文/核验分离，不是report_command执行 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `notify.user`：`notify.user.channel`、`notify.user.message` | app.js notify是页面通知，不等价业务通知节点 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+| `custom.step`：`custom.step.goal`、`custom.step.command`、`custom.step.output_expectation` | 固定流程步骤不是用户自定义step编辑或执行 | 未建；旧值高级保留。按对应真实流程/执行门禁需求再开片；先验API类型、有效值来源、输入引用与保存保真，不向创建基本项堆字段。 |
+
+#### 动态字段与独立能力边界
+
+| 需求/页面 | 实际消费者 | 已有/未建边界与决定 |
+| --- | --- | --- |
+| Agent基本定义/配置中心 | agents.js：id/revision/name/description/prompt/enabled/tools | 模拟基本编辑、工具唯一allowlist。role旧值保留但无编辑；max_iterations、timeout_seconds、output_format、provider_profile_id无生产预算/路由表单，不当已完成。步骤model覆盖是另一作用域。 |
+| 工具定义/配置中心 | tools.js：25个真实ID的只读目录、上下文/副作用/实现状态/使用关系 | 目录覆盖不等于注册编辑。U.id/label/category/capability/description/notes/enabled及provider_profile_id无通用CRUD；模拟不可用场景不冒充后端。repo.search、gpu.allocate、notify.user、schedule.plan真实能力边界保留。 |
+| 模型连接/配置中心 | connections.js及connection_views.js：id/revision/label/provider/baseUrl/model/enabled/credentialConfigured | 只两协议模拟连接；M.kind搜索连接、api_key替换/清除、is_default、实际mask/status/missing_fields、模型发现/真实测试均未接。虚构凭据状态不提供密钥输入。 |
+| 步骤与输入/流程编辑 | fixtures.js固定stepDefinitions；stepAgents/stepModels独立覆盖 | N.id/kind/title等仅固定定义/运行快照展示，无完整节点编辑器；N.status、handler.mode/agent_id/name/handoff/output_key、output_key、notes、input_mapping、position/links不因有步骤列表而算编辑交付。stepAgents有明确Agent绑定模拟，不能声称等价完整handler契约。 |
+| 调试/辅助对话 | chat.js与run_adapter分离 | D.executeLlm/input/templateId调试入口未建；聊天不是调试或运行控制。每请求冻结Agent/模型/来源，真实后端会话Agent隔离/工具副作用/反思写入另验。 |
+| 历史检索 | history_views.js列表/报告阅读 | V.status/nodeKind/timeRange/jobId/agentExecutionId筛选未建；先依据真实数量决定最小筛选，不自动加复杂搜索器。 |
+| 运行/步骤/日志/报告 | run_adapter单模拟解释器，run_views/history_views只读 | 完整计划、等待、停止后续、交付不完整模拟可展示；无真实SSE/断线/重启持久化/重试attempt/实物下载能力证明，正式接线必须逐项核对API。 |
+
+
+#### 复用、消融与接线交接结论
+
+- 继续共用F.effectiveModel、C/A/FV诊断、issueList、项目草稿/保存和run_adapter；modelField/stepFields在创建和设置都有实际消费者，不能为设置精简另造解析器。若新增呈现参数，创建默认输出保持原样。
+- 设置重复文字可以消融；项目默认与步骤覆盖、整理status与enabled、通用references与路径、goal与独立idea/notes不是同义项，不能为了表格“全覆盖”合并。Agent授权方向已正确，无需新建第二授权入口。
+- 生产旧创建/常驻聊天/运行reader/模板编辑/Provider编辑仍有消费者，原型未接线前全部保留。退出须逐个检查§4消费者与真实相同输入/故障对照，不以模拟新页面存在就删除生产路径。
+- §5“用户所见—模拟字段—现API—真实缺口”仍是正式交接主表，本片逐字段覆盖是其范围说明；真实API的存在不证明新用途契约。接线前重点保真未展示字段、有效来源/空值、工具用途、引用保护、历史与幂等；未知扩展JSON不可清空。
+- 本片只完成审计/设计交接。WB05统一视觉、未建状态和完整正式接线单片计划仍未完成；唯一下一片WB05B1范围/验收以第三部分为准。其余候选非并行实施清单，不提前开放预算/任意DAG/高级CRUD。
 
 ## 8. 参考选择与复用边界
 
