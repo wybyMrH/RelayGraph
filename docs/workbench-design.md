@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：WB01；更新于2026-11-08。WB01字段与职责设计、WB02–WB04限定模拟原型及WB05各片记录见§7；WB05L1已完成核心闭环核证，WB05L2必要跨区导航及WB05L3失败页主操作层级已限定模拟验收；**整个设计阶段尚待收尾核对**。唯一下一片见[第三部分当前指针](next-stage-plan.md)，当前为WB05L4整体设计收尾核验与正式首片交接（只读）。真实后端及正式页面未迁移。本文为[稳定规格](project-spec.md)的设计附件，问题事实由[当前审查](current-audit.md)维护，不用历史完成声明替代当前验收。
+设计版本：WB01；更新于2026-11-08。WB05L4已按原五目标、当前资产与逐项证据完成收尾，**本轮前端需求/布局/独立模拟原型阶段已限定完成**，详§7 L4。真实后端及正式页面未迁移，G40/G26/G27不因此关闭。唯一下一片为[第三部分](next-stage-plan.md)WB06A正式项目列表展示职责迁移（待开片），不自动扩为整站接线。本文为[稳定规格](project-spec.md)的设计附件，问题事实由[当前审查](current-audit.md)维护；早轮比较未归因风险、真实能力与后置字段合同继续保留。
 
 ## 1. 要让用户完成什么
 
@@ -342,7 +342,7 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 
 | 用户内容/动作、模拟字段 | 实际HTTP方法与响应包装 | 权威事实、现生产消费者与源码位置 | 当前决定、缺口与证据边界 |
 | --- | --- | --- | --- |
-| 项目列表/继续；projects[id,name,goal,lastRun,updatedAt] | GET /api/workspaces → {workspaces}；GET /api/workspaces/{id} → {workspace} | state/workspaces/crud.py::list_workspaces、state/monitoring.py::workspace_public_payload。现app.js::loadStatus从状态快照读workspaces并装配renderWorkspaces | **可复用+前置设计**：不是GET /api/execution-overview（后者是跨执行列表）。现列表返回完整公开workspace及派生runs/automation，没有独立轻量列表schema；先只投影所需字段，不为美化立刻新造列表服务。updated_at、inputs目标、最新run取值须按公开字段核，不能照搬原型lastRun文案或用运行创建时间冒充项目更新时间。WB05K2已补限定模拟区域读取；真实列表字段/更新时间与网络仍须接线验收。 |
+| 项目列表/继续；projects[id,name,goal,lastRun,updatedAt] | 现GET /api/status → payload.workspaces；手动全局刷新可能/api/refresh。GET /api/workspaces → {workspaces}、GET /api/workspaces/{id} → {workspace}仍可用 | state/workspaces/crud.py::list_workspaces、state/monitoring.py::workspace_public_payload。现app.js::loadStatus→applyStatusPayload→state.workspaces→renderWorkspaces；DOM仅#workspaceHistoryList/计数 | **可复用、设计已限定验收、正式展示待接**：不是GET /api/execution-overview（后者是跨执行列表）。现列表返回完整公开workspace及派生runs/automation，没有独立轻量列表schema；先只投影所需字段，不为美化立刻新造列表服务。updated_at、inputs目标、最新run取值须按公开字段核，不能照搬原型lastRun文案或用运行创建时间冒充项目更新时间。WB05K2/L4已验限定模拟区域读取；L4据实际消费者将原候选“新增GET读者”改为复用共享快照，避免双请求/状态副本。workspace:false等共享刷新路径尚不重绘列表，须最小接线并验焦点/草稿；旧drawer只单组件退出，保既有选择/删除和运行reader。真实字段/缺值/更新时间及网络仍须验，具体唯一执行片见第三部分WB06A。 |
 | 三步创建/保存；draft、project.goal/repo/paper/data/constraints/flowSelection | POST /api/workspaces → {workspace}，201；POST或PUT /api/workspaces/{id} → {workspace} | crud.py::create_workspace/update_workspace；app.js::submitWorkspace实际用POST，核保存回执id后合并，不以全局刷新代替保存成功 | **可复用+前置契约**：inputs的goal_text/repo_urls/paper_urls/context_blocks与主仓库/论文/独立idea、notes不猜合并。当前未知template_id可回退首模板；更新是浅合并再normalize，不证明局部表单保真或并发安全（G27）。原型缺项可保存、取消/草稿与明确采用已有模拟证据，真实写入须另验；不能把未展示高级值清空。 |
 | 流程目录/选择/编辑；flows、flowSelection | GET /api/workflow-templates → {workflow_templates}；GET /api/workflow-templates/{id} → {workflow_template}；POST集合新增、PUT /{id}更新 → {workflow_template}，POST /{id}兼容更新；DELETE /{id} → {ok:true} | state/registry.py模板CRUD；schema/templates.py已有version_history；workflow_template_lifecycle_actions.js先POST集合/preview或/{id}/preview校验，再新增POST/更新PUT保存并核实例迁移差异 | **读可复用、编辑前置契约**：复用既有版本/迁移，不复制flows.revision平台。原型enabled不同于模板status，说明空串会被or回填，删除无完整引用保护。POST /workspaces/{id}/automation/apply会写配置，不是“选择流程”的纯读取。固定两演示流程不证明真实引擎支持任意流程（WB04D1/D2）。 |
 | 主机+目录+环境；hostId/path/environment、模拟diagnostics | GET /api/workspaces/{id}/cockpit → {workspace_id,cockpit,execution,automation}；配置值取GET workspace的server_id/workspace_dir/env及节点配置 | state/monitoring.py::workspace_cockpit_payload；cockpit/readiness沿现自动化与主机事实派生；app.js::refreshWorkspaceCockpit/mergeWorkspaceCockpitPayload是现消费者 | **可复用+真实验证**：只显示对应流程必需字段；字符串绝对路径不证明目标主机可写/环境可运行，资源采样不等于预留。模拟repair主机/目录按钮不接成通用修复API，也不通过POST /run探测“纯就绪”。现cockpit不是run提交快照（WB02/04A/F2）。 |
@@ -363,7 +363,7 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 
 ### 剩余需求的处理决定与本阶段收尾条件
 
-**当前收尾结论：核心模拟闭环、WB05L2必要跨区导航及WB05L3失败页主操作层级已限定验收；五大目标中的整体体验尚待最后收尾核对。** 这不要求在WB05实现所有高级字段、全部后端或任意流程。 §2的58控件逐项决定及§7 WB05A的16类/50节点配置保真矩阵继续有效：未展示≠删除，语义不明不合并。原六类页面“项目列表、创建、项目运行、运行详情、项目设置、配置中心”已有模拟入口；区域读取已由K2限定模拟验证，真实读取仍待接线。
+**当前收尾结论：WB05L4已按原五目标与当前证据收尾，本轮需求/布局/可点击模拟原型完成。** 这不是正式页面或整个研究工作台完成。§2的58控件逐项决定及§7 WB05A的16类/50config保真继续有效：未展示≠删除，语义不明不合并；高级编辑按归属/合同后续接入，不为本轮堆CRUD。项目列表/创建/运行/步骤日志/历史报告/设置/配置中心及按需对话有模拟入口，监控/执行/活动仅必要导航壳；真实读取与控制另片。
 
 - **列表读取设计点已补，限定模拟**：WB05K2已实际验证首次加载、成功空列表、首次失败重试、已有数据刷新失败保旧、旧响应不覆盖较新读取或离开后的页面。正常不占顶栏，手动完成Promise，不用动画假造运行。真实网络取新数据/断线/超时仍待正式接入，不把一个列表区域推广为全站通过。
 - **脏稿按现有两种行为验收，不把所有页面改成一种弹窗**：站内离开编辑确认放弃；刷新/整页打开仍可恢复同实体未保存草稿，保存前不得写入项目/目录。已有A/B/C/D/E的限定模拟证据和WB05A整页无确认但保草稿证据可用；没有全站beforeunload承诺。存储失败有错误但跨标签页/关标签后恢复未验，不承诺耐久。最终闭环须检查“继续编辑/放弃/刷新/换项目”各自实际路径，不因缺整页弹窗就预排新功能。
@@ -371,9 +371,9 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 - **必要跨区导航已限定模拟验收（WB05L2）**：五入口/当前区/统一顶栏、三区最小导航壳与配置目录连续往返均已实际点击，原项目/精确run/步骤/日志/报告来源可返回；全局无来源不猜最近项目，坏引用明确不可用。小屏品牌与可换行文字导航，不复制监控/执行/活动业务正文。来源沿URL与原视图/离开内核，不另造状态库。此设计阻断已解除；生产`data-view=console/workspace/exec/activity`的真实接线仍独立验收，模拟壳不是真实监控、命令或活动能力。
 - **失败页主操作层级已限定模拟验收（WB05L3）**：失败概览只有“查看失败步骤”为primary，取本次status=failed的精确步骤；新运行和原就绪诊断移至证据之后，复用run-next且新运行普通样式。缺失败记录明确不可用，不换其他step/log。四宽网页失败、退出7/下游未执行、历史/两项目、相对路径失效阻启动与修复返回/明确新run均实际点击；不改旧状态/快照/门禁。早轮比较间歇失败未归因与最终证据分开记在§7，不能称可靠性问题已消除。
 - **其他后置边界不取消**：完整证据导出/比较、更多筛选、极长下载错误进一步精简属独立职责；高级值保真按上条契约。真实网络、SSE、Provider、SSH/GPU/Transfer、物理交付只在对应真实接线验收，不复制模拟状态核补齐事实。屏幕阅读器/关闭标签后耐久恢复/真实新手研究未验证，不冒称全站通过。
-- **WB05尚待最终收尾核对**：L1发现的两项明确设计阻断均已有L2/L3限定验收；唯一L4只读按原五目标/§2字段/§5映射/§7原证据核当前资产，包含早轮比较边界的调查与解释，不新增控件或预排美化。能否关闭由逐项证据决定，不把最后一片或后续PASS当自动完成；G40/G26/G27及目标模式保持开放。
+- **WB05限定模拟设计已完成收尾**：L4五目标与原验收场景逐项矩阵、当前四宽完整网页主线、区域读取及精确输入调查见§7。原早轮比较无差异DOM，仍未归因/未证明消除；本轮未复现不当可靠性承诺，不据猜测继续加美化。真实业务/G40/G26/G27仍开放，后续唯一职责见WB06A，不自动将正式迁移纳入本轮完成声明。
 
-**正式迁移的最小首个职责候选是项目列表只读展示，不是同时接完整闭环。** 准入：上述列表读取体验已验；明确workspace公开字段映射、真实错误/缺值与更新时间；一条唯一列表装配路径，不复制模拟state/runs。该片仅让用户读到真实项目、明确跳回已有生产入口继续，创建/运行/设置仍用原入口；不在正式页挂仍会写fixture的“创建/开始运行”。替换后删除相应旧列表展示，既有选择器若另有消费者列明保留与退出条件；真实浏览器验空/错误/过期响应、精确项目返回与后退/刷新后才通过。不需先补聊天/Profile版本等独立合同，L1设计阻断已有L2/L3限定验收，仍按L4原要求与当前证据核准入；本轮未开始真实接线。
+**正式首片已选定为WB06A单一项目列表展示职责，不是整站或完整闭环迁移。** L4核现正式消费者后，优先复用loadStatus→applyStatusPayload→state.workspaces，GET /api/workspaces保作可用API而不另造读者/轮询。退出旧#workspaceHistoryList所在drawer及列表行资源/命令/节点重复展示，保同一个列表/计数与原select/delete委派；删除仍是原危险操作/确认，不能说整个组件绝无写动作。创建/运行/设置/配置中心保持原入口，本片不正式搬三步创建。workspace:false共享刷新后列表不会重绘是已核装配缺口，须最小同步且不扰配置草稿/精确run/阅读焦点；记录时间、缺值/未知状态和数据来源按第三部分唯一WB06A合同验。沿现全局刷新不能声称只刷新列表或无主机读取。没有真实环境的格子仍未验；不fallback模拟，不复制fixture/版本/聊天/推进核。
 
 原型adapter只处理本地fixture与演示草稿；禁止访问/api、SSE、真实Provider及真实文件。正式API接线用真实服务读者替换对应fixture职责，不把本地版本/聊天/推进状态机照搬，不设“失败时转模拟成功”的fallback。本轮未引入依赖或开源平台；现HTTP与版本/幂等/投影组件已够完成交接，不为审计新造能力。
 
@@ -449,7 +449,8 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 | WB05L1 | 原始闭环核证与正式首片交接条件 | 新功能/批量修复、真实接线、重审全部后端 | 核证已完成；核心模拟通过，设计阶段未关闭，见下文 |
 | WB05L2 | 最小跨区导航/顶栏与精确来源返回模拟 | 深入改版监控/执行/活动正文、真实接线、failed动作改动 | 限定模拟验收，见下文 |
 | WB05L3 | failed页先诊断本次失败、次要新运行动作 | 批量改其他状态、真实接线/业务恢复 | 限定模拟验收，见下文；早比较间歇边界未消除 |
-| WB05L4 | 原五目标的整体收尾核验、间歇比较调查与正式首片交接 | 新功能/美化、原型或正式业务改动、全仓重审 | 唯一下一片，只读未实施；不自动宣称WB05完成 |
+| WB05L4 | 原五目标的整体收尾核验、间歇比较调查与正式首片交接 | 新功能/美化、原型或正式业务改动、全仓重审 | 已完成收尾核验，五目标限定模拟设计完成；真实产品仍开放 |
+| WB06A | 正式单一项目列表展示，复用共享快照 | 整站/新三步创建/后端迁移、新读取/状态框架 | 唯一下一片，待开片；具体合同见第三部分 |
 
 WB02开始前补本地切片开场记录，明确文件边界（仅dev_work下独立原型及相关文档）。每次完成后审查、更新二三部分、提交推送安全文档；原型/截图/测试不提交。原型入口与命令写在本地README，后续必须给用户可访问链接，而不是只给截图路径。
 
@@ -1618,7 +1619,33 @@ app沿原go/popstate/approveLeave/positions，只装配纯投影；旧两入口n
 
 主代理实看failed1440/390、new-run-blocked768三图，监督另抽failed/log/blocked图；没有宣称逐图人工审查。长错误完整换行使页面变长，用户可阅读完整原因，不用高度阈值再造美化片。沿§8 frontend-design同指纹与Apache2指导，系统字体和原色彩/间距，未新增依赖或外部字体。
 
-证据仅本地dev_work/artifacts/wb05l3/（browser/comparison/comparison-probe、syntax-contracts、三回归及16图），脚本dev_work/smokes/wb05l3_browser.py与wb05l3_compare.py；开片、白话结果在dev_work/reports/wb05l3-opening.md与wb05l3-review.md。仅三份正式docs推送，原型/测试/截图/结果不提交。L1两项明确设计阻断已有L2/L3限定验收；唯一下一WB05L4是原五目标整体收尾核验与正式首片交接（只读），不是新美化/真实接线。整体WB05、G40/G26/G27及目标模式未关闭。
+证据仅本地dev_work/artifacts/wb05l3/（browser/comparison/comparison-probe、syntax-contracts、三回归及16图），脚本dev_work/smokes/wb05l3_browser.py与wb05l3_compare.py；开片、白话结果在dev_work/reports/wb05l3-opening.md与wb05l3-review.md。仅三份正式docs推送，原型/测试/截图/结果不提交。L1两项明确设计阻断已有L2/L3限定验收；L3当时交接WB05L4只读收尾核验，现已完成见下文；L3本身不构成整体关闭声明，真实G40/G26/G27继续开放。
+
+### WB05L4 原五目标收尾核验与正式首片交接（2026-11-08，只读完成）
+
+基线b4cf18d。本片原型17资产、292生产源码、稳定规格和AGENTS逐份指纹不变，仅三docs；没有为收尾改页面/后端或降低原要求。依据原用户五片与原验收清单，核§1–5当前设计、§7原始源/证据和本轮真实浏览器点击。结论：**本轮需求/布局/独立可点击模拟原型阶段已限定完成**；不是正式前端迁移/整个产品完成，不关闭G40/G26/G27真实缺口。
+
+| 原五目标 | 当前组件与实际证明 | 边界/结论 |
+| --- | --- | --- |
+| ①职责与字段审计 | §1–4职责/导航/状态与退出决定；§2及WB05A逐58控件、动态能力、16类50config按真实页面/renderer/consumer记录用途/来源/条件/默认/归属/联动/校验/保存影响及保留决定；WB01检查重核覆盖/链接/292台账 | 设计交付满足；高级字段已有归属/保真准入，不是本轮补全CRUD或删除旧数据 |
+| ②入口与三步创建 | app.projectList/wizard/validate/saveProject/repair；当前四宽空列表→键盘三步创建，创建零run，明确下一动作；1440三缺项到唯一编辑/模拟检查返回原草稿，继续已有与网页第二项目 | 限定模拟满足；目录/主机/凭据虚构，不是实际连通性/文件检查 |
+| ③运行与结果 | run_adapter唯一演示解释器，run_views只读，history_views交付唯一投影；当前四宽完整计划/等待刷新/本次Job日志/Agent步骤与按需对话/报告声明写入核验/历史，4个浏览器下载正文逐字等本次body；390六异常+L3四宽failed/exit7/skipped | 执行完成≠交付完整，停止后child独立，精确来源；满足模拟设计，不冒称真实外部执行、恢复或物理交付 |
+| ④设置与配置中心 | app.settings/原草稿事务、connections/agents/tools/flows与显式覆盖；当前四宽设置/目录返回，1440未保存取消拒绝/刷新/明确放弃、改目标不改活动run与两项目隔离。沿L2原实际目录保存/采用/取消、Agent脏稿tools返回，相关helpers/app/index均与本轮同hash；L3九套当前契约及导航9回归，run_views唯一后改由L3/本轮主线验证 | 限定模拟满足；没有声称每个编辑器本轮重跑或真实写合同已接。重复入口/组件的退出或保留原因见§4及各片消融 |
+| ⑤统一视觉与完整体验/下一正式片 | 当前1440/1024/768/390主15组/46图/185键盘停靠、跨三区/配置返回精确旧run；列表区域26组/29图；原系统字体/浅色/CSP/单主滚动与日志局部滚动保持，无成功/30秒顶栏块；§8来源/许可未变。§5唯一API映射及第三部分WB06A给实际消费者/字段/缺值/退出和验收 | 满足本轮模拟设计；不是全站无障碍认证、真实新手研究或正式页面迁移 |
+
+**原验收场景与范围**：四宽完整正常产品路径在鼠标场景重置后使用实际Tab/Space/ArrowDown/Enter，不是evaluate.click；浏览器刷新/前后退用Playwright方法。1440实际缺模型→目录模拟凭据保存/明确采用、缺主机/目录→各自模拟检查→原草稿；未自动启动。1440草稿取消/刷新/放弃、两项目与旧run保真；390实际blocked零Job后显式满足同run、failed退出7不启动Agent、停止后child仍running直到自己返回才stopped、缺正文与核验不可用均实际查verification.status/body而非不存在字段。390长日志有独立局部滚动；长名/错误四宽沿L3、120段长报告沿L3当前report26回归，相关资产与本轮相同，不说本轮异常每格都四宽重验。配置目录全部编辑的原限定证据/字段保真继续按各片范围有效。
+
+列表读取26组复核当前源码：四宽初读/空/失败/重试/保旧/键盘及长原因，较早响应不覆盖新值/离页/创建/reset/刷新；都是显式演示Promise，不是网络失联。启动恢复沿L2新helper静态资源abort→真实Enter document重载的2组证据，boot/index/app当前同hash；不是API/永久pending/HTML未到恢复。当前页面布局/标签/动作能由脚本直接定位完成任务，没有口头补救或手填终态；仍不把预知路线的脚本当真实陌生用户研究。
+
+**L3早轮比较调查**：原1024 job与原768 failed精确输入，各12轮旧新=24对48页，完整HTML/state/URL/启动/错误/响应/源码指纹逐页保；本轮均相同，48初读已complete无busy/bootFailed，无page/request错误，只静态200。jobPage旧新函数hash完全相同。源码证实原任意h1也可匹配加载/启动错/业务render catch页面，后者不发pageerror，这是观察缺口；原失败未保存差异DOM，不能据此确定根因或声称消除。保留原失败和未归因风险，不凭未复现新造产品补丁/无限美化；本轮独立自然网页模拟主线与克隆对照严格分开。
+
+**正式首片的复用纠正**：本轮静态核现loadStatus→applyStatusPayload→state.workspaces是列表来源，/api/status与GET /api/workspaces均调用workspace_public_payload。为同职责再加GET会造成双读取/潜在双写，下一片改为复用共享读者；这是据源码优化原候选，不是省略真实接线。workspace:false与resource-only不重绘列表、原列表唯一delete按钮/原确认、全局刷新可能采主机以及选择回填草稿的G27边界均已写入唯一WB06A计划。首片仅列表组件，创建/运行/设置和生产reader仍保留，不复制模拟状态机。
+
+主代理实看waiting1440/settings1440/create390/report390四张当前图，监督另抽样含failed390，不声称75图全人工；长设置自然阅读，不因高度再加无依据美化。主脚本沿L1仅加强实际verification断言、跨区返回与failed单主操作；区域脚本复制时首次输出路径替换断言/缺文件exit2发生产品执行前，保setup说明，仅改目标路径后26组通过，产品/断言没有为通过改低。未调用真实API/Provider/SSH/GPU/Transfer，未读config/data密钥；Python业务未改，不跑无关业务smoke。
+
+证据仅本地dev_work/artifacts/wb05l4/（browser/region-reading、75图、4下载）、wb05l4-investigation/（24对照/48页），原要求逐项表dev_work/reports/wb05l4-requirements.json、白话报告wb05l4-review.md与调查说明wb05l4-compare-investigation.md。原型入口http://127.0.0.1:8933/，启动命令仍在原型README，服务无需后端/真实凭据；原型/脚本/结果/图/本机配置不推送。
+
+后置能力仍按§5及各字段归属保留：真实网络/SSE/Provider/SSH/GPU/Transfer/实物核验、复杂流程与高级编辑、完整证据导出/比较，以及全站无障碍/真实用户/跨标签耐久未因本轮完成而获得通过。**唯一下一WB06A正式列表展示职责迁移，尚未实施**；本轮前端设计目标可在独立终审与三docs提交推送核验后完成，不自动开始下一阶段。
 
 ## 8. 参考选择与复用边界
 
