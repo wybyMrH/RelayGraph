@@ -326,7 +326,7 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 
 | 用户内容/动作、模拟字段 | 实际HTTP方法与响应包装 | 权威事实、现生产消费者与源码位置 | 当前决定、缺口与证据边界 |
 | --- | --- | --- | --- |
-| 项目列表/继续；projects[id,name,goal,lastRun,updatedAt] | GET /api/workspaces → {workspaces}；GET /api/workspaces/{id} → {workspace} | state/workspaces/crud.py::list_workspaces、state/monitoring.py::workspace_public_payload。现app.js::loadStatus从状态快照读workspaces并装配renderWorkspaces | **可复用+前置设计**：不是GET /api/execution-overview（后者是跨执行列表）。现列表返回完整公开workspace及派生runs/automation，没有独立轻量列表schema；先只投影所需字段，不为美化立刻新造列表服务。updated_at、inputs目标、最新run取值须按公开字段核，不能照搬原型lastRun文案或用运行创建时间冒充项目更新时间。WB02证据证明同步模拟列表，区域读取状态尚未建。 |
+| 项目列表/继续；projects[id,name,goal,lastRun,updatedAt] | GET /api/workspaces → {workspaces}；GET /api/workspaces/{id} → {workspace} | state/workspaces/crud.py::list_workspaces、state/monitoring.py::workspace_public_payload。现app.js::loadStatus从状态快照读workspaces并装配renderWorkspaces | **可复用+前置设计**：不是GET /api/execution-overview（后者是跨执行列表）。现列表返回完整公开workspace及派生runs/automation，没有独立轻量列表schema；先只投影所需字段，不为美化立刻新造列表服务。updated_at、inputs目标、最新run取值须按公开字段核，不能照搬原型lastRun文案或用运行创建时间冒充项目更新时间。WB05K2已补限定模拟区域读取；真实列表字段/更新时间与网络仍须接线验收。 |
 | 三步创建/保存；draft、project.goal/repo/paper/data/constraints/flowSelection | POST /api/workspaces → {workspace}，201；POST或PUT /api/workspaces/{id} → {workspace} | crud.py::create_workspace/update_workspace；app.js::submitWorkspace实际用POST，核保存回执id后合并，不以全局刷新代替保存成功 | **可复用+前置契约**：inputs的goal_text/repo_urls/paper_urls/context_blocks与主仓库/论文/独立idea、notes不猜合并。当前未知template_id可回退首模板；更新是浅合并再normalize，不证明局部表单保真或并发安全（G27）。原型缺项可保存、取消/草稿与明确采用已有模拟证据，真实写入须另验；不能把未展示高级值清空。 |
 | 流程目录/选择/编辑；flows、flowSelection | GET /api/workflow-templates → {workflow_templates}；GET /api/workflow-templates/{id} → {workflow_template}；POST集合新增、PUT /{id}更新 → {workflow_template}，POST /{id}兼容更新；DELETE /{id} → {ok:true} | state/registry.py模板CRUD；schema/templates.py已有version_history；workflow_template_lifecycle_actions.js先POST集合/preview或/{id}/preview校验，再新增POST/更新PUT保存并核实例迁移差异 | **读可复用、编辑前置契约**：复用既有版本/迁移，不复制flows.revision平台。原型enabled不同于模板status，说明空串会被or回填，删除无完整引用保护。POST /workspaces/{id}/automation/apply会写配置，不是“选择流程”的纯读取。固定两演示流程不证明真实引擎支持任意流程（WB04D1/D2）。 |
 | 主机+目录+环境；hostId/path/environment、模拟diagnostics | GET /api/workspaces/{id}/cockpit → {workspace_id,cockpit,execution,automation}；配置值取GET workspace的server_id/workspace_dir/env及节点配置 | state/monitoring.py::workspace_cockpit_payload；cockpit/readiness沿现自动化与主机事实派生；app.js::refreshWorkspaceCockpit/mergeWorkspaceCockpitPayload是现消费者 | **可复用+真实验证**：只显示对应流程必需字段；字符串绝对路径不证明目标主机可写/环境可运行，资源采样不等于预留。模拟repair主机/目录按钮不接成通用修复API，也不通过POST /run探测“纯就绪”。现cockpit不是run提交快照（WB02/04A/F2）。 |
@@ -340,20 +340,20 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 | 停止后续、子任务独立状态；stopRequested/childStillRunning | POST /api/workspaces/{id}/runs/{rid}/stop-continuation；输入parent_attempt_id/child_job_id/child_policy=keep_running，返回{run,continuation_stop,replayed,child_policy,child_stop_requested:false}；身份/时序冲突409 | workflow_records.py::stop_workspace_run_continuation只接受已确认N04两步child链；workspace_run_detail_actions.js::controlContinuation已有未知回执后GET原run核对 | **限定可复用+前置契约/真实验证**：不是通用任意阶段停止API。原型blocked/Agent处理等模拟停止不能一律接此路由；未支持状态明确禁用/说明，不假停child，不能放宽门禁补画面。 |
 | 报告声明/正文/交付与正文下载；report.declared/body/verification | GET /api/workspaces/{id}/runs/{rid}/report → {workspace_id,run_id,report}；report含file_verified/status/reason/content等，无报告返回incomplete且content=null | runs.py::get_workspace_execution_report只取本run首个eval.report，通过核验才取匹配artifact.content；workspace_run_report.js核workspace/run/step/attempt身份后展示 | **可复用+真实验证**：WB03B/C2模拟正文阅读/下载已建；模拟有正文未核验仍可读与现API不同，正式先只读已核验正文。若要未核验文本另定义来源/授权，不能回退inline answer冒充文件。声明、写入、核验按钮不迁生产。执行100%与交付完整分开，不能只看delivery_closure.status。 |
 | 完整证据导出、比较 | GET /api/workspaces/{id}/runs/{rid}/export → {workspace_id,run_id,export}；export含filename/workspace/run/summary/manifest/readme_markdown/replay/logs/artifacts/reports等 | runs.py::get_workspace_execution_run_export；execution/run_export.py；workspace_run_detail_actions.js已有读取/下载消费者 | **可复用、原型新增入口后置**：现API不是“后端完全缺导出”，正文Blob下载也不是完整证据包。manifest有日志/子引用/事件截断和缺失提示，不能命名“完整”就承诺无限日志和所有文件；先核包与脱敏再接。 |
-| 首次启动与区域读取失败 | HTML/static assets；原型boot.ready/failed，尚无列表异步读取adapter | 本地boot.js只管首次静态启动；正式app.js::loadStatus/refreshWorkspaceCockpit与现请求预算/错误恢复是另一消费者 | **前置设计**：I1已验静态加载/失败重载；缺的是区域加载/失败/保旧/重试/过期响应，不重做顶栏“状态读取完成”。先只选项目列表验证，重试只重读不启动任务；其余读者迁移时按同一规则各自验收，不本轮造全局框架。 |
+| 首次启动与区域读取失败 | HTML/static assets；原型boot.ready/failed；K2增加独立列表读取视图与手动Promise结果 | 本地boot.js只管首次静态启动；正式app.js::loadStatus/refreshWorkspaceCockpit与现请求预算/错误恢复是另一消费者 | **设计已限定模拟验证、真实接入待验**：I1负责静态启动，K2负责一个列表区域的加载/失败/保旧/重试/过期响应。没有顶栏成功块，重试不启动任务；其余读者迁移时按同一规则各自验收，不把K2当全站网络恢复框架。 |
 | 按需辅助聊天；chats[projectId,agentId,draft,messages,pending]、冻结origin | POST /api/workspaces/{id}/chat，text/role/agent_id/use_llm/stream；非流式{workspace,messages,execution?}，stream:true先JSON {workspace,messages,stream:true}再后台发聊天事件，并非该POST本身为token流 | state/workspaces/chat.py；app.js::submitWorkspaceChat/submitWorkspaceUseChat及事件消费者。现会写model.chat_agent_id、可执行Agent授权工具、取整个项目最近10条上下文 | **前置契约，独立后置接入**：无原型run/step冻结来源或消息幂等合同，流式还可重读当前模型/Agent；缺模型可回退规则占位。必须独立无工具用途、隔离、发送快照、重试与真实失败合同；不能直接接作无副作用讨论，也不让此缺口阻塞项目只读列表（WB04E/D2）。 |
 
 以上实际路由见[GET](../total_control/http_api/get_routes.py)、[POST](../total_control/http_api/post_routes.py)、[PUT](../total_control/http_api/put_routes.py)、[DELETE](../total_control/http_api/delete_routes.py)。服务事实见[工作区CRUD](../total_control/state/workspaces/crud.py)、[公开投影](../total_control/state/monitoring.py)、[运行读取](../total_control/state/workspaces/runs.py)、[冻结与停止](../total_control/state/workspaces/workflow_records.py)、[模型路由](../total_control/workspace/automation/topology.py)、[能力目录](../total_control/state/registry.py)、[日志](../total_control/state/jobs_pkg/execution.py)、[辅助聊天](../total_control/state/workspaces/chat.py)。生产入口仍有消费者，K1没有删除任何生产或原型路径；正式替换一个职责并验证后再退出对应旧展示，不保留两个推进器或状态合并器。
 
 ### 剩余需求的处理决定与本阶段收尾条件
 
-**当前是五大目标的最后一项未收尾，不是所有高级字段、全部后端或任意流程都要在WB05实现。** §2的58控件逐项决定及§7 WB05A的16类/50节点配置保真矩阵继续有效：未展示≠删除，语义不明不合并。原六类页面“项目列表、创建、项目运行、运行详情、项目设置、配置中心”已有模拟入口；区域读取是明确缺少的交互类别。
+**当前是五大目标的最后一项未收尾，不是所有高级字段、全部后端或任意流程都要在WB05实现。** §2的58控件逐项决定及§7 WB05A的16类/50节点配置保真矩阵继续有效：未展示≠删除，语义不明不合并。原六类页面“项目列表、创建、项目运行、运行详情、项目设置、配置中心”已有模拟入口；区域读取已由K2限定模拟验证，真实读取仍待接线。
 
-- **先补一个设计验证点**：项目列表区域读取。首次加载、成功空列表、首次失败重试、已有数据刷新失败保旧并标“未更新”、旧响应不覆盖较新读取或离开后的页面，都尚无可点击模拟证据；这是WB05K2唯一目标。正常不占顶栏，不能用定时动画假造运行。具体范围只见第三部分当前片。
+- **列表读取设计点已补，限定模拟**：WB05K2已实际验证首次加载、成功空列表、首次失败重试、已有数据刷新失败保旧、旧响应不覆盖较新读取或离开后的页面。正常不占顶栏，手动完成Promise，不用动画假造运行。真实网络取新数据/断线/超时仍待正式接入，不把一个列表区域推广为全站通过。
 - **脏稿按现有两种行为验收，不把所有页面改成一种弹窗**：站内离开编辑确认放弃；刷新/整页打开仍可恢复同实体未保存草稿，保存前不得写入项目/目录。已有A/B/C/D/E的限定模拟证据和WB05A整页无确认但保草稿证据可用；没有全站beforeunload承诺。存储失败有错误但跨标签页/关标签后恢复未验，不承诺耐久。最终闭环须检查“继续编辑/放弃/刷新/换项目”各自实际路径，不因缺整页弹窗就预排新功能。
 - **高级项已有归属，逐个正式接入时保真**：基本项目设置只留常用值；命令/env管理器/调度/标签/独立idea与notes进项目设置的独立高级编辑，提示词/预算/输出约束归Agent编辑，节点config/输入映射归流程专门编辑，内部ID/幂等键归诊断。没有编辑能力时不放空按钮，保留旧生产专门入口与数据；新只读页不发保存，未来基本保存必须以未编辑字段往返测试作为准入，不为50项补通用CRUD。
 - **导航与额外能力分类**：监控/执行/活动页不深入改版，正式首迁片只同步必要进入/返回入口并携带项目/精确run上下文，不把它们复制进演示站；当前没有模拟跨区可点击证据，正式接线验收必须保留此项。完整证据导出/比较、更多筛选、下载极长错误精简是可后置体验/独立职责；长名称能换行不等于全站简洁或真实新手已通过。非当前职责不得假链接或在失败时回落演示数据。
-- **WB05关闭还须最终核证**：K2之后按原始要求复查创建→补配置→明确模拟启动→等待/失败→报告与已有项目继续，核四宽、键盘、来源返回、隔离与草稿；沿既有证据补缺格而非重跑所有历史脚本。更新本表和正式首片计划，才能判定设计阶段是否完成。K1没有关闭WB05/G40/G26/G27，也没有执行K2或正式迁移；不得把待核证写成已通过。
+- **WB05关闭还须最终核证**：当前唯一下一WB05L1按原始要求复查创建→补配置→明确模拟启动→等待/失败→报告与已有项目继续，核四宽、键盘、来源返回、隔离与草稿；沿既有证据补缺格而非重跑所有历史脚本。更新本表和正式首片计划，才能判定设计阶段是否完成。K1/K2没有关闭WB05/G40/G26/G27，L1或正式迁移均未执行；不得把待核证写成已通过。
 
 **正式迁移的最小首个职责候选是项目列表只读展示，不是同时接完整闭环。** 准入：上述列表读取体验已验；明确workspace公开字段映射、真实错误/缺值与更新时间；一条唯一列表装配路径，不复制模拟state/runs。该片仅让用户读到真实项目、明确跳回已有生产入口继续，创建/运行/设置仍用原入口；不在正式页挂仍会写fixture的“创建/开始运行”。替换后删除相应旧列表展示，既有选择器若另有消费者列明保留与退出条件；真实浏览器验空/错误/过期响应、精确项目返回与后退/刷新后才通过。不需先补聊天/Profile版本等独立合同，但未满足K2和最终设计核证前不开始接线。
 
@@ -427,8 +427,9 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 | WB05I1 | 首次静态加载与启动失败恢复 | API/SSE/超时预算/业务恢复、后端/生产接线 | 限定模拟验收，见下文 |
 | WB05J1 | 已完成运行的主操作层级 | 新运行/报告动作及门禁语义、其他状态/页面、真实接线 | 限定模拟验收，见下文 |
 | WB05K1 | 剩余需求分类、现HTTP/schema/权威事实与消费者交接、唯一后续片 | 原型/生产实现、真实API/任务、全仓重审 | 只读审计完成，§5为当前主表；未关闭WB05 |
-| WB05K2 | 项目列表区域读取与失败恢复模拟 | 真实接线、全站读取框架、业务状态修改 | 唯一下一片，未实施 |
-| WB05后续 | 按职责精简视觉、补全链浏览器验收、正式迁移单片计划 | 一次迁移整站或批量实现后端 | 当前仅选定WB05K2；其余依据§5收尾核证确定范围 |
+| WB05K2 | 项目列表区域读取与失败恢复模拟 | 真实接线、全站读取框架、业务状态修改 | 限定模拟验收，见下文 |
+| WB05L1 | 原始闭环最终核证、收尾结论与正式首片交接 | 新功能/批量修复、真实接线、重审全部后端 | 唯一下一片，未实施 |
+| WB05后续 | 按职责精简视觉、补全链浏览器验收、正式迁移单片计划 | 一次迁移整站或批量实现后端 | 当前仅选定WB05L1最终核证；其余依据§5结论确定范围 |
 
 WB02开始前补本地切片开场记录，明确文件边界（仅dev_work下独立原型及相关文档）。每次完成后审查、更新二三部分、提交推送安全文档；原型/截图/测试不提交。原型入口与命令写在本地README，后续必须给用户可访问链接，而不是只给截图路径。
 
@@ -1490,7 +1491,34 @@ edges10组：1440/390受控持住app时HTML可读/壳不可操作，放行后自
 | 覆盖与无实现变更 | 本地wb01_check核58控件、16类50配置、292源码台账与链接；原型16文件指纹、实际diff/staged scope核只三docs；稳定规格/AGENTS/生产代码不变 |
 | 过程与监督 | 开片/白话审计报告位于dev_work/reports/wb05k1-*；独立监督只读检查范围、接口事实、证据和提交，不实现或跑测试。未新建全局状态机/框架，不删除旧消费者 |
 
-**唯一下一片WB05K2：项目列表区域读取与失败恢复模拟**。只证明一个列表区从读取中到空/有结果、失败重试、已有内容更新失败保旧，以及迟到响应不覆盖较新读取或离开后的页面。它不补聊天/后端，不接真实API，不扩成全站加载框架。其后再按§5收尾条件核原闭环与正式首迁计划；本轮不提前宣称整体WB05完成。
+**K1当时交接WB05K2（现已限定验收，见下文）**。只证明一个列表区从读取中到空/有结果、失败重试、已有内容更新失败保旧，以及迟到响应不覆盖较新读取或离开后的页面。它不补聊天/后端，不接真实API，不扩成全站加载框架。其后再按§5收尾条件核原闭环与正式首迁计划；本轮不提前宣称整体WB05完成。
+
+### WB05K2 项目列表区域读取与失败恢复（2026-11-08，限定模拟验收）
+
+只改本地app/style/README三个既有资产，无新helper/global脚本/依赖，不改index、CSP、fixture、运行/目录状态核、生产292源码、稳定规格或AGENTS。列表数据仍唯一state.projects；新增闭包视图phase/hasData/error、读取代号与Promise完成句柄，统一render识别初次/实际进入/离开，同页重绘不重发。只有当前代号、活动区域和列表路由都匹配才更新反馈；重入读当前源，reset使原请求失效。退出原同步直接展示，projectRows/业务数据/搜索语义与原消费者保留。
+
+```text
+项目列表 → 区域读取中 → 成功有项目 / 确认空列表
+                      → 失败 → 重试读取
+已有项目 → 刷新 → 更新失败保旧内容 → 继续原项目 / 重试
+演示菜单单独提供成功、失败、长原因、较早回执及再发一次读取
+```
+
+默认一次微任务读取，手动场景由菜单明确完成Promise，无定时器/网络请求/业务推进。首次读取未完成不冒空成功；失败短句+重试、原原因单层按需展开。后续刷新保搜索输入/结果、链接与读取动作焦点；正常无顶栏成功块，未失败时按钮称刷新、失败才称重试。每次重新进入列表重新读当前演示源；浏览器刷新重建正常读取，不复活手动pending。故意保留的旧pending句柄仅供竞争演示、无生产队列上限或持久化合同，不得搬去接真实网络。
+
+| 本片实际验收 | 证据与范围 |
+| --- | --- |
+| 四宽1440/1024/768/390 | 主26组/29图：首次等待→失败→实际Tab/Enter重试→成功；已有查找结果刷新失败保旧、长原因收起/全文、精确继续/返回、刷新、空成功与无匹配区分；局部焦点/无横溢通过，不称完整无障碍 |
+| 竞争与副作用边界 | 真实菜单/链接：新失败后旧成功不覆盖；离开配置页及前后退；读中创建保存→返回新读成功→旧失败不删新项目；reset后旧成功无影响；刷新不复活pending。主检查不写session或终态，读取动作前后业务记录不变；模拟读取同一源不证明真实取新数据 |
+| 旧新对照 | 11份网页正常生成输入×四宽44组，仅替旧新app/style；非列表完整main DOM及标题/动作样式、业务记录相同，列表原rows投影相同。克隆仅固定输入对照，不当自然恢复；44组不宣称旧新双击副作用对照 |
+| 相关回归 | 创建20、运行20、报告26及13JS/9既有契约通过，运行回归包含原双击单run、等待/停止/快照等约束。原index脚本顺序/CSP与其他13资产字节不变；只本地静态请求，无page/console error |
+| 过程与消融 | 读视图局部更新不重建已有search/links，不造第二项目库/全局请求框架；非列表业务函数保留。主代理实看桌面首次失败、窄屏保旧/加载与长错收起，监督只读核实现/过程/选图，不实现或跑测试 |
+
+检查器失败均保本地：空匹配div误要求visible→改attached/busy；关闭按钮误取可见字→改accessible name；旧回归部分文字“已有项目”撞新场景描述→限定data-scene；一次驱动更新/启动并行误读旧脚本→顺序复跑；对照脚本错报告动作名/route回调默认参数被Request覆盖→修检查器再完整通过。没有改产品迎合断言、关闭门禁或人工补记录。首次按钮措辞自审小改后完整主26及44对照复验。
+
+证据dev_work/artifacts/wb05k2/、白话测评dev_work/reports/wb05k2-review.md，浏览器脚本dev_work/smokes/wb05k2_*，预览http://127.0.0.1:8933/；原型/脚本/截图/结果仅本地，正式仅三docs提交。真实API/SSE/网络中断/自动重连/后端取新内容/Provider/SSH/实物交付未验，G40/G26/G27和整体WB05仍开放。
+
+**唯一下一片WB05L1：原始闭环最终核证与正式首片交接（只验收）**。依据§5收尾条件与原用户五项目标，核已有证据/实际网站完整路径，判断设计阶段能否关闭；保留模拟/真实边界、未验格与独立后置项，不边验边批量补功能，不直接接真实后端。本轮未执行L1。
 
 ## 8. 参考选择与复用边界
 
