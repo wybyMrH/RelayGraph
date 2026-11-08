@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-Q5限定本机CPU闭环结论保持，G33原因未知继续追踪；N00F Python 3.10兼容仍暂缓。WB01职责/字段设计与WB02–WB04限定模拟原型、WB05证据见G40及[设计附件§7](workbench-design.md)。WB05L1核心闭环核证及WB05L2必要跨区导航已限定模拟验收；**设计阶段尚未完成**，failed页双主操作仍为收尾前缺口。唯一下一片 **WB05L3：失败页主操作层级（未实施）**；不接真实后端或迁移生产页面。
+当前执行指针：N04-Q5限定本机CPU闭环结论保持，G33原因未知继续追踪；N00F Python 3.10兼容仍暂缓。WB01职责/字段设计与WB02–WB04限定模拟原型、WB05证据见G40及[设计附件§7](workbench-design.md)。WB05L1核心闭环核证、WB05L2必要跨区导航及WB05L3失败页主操作层级已限定模拟验收；**设计阶段尚待收尾核对**。唯一下一片 **WB05L4：整体设计收尾核验与正式首片交接（只读，未实施）**；不接真实后端或迁移生产页面。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -886,6 +886,12 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 - WB05L2（2026-11-08）必要导航设计阻断已解除，限定模拟：本地五入口、当前区/顶栏、监控/执行/活动最小导航壳与原项目/精确run/step/job/report返回；全局无来源不推断项目，错误归属/非法query/编码明确不可用。新navigation.js纯投影无存储/请求/推进，显式依赖数据/原聊天来源解析，沿app唯一go/popstate/approveLeave/positions；from不嵌套区域，旧run缺标题/编号/步骤名明确未记录，Job核runId/stepId/step.jobId双向关系。退出原两入口active硬编码，无第二业务状态核；旧生产导航消费者仍保留。
 - L2验收：主9组/24图/29Tab/Enter焦点，四宽1440/1024/768/390实际网页创建→run/log→三区→目录四类别/连接取消→精确log/step/report，刷新/前后退/旧run/第二项目/无来源/12坏引用/脏稿取消及整页保留/明确放弃；导航前后完整projects/runs/chats含报告与模拟事件一致，零页面/console错误、仅静态资源。补4组连接编辑保存采用/Agent脏稿tools返回保存及项目取消/流程保存返回/克隆纯防御；390新helper资源abort与真实Enter重载2组2图，原URL/session不变。8网页输入×4宽32旧新主DOM/保存state对照、创建20/run20/report26回归、14JS/9原契约通过。固定克隆不证明自然恢复/双击副作用；静态故障不证明真实API恢复，产品控件局部键盘不当完整无障碍。
 - L2过程/范围：前两主harness误把full URL当hash、同文档goto当整页跳转，保失败修检查器；监督指出本helper快照缺值/Job关联需收紧，最终主轮和补核通过，未放宽门禁/改执行内核/注入终态。主代理实看4张本轮关键图，监督另抽样，非26图逐图人工审查。仅本地index/app/style/README+navigation.js变，原12其他资产/292生产源码/规格/AGENTS不变，无新依赖；证据dev_work/artifacts/wb05l2/与reports/wb05l2-review.md本地不推送，正式仅三docs。failed双primary原run_views未改，G40/G26/G27/WB05仍开放；唯一下一L3只改失败页先诊断后普通新运行，验后按原要求核收尾，正式列表仍仅候选。
+
+
+- WB05L3（2026-11-08）failed操作层级限定模拟验收：本地run_views只读取本次failed步骤，一处primary“查看失败步骤”；普通新运行/原诊断在失败证据后，复用done现run-next，不新增helper/CSS/门禁或状态。缺失败记录明说不换其他step/log，完整原因、退出7、完整进度/下游skipped保留。旧顶部primary/诊断展示退出，原data-start-project/设置/step/job和生产入口仍有消费者保留。只run_views/README改变，另15资产、292生产源码/稳定规格/AGENTS不变。
+- L3证据：主10组/16图/16次局部Tab/Enter停靠，1440/1024/768/390实际网页新建长名→明确模拟失败→精确step/log及返回焦点→历史/刷新前后退→当前路径保存relative失效阻新run但旧证据可读→修复返回→明确新run一次/active去重/两项目隔离；无page/console错误，仅同源静态请求。14网页输入×4宽56最终旧新对照，非failed与其他阅读页完整DOM/state相同，failed仅动作布局/样式/诊断文案归一后相同，原诊断/门禁及实际新run快照/步骤/事件/Job次数相同（排新随机ID/时间）。6纯视图克隆核缺failed/空plan/Agent失败/child仍running/缺原因，不写session、不当自然恢复。run20/report26/nav9、14JS/9既有契约通过。
+- L3过程边界：早轮1024 job主DOM不等、另一轮768 failed按钮null，当时未存差异DOM，原因未确认；不武断归因harness/产品，也不称已消除。补差异/启动故障采集与显式等待原产品启动完成后，最终56项通过、112启动观察无busy/failed；另对job与配置失效failed-invalid-current两输入在1024宽各20轮（40项）定向复查未复现，未按原768 failed输入定向重现，非可靠性保证。保原失败log，产品未为测试改动；主功能验收与比较边界分开。主代理实看failed1440/390及new-run-blocked768，监督另抽样，不称全图/全键盘/真实用户或真实后端验收。证据dev_work/artifacts/wb05l3/，白话报告dev_work/reports/wb05l3-review.md，原型/脚本/图/结果只本地。
+- L3交接：L1两项设计阻断均已有限定模拟验收，整体WB05仍待原五目标与当前证据收尾核对，不能拿按钮调整或无关PASS数宣布整个设计完成。唯一下一WB05L4只读核验/交接，不新增美化；早比较间歇边界进入核查。真实API/Provider/远程/物理交付及G40/G26/G27保持开放。
 
 ## 3. 验证边界与阶段状态
 
