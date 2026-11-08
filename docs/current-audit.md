@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：N04-Q5已完成原始目标核证，N04限定本机CPU闭环验收结论保持不变；G33原因未知继续追踪。按用户最新优先级暂缓N00F Python 3.10独立兼容片，先做工作台前端设计。WB01设计、WB02项目入口/三步创建、WB03A运行过程、WB03B历史报告、WB04A项目资料环境设置、WB04B1模型连接目录、WB04B2步骤模型覆盖、WB04C1 Agent目录/步骤绑定、WB04C2工具授权/只读目录、WB04D1流程目录/创建往返、WB04D2固定流程基本编辑/引用保真及WB04E按需Agent辅助对话独立模拟原型已完成（见G40及[设计附件](workbench-design.md)）；未修改生产页面或后端。WB05A整体需求/体验证据总核、WB05B1项目设置分区/唯一诊断、WB05B2创建第三步信息减负、WB05C1子任务日志阅读与精确返回及WB05C2本次报告正文下载/缺失反馈已限定模拟验收；WB05D1短时通知归属/跨页清理与WB05D2辅助对话失败阅读/重试入口亦已限定模拟验收；唯一下一片 **WB05E1：已有项目未知流程的资料保存边界（仅本地原型，未实施）**。
+当前执行指针：N04-Q5已完成原始目标核证，N04限定本机CPU闭环验收结论保持不变；G33原因未知继续追踪。按用户最新优先级暂缓N00F Python 3.10独立兼容片，先做工作台前端设计。WB01设计、WB02项目入口/三步创建、WB03A运行过程、WB03B历史报告、WB04A项目资料环境设置、WB04B1模型连接目录、WB04B2步骤模型覆盖、WB04C1 Agent目录/步骤绑定、WB04C2工具授权/只读目录、WB04D1流程目录/创建往返、WB04D2固定流程基本编辑/引用保真及WB04E按需Agent辅助对话独立模拟原型已完成（见G40及[设计附件](workbench-design.md)）；未修改生产页面或后端。WB05A整体需求/体验证据总核、WB05B1项目设置分区/唯一诊断、WB05B2创建第三步信息减负、WB05C1子任务日志阅读与精确返回及WB05C2本次报告正文下载/缺失反馈已限定模拟验收；WB05D1短时通知归属/跨页清理与WB05D2辅助对话失败阅读/重试入口亦已限定模拟验收；WB05E1已有项目未知流程的资料保存边界已限定模拟验收；唯一下一片 **WB05E2：缺流程身份记录的只读引用防御（仅本地原型，未实施）**。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -813,7 +813,12 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 - WB05D2（2026-11-08）限定模拟验收：chat.page只调整failed pending，保来源/状态/attempt，短事实与原重试先于单层完整原因；原error仅escape，不trim/截断/猜中文原因码，空或缺原因明确未记录。仅4条局部CSS，无固定高度/嵌套滚动/新框架。waiting和no-pending完整HTML逐字相同，除page外的12个导出方法源码原样，app及send/complete/retry/门禁/快照/执行不动。
 - WB05D2证据：主19组/12图，四宽1440/1024/768/390长短错误/局部Tab与Enter/刷新前后退，同request追加attempt/单用户消息/snapshot不变；正常UI启动run及精确步骤来源返回、显式完成模拟run/report后讨论不改整对象。两固定chat-projects项目及实际Agent重绑隔离、缺模型修复、disabled/unknown/empty门禁、目录实际停用模型后retry拒绝均验证。另20项只读clone投影/12图及两非失败完整DOM/除page外的12个方法源码对照：HTML/空白换行/CRLF/空或缺原因/无空格长token安全完整，session不变。持久原error逐字保留，HTML parser与旧投影同样规范CRLF/CR为LF，不称DOM保CRLF逐字或clone为自然异常恢复。
 - WB05D2回归/过程：chat23/run20/reports26最终均errors[]，11JS/9既有契约及装配/原CSP通过。主harness首轮误硬编码option为report，改读取真实渲染值后整套重跑并保失败log，未为测试改产品、放宽门禁或写session终态。主代理实看compact390/expanded390/compact1440，监督只读看compact390/expanded1440及证据，不实现/执行测试，不称全图人工/全站键盘/真实新手通过。原默认全文先于动作的展示退出，保原事件消费者/聚焦/说明，不抽第二状态服务。仅本地chat/style/README变，生产292源码/稳定规格/AGENTS不动，原型/脚本/截图/结果不提交。
-- WB05D2交接：证据dev_work/artifacts/wb05d2/，过程dev_work/reports/wb05d2-review.md；仍是模拟辅助对话，真实Provider恢复未验。未知流程设置资料保存被validate(3)创建式校验阻断已在WB05A/B1登记，唯一下一片WB05E1仅分开已有设置保存与创建/启动要求，保未知原引用/扩展和历史，启动仍拒绝；不自动换流程、不把保存称修复。下载长错、状态重复、脏稿/检索/区域故障反馈和正式接线仍独立待办，G40/G26/G27及WB05整体体验不关闭。
+- WB05D2交接：证据dev_work/artifacts/wb05d2/，过程dev_work/reports/wb05d2-review.md；仍是模拟辅助对话，真实Provider恢复未验。未知流程设置资料保存被validate(3)创建式校验阻断已在WB05A/B1登记，当时交接WB05E1（现已限定验收见下文），仅分开已有设置保存与创建/启动要求，保未知原引用/扩展和历史，启动仍拒绝；不自动换流程、不把保存称修复。下载长错、状态重复、脏稿/检索/区域故障反馈和正式接线仍独立待办，G40/G26/G27及WB05整体体验不关闭。
+
+- WB05E1（2026-11-08）限定模拟验收：已有unknown流程引用仍可显式保存独立资料，原流程与运行阻塞保留。validate(3)仅对projects中确有editingId的已有项目免除创建式流程选择错误；名称/目标非空、仓库/论文URL及创建选流程仍校验。设置底部无法取得模板时显示“可保存项目资料；流程尚未确认，暂不能开始新运行。”。只本地app两处及README变；原makeDraft/old spread/白名单、issueList/startRun、FV与style不改，无新保存服务或自动采用。
+- WB05E1证据：主14组/9图，四宽1440/1024/768/390实际unknown长名/资料编辑、草稿刷新、唯一诊断/目录返回、保存后保引用/启动拒绝、局部Tab和字段聚焦；格式校验、取消/前后退、正常/停用/旧版/legacy、显式设置故障重试、正常UI历史run/report保真、两个UI创建项目草稿隔离。另6组受控边界：已UI生成历史作为初始克隆加入unknown/扩展/停放覆盖后保真；unknown初始保存故障及Storage抛错需显式retry；空templateId可存但不补引用；unknown创建两种保存拒绝；强触禁用启动仍拒绝。静态响应初始输入/受控故障不当自然迁移或恢复，无session终态注入。edges3图中缺身份故障观察图不是通过能力图。
+- WB05E1对照/过程：16原场景保存/门禁/快照/目录/模拟run次数相同，6创建DOM逐字相同，unknown仅资料保存和初始hint预期变化；递归归一updatedAt，不当外部生命周期认证。创建20/设置15/run20/reports26/chat23回归、11JS/9契约及装配/原CSP通过。harness假定fieldSources存在、误认旧run按钮名、误以projectTemplate({})抛错，保失败log后校正初始输入/实际按钮/诊断定位并完整重跑，产品未迎合或放宽门禁。主代理实看unknown-edit390/1440、unknown-saved390，不称全图人工/全站键盘/真实新手或真实API验收。其余12原型资产及生产292源码/稳定规格/AGENTS不变，原型/脚本/截图/结果仅本地。
+- WB05E1新增复现及交接：隔离初始输入同时缺templateId/flowSelection时，FV.reference调用adopted，两个undefined相等后读缺s.revision抛错，设置落重载/重置页；old/new实际网页同错，未计入保存通过，详dev_work/artifacts/wb05e1/absent-flow-discovery.json。空templateId和unknown非空引用通过不代表所有缺记录可存。唯一下一片WB05E2仅补只读引用防御，保缺字段/unknown诊断及启动拒绝，不补默认或伪快照。旧run“开始新运行”可点但原门禁拒绝、unknown运行概览流程/步骤空白与模型来源投影不足，分别登记后续呈现观察，不混E2。证据dev_work/artifacts/wb05e1/，过程dev_work/reports/wb05e1-review.md；G40/G26/G27、整体WB05及正式接线保持开放。
 
 ## 3. 验证边界与阶段状态
 
