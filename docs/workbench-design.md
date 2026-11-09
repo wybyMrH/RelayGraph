@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01E；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01F1；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（先UX01F1模型连接与路由诊断，再分别调查Search、Agent/工具、模板）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F2 Search，再分别调查Agent/工具、模板）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@
 | 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
-| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | 唯一下一片UX01F1先查模型连接/路由诊断，其余分片；只读目录不能替代编辑操作 |
+| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由已限定完成，唯一下一片UX01F2查Search，其余分片；只读目录不能替代编辑操作 |
 | 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
@@ -419,7 +419,79 @@
 
 主浏览器20项观察/1337请求（1318GET、16POST=11创建+4input+1signal、3DELETE），requestfailed/501均0；**pageerror1为刻意input503的未处理拒绝，观察末尾失败1为390真实遮挡超时**，不能记全绿。首次脚本在wait_for_function调用参数写法报TypeError，原脚本记录保留；只修本地arg关键字后运行，未改产品、不停轮询、不force、不补生产终态。第二次执行到390失败后保留，没有重复跑到绿；可达无GPU正常路径未关闭检查。主代理实看390失败与1440跨会话输出图，其他截图/长内容不冒称全人工已看。
 
-本地脚本、纯方法结果、请求JSON、Blob下载、两轮日志与七图暂存 `/tmp/relaygraph-ux-audit/ux01e/`，沿dev_work不可访问例外不修复/重建、不提交。第二部分新增G42并更新相关问题/逐文件消费者，旧页面、helper、API/CLI全部保留；独立只读监督复核后只提交三正式docs。全产品需求仍未闭合，不进入生产改版。原UX01F全局能力域较大，下一片拆为 **UX01F1：模型连接与路由诊断需求调查**，Search/Agent工具/模板分别留后续调查，不能同轮批量做完。
+本地脚本、纯方法结果、请求JSON、Blob下载、两轮日志与七图暂存 `/tmp/relaygraph-ux-audit/ux01e/`，沿dev_work不可访问例外不修复/重建、不提交。第二部分新增G42并更新相关问题/逐文件消费者，旧页面、helper、API/CLI全部保留；独立只读监督复核后只提交三正式docs。全产品需求仍未闭合，不进入生产改版。原UX01F全局能力域较大，当时下一片拆为UX01F1模型连接与路由诊断调查（现见后文限定完成），Search/Agent工具/模板分别留后续调查，不能同轮批量做完。
+
+### UX01F1：模型连接、测试对象与有效路由
+
+对应R03/R09/R12/R13、G09/G19/G21/G26/G27/G40/G41及新增[G43](current-audit.md#g43)。这一片要回答：我在哪里填一次连接信息；修改的是草稿还是已生效配置；测试究竟用了哪个地址和模型；哪些项目会受影响。只调查LLM连接与路由消费者，Search/Agent工具编辑/模板迁移分别留后片，不改生产代码或新增布局。
+
+源码链：[配置中心AI渲染](../web/config-center/config_center_ai_renderer.js)、[事件](../web/config-center/config_center_provider_actions.js)、[Profile helper](../web/config-center/config_center_provider_profiles.js) → [app.js](../web/core/app.js) 的load/save/updateSelectedProviderProfile与test/models → [registry.py](../total_control/state/registry.py):321–606 → [字段/脱敏](../total_control/state/registry_pkg/provider_profiles.py)、[路由诊断](../total_control/state/registry_pkg/provider_route_health.py)、[LLMClient](../total_control/llm_client.py)。工作台仍有[第二编辑入口](../web/workspace/workspace_model_provider_actions.js)，共用同一state与保存核，不是第二套本地连接目录。
+
+### UX01F1 字段、来源与保存影响
+
+下表既列实际字段，也标出正式页面合同应保留或改变的语义；不是本轮已经实现的行为。所有连接凭据的编辑归配置中心；项目只选择连接并查看有效来源，运行只读本次证据。未确认语义相同的vendor/provider不得直接合并。
+
+| 实际字段/输出 | 用途、来源、条件与当前默认 | 联动、校验、保存/取消影响 | 处理决定 |
+| --- | --- | --- | --- |
+| `id` / `profile_id` | 连接身份；UI生成client ID，API无ID生成8位，目录创建10位；test/models用profile_id引用 | create同ID替换不是冲突拒绝；PUT不存在为ValueError；前端错误文字匹配404/not found后回POST | ID隐藏于诊断，引用保留；不得把自动重建当恢复合同 |
+| `label` ↔ API `name` | 用户可读名称；UI要求非空，创建空名由后端补，更新可空 | 两编辑表面共用内存条目；完整后800ms自动保存，显式保存也走同核；无真正取消编辑按钮 | 保留单一名称；新设计采用清楚的草稿/保存/放弃，不混隐式提交 |
+| `kind` / 兼容`profile_type/type` | 当前类型选择LLM或Search；未知归LLM | manage change分支会清vendor/URL/model但保key信息；input也处理select，重绘可能影响change；类型跨域变更有凭据复用风险 | 类型用于目录分类，跨类型变更需独立影响确认；本片不设计Search字段 |
+| UI `vendor` ↔ API `provider`、`vendor_id` | UI厂商表含默认URL/免密规则；保存把同一个vendor同时写provider/vendor_id；后端目录中vendor身份与协议不同，例如Gemini用openai兼容协议 | UI读回只取provider，丢vendor_id；未知厂商可保存，client只有anthropic特殊协议，其余OpenAI兼容。换厂商仅当URL空或属于任一预设才改默认URL，保已有key | 保留厂商身份与协议区别；统一公开目录候选，先核自定义厂商兼容再收敛，不复制第三份表 |
+| `base_url` | 服务端点；UI非空必填；API trim但不校验URL/scheme | client去尾斜杠且已知provider缺URL可补默认，health仍判缺URL；改地址会改变后续run路由hash；现key沿用 | 明示当前地址与变更影响；换域凭据确认及URL边界列后端缺口，不能只靠UI |
+| UI `model` ↔ API `models[]` | UI只读第一项，编辑/点候选写单项数组；API允许多项且无元素/去重校验；LLM实际默认第一项 | 重存会丢其余项；顺序有执行影响，不是fallback池；已保存test优先旧models[0]，忽略payload.model修改 | 保留完整现存数组兼容；区分选用模型与发现候选，不把未支持的多模型调度包装成能力 |
+| `api_key` | 用户临时输入；GET原key删去，编辑框空；有新key时test/models发原始草稿，无新key时只发保存ID | update空串保旧，空格truthy再strip可清；create同ID空值也沿用；无正式clear操作。隐藏/显示只是输入框显隐，不回取旧key；换kind/vendor/URL保留旧凭据 | 留空保留、替换、明确移除应分别表达，移除尚无可靠API合同；不采用空格技巧。密钥只在唯一编辑处，不进项目/运行快照 |
+| `api_key_masked`、`has_api_key`、`key_required` | 公开遮罩/存在及要求；长key公开前8后4，短key***；has_api_key也可能是免密真值 | UIload从masked/key重算has，未直接取公开has；helper免密由显式false、厂商或URL含localhost/127.0.0.1判断，后端也有字符串推断 | 存在、免密与真实验证分开；本机判断不可把字符串包含当严格hostname验证；不扩散遮罩片段 |
+| `is_default` | 同类型默认标记，创建false；设true清同kind其他标记，允许全false | UI仅manage有checkbox；**未发现LLM执行兜底消费者**，不能说未选择项目自动用它 | 保留旧数据含义，名称须不承诺自动路由；真正默认策略留合同阶段决定 |
+| `created_at/updated_at` | 后端生成记录时间；UI转换未保留；无revision | 保存失败可能内存已变；没有并发版本冲突拒绝；测试未绑定版本/时间 | 保留可信来源，未来标明保存与验证对象；不伪造revision或最近验证 |
+| `status/missing_fields`、目录计数 | health只核URL/models/必要key，ready是字段齐全 | UI另校名称/厂商；`configuredCount>0`会抹effective blocking count；不等本项目能启动或供应商健康 | 分离配置完整、实际请求结果、项目门禁；删除重复“已就绪”大卡，具体缺项仍保留 |
+| `providerAvailableModels/providerTestResult` | 模型候选与测试结果，当前全局UI变量；API返回models嵌套或test嵌套 | 未绑定连接/草稿/请求代号；切连接不清结果，迟到能污染另一编辑区；候选点选也会触发自动保存 | 改为当前对象局部反馈/候选；结果可读但不能当持久健康或已采用证明 |
+| `model.provider_profile_id` | 模板/项目默认引用；项目由模板复制，不是活链接 | 项目normalizer用current or previous，已选值传空串仍回旧值；UI下拉仅LLM，未知引用不能静默换别项 | 归项目设置选择，显示有效来源/失效原因；清空合同需单独修，不能前端假成功 |
+| `model.routing_mode`、`Agent.provider_profile_id` | 两值workspace_default/agent_override；后者且Agent非空才覆盖，否则项目默认 | 没有项目ID时无全局is_default兜底；摘要却可能取当前编辑选中Profile并把Agent计为有路由；同一Agent多个节点不是步骤独立覆盖 | 归项目路由/Agent例外，显示计算后来源；不在连接编辑里重复改授权或造步骤级后端覆盖 |
+| `model.chat_agent_id/notes` | 聊天入口选择与路由备注，模板/项目独立保存；notes纯备注 | 当前manage的模板路由表紧挨全局连接，按钮保存整个模板；项目另有保存入口，不能以保存Profile代表保存项目/模板 | 路由归对应模板/项目，连接页仅关联只读去向；聊天/模板全字段后片调查 |
+| `provider_route_hash` | run步骤冻结id/kind/provider/URL/models/key_required非秘密hash | 后续重新读取全局profile，hash变化拒绝并要求新run；key/name/default不入hash，轮换key可供后续调用；删除会使后续失败 | 历史证据只读，不拿当前配置填旧事实；解释“项目快照＋路由变更拒绝”，不承诺完整Provider快照 |
+
+当前密钥仍由[paths](../total_control/constants_pkg/paths.py):11–14、[persistence](../total_control/state/persistence.py):16–28和[secrets_crypto](../total_control/secrets_crypto.py):19–68管理：默认data/provider_profiles.json加密副本、data/.master_key，内存明文、兼容旧明文；不符合用户要求的config集中迁移，仍属G09/N00E后续工作。本片没有读文件或迁移密钥。主密钥缺/空会重建，解密失败返回空，需独立验证恢复与不覆盖旧密文；加密不等于损坏已可恢复。
+
+### UX01F1 动作、API和消费者合同
+
+| 现有API（准确方法） | 输入 → 输出/副作用 | 现有消费者与页面要求 |
+| --- | --- | --- |
+| GET `/api/provider-catalog` | 本地固定预设 → `{provider_catalog}`，含id/name/provider/base_url/models/key_required/website | 当前厂商下拉另用JS静态表，没有发现该GET消费者；不是在线模型发现。保API，不先引入整个平台 |
+| GET `/api/provider-profiles`；GET `/api/provider-profiles/{id}` | 全部/单个 → `{provider_profiles}` / `{provider_profile}`；单项不存在404 | 当前load用列表，转换丢vendor_id/多model/时间；失败回退旧localStorage可能冒充已保存。新版失败保旧需注明来源并能重试 |
+| POST `/api/provider-profiles` | id可选、kind/name/provider/vendor_id/URL/key/models/default/key_required → `{provider_profile}`，201 | 新增/自动保存；同ID更新替换。完整字段、冲突/空值语义待后端合同，不把201当验证通过 |
+| POST `/api/provider-profiles/from-catalog` | vendor_id（兼容id）、key、可选name/models/default → 普通公开profile，201；未知目录/缺必要key400 | 当前手工编辑未调用；只提供预设创建，不保存联网验证，也不新建第二连接模型 |
+| PUT或POST `/api/provider-profiles/{id}` | 部分字段 → `{provider_profile}`；先改内存后save加密副本并原子替换 | 当前UI用PUT；手动保存/800ms自动保存共用；无revision，写失败不保证回滚。编辑中/保存中/失败保稿合同需要明确 |
+| DELETE `/api/provider-profiles/{id}` | ID → `{ok:true}`；只删连接，不迁移/清理引用、不拦占用 | manage入口有确认但不清当前项目草稿；workspace remove会清当前model/agents草稿，未由该操作持久化。未来应先解释受影响引用并明确处理，**没有enabled/禁用API** |
+| POST `/api/provider-profiles/test` | profile_id或原始草稿 → `{test}`；缺保存ID常为200下success=false | 有ID完全取保存配置，首model优先；原始草稿不保存，必须明确测试对象；成功只代表这次请求，非工具/流/全项目支持 |
+| POST `/api/provider-profiles/models` | profile_id或provider/URL/key等草稿 → `{models:{success,models,provider,base_url,error}}` | 模型列表不是completion；原始models草稿不消费models数组。当前只读列表长度，不直接核success；候选不应跨连接共享 |
+| GET `/api/provider-route-health` | 当前Profiles/Agent/模板/项目 → 计数/status/issues及逐profile静态缺项 | 当前web主要消费status payload的provider_route_health，非不断请求该GET；诊断可给受影响对象入口，不能替代实际节点门禁 |
+
+测试实际发ping、max_tokens=8、timeout=15；失败后再查models（另15秒），没有本操作共用总deadline，不依docstring承诺“1 token/总15秒”。OpenAI兼容GET /models只列id；Anthropic分支直接success=true、空列表及“不支持列表”说明，**没有发请求**。completion非流式缺choices可能空正文无error，属待故障注入风险；错误可能带供应商body、test带正文预览，公开诊断脱敏仍待独立验证，不能用真实key制造证据。
+
+实际执行路由见[拓扑](../total_control/workspace/automation/topology.py):9–41、[Agent调用](../total_control/state/workspaces/agents.py):532–563、[对话消费者](../total_control/state/workspaces/chat.py):302–316/659–671、[模型规范](../total_control/workspace/schema/recipe.py):84–108；[工作流受理](../total_control/state/workspaces/workflow.py):147–229及[冻结记录](../total_control/state/workspaces/workflow_records.py):319–351/427–430核hash与快照。仅核引用和有效模型，不扩展这些页面的编辑设计。
+
+### UX01F1 异常、返回与冗余处理决定
+
+- 新页面需分别表达：草稿、保存结果、字段完整性、模型列表读取、指定模型请求结果、项目有效路由、旧run事实；这些不是同一个成功状态。正常加载不保留顶部“状态读取完成/30秒”块，失败保重试入口，不把说明铺成操作手册。
+- 当前两个编辑表面共用内存条目，填全即800ms写全局；切连接/关页无可靠放弃或取消pending，save后列表重读也可冲掉其他草稿。新合同应在唯一配置编辑位置明确保存/取消，变更模型/地址/凭据时说明影响；跨页保项目/run和返回位置，不静默采用。未来实现前需消融所有调用者，不在本片删旧入口。
+- 当前test/models/save/load没有连接身份/草稿版本门禁或忙碌防重，候选迟到可显示另一连接；保存、删除及迟到重读可能重建/覆盖（后两项静态风险，未逐一复现）。后续应按连接+请求对象隔离反馈，不能造第二全局状态源或把错误退回缓存叫成功。
+- 全局连接页只编辑接入信息；模板默认路由、项目选择与Agent例外各回所属编辑页，显示有效值/来源和只读引用。工作台保选择、修复返回与诊断能力，不再重复输入key；旧路由摘要中“选中编辑对象=默认路由”候选退出，门禁仍以现有后端事实为准。
+- 前后端厂商表、完整性规则、项目路由重复解析都是收敛候选，但目录身份/协议/项目优先级语义要先对齐；不凭相同名字删helper。本轮不选LiteLLM，不增加运行依赖；后续若替协议层，先对照错误、预算、模型响应和退出旧路径成本，不引入第二路由/重试所有者。
+
+### UX01F1 浏览器证据与未验证范围
+
+2026-11-09，xng/Playwright、Chromium140.0.7339.16，未改正式web；HTML预算按Handler替30。全部网络拦截，合成公开Profiles/models/test/保存回执；无真实服务、目录/凭据文件、LLM/SSH/GPU调用。夹具test成功是消费者输入，不是本项目或供应商能力证明。
+
+| 实际路径 | 观察结果 | 证明限度 |
+| --- | --- | --- |
+| 1440保存/测试/模型选择 | 已存遮罩/空key输入；测试发profile_id；清必填名称使草稿不完整、改URL/model后测试仍用保存ID/旧模型；models发保存ID、点候选填草稿；补全名称未按保存即PUT；显式保存重读目录 | 清名是受控不完整草稿用来隔离自动保存，不能称完整草稿天然可安全测试；无真实落盘/供应商请求 |
+| 1440错误/竞争 | 保存503保稿、测试503显示原因；删除原生确认取消无DELETE；hold B models→选A→release，B结果/候选显示A编辑区 | 延迟与503由网络拦截注入；没有DOM/业务状态补写/force/关轮询；未验真实并发保存/删除/占用保护 |
+| 1440空/新增免密 | 空目录可新增；新未保存ID测试not found；选择Ollama后URL仍空，补合法本地地址和model再显式保存成功 | 选择厂商自动URL**未通过**；明确手填地址是必要补充操作，不隐藏为顺畅流程。没有真实新安装或免密模型服务 |
+| 1024/768/390 | 各实际选择A→清名/编辑URL→单Tab到model→刷新重进，未保存不完整草稿丢失 | 三宽仅这些动作，不是四宽完整保存/键盘/长名错误/前后退或整站可用验收；截图部分仅展示顶栏/壳，占屏与多层容器问题仍开放 |
+
+最终18观察/1037请求=1027GET+7POST+3PUT，pageerror/requestfailed/未捕获观察异常/501均0，5图；**零异常不覆盖已观察的自动保存、测试对象错位、迟到污染和厂商联动失败**。首次脚本未限定列表容器，两个真实编辑入口同selector触发strict-mode，保记录后仅修查询范围。第二轮已记录13观察，但假定Ollama自动补URL导致保存等待超时；保现场图，第三轮明确记录失败并手填缺项，未改产品或放宽门禁。第二轮夹具缺ID用400，与实际通常200/test.success=false不符，第三轮修夹具响应并保旧记录；该结果不拿来证明后端HTTP状态。主代理实看390壳、1440迟到候选及第二轮缺URL图，不宣称全图/新手体验已验。
+
+证据、三轮记录、脚本和截图仅本地 `/tmp/relaygraph-ux-audit/ux01f1/`，沿dev_work不可访问例外，不修复/重建、不提交。旧入口/模板路由/项目选择/手工与目录API/helper均保留，无业务代码或数据变更；监督独立只读复核后只提交三docs。调查尚未全域闭合，后续交 **UX01F2：Search接入与搜索诊断需求调查**，不在此顺手改布局、引入框架或修后端。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
