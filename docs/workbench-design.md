@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01F4A；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01F4B；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试及UX01F4A模板定义/绑定/校验调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F4B版本/迁移）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试及UX01F4A模板定义/绑定/校验、UX01F4B版本/快照/显式迁移调查** 已在各自限定范围内完成。后续调查顺序是项目/流程设计与运行（唯一下一片UX01G1项目入口/输入/创建）、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@
 | 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
-| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试、UX01F4A模板定义/绑定/校验已限定完成，唯一下一片UX01F4B查版本/迁移，其余分片；只读目录不能替代编辑操作 |
+| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试、UX01F4A模板定义/绑定/校验及UX01F4B版本/快照/迁移已限定完成；下一UX01G1查项目入口/创建；只读目录不能替代编辑操作 |
 | 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
@@ -801,6 +801,70 @@ validator查节点身份/重复、非human Agent绑定、required工具、输出
 路由合成公开模板、Agent和validation响应，CRUD只是本脚本内存响应，不读真实config/key/runtime，不起后端/Job/Provider/SSH。夹具原有3节点分支/2recipe是用于发现前端写出损失的输入，回执不复制完整后端normalizer、validator和version_history；因此request证据可证明错误目标/形状，不能证明真实定义已被覆盖、真实警告或运行可用。8项首轮观察后记录函数name冲突、第二轮rename遗漏NameError、第三轮dict同名冲突均保原脚本/JSON/log；第四轮仅修本地记录器，保上述390产品失败。7份图（含首轮脚本故障图）与脚本/请求、后端只读报告仅`/tmp/relaygraph-ux-audit/ux01f4a/`；沿dev_work不可访问例外未修复/重建。主代理看race/blocked/390三图，图主要编辑壳和消息，错位由请求与源码证明。
 
 保全部旧生产入口/API、顺序编辑、图/列表投影、映射及诊断修复；无替代实现，不能凭控件多就删设计能力。后续消融固定同一模板及故障，对照节点列表/顺序卡/阶段/拓扑的定位、编辑、状态来源及副作用，再减少重复；全局Agent/工具/模型编辑复用F1–F3，不在模板复制第二套目录。只改三正式docs和本片相关逐文件结论，稳定规格/AGENTS/正式前后端未动；独立只读监督与文档检查后提交推送。唯一下一片F4B核版本/快照/差异/迁移，仍不开始整站画稿；全产品调查及G27/G40/G41/G45保持开放。
+
+### UX01F4B：模板历史、项目快照与明确采用
+
+对应R02/R03/R05/R09/R11/R12/R13，关联G10/G17/G19/G26/G27/G40/G41/G45及新增G46。开片列的G16实际是导入门面问题，不是模板迁移缺口，本片未牵强更新它。用户要知道“模板改了，旧项目会不会变；想采用时会改什么；原运行还能不能回看”。这里区分五个动作：保存全局模板、比较项目模板基线、在原项目采用、另建迁移草稿、复制审计摘要；不能统一叫“更新版本”。本片只调查，不改后端/正式界面，不宣称迁移安全已验。
+
+源码链：[history renderer](../web/workflow-template/workflow_template_version_history.js)/[history actions](../web/workflow-template/workflow_template_version_history_actions.js)和[template_review](../web/workflow-template/template_review_actions.js) → [app.js](../web/core/app.js)；[diff renderer](../web/workspace/workspace_template_diff.js)/[migration actions](../web/workspace/workspace_template_migration_actions.js) → HTTP → [workspace crud](../total_control/state/workspaces/crud.py) → [模板schema](../total_control/workspace/schema/templates.py)。普通保存消费者另见[cockpit payload](../total_control/workspace/cockpit/payload.py)；运行冻结只限核[workflow_records](../total_control/state/workspaces/workflow_records.py)、[types](../total_control/orchestration/types.py)与[run_store](../total_control/orchestration/run_store.py)的已有计划，不扩审所有运行行为。F4A字段、F1–F3模型/能力生效合同继续引用前片。
+
+### UX01F4B 字段与事实来源
+
+| 字段/对象 | 用途、输入来源与默认 | 校验、联动、保存影响与处理决定 |
+| --- | --- | --- |
+| `version_history[].schema/id/mode/recorded_at` | 全局模板的轻量变更记录；schema固定version_record.v1；mode默认update；缺id按时间/mode生成，产品生成时加template_id | 按recorded_at字符串倒序、最多20条，无ID去重/严格日期/mode枚举；时间精确到秒，同秒同mode可撞ID（E2路径/E3实际并发未验）。不能当发布版本号 |
+| 历史`template_id/template_name/from_updated_at/to_updated_at/from_node_count/to_node_count` | 记录当时模板名、前后时间与节点数量；只读摘要，无完整定义查询入口 | id字符串截80，数量safe_int；无revision/hash、作者、前后完整定义或回滚；保可读出处，不能声称可恢复任意版本 |
+| 历史`summary/changed_fields/added_nodes/removed_nodes/changed_nodes/warnings` | 结构和metadata变化摘要；summary含变化总数/节点增删改/边增删/拓扑与顺序标志 | changed_fields最多12；三类节点各8、每changed节点字段8、warnings12；不含全文变化值。UI显示前4条，计数仅所保留历史条数，不是项目全部变更次数；保审计，长内容需明确摘要/截断 |
+| 模板`updated_at`与历史生成 | create记录创建；update检测diff或name/description/status/brief/tags/notes六metadata后才追加 | 未检测变化可无新record；normalizer/startup也能更新时间。不能以时间变化当不可变版本；无变化更新可接收替换history，有定义变化则用存储旧history追加，非受保护追加日志 |
+| `template_snapshot` | 项目保存的采用基线；含template_id/name、source/env/recipes/model/nodes/links、按引用ID从当前全局目录取Agent/Tool深拷贝、created_at | 无模板updated_at/发布revision/hash、独立workspace_dir、metadata全文；created_at是构建时间，每次GET当前diff也会新建，不是模板发布时间。保基线/来源；不能用捕获时间冒发布版本 |
+| 项目`template_id/template_name/inputs/nodes/model/agents/tools` | 来源引用、项目输入和实际配置；创建时模板复制，之后项目可独立修改 | diff不比较实际项目覆盖，只比较项目template_snapshot和当前目录快照；模板修改不自动改项目/run。普通PUT可传template_snapshot，无独立采用审计门禁（E2），不当不可篡改基线 |
+| `RunPlan.workspace_snapshot/package_snapshot` | 提交时冻结项目及执行包；已有RunStore保存和恢复读取 | migration服务无改旧RunPlan调用；这只是源码边界佐证，未运行真实迁移/恢复。本次项目变化不等于旧run被改，也不能据此说当前项目展示完全一致 |
+| diff `schema/status/changed/summary` | GET `/api/workspaces/{id}/template-diff`；status same/changed/missing_template/missing_snapshot；summary计节点/字段/能力集合/边变化 | same只表示有限比较范围内无差异，不表示项目无覆盖、执行等价、已发布同版本或可运行；没有snapshot仍可changed=false而status missing_snapshot，状态与计数分开 |
+| diff `workspace_snapshot/current_template` | 比较两端的id/name/捕获时间/节点数/Agent与Tool IDs | 当前端按当前目录能力深拷；同ID能力正文变化不会计入diff。保两端来源，不能把0变化说成所有指令/授权都一致 |
+| diff `diff`、`structure_preview/link_preview/topology_preview` | 节点/边增删改、字段名、能力IDs，以及只读结构图 | diff节点/增删边列表最多24，结构/边预览每边最多40；UI再限节点18/边16及少量摘要。复制计划也非完整diff备份；多投影应共用事实和明确截断，不为美观假称全文可用 |
+| plan `schema/status/strategy/risk_level/changed_count` | migration_plan.v1；建议状态ready/review/manual_review/blocked与no_action/sync_safe_fields/sync_draft_then_validate/create_new_workspace/manual_rebuild/inspect_changes | 这是后端建议，不是已执行事务或真实检测结果；“安全”命名不能代替覆盖冲突证明。UI对inspect_changes回退逐项检查，保建议与来源 |
+| plan `can_auto_apply/can_manual_apply/can_create_draft/apply_scope` | auto始终false；manual=changed且无增删节点/边拓扑或边列表顺序变化；draft=changed或missing_snapshot | recipe/映射/config改变仍可能manual=true，建议先草稿与按钮资格并非同语义；missing_snapshot虽blocked仍能新草稿。scope只是分类摘要，不限制normalizer重建范围；不可据此承诺只改列出的字段 |
+| plan `recommended_action/blockers/warnings/steps` | 建议文字、缺来源/链路/映射/能力提示；steps含id/label/status/scope/detail/items/fields/agents/tools | step items至多12，UI显示前4步；validate-before-run是提醒，不会执行validator/门禁。保具体恢复入口，复杂解释放帮助/阅读区 |
+| `template_migration_history[]` | apply后最多12条，id/applied_at/mode/template id/name/旧新snapshot捕获时间/diff_summary/apply_scope/risk_level；新草稿附source_workspace id/name | 存在项目JSON而非RunStore追加表；普通保存和部分chat normalizer输出不保此字段，存在丢记录风险E2/E3。保追溯是需求，尚未真实持久化验收 |
+| `source_migration` | 新草稿来源项目id/name、created_at、模板id/name；只读 | 普通保存/再次apply无保真保证。不能用仅顶层runs/chat清空推导全部节点runtime已清；新草稿必须列清保留/重建/重置字段 |
+| 历史复制payload | schema version_history.copy.v1、copied_at、template id/name、dirty、source_type、node/link/history_count、updated_at和history摘要 | 优先当前草稿标题/节点数，history仍来自已保存摘要；可混dirty标题和旧历史。真实浏览器已复制观察；保标记“审计摘要”，不是备份/复制模板/指定版本采用 |
+| 计划复制payload | schema migration_plan.copy.v1、workspace id/name、template id/name、diff_summary和migration_plan | 同workspace缓存有plan就直接复制，无新鲜度/revision检查，不含完整snapshot/结构diff。保诊断导出，但不能写“复制即可拿到全部变化” |
+
+### UX01F4B 差异盲区与采用边界
+
+`workflow_template_snapshot_diff`按节点ID字典比较signature：kind/title、handler mode/agent_id/tool_id/output_key、node output_key/input_mapping/config/runtime。**不比较nodes数组顺序**、节点status/notes/position、handler name/handoff/max_iterations/timeout_seconds/output_format；Agent/Tool只比ID集合，不比同ID指令、预算、模型、授权/停用。source/env/recipes/model/links按字段比较，边的有效集合/列表顺序另算。公开“same”不是完整执行定义等价；节点顺序影响F4A正式执行前缀，这个漏项不能只改文案掩盖。
+
+原AST纯方法17场景实测：同ID Agent指令/Tool停用、handler交接/预算/格式、只倒置nodes保原links，均可same；最后一个结构预览顺序已不同而topology_changed仍false。隔离探针仅改独立顶层workspace_dir、未跑normalizer时，不进snapshot或版本record；真实保存可能先同步node.config而被捕获，该路径未验。改模板名有metadata历史record但项目diff仍same。runtime变化会被计入、links列表反序会被计入；不是所有排序/历史变化都被忽略。缺snapshot blocked仍可draft，recipe变化策略先草稿却manual=true。这些是隔离纯函数观察，不是已修复、API落盘或真实运行证据。
+
+| 动作/接口、输入输出 | 当前处理/门禁/副作用 | 需求、风险及后续验收 |
+| --- | --- | --- |
+| GET `/api/workspaces/{id}/template-diff` | 取项目template_snapshot，对当前目录+全局能力即时构建快照；项目不存在ValueError→404；不写项目 | 明确比较范围/基线与当前配置覆盖三者；响应按对象+请求版本应用，区内失败保恢复入口 |
+| POST `/api/workspaces/{id}/template-migration/apply`，输入`confirm` | 仅真值确认，字符串false也可过；不含expected revision/hash/request_id/字段选择；错误ValueError均400；status same返回200且applied.ok=false/status=same；真正应用返回workspace_id/workspace/diff/applied.record | 应绑定用户审阅版本和项目修订，明确冲突；区分“无需应用”和“已应用”；不把确认框代替幂等/保护 |
+| apply服务实际修改 | 锁内重算最新diff，manual资格通过后整份`normalize_workspace_instance_from_template`；按变化选env/recipe，必要恢复旧model/能力，始终恢复旧source，替换基线并记录迁移，锁外save_workspaces | 不是按scope逐字段补丁/三方合并。即使只变model也重建nodes，模板raw config/handler/runtime可能覆盖同ID项目值。没有active-run拒绝、真实校验或跨存储事务；真实覆盖/写失败/并发后果E3待验，旧run计划未被此方法重写 |
+| POST `/api/workspaces/{id}/template-migration/create-draft`，输入`confirm/name?` | 原项目/当前模板存在、diff非same且can_create_draft；成功201；ValueError400；返回源workspace_id、新draft_workspace_id/workspace/diff/source_diff/created.record | 名称可自定但现UI不提供；默认旧名截48＋迁移草稿。无expected hash/request_id，重复请求可建多份（E2）；独立验幂等再正式开放 |
+| 新草稿来源与重置 | 旧inputs/目录/env/首recipe/notes/tags＋当前模板model/能力/节点；清顶层id/时间/runs/chat/execution/history，再加来源记录 | 是混合草稿，不是完整新模板克隆；existing_seed仍有nodes，模板有runtime则沿模板，否则可能回旧同ID节点，未显式逐节点清历史。保旧项目不变但新草稿仍须检查来源/门禁 |
+| 普通项目PUT与chat消费者 | 普通保存用normalizer白名单，未补回migration_history/source_migration；又可接收template_snapshot | 追溯保存边界缺口G46；需实际正式入口正常保存/重启验证，不能靠前端临时缓存补丢失记录；完整编辑在G2调查 |
+| 删除/改名全局模板、目录启动 | CRUD不级联项目/RunStore；删除后diff missing_template，不能apply/draft；改名可有历史却diff same，项目名称仍旧；删空目录后启动可重建默认模板 | 保现有项目事实，不暗示删除项目；来源失效显示准确修复动作；删除保护/启动回填本片静态核实，未执行重启。未知创建template_id回退首项留G1核 |
+
+当前历史只保摘要，缺完整定义查询、指定旧版本采用/恢复、全局模板克隆；不得虚构这些能力。是否确需完整版本库应按用户任务单片确定，优先复用既有快照/哈希与持久事实边界，不默认引入Git平台、另一套前端revision或第二迁移器。
+
+### UX01F4B 旧页面实际可达性、错误与返回
+
+正式消费者只有`renderWorkspaceChainInspectPanel`调用`workspaceTemplateDiffMarkup({readOnly:true})`。所以即使plan两资格都true，也**只显示复制计划，没有应用/新草稿按钮**；helper和API存在不等用户可操作。只读诊断职责合理，但产品仍需要一个明确的项目配置采用入口，不能在新版继续漏掉；候选责任归项目流程设置，模板目录仍管全局定义/历史，具体页面合同待全域调查。没有往DOM补按钮来假装旧页可迁移。
+
+GET diff目前按selected workspace ID接回执，能挡别项目结果，却无同ID请求版本；实际旧网页普通两次切入诊断，在第二次新回执显示后释放第一次旧回执，旧文本重新覆盖。失败显示错误但区内无重试，切模板页签再回诊断才触发新GET。复制计划在同项目缓存已有plan时直接使用缓存，不会刷新；没有plan时helper会读取。合成same/changed/missing_template/missing_snapshot均实际显示；用户不能用“快照一致”判断项目没有覆盖。
+
+未接入写操作的helpers另用原JS隔离9场景：apply等待期间假callback选择B，旧回执仍select原A且读B的node选择；same/未应用回执仍提示“已应用”；两次显式createDraft helper调用发两请求；body只有confirm；匹配workspace缓存复制不刷新、错误向app catch传播。这些是**假callback的辅助方法观察**，不是浏览器切换/双击真实迁移；正式写入口不可见，未用强制调用把它冒充可用产品流程。后续应有明确目标/草稿版本、在途操作与准确返回保护，以及unknown响应核对，不能只加按钮。
+
+### UX01F4B 证据、删保与唯一下一步
+
+隔离Python直接抽原schema/工具纯函数AST、无产品import/服务/normalizer/落盘、禁socket，17场景符合预期；原JS helpers VM配假网络/选择/clipboard，9场景符合预期。后端只读报告形成时尚未跑这些探针，保原报告时间边界；正式结论以本节新增证据分级为准。没有真实迁移/配置保存、删除/重启、Provider/SSH/Job/RunStore变更验收。
+
+真实Chromium140.0.7339.16旧web全网络拦截，**13观察/536请求全GET**，pageerror/requestfailed零。1440真实按钮复制历史和计划到浏览器clipboard（loopback权限准备，非改clipboard实现）、5历史显示4/dirty草稿标题与5摘要、只读隐藏写动作、diff503和显式换页恢复、四状态/同项目迟到覆盖/跨项目复制归属。1024/768仅选模板→复制历史→单Tab，不是完整迁移/键盘/长内容验收；**390选模板普通click仍outside viewport超时失败1**，后续未通过，不force/改DOM/停轮询或重跑到绿。
+
+两个项目选择启动了SSE旁路：合成events是关闭的注释流，未建模的events/replay各1次共**2个501**，后续runs返回合成空列表；这是夹具未覆盖的回放链，不是产品API出错，也不影响本片模板diff/clipboard请求证据。没有为清501重跑，不以此宣称SSE/运行回放通过。首轮脚本在runs找use内历史、次轮进入use未开details，均不可见超时；第三轮仅纠正真实驾驶舱→打开历史summary→点项目入口，保两轮源/JSON/log/图，未绕过产品门禁。9图含两张早轮路径错误图，主代理看diff/late/390图；迟到覆盖由DOM观察/请求支持，late图主要壳不冒全文证据。全部脚本/报告/结果/图仅`/tmp/relaygraph-ux-audit/ux01f4b/`，dev_work不可访问例外未修复/重建。
+
+保历史复制、diff读取、现有API/写helpers和快照/RunStore，各有消费者；没有替代实现，不删旧入口。版本历史、基线diff、配置编辑和运行快照是不同事实，不能因都叫“历史/版本”合并；多图/摘要及重复计数是后续固定输入/故障消融候选。新增G46记录差异漏项/迁移覆盖/来源保存缺口，G27另记前端回执/选择；不把文档登记算修复。三docs/台账经独立只读监督和文档检查后提交推送，稳定规格/AGENTS/生产不变。唯一下一片UX01G1查项目入口、目标输入与创建回执；G2设置/覆盖、G3节点参数/I/O、G4发现/执行包、G5运行/历史为待拆调查方向，随后H维护，尚未形成全站布局。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
