@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01F4B；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01G1；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试及UX01F4A模板定义/绑定/校验、UX01F4B版本/快照/显式迁移调查** 已在各自限定范围内完成。后续调查顺序是项目/流程设计与运行（唯一下一片UX01G1项目入口/输入/创建）、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试及UX01F4A模板定义/绑定/校验、UX01F4B版本/快照/显式迁移及UX01G1项目入口/目标输入/创建回执调查** 已在各自限定范围内完成。后续调查顺序是项目/流程设计与运行（唯一下一片UX01G2A基本资料/来源/运行设置编辑）、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -17,8 +17,8 @@
 | 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
-| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试、UX01F4A模板定义/绑定/校验及UX01F4B版本/快照/迁移已限定完成；下一UX01G1查项目入口/创建；只读目录不能替代编辑操作 |
-| 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
+| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试、UX01F4A模板定义/绑定/校验及UX01F4B版本/快照/迁移已限定完成；项目入口/创建已由UX01G1限定调查；只读目录不能替代编辑操作 |
+| 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | UX01G1入口/目标输入/创建回执已限定调查；下一G2A基本资料/来源/运行设置，能力覆盖/逐节点/发现/运行仍待逐片闭合 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
 后端已有而新原型未展示的写操作和条件参数必须单列保留位置或待核原因，不降为未来新功能。每项能力分别标记源码接线、浏览器观察、模拟、真实缺口或未验证；接口存在、截图可见、模拟完成都不能互相替代。
@@ -864,7 +864,66 @@ GET diff目前按selected workspace ID接回执，能挡别项目结果，却无
 
 两个项目选择启动了SSE旁路：合成events是关闭的注释流，未建模的events/replay各1次共**2个501**，后续runs返回合成空列表；这是夹具未覆盖的回放链，不是产品API出错，也不影响本片模板diff/clipboard请求证据。没有为清501重跑，不以此宣称SSE/运行回放通过。首轮脚本在runs找use内历史、次轮进入use未开details，均不可见超时；第三轮仅纠正真实驾驶舱→打开历史summary→点项目入口，保两轮源/JSON/log/图，未绕过产品门禁。9图含两张早轮路径错误图，主代理看diff/late/390图；迟到覆盖由DOM观察/请求支持，late图主要壳不冒全文证据。全部脚本/报告/结果/图仅`/tmp/relaygraph-ux-audit/ux01f4b/`，dev_work不可访问例外未修复/重建。
 
-保历史复制、diff读取、现有API/写helpers和快照/RunStore，各有消费者；没有替代实现，不删旧入口。版本历史、基线diff、配置编辑和运行快照是不同事实，不能因都叫“历史/版本”合并；多图/摘要及重复计数是后续固定输入/故障消融候选。新增G46记录差异漏项/迁移覆盖/来源保存缺口，G27另记前端回执/选择；不把文档登记算修复。三docs/台账经独立只读监督和文档检查后提交推送，稳定规格/AGENTS/生产不变。唯一下一片UX01G1查项目入口、目标输入与创建回执；G2设置/覆盖、G3节点参数/I/O、G4发现/执行包、G5运行/历史为待拆调查方向，随后H维护，尚未形成全站布局。
+保历史复制、diff读取、现有API/写helpers和快照/RunStore，各有消费者；没有替代实现，不删旧入口。版本历史、基线diff、配置编辑和运行快照是不同事实，不能因都叫“历史/版本”合并；多图/摘要及重复计数是后续固定输入/故障消融候选。新增G46记录差异漏项/迁移覆盖/来源保存缺口，G27另记前端回执/选择；不把文档登记算修复。三docs/台账经独立只读监督和文档检查后提交推送，稳定规格/AGENTS/生产不变。F4B交接时下一片为UX01G1（现已限定调查，当前指针见文首）；G2设置/覆盖、G3节点参数/I/O、G4发现/执行包、G5运行/历史为待拆调查方向，随后H维护，尚未形成全站布局。
+
+### UX01G1：项目入口、目标输入与创建回执
+
+对应R02/R03/R04/R05/R12/R13，关联G09/G10/G12/G17/G19/G26/G27/G40/G41/G46。原开片G14是Transfer交接，不是资料线索或创建问题，本片不牵强更新；G45全局定义新增错用旧对象也不等本片新项目晚回执选择问题，后者归G27。用户要分别完成“继续已有项目”和“从新目标建立草稿”，不是先理解实例、Starter Chain、能力底座和执行包。本片只查字段、动作与已有消费者，不预定整站布局或实现新向导。
+
+源码链：[旧HTML](../web/index.html) → [launcher actions](../web/workspace/workspace_launcher_actions.js)/[shell actions](../web/workspace/workspace_shell_actions.js)/[list actions](../web/workspace/workspace_run_actions.js)/[navigation](../web/core/app_navigation_actions.js) → [app.js](../web/core/app.js) → [POST routes](../total_control/http_api/post_routes.py)/[Handler](../total_control/handler.py) → [create_workspace](../total_control/state/workspaces/crud.py) → [模板实例schema](../total_control/workspace/schema/templates.py)/[普通payload](../total_control/workspace/cockpit/payload.py)/[inputs schema](../total_control/workspace/schema/recipe.py)。发现/推进只核[discovery](../total_control/state/workspaces/discovery.py)/[automation](../total_control/state/workspaces/automation.py)最早副作用与返回，不重审完整算法/运行；公开回执另核[monitoring](../total_control/state/monitoring.py)、[records](../total_control/state/workspaces/workflow_records.py)、[资料计划](../total_control/workspace/cockpit/discovery.py)。
+
+### UX01G1 字段、归属与实际采用
+
+主启动器只有五个文本控件和一个模板选择；没有独立名称、主机、目录、模型或CPU/GPU编辑字段。提交体仅`{template_id, inputs}`，资源区选中主机不会随这个请求发送。高级实例表单是第二个创建消费者：空workspace_id时`submitWorkspace`同样POST集合入口，但它有回执ID检查、旧monitor失效和跨项目选择保护，不能将启动器缺口套给所有保存；其完整字段/覆盖往返留G2。
+
+| 字段/控件 | 用途、输入来源、必需条件与默认 | 联动、校验、保存影响与决定 |
+| --- | --- | --- |
+| `workspaceTaskGoalInput` → `inputs.goal_text` | 新研究目标；默认空，前端trim；五类输入任一非空即可创建，并非目标独有必填 | 后端goal空串可回退brief/idea/旧goal；空白串先真值选中再trim，和空串不同（原纯方法已观察）。模板路径brief可回退模板brief；不能把模板说明冒充用户已确认目标。保用户目标语义，名称允许生成/后续编辑 |
+| `workspaceTaskRepoInput` → `inputs.repo_urls` | 候选仓库多行；可选；前后端trim、去空、去重，保持顺序 | 不按逗号拆，不校验URL/协议/可达；全部存inputs，仅第一项进source.repo_url/默认节点。多候选不等多仓库已接入；保候选与主来源区分 |
+| `workspaceTaskPaperInput` → `inputs.paper_urls` | 论文/资料URL多行，可选，同仓库列表解析 | 只存线索，不上传正文/下载PDF或自动解析。第一项进source.paper_url，其余仍可被资料计划消费；保资料入口，不与repo地址直接合并 |
+| `workspaceTaskReferenceInput` → `inputs.references` | 数据集名、路径、链接及参考线索，可选 | 模板创建同时复制到项目顶层references；后续资料计划按链接/路径/查询解释，并可能用本机Path判断。不是host_id+path权威数据位置或已验证数据；分清线索与运行输入，后续类型化需求留G3/G4 |
+| `workspaceTaskContextInput` → `inputs.context_blocks` | 限制、成功标准、审批要求/已有发现，多行可选 | 不是notes的已证等价字段；含路径/数据关键词还可被发现计划读取。仅context也过hasInput，但source_mode仍idea；保明确用途，不能以简化为由合并成一个无语义大框 |
+| `workspaceTemplateSelect` → `template_id` | 默认目录首项；目录空显示暂无模板并disabled；前端要求非空 | 选模板只写selectedWorkflowTemplateId/重绘，不自动改已存项目。创建时复制实际模板snapshot；后端未知ID会静默取首项，必须核响应实际template_id。保流程选择，缺项应指向模板配置唯一维护位置 |
+| `inputs`容器及别名 | 后端dict inputs存在时只取该对象；否则读扁平payload；兼容repo_references/paper_references/context | nested空dict不会与顶层typed资料merge。references-only顶层不触发模板创建分支，而context_blocks会；UI不发送这种混用形状。单数repo_url/paper_url是普通表单合同，模板创建不当plural aliases；保持兼容但不能猜合并 |
+| `inputs.source_mode` / `source.type` | repo/paper/goal推断repo/paper/idea/mixed，context/reference不参与；显式非法值归idea | mixed的默认链类型映射idea，但选模板的nodes不因来源模式自动换模板。普通创建另有legacy source_type，可能与inputs来源不同；保来源与实际流程区分 |
+| 项目`name/brief/id` | 启动器不发name；模板创建默认brief优先目标，再模板brief；name取brief首行60字，再模板名；新ID时间＋随机8位 | 显式API name不限重名/同长度；payload.id不决定新ID。普通创建有repo尾名/Paper/40字等另一规则；201不证明按目标唯一建项。保用户可读名称与稳定身份，内部ID按需诊断 |
+| `workspace_dir/env/recipe` | 主启动器不收，模板路径从模板复制，API可按flat目录/env/命令等覆盖 | 创建不查目录/权限/host、不mkdir/clone/装环境或执行命令；普通表单无模板路径另补默认。需按流程显示必要设置，编辑和来源合同G2/G3再核，不能靠创建后全绿掩盖缺项 |
+| `model/agents/tools/nodes/links` | 模板创建直接取模板snapshot，**忽略payload中这些覆盖**；普通创建可以接收归一化 | 顶层server_id/provider_profile_id/GPU/data_roots也非项目创建字段，不要添加实际未保存的选择控件。项目覆盖须正式接口接线；模型/密钥仍归全局连接和项目引用，不重复输入key |
+| `status`与就绪 | 模板实例缺省ready，普通创建缺省draft，均可接受显式字符串；不做运行readiness校验 | 缺模型/有效主机/目录可存声明，不代表连接、数据或执行可用；“已保存”“需补配置”“可运行”必须分开。坏配置真实创建往返未验，不能把字段被忽略叫校验通过 |
+| `template_id/name/snapshot` | 模板路径保存实际所选定义及捕获快照；目录后来修改不自动改实例 | 无模板目录且无显式ID可落普通创建；有显式ID而空目录报错。采用/追溯沿F4B，不把创建时间当revision；优先展示实际来源而不是浏览器请求值 |
+| `notes/tags/chat/execution/runs` | notes/tags可API传但主启动器不发；模板创建chat可归一，execution/runs取existing（新建为空） | 普通创建另能接收部分运行投影，但不等RunStore权威证据。此处只标输入边界，不展开历史/聊天编辑；归G2/G5，保留现有消费者 |
+| 浏览器草稿/项目选择 | 输入事件调用saveLauncherDraft；实际save/restore都删`tc-workspace-launcher-draft`；selectedWorkspace单独localStorage | 选已有项目或创建回执hydrate调用的函数忽略workspace返回五空值。不能说已存项目inputs丢失；实际丢的是未提交新建输入/草稿恢复。新建草稿与继续项目应分任务管理，是否回填启动器不预先强定 |
+
+后端数据线索的公开计划会汇集全部repo/paper、references、部分context，再作本机路径判断；有线索时dataset计划ready不等数据已下载/远端已验证。create不调用默认回填/执行，但回执不是纯JSON回显：先save，再refresh_workflow_records查询RunStore、生成execution/automation/cockpit及部分本机Path投影。保存后投影失败也可能回400/503；这类实际持久化后果仍E3，不能把所有失败都显示“没有创建”。
+
+### UX01G1 入口、操作与副作用合同
+
+旧工作台由侧栏按钮进入同一index文档；驾驶舱/运行/配置中心/实例编辑仍是同页mode切换，选择记localStorage，无pushState/URL路由/Back合同（E2；本轮记录URL不变，未实际验证整套前后退）。已有项目藏在驾驶舱历史details里，卡上重复模板/来源/节点/Agent/目录/命令/流程/诊断摘要；没有独立项目列表页/创建分步身份。不是让新版删所有摘要：保快速识别/继续，按任务消融多份状态与配置统计。工作台和配置中心独立页面身份仍是目标，尚未实施。
+
+| 动作/接口与输入输出 | 当前处理、异常和保存影响 | 后续需求/删保决定 |
+| --- | --- | --- |
+| 仅建实例：POST `/api/workspaces` → 201 `{workspace}` | 模板非空且五输入任一非空才过UI；不调启动检查validator。后端按template_id/typed键分模板或普通合同，插内存→save_workspaces→公开投影；不调用发现/Agent/Job | 建立可编辑草稿，不强迫先完成全部运行配置。严格回执身份、实际模板/输入采用值、保存事实与就绪分别确认 |
+| 建实例＋发现：上述201后POST `/api/workspaces/{id}/discovery/run`，`{apply_defaults:true,include_source:true}` | 发现服务先可回填并保存默认配置，可能clone/排Job；不是只读检查。第二步失败不回滚已建项目，后端完整发现留G4 | 分阶段显示“项目已保存，发现失败/待核对”，保原项目继续入口；不能让用户再点创建补第二步，也不能靠“安全”文案省略副作用 |
+| 建实例＋推进：上述201后POST `/api/workspaces/{id}/advance`，`{force_run:false}` | 不是直接/run；服务可watch/review_failed，或发现、回填再blocked/run。200与201也不能代表整个流程成功 | 给实际下一动作与状态，不暗示创建就运行完；本轮只消费合成watch，不称默认新项目真实推进通过 |
+| 启动检查 | 客户端基于输入、Agent绑定、安全kind、资源快照和run节点派生五项，显示就绪/警告/阻塞；不创建、不请求后端校验，创建也不强制先检查 | 可做辅助预览，不能当真实路径/权限/模型预检。保来源和明确修复入口，与已有运行门禁共享权威结果的接线留后续 |
+| 创建中与重复提交 | beginAutomationAction有全局busy互斥并disabled三个创建按钮，结束恢复；Reset/输入/选择项目仍可操作。HTTP无request_id/idempotency消费 | 当前页防重复有效，不等多窗口/断线重试去重；绑定创建意图/草稿修订/返回目标，晚回执不能清新输入或抢项目选择 |
+| 回执与错误 | 启动器只读created.workspace，未严格要求workspace.id；旧页消费合成201空JSON可走成功文案。异常catch按当前selectedWorkspaceId合并error.payload，统一“创建/推进未完成” | 区分创建未完成/已保存后续失败/未知结果，后续API提供请求查回；错误合并目标风险E2，不称本轮已复现跨对象错误写 |
+| Reset / 取消 / 返回 | Reset清五输入、选择/执行节点、事件流并选首模板；没有创建取消/撤销HTTP能力。选项目也清五新建输入；未提交刷新丢输入 | Reset须清楚影响及草稿确认/可恢复性；取消浏览器等待不等取消创建/子任务。不要自动清掉已有运行或暗改配置 |
+| 高级表单创建 | workspaceResetBtn清已有选择/编辑草稿，submitWorkspace空ID POST `/api/workspaces`；模板与普通源字段消费不同 | 有真实调用者，先保留；G2核新建/编辑/取消/返回全表单，不能把两个创建路径无条件合并或提前删除 |
+
+后端无同名去重、无创建request_id，重复请求会新建ID；非dict合法JSON会当{}归一化。原create方法配假normalizer/save的分支检查证实：未知模板回首项、空目录显式ID拒绝/无ID走普通、references与context键分流不同、request_id不参与、save异常时内存insert未回滚。这只证明调用/分支/顺序，不证明真实normalizer、HTTP码或磁盘恢复。后端源码显示save之后构建公开回执可能失败，无正式按本次创建请求查回的合同；不能用按名称猜同一个项目。
+
+### UX01G1 观察证据、失败保留与后续
+
+未改旧web全网络拦截、Chromium140.0.7339.16、公开合成目录/项目；主轮**14观察/2115请求=2103GET+12POST**，pageerror/requestfailed/未建模501均0，另有观察脚本超时1。1440原按钮验证空输入/空模板拦截、五输入提交、仅创建不发现、503保输入重试、创建成功后发现503、advance的force_run=false/合成watch、busy防重但Reset/选已有项目晚回执、合成“先存后503”再创建两项。所有受理/保存/后续状态只在夹具内，不证明真实落盘/任务。1024/768/390仅目标原生click/fill/单Tab及刷新丢稿；不称四宽全创建/补充资料/完整键盘/长内容通过。与前片390模板列表失败是不同任务，本片不覆盖或推翻它。
+
+主轮空回执场景预期成功却5秒超时；保截图/原脚本/JSON/log。实看错误为201 `{}`缺application/json头，被产品正确拒绝为非JSON，是夹具错误，不是身份校验已有能力。**独立补观察**只为该场景显式补匹配真实Handler的JSON响应头，不改产品/断言门禁：**1观察/132请求=131GET+1POST**，无pageerror/requestfailed/501/观察失败；此时201空对象实际仍提示“实例已创建”，佐证启动器缺身份检查。主轮失败不抹除，不重跑整套或把合计请求写成一次全绿验收。
+
+原recipe/parse_line_list纯AST＋原create方法配假normalizer/公开投影/save，最终17场景（8个原输入纯函数场景＋9个假normalizer/公开投影/save的创建分支场景）符合预期、禁socket、无产品import。首次2场景时误将空白goal与空串当相同，断言失败；保pure-initial.py/results/log，只修观察预期并增加空串独立对照后17，未改业务或跳过断言。后端只读报告形成时尚未跑这些探针，保原时间边界。10图含主轮响应头错误图；主代理实看390、发现失败后的执行区和补回执图，后两图主要捕获自动定位后的执行壳，具体消息/身份以DOM和请求观察为证，不冒称截图显示全部错误正文。
+
+本片只改三docs/相关台账；全部脚本/报告/结果/图仅`/tmp/relaygraph-ux-audit/ux01g1/`，沿dev_work不可访问例外不修复/重建。没有真实config/key/runtime/服务/Provider/SSH/Job、真实创建/保存/重启或发现恢复验收。保所有创建消费者、列表/输入/编辑/API，不引入框架、第二保存器或新的前端状态事实；启动器多处创建建议/项目卡重复诊断只作消融候选，等页面合同后按固定任务比较。G09/G19/G27/G40/G41等保持开放，不把调查登记算修复。
+
+唯一下一片UX01G2A：项目基本资料、来源与运行设置编辑需求调查，只到基本表单（名称/状态/目标与来源/资料/目录/环境/命令）的读写/保存/取消/返回；G2B项目Agent/工具/模型覆盖、G3逐kind节点参数/I/O、G4发现/执行包、G5运行/历史、H维护为后续待拆方向，全域闭合前不画整站或迁生产。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
