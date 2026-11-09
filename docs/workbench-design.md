@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01D；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01E；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输调查** 已在各自限定范围内完成。后续调查顺序是终端/tmux及现活动、全局能力配置、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（先UX01F1模型连接与路由诊断，再分别调查Search、Agent/工具、模板）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -16,8 +16,8 @@
 | 主机配置 | 没机器时如何添加，连接错了在哪里修 | 发现与自定义来源、增改/别名/检查、隐藏/删除/恢复、条件参数与凭据边界 | UX01B 已完成下述字段/源码链与隔离界面观察；真实配置/SSH未验 |
 | 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
-| 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | 唯一下一片UX01E；主路径静态线索，不擅自造全局事件系统 |
-| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | 主路径静态线索；只读目录不能替代编辑操作 |
+| 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
+| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | 唯一下一片UX01F1先查模型连接/路由诊断，其余分片；只读目录不能替代编辑操作 |
 | 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
@@ -335,7 +335,91 @@
 
 最终脚本17观察/1567拦截请求（1557GET，10POST=5冲突+2Job+3fetch），pageerror/requestfailed/未捕获观察异常/未建模501均0；下载失败单列，不能用这些0抹平。夹具browse未提供真实schema的selected，回执图源树的无名FILE不能归因产品；夹具dirs_only只识别true而前端发1，本轮全是source browse未触发此分支，**目标目录浏览/选择未验**。首次脚本换源主机后未重填被产品清空的路径，required阻止导致断言失败，原记录保留；第二轮在download保存取消处退出，原记录保留；最终只修本地场景准备与显式记录该失败，未降低业务断言、force点击、停轮询或改DOM/门禁。模拟正常路径没有关检查或手补状态，仍不能证明真实传输已发生。
 
-主代理实看390选择与1440迟到预览图：桌面常驻多树/大空框挤压路径；小屏截图仅一段，不能据点击完成称布局合理。脚本、JSON、两次失败记录、截图暂 `/tmp/relaygraph-ux-audit/ux01d/`，沿dev_work不可访问例外，不修复/重建且不提交。保留全部旧页面/动作/helper，未新增公共组件；问题及逐文件消费者同步第二部分。独立只读监督复核范围与证据后才提交三正式docs。本片交接 **UX01E：终端/tmux与现活动需求调查**，仍不开始生产布局或后端修复。
+主代理实看390选择与1440迟到预览图：桌面常驻多树/大空框挤压路径；小屏截图仅一段，不能据点击完成称布局合理。脚本、JSON、两次失败记录、截图暂 `/tmp/relaygraph-ux-audit/ux01d/`，沿dev_work不可访问例外，不修复/重建且不提交。保留全部旧页面/动作/helper，未新增公共组件；问题及逐文件消费者同步第二部分。独立只读监督复核范围与证据后才提交三正式docs。UX01D当时交接 **UX01E：终端/tmux与现活动需求调查**（本轮见下节），仍不开始生产布局或后端修复。
+
+### UX01E：终端、tmux和当前活动的用户任务
+
+对应R01/R07/R11/R12/R13、G19/G26/G41及本片新增G42。开片原列G18是沿上一片任务消费者线索，G18仍归preset，不把终端缺陷并入其中。主任务是“在明确机器上排错/输入 → 看准确输出 → 知道关闭或中断会影响什么 → 回到原任务”。本片只调查；保留已有终端输入、tmux查看和Job日志/停止能力，不将它们缩成只读活动统计。
+
+有四种对象，必须在入口和动作中区分：
+
+| 对象 | 当前事实与来源 | 可以做什么，不能暗示什么 |
+| --- | --- | --- |
+| 输出标签 | 当前浏览器内存的阅读位置，可引用Job、tmux、进程或终端 | 切换/收起/搜索/保存当前文本；不是持久活动事件，也不是一个任务 |
+| 页面终端 | 服务进程内存中的WebTerminal PTY，运行本机登录shell或SSH客户端 | 单行输入、读取、发信号、请求关闭；不是tmux、工作流或完整终端模拟器 |
+| tmux会话 | 当前所选主机用户的会话列表，不限本服务创建 | 当前UI只列表/抓取pane快照，无专门attach、输入、kill入口；看到输出不等已经进入交互会话 |
+| Job | 持久任务记录，自己的主机、session、日志和执行状态 | 看日志/停止沿原Job入口；浏览器终端是否还活着，不能决定Job是否完成/停止 |
+
+源码链：[index.html](../web/index.html) activity/tmux/terminal及底部输出区 → [output_terminal_actions.js](../web/monitoring/output_terminal_actions.js)、[app.js](../web/core/app.js) `openTerminal/pollTerminalOutput/closeCurrentTerminal/closeOutputTab/loadTmuxSessions/refreshActiveOutput` → [GET](../total_control/http_api/get_routes.py)/[POST](../total_control/http_api/post_routes.py)/[DELETE](../total_control/http_api/delete_routes.py) → [terminals.py](../total_control/state/terminals.py)、[web_terminal.py](../total_control/infra/web_terminal.py)、[execution.py](../total_control/state/jobs_pkg/execution.py)、[tmux.py](../total_control/infra/shell_pkg/tmux.py)。本功能使用HTTP轮询，不是WebSocket终端；工作台SSE不能被当成终端重连协议。
+
+### UX01E 字段、输入与输出归属
+
+以下控件均按当前实际ID调查；terminalInput没有name，不能只扫描FormData就说字段已完整。除注明localStorage者，其余选择、文本和会话引用在浏览器内存，不写项目/运行快照。
+
+| 字段/控件 | 用途、来源、必需条件与默认 | 联动、校验、保存影响与处理决定 |
+| --- | --- | --- |
+| `terminalServerSelect` | 新终端的目标主机，来自可见目录；当前有效值优先，再取选中/首项 | change经ServerSelectionActions已改监控selectedServer/存ID、重置GPU为auto并读tmux，不只改变创建草稿；可达无GPU仍可用，不可达UI拒开，API另严格查ID。保留独立创建意图与已开会话归属，隐式跨域联动后续需收口 |
+| `terminalBtn` / `server_id` | 明确创建一个PTY；POST sessions仅传主机，不传cwd/env/命令/尺寸 | 无在途防重/幂等；每次创建新session。打开后改监控selectedServer并存其ID，但激活旧终端tab本身没有serverId字段，不能据此称所有主机选择已同步 |
+| `terminalInput` / `data` | 单行输入，Enter或发送按钮提交；初始空，空串不发，发送追加换行 | 无逐键/方向键/全屏应用能力保证；先清输入再await，拒绝时丢输入且无局部反馈。保留输入能力，后续补发送失败/目标显示；不把输入自动存浏览器/项目，避免留敏感命令 |
+| `terminalCtrlCBtn` / `signal` | 当前session发送signal=2；API默认SIGINT，safe_int转换 | 只对alive终端发送；后端os.kill直接PTY子PID，不是写PTY控制字符/前台进程组或远端控制协议。保留准确操作，不能显示“任务已中断” |
+| `terminalCloseBtn` / session ID | 当前终端显式DELETE；普通tab×/关闭当前/列表关闭也可能走同一删除 | 无确认；无论失败都清引用，专门按钮仍称已关闭；关闭其他会话时晚到回执可清新选择。保留请求关闭，但结束请求/确认/失败必须分开（G42） |
+| `state.terminal`、`terminals[id]` | 当前活动指针及已开PTY本页投影，含id/cursor/alive/serverId/serverName/text/pollTimer | 非服务端会话目录；页面刷新即丢，切终端指针影响读/写/关闭。后续所有异步响应绑定请求时session，不让晚到结果跨会话 |
+| `cursor`、`output/alive/exit_code` | GET output默认cursor0；后端回session_id、输出、当前buffer长度、存活和退出码 | 前端不校验返回session_id且忽略exit_code；只更新当前对象。cursor是字节范围而非字符/时间，现非绝对偏移，1MB后会饱和。保留有界读取，后续补绝对游标/截断/归属，不拿有限文本当完整历史 |
+| `id/server_id/server_name/cursor/alive/output` 创建回执 | 后端新session ID，初始cursor0/output空，alive固定true | 不是SSH握手成功或shell就绪；保留受理与连接反馈的区别，不新增模拟“已连”状态作为事实 |
+| `state.selectedServer` / tmux目标 | 侧栏选中主机，用于list；每个tmux输出tab另有serverId+sessionName | 选主机/GPU可触发list；list响应无主机/请求门禁，迟到可能显示旧机器列表，再点会按当前机器抓取。保留完整身份，不以sessionName独自关联Job |
+| `sessions[].name/created/windows/attached` | GET tmux返回；UI显示name、windows和attached，created未展示 | 后端attached仅字符串1为true，多client计数>1会错；部分“failed to connect”文本被当空。保留空/失败/连接数量含义，不从空列表推出无后台任务 |
+| `session`、`lines`与`server_id/session/log` | capture请求当前session；UI固定lines50000，HTTP默认10000，service默认2000，最终钳50–50000 | 无window/pane选择、增量游标或全历史保证；GET还会先resize窗口/pane160×80，不能称纯读取。保留快照阅读，副作用/尺寸策略另片核对 |
+| `outputTabs` / `activeOutputKey` | 四类引用：job:id、tmux:host:session、process:host:pid、terminal:id | 同key复用，标签不是新任务；Job读取有精确tab检查，不能笼统说全部输出都无归属。保留定位与切换，现不提供地址直达或刷新恢复 |
+| `terminalSessionList/Meta`、`terminalActivitySnapshot` | 本页打开标签列表/计数/当前输出及字符长度；不是服务器会话清单 | 与底部tabs重复投影，未知terminal投影也可称运行中；Job tab没serverId时摘要主机可为“-”。候选收敛计数大卡/重复标题，保留直接找回输出与关闭入口，不造全局事件目录 |
+| `logSearchInput/Count/PrevBtn/NextBtn` | 当前加载文本搜索，不区分大小写；query初始空或恢复浏览器偏好，命中索引仅内存 | query经localStorage保存、跨标签共用；不是查服务全日志。保留搜索/命中导航；选中/正文更新不应错归另一tab，搜索范围要准确 |
+| `logAutoRefresh` | 默认勾选；每3秒只对可见输出的Job/tmux refresh | 不控制terminal1秒轮询；终端只在当前激活alive时轮询，收起面板仍会轮询；目前无统一用户含义。保留实时阅读需求，控件按适用对象显示，勿把取消自动当停任务 |
+| `logFollow`、`logFollowHint` | 默认勾选；接近底部时跟随，离开底部保阅读位置，手动刷新forceBottom | 不暂停采集或执行；普通激活终端也forceBottom。保留阅读控制，不让后台刷新抢读长内容；全键盘/大输出交互本片未验 |
+| `logRefreshBtn` | Job/tmux显式重读；terminal/process在refreshActiveOutput直接返回 | 不能把同一“刷新”按钮当终端已有重连；重新激活terminal tab会触发单次read，合成503后恢复已观察。保留明确且有效的每对象恢复动作 |
+| `logClearBtn` / 收起 | 隐藏输出pane和终端输入控件，保留tab及其对象 | 不DELETE、不stop；重选tab恢复阅读。保留轻量收起，与“关闭/结束”清晰区分 |
+| `outputCloseActiveBtn/AllBtn`、tab×/列表关闭 | 阅读tab直接移除；终端tab还DELETE，closeAll批量DELETE但忽略错误后宣称成功 | 不能用统一“关闭标签”掩盖PTY副作用；需要说明作用对象、失败可重查，危险的结束与阅读关闭分别设计；不凭统一标签直接复用不等价动作 |
+| `logDownloadBtn` | 创建Blob保存当前activeOutput.content或已显示文本，文件名按title过滤 | 当前终端内容前端超过1,000,000字符裁至900,000，后端又限1MB字节；tmux仅有限快照。保留保存当前输出，不能称完整日志或持久运行导出 |
+| `activityTabs`与本页导航 | tasks/tmux/terminal，旧output映射terminal；产品/子页选择存localStorage | 切页不是断开，打开输出不总先切activity；保留原Job/run回程，不用页签同名冒充独立页面身份。跨页/Back精确恢复留后续页面合同验证 |
+
+下面的`{id}`是终端session ID，tmux的`{host}`是服务器ID，两者不能互换。
+
+| method与现有路径 | 请求字段/默认 → 响应 | 当前消费者与副作用边界 |
+| --- | --- | --- |
+| POST `/api/terminal/open`、POST `/api/terminal/sessions` | body `server_id`默认空、必须匹配配置 → `id/server_id/server_name/cursor=0/alive=true/output=""` | 两个入口都新建PTY；当前web只用sessions，未使用open别名。alive固定初始值不是认证完成；无幂等/恢复参数 |
+| GET `/api/terminal/sessions/{id}/output` | query `cursor=0`，safe_int → `session_id/output/cursor/alive/exit_code` | 当前terminal每秒/激活时读；有buffer访问时间更新，不启动新命令；现UI不核session_id、不消费exit_code |
+| POST `/api/terminal/sessions/{id}/input` | body `data`默认空、转字符串 → `ok:true` | 单行输入追加换行后调用，后端写PTY；ok只确认写入调用，不是命令执行结束 |
+| POST `/api/terminal/sessions/{id}/signal` | body `signal`默认SIGINT=2，safe_int → `ok:true` | Ctrl+C按钮；os.kill直接PTY子PID，非远端任务已中断确认 |
+| DELETE `/api/terminal/sessions/{id}` | session ID → `ok:true` | 各终端关闭入口；服务先pop映射，再EOF/kill直接PID；不等远端进程树停止或Job stopped |
+| GET `/api/servers/{host}/tmux` | host必需 → `server_id/sessions[]`，项含`name/created/windows/attached` | 选机/刷新读；未知host错误，部分连接错误文字被折为空；不是持久活动目录 |
+| GET `/api/servers/{host}/tmux/{session}/capture` | session非空；query `lines`HTTP默认10000、钳50–50000（UI50000） → `server_id/session/log` | tmux tab读快照，GET先resize窗口/pane；无attach/input/kill、pane选择或完整历史保证 |
+
+创建别名不能因为名字像旧就直接删，先核外部调用；CLI本身不调用这两个HTTP入口。input/signal/DELETE成功只回`ok:true`，不是远端完成确认；未知主机/会话ValueError由Handler封为400。后续缺resize、会话列表、恢复/重连、容量/清理合同独立登记，不给模拟原型虚构API；CLI [terminal.py](../total_control/terminal.py) 是真实TTY交互入口，不是本页的备用实现，本片未迁移或删除。
+
+### UX01E 状态、过程与冗余判断
+
+- **选择与回执归属**：terminal读/关闭及tmux list/capture都要保请求时身份。当前终端1秒poll无inflight锁，响应延迟还可能同游标并发、重复追加/游标倒退（静态，未逐项跑并发反证）；Job日志已有按tab检查/增量合并，不另起第二个输出或状态内核。
+- **连接与退出**：当前output读取失败就alive=false并停自动轮询，UI称已退出；这不能证明shell退出。创建固定alive=true也不证明连接成功。后续须按已有事实区分“创建受理、正在连接/可读、读取失败、观察到退出”，缺少服务端事实处登记能力缺口，不能前端猜最终状态。
+- **关闭与中断**：收起只影响阅读；关Job/tmux/进程tab不结束对象；关terminal tab会请求EOF+kill直接子PID。Ctrl+C接口只发signal2；Job.stop另走关联session的send-keys/kill，再直接写stopped且未核外部最终结果。不同对象不能共用一个“成功停止”含义。服务端terminal先pop映射再close，失败可失去查询依据，服务退出也无遍历终端关闭；实际进程去留未验。
+- **会话保留与证据**：后端内存表不持久化、无列表/死亡或闲置回收、无并发上限；created_at/last_access未公开且后者没有清理消费者。刷新浏览器没发DELETE却丢本页引用，服务重启也失去表；不能据此判断tmux/Job或远端子进程是否仍活着。输出有限且可能饱和，不能承诺恢复与全历史下载。
+- **终端能力边界**：PTY固定160×80、TERM=dumb，前端stripAnsi后放pre，单行命令输入，不是逐键终端。远程ssh_command_base使用端口/认证但不消费ssh_config_path，区别于rsync的-F；密码/确认提示按chunk匹配且最多一次。UTF-8跨块、MFA、输出回显敏感内容等仍为静态风险，未拿个人凭据试验。
+- **保留与收敛**：终端输入/tmux查看/Job日志和动作必须留；顶部tabs与活动列表的查找可服务不同任务，先明确消费者再收敛重复大统计、标题和常驻成功块。新布局应给输入/当前连接和主机足够空间、保持一个主内容滚动区，输出正文可局部滚动，不靠浮层遮挡或藏关键操作换简洁。当前不引入终端库或新平台；若未来需真正逐键终端，再独立核成熟方案/协议和退出成本，不把换库与本轮调查混做。
+
+### UX01E 实际证据与未验证边界
+
+2026-11-09，xng/Playwright、Chromium140.0.7339.16，正式web未改，HTML预算占位按Handler替30；隔离地址`http://relaygraph-ux01e.invalid/`不是新站点。全量拦截请求，terminal/tmux/Job日志均合成，没有真实服务、PTY、shell、SSH、tmux、命令或私密配置。输入回显为夹具“DEMO RECEIVED”，signal回显也仅请求标记，不能当命令执行/中断证明。
+
+| 实际路径 | 结果和发现 | 证明限度 |
+| --- | --- | --- |
+| 1440正常输入/阅读 | 空标签、离线原门禁拒创建；可达无GPU主机创建合成session→读输出→Enter发送精确ID和换行→signal2→搜索/下一命中→Blob保存当前合成正文；收起/重开不DELETE；专门关闭收到合成回执并移标签 | 不证明本机/远端认证、PTY或信号/进程结束；Blob下载通过仅限本轮当前文本，不沿用UX01D未通过的缓存下载 |
+| 1440tmux | 点会话抓快照，关闭输出tab没有写请求 | 不证明实际tmux、GET resize、完整历史、主机迟到list或真实外部kill；tmux空/错误仅静态合同，未动态验 |
+| 1440错误/刷新 | 创建503有消息不加tab；input503清输入且产生未处理Promise异常；DELETE503仍称已关闭并遗忘tab，合成服务仍alive；read503误称退出/停止轮询，重选tab读取后可恢复；刷新丢tab且无DELETE | 错误明确注入，不是自然网络故障；刷新后只合成对象存活，真实PTY/远端去留未验；无全套signal/closeAll错误验收 |
+| 1440迟到三场景 | hold/release输出A混入激活B；关闭A的回执清B当前指针，B标签仍在/服务alive但输入不发；tmux旧capture覆盖当前terminal标题/正文 | 经过原按钮创建/切换和网络延迟注入，没有DOM/业务状态补写；不代表所有并发、被动关tab或浏览器断开均已验 |
+| 1024/768 | 各新建合成终端、输入Enter、单Tab到发送按钮，有截图 | 未验四宽全部关闭/错误/长输出/键盘导航、自动跟随与布局全可读 |
+| 390 | 正常点击“新终端标签”被terminalActivitySnapshot统计区挡住，5秒超时，截图保存 | **该宽度创建未通过**；未force点击/隐藏统计/换输入方式绕过，不把其他宽通过称四宽可用 |
+| 原始缓冲方法纯验证 | AST提取未改WebTerminal._read_loop/snapshot，1,000,000字节后注入NEW，真实裁剪后尾仍有NEW，但旧cursor=新cursor=1,000,000，delta空 | os/select均最小合成依赖，无构造函数、线程、PTY/服务；只证明原方法游标/裁剪错误，不证明实际长进程、编码/信号或重启行为 |
+
+主浏览器20项观察/1337请求（1318GET、16POST=11创建+4input+1signal、3DELETE），requestfailed/501均0；**pageerror1为刻意input503的未处理拒绝，观察末尾失败1为390真实遮挡超时**，不能记全绿。首次脚本在wait_for_function调用参数写法报TypeError，原脚本记录保留；只修本地arg关键字后运行，未改产品、不停轮询、不force、不补生产终态。第二次执行到390失败后保留，没有重复跑到绿；可达无GPU正常路径未关闭检查。主代理实看390失败与1440跨会话输出图，其他截图/长内容不冒称全人工已看。
+
+本地脚本、纯方法结果、请求JSON、Blob下载、两轮日志与七图暂存 `/tmp/relaygraph-ux-audit/ux01e/`，沿dev_work不可访问例外不修复/重建、不提交。第二部分新增G42并更新相关问题/逐文件消费者，旧页面、helper、API/CLI全部保留；独立只读监督复核后只提交三正式docs。全产品需求仍未闭合，不进入生产改版。原UX01F全局能力域较大，下一片拆为 **UX01F1：模型连接与路由诊断需求调查**，Search/Agent工具/模板分别留后续调查，不能同轮批量做完。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
