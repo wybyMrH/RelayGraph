@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01G1；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01G2A；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试及UX01F4A模板定义/绑定/校验、UX01F4B版本/快照/显式迁移及UX01G1项目入口/目标输入/创建回执调查** 已在各自限定范围内完成。后续调查顺序是项目/流程设计与运行（唯一下一片UX01G2A基本资料/来源/运行设置编辑）、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试及UX01F4A模板定义/绑定/校验、UX01F4B版本/快照/显式迁移及UX01G1项目入口/目标输入/创建回执、UX01G2A基本资料/来源/运行设置编辑调查** 已在各自限定范围内完成。后续调查顺序是项目/流程设计与运行（唯一下一片UX01G2B项目能力覆盖/整实例保存保真）、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
 | 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试、UX01F4A模板定义/绑定/校验及UX01F4B版本/快照/迁移已限定完成；项目入口/创建已由UX01G1限定调查；只读目录不能替代编辑操作 |
-| 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | UX01G1入口/目标输入/创建回执已限定调查；下一G2A基本资料/来源/运行设置，能力覆盖/逐节点/发现/运行仍待逐片闭合 |
+| 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | UX01G1入口/创建与UX01G2A基本资料/来源/运行设置已限定调查；下一G2B项目能力覆盖/整实例保存保真，逐节点/发现/运行仍待逐片闭合 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
 后端已有而新原型未展示的写操作和条件参数必须单列保留位置或待核原因，不降为未来新功能。每项能力分别标记源码接线、浏览器观察、模拟、真实缺口或未验证；接口存在、截图可见、模拟完成都不能互相替代。
@@ -925,7 +925,86 @@ GET diff目前按selected workspace ID接回执，能挡别项目结果，却无
 
 过程例外：监督协作者在上下文恢复后误代执行提交/推送（615bffe），未遵守本轮仅只读审查的角色限制；已停止其后续执行。主代理独立核对实际提交、远端与敏感/文件范围，仅三docs、无测试/本机配置/密钥，未扩大功能范围；本轮不记为全程只读监督。此处补记后由主代理提交推送更正，后续监督只审查、主代理负责提交。
 
-唯一下一片UX01G2A：项目基本资料、来源与运行设置编辑需求调查，只到基本表单（名称/状态/目标与来源/资料/目录/环境/命令）的读写/保存/取消/返回；G2B项目Agent/工具/模型覆盖、G3逐kind节点参数/I/O、G4发现/执行包、G5运行/历史、H维护为后续待拆方向，全域闭合前不画整站或迁生产。
+当时下一片UX01G2A现已限定调查，当前指针见文首；当时范围为项目基本资料、来源与运行设置编辑，只到基本表单（名称/状态/目标与来源/资料/目录/环境/命令）的读写/保存/取消/返回；G2B项目Agent/工具/模型覆盖、G3逐kind节点参数/I/O、G4发现/执行包、G5运行/历史、H维护为后续待拆方向，全域闭合前不画整站或迁生产。
+
+### UX01G2A：已有项目的基本资料、来源与运行设置
+
+对应R02/R04/R05/R12/R13，G09/G10/G12/G17/G19/G26/G27/G40/G41/G46。本片回答“到哪里改这个项目、改后影响什么、没保存能否安全返回”。只调查基本表单与必要消费者，不实现正式页面，不扩到项目能力整域G2B、逐kind节点/I/O G3、发现/执行包G4、运行历史G5。G1的创建/在途证据直接引用，不重跑来增加通过数。
+
+通俗结论：已有编辑功能应保留，但它现在不是一个安全分开的“项目默认设置”。改基本字段会同步相关节点，前端还会受当前选中运行节点影响；清空部分字段会保旧；返回并不取消；启动器存下的多资料`inputs`与编辑器的单数`source`可能各说各话。新页面应先让用户改清楚，再让执行流程读同一份明确的事实，而不是把旧字段简单藏进高级面板。
+
+#### 实际字段与归属矩阵
+
+[index.html](../web/index.html)的`#workspaceProjectPanel`有**19个可编辑具名字段**；`workspace_id`另为隐藏身份。没有HTML required；占位文字不是默认值、校验或已配置能力。旧基本表单没有项目host选择，不能把单独目录当完整运行位置。以下“空串保旧”指更新已有项目时普通`''/null`；很多文本的**空白字符串会先命中真值再trim成空**，不是统一清空合同，不应作为面向用户的操作技巧。
+
+| 字段/DOM | 用户用途、输入来源 | 默认与出现条件 | 现有校验、空值 | 联动及保存影响 | 设计决定 |
+| --- | --- | --- | --- | --- | --- |
+| `name` / workspaceNameInput | 项目名称；选择项目回填workspace.name，用户可改 | 新空白为''；模板创建命名沿G1 | 无required/长度限制；空串保旧，空白触发按仓库尾名→论文名→brief/idea首行40字→新工作区重命名 | 输入更新标题；保存改当前项目，不改全局模板 | 保留项目基本资料；不把自动改名藏成“清空” |
+| `source_type` / workspaceSourceType | 旧单数来源类别；回填source.type | 新空白repo；选择仅repo/paper/idea，API另支持mixed | mixed回填后原生select值为空；前端显隐回退repo；非法后端归idea，空串回existing | change替换首个source.*草稿kind；隐藏字段不清空也不disabled，仍随FormData提交；直接API改类别不自动改已有节点kind | 保留来源语义；多来源需求显式设计，不能静默压成三选一或删除已有资料 |
+| `brief` / workspaceBrief | 项目简报/目标；回填workspace.brief | 新空白''；目标及成功标准可编辑 | 空串保旧，空白可清；不验成功标准 | input同步节点，source.idea在idea_text非空时优先其值；保存不保证更新inputs.goal_text | 目标归项目；与idea/context语义核对后才迁并，不直接合框 |
+| `references` / workspaceReferences | 原参考输入混收URL/路径/文本；回填顶层数组逐行 | 新空白''；资料可选 | 前端parseLineList、后端parse_line_list trim去重；[]/''/null可清；不验URL/远程路径 | 输入只重绘；保存同步时前端dataset_hints非空则写、空则保旧；旧nested inputs.references通常仍保留 | 资料归项目并区分含义；清除后消费者不得继续隐用旧资料，host+path另与G3/G4对齐 |
+| `tags` / workspaceTags | 分类；回填tags逗号连接 | 新空白[]赋控件成为'' | 逗号/数组trim去重；空可清；无唯一业务含义 | 只重绘，保存顶层tags | 保留可选分类；不进入运行设置 |
+| `status` / workspaceStatus | 手填的项目标记；回填workspace.status | 新空白draft；选draft/ready/running/blocked | 后端接受任意非空字符串；空串保旧，空白回draft | 保存不创建/启停任务，也不证明运行就绪 | 不让用户通过手选“执行中/已就绪”制造运行事实；项目组织状态与事实状态分开设计，迁移兼容待合同阶段 |
+| `repo_url` / workspaceRepoUrl | 主仓库；回填source.repo_url | 默认''；仅type=idea隐藏 | 非URL也可提交；空串保旧，空白可清 | 同步首source.repo/clone/search；不更新inputs.repo_urls | 保留项目来源；多仓库不能仅保第一项或与资料路径合并 |
+| `repo_ref` / workspaceRepoRef | 分支/tag/commit；回填source.repo_ref | 默认''；仅repo显示 | 无远端存在性校验；空串保旧，空白可清 | 同步首source.repo/clone | 保留与对应仓库绑定；不是项目版本/配置revision |
+| `paper_url` / workspacePaperUrl | 主论文；回填source.paper_url | 默认''；repo隐藏 | 无URL校验；空串保旧，空白可清 | 同步首source.paper/search；不更新inputs.paper_urls | 保留来源；与仓库并存，不因隐藏丢值或隐式写回 |
+| `workspace_dir` / workspaceDir | 项目工作目录；回填workspace.workspace_dir | 默认''；各来源可见 | 无目标主机存在/权限校验；空串保旧，空白可清 | 前端覆盖首clone/path/inspect/env infer/env prepare/artifact及选中run（否则首run）目录；后端均取首kind；不等仅填默认 | 归项目运行位置；配明确host，显示有效值与来源，节点例外显式，不在此编辑主机连接 |
+| `idea_text` / workspaceIdeaText | 旧“补充背景”；回填source.idea_text | 默认''；repo隐藏 | 空串保旧，空白可清 | 首source.idea优先idea_text再brief；不等inputs.context_blocks/goal_text | 暂保语义映射，避免与简报、备注直接合并后遗失约束 |
+| `notes` / workspaceNotes | 项目备注；回填workspace.notes | 控件初始''，但defaultWorkspaceForm缺此键 | 空串保旧，空白可清 | input只重绘；保存前前端非空写首artifact.notes，空则保节点旧值；后端overview不做这项传播；非recipe.notes | 保留项目可选备注；不应无提示覆盖节点专属备注 |
+| `env_name` / workspaceEnvName | 目标运行环境名；回填env.name | 新空白''；当前始终可见 | 不验环境存在；空串保旧，空白可清；API还接env.name | 前端覆盖首env.infer/env.prepare及选中run（否则首run）；后端取首kind；真正Job还可能用执行包target | 归运行设置，仅需要时出现；不表示已创建/已激活环境 |
+| `env_manager` / workspaceEnvManager | 环境种类；回填env.manager | 新空白''；选空/conda/venv/custom | 后端不验枚举；空串不能可靠清旧manager；API还接env.manager | 同步首env.prepare；影响导出脚本；Job payload无manager字段 | 保留条件设置，说明有效作用位置；不许单凭选择就显示环境验证成功 |
+| `python_version` / workspacePythonVersion | 所需Python声明；回填env.python | 新空白''；3.11只是placeholder | 不验解释器/版本安装；空串保旧、空白可清；API接env.python | 同步首env.infer/env.prepare；不等服务/Job解释器已切换 | 条件保留环境要求；与本机服务兼容版本分开 |
+| `setup_command` / workspaceSetupCommand | 准备环境命令；首启用recipe（无则首条）优先、空再取首env.prepare节点 | 新空白''；现始终显示 | 无语法校验；前端空白/空串不覆盖节点，保存可从节点补回；后端recipe空串保旧 | input/保存写首env.prepare；保存本身不执行 | 高级运行设置按流程需要出现；清除必须有明确合同，不能假称已删 |
+| `run_command` / workspaceRunCommand | 主运行命令；首启用recipe（无则首条）优先、空再取首run节点 | 新空白''；不等所有流程都需手填shell | 同上；实际清空后POST仍可带旧节点命令 | 前端非空写选中run（否则首run），空命令回取首run；后端显式flat键强制写首run；Job有效command取节点 | 保留用户可用编辑能力与完整命令阅读，节点例外另列来源，不误称纯默认 |
+| `report_command` / workspaceReportCommand | 报告整理命令；首启用recipe（无则首条）优先、空取首eval节点 | 新空白''；报告Agent不一定消费shell命令 | 同setup/run；无命令有效性验证 | 首eval.report同步；实际执行方式另按节点/handler | 条件保留高级项；不把填命令当报告已写/已交付 |
+| `schedule` / workspaceSchedule | 旧“定时/批量计划”文本；首启用recipe（无则首条）优先、空取首run节点 | 新空白''；无真实cron默认 | 不解析cron/批量语法；清空也有旧值回填 | 存recipe；前端非空写选中run（否则首run），后端写首run.config；schedule.plan工具仅返回planned/draft说明，没有该项目字段注册定时器消费证据 | 保留已有数据读取，隐藏误导性日常承诺；真正定时/批量入口与直接task-plan/preset区分，缺能力登记G17 |
+
+另有三类只读/内部字段，不能为简洁丢掉身份或冒充版本：
+
+| 项目 | 来源、用途与保存边界 | 决定 |
+| --- | --- | --- |
+| hidden `workspace_id` / workspaceIdInput；选中workspace.id | 选项目填回、FormData trim；空走集合创建，非空POST该ID；更新后端ID/created_at取existing | 不供普通用户编辑；新建/已有项目任务明确区分；错身份回执拒绝 |
+| `workspaceEditorIdentity/Source` | 显示实例ID、template_snapshot.template_name或template_name/id及snapshot.created_at；后者是建立时间，不是revision | 项目设置保紧凑来源，只读；模板编辑独立入口，更新全局不自动重写项目 |
+| `workspaceTitleDisplay/SummaryMeta`与`workspaceEditorReturn` | 标题来自草稿名称；摘要来自表单source_type/dir和能力数；return只存mode+workspaceId，run选择另走既有读取状态 | 不拿摘要“通用目标”掩盖mixed丢选项；返回源任务与run精确恢复需跨域合同验证 |
+
+#### 编辑动作、草稿和API合同
+
+源码入口：[workspace_form_actions.js](../web/workspace/workspace_form_actions.js)绑定submit/input/source change/reset；[workspace_shell_actions.js](../web/workspace/workspace_shell_actions.js)绑定编辑/返回；[app_navigation_actions.js](../web/core/app_navigation_actions.js)路由旧mode/tab；[app.js](../web/core/app.js)的`selectWorkspace/setWorkspaceFormValues/workspacePayloadForSave/submitWorkspace`完成装配。[workspace_defaults.js](../web/workspace/workspace_defaults.js)和[app_runtime.js](../web/core/app_runtime.js)分别给默认与浏览器表单存取；这是当前真实接线，不新造另一个保存器。
+
+| 动作 | 当前实际过程/输出 | 新设计必须保证的行为；本片未实现 |
+| --- | --- | --- |
+| 选已有项目→实例编辑 | 选中即把顶层source/env/首启用recipe（无则首条）填回19字段，重设节点/能力草稿；进入旧edit mode的project tab；选中本身不保存服务端 | 项目设置有独立页面身份/直接入口；显示项目身份，避免先绕去配置中心；不先删旧编辑入口 |
+| 输入/切来源 | input对13个同步字段调用syncWorkspaceNodesFromForm，5个只重绘；source_type由独立change替换首source kind；表单input/change最终都写同一个localStorage键 | 项目默认与节点覆盖分开，保存前能知道影响；不用每次输入就静默改其他编辑对象 |
+| 返回原页面 | 仅switchWorkspaceMode+返回焦点，保当前未保存稿，不POST；没有“取消编辑/丢弃修改”动作；同项目保origin mode，换项目回use | 返回可保稿，但取消须明确恢复服务端基线；离开/换项目要有未保存处理，不误保存/不误丢弃 |
+| 新建空白 | 清选择/ID、部分字段、绑定和整套默认节点/能力；不是撤销。repo默认缺paper_url/idea_text/notes，setValues仅写已有键，旧三字段残留，隐藏也进FormData | 完整新草稿不得串上个项目；保已有项目新建能力，不能直接把reset改名取消 |
+| 切项目/刷新/浏览器导航 | 切项目重新填服务端快照覆盖稿；单键localStorage不是逐项目草稿。初始化虽restore表单，后续项目选择仍可覆盖；旧mode不提供独立页面URL/正式Back合同 | 明确每项目草稿与基线、刷新/离开恢复策略；已有项目与空ID草稿不能共用无版本身份；本片未验浏览器Back/多窗口 |
+| 保存 | 捕获FormData→同步节点→空命令从节点补回→deepClone nodes/能力→按节点顺序重建links；不发inputs；有ID POST item，无ID POST集合；仍是整实例保存 | 一次保存有固定项目+草稿版本+基线；设置页精简不得把没显示字段清空；全域无损及links重建留G2B/G3，不称本片已验证 |
+| 保存成功/错误 | ID必有、更新须相同；权威回执upsert并使旧monitor请求失效。跨项目回执保当前稿；同项目继续输入/逆序回执仍可能回填覆盖。503保稿可重试，但无回执未必没保存 | 保既有身份保护；同项目新稿也不被迟到回执覆盖；“结果未确认”与确定拒绝区分，提供读回核对而非盲重发 |
+| 缺主机/目录/模型 | 本表单无整体验证；status可手选ready。保存不检测SSH/目录权限/conda/Provider，不创建Job | 定位唯一配置位置，处理后回原项目/任务；不能靠保存成功给绿灯。细门禁与有效target交G3/G4，模型连接全局维护 |
+
+[post_routes.py](../total_control/http_api/post_routes.py):360起实际POST item，另[put_routes.py](../total_control/http_api/put_routes.py):10起PUT也调用同一`update_workspace`；二者并非不同的全量/局部替换合同。[get_routes.py](../total_control/http_api/get_routes.py):329起GET读取内存对象公开投影，不是磁盘回读。未知ID GET404，update的ValueError由[handler.py](../total_control/handler.py)转400；非dict合法JSON更新当{}。没有revision/ETag/expected hash/request_id；不因此新加第二套前端事实/保存API。
+
+[state/workspaces/crud.py](../total_control/state/workspaces/crud.py):315起先浅合并current+payload，再[normalize_workspace_payload](../total_control/workspace/cockpit/payload.py)重建；缺字段沿用，任意空对象也会updated_at并保存。嵌套env可编辑但flat env优先；嵌套source/recipes不当编辑值，GET原对象不能视为对称更新schema。前端workspaceRecipe取首启用recipe（无则首条），后端却以existing.recipes[0]作基底并输出单条；多recipe保存可能折单，沿F4A登记E2。当前夹具只有一条，未验多recipe往返。先替换内存→[save_workspaces](../total_control/state/persistence.py)写整列表→[workspace_public_payload](../total_control/state/monitoring.py)读RunStore/派生公开投影；[utils.py](../total_control/utils.py)单文件replace不提供内存/磁盘/回执事务。真实写盘失败/保存后投影失败仍需独立故障验证，G09/G19保持开放。
+
+#### 输入事实、节点覆盖与运行快照
+
+`update_workspace`合并后通常已有`inputs`字典，[recipe.py](../total_control/workspace/schema/recipe.py)只归一化该字典，不用本次flat brief/repo/references同步它；模板项目再做一次相同归一化也不补偿。反向改inputs也不反推brief/source；inputs.source_mode与source.type也可分歧。工具[WorkspaceToolContext.source_payload](../total_control/tools/workspace_executor_pkg/context.py):27起优先读inputs目标/URL/资料，[discovery.py](../total_control/workspace/cockpit/discovery.py):183起同时合并两处参考，所以这会影响真正消费者，不能当纯显示冗余直接删除一套。方案是先在页面合同确定唯一可编辑输入及旧字段投影/迁移；历史多资料、显式清除、旧项目缺inputs均有规则后，再逐片接线，不在此次文档片改数据。
+
+[前端syncWorkspaceNodesFromForm](../web/core/app.js):15709起和[后端sync_workspace_nodes_with_overview](../total_control/workspace/schema/nodes.py):589起通常选首个对应kind，但前端run分支通过workspaceRunNode优先当前选中的run.command，否则首run；后端始终首run。源/目录/环境会覆盖命中节点配置，即使只改名称，保存也运行同步；不能泛称第二同kind始终不动。命令前端仅非空替换选中run，空命令另从首run回取；后端flat键存在则强制采用recipe写首run，但recipe空串又保旧。双run纯探针仅证明后端首run规则，前端选择分歧为E2，真实多节点保存结果待G3。前端另同步dataset_hints/artifact.notes，后端无相同传播；节点反填表单`syncWorkspaceFormFromNode`也会改变总览。不是语义相同的重复函数，未列出全部消费者/故障前不能随意合并。G3继续核每kind覆盖来源，最终让“继承项目默认/显式覆盖/清除”可见并可取消。
+
+[state/workspaces/nodes.py](../total_control/state/workspaces/nodes.py)有效cwd优先节点再项目；run命令取节点，env/report命令可回recipe，执行包target还可覆盖cwd/env。`env.manager/python_version`不直接成为Job payload解释器保证；[bundle.py](../total_control/workspace/automation/bundle.py)另用manager生成激活脚本。运行历史不读当前编辑稿冒充当时配置：[workflow_records.py](../total_control/state/workspaces/workflow_records.py):319起提交时deepcopy workspace/steps/job_payloads。这里仅核源码消费边界，没有跑真实任务、历史保存/迁移/恢复，不扩称已运行run完全不受影响。
+
+#### 隔离证据、消融与交接
+
+E1隔离方法：11场景，抽取原`update_workspace`、基本normalizer、recipe/inputs/overview sync及utils AST；**节点结构、links、Agent/tool/model/chat/run normalizer使用copy-through替身，save/public projection是假实现**。确认文本空串/空白差异、列表清除但nested资料保留、flat与nested更新不同、name-only覆盖首run cwd/env而不动第二run、命令空串回写/空白清除、任意status及fake save异常内存已替换。禁socket、不import产品、不落盘；不是完整后端/API/持久化/整域保真通过。消费者优先级仍为E2源码，真实运行受旧资料影响和并发/磁盘分裂后果为E3。
+
+Chromium140.0.7339.16，未改旧web、全部网络拦截、公开合成项目、1440×1000：主轮**6观察/528请求=525GET+3POST**，0 pageerror/requestfailed/未建模501；保留观察器`note(name,...,name=...)`参数冲突失败1，发生在刷新后记录，不能记成产品故障或全绿。仅修记录参数，独立补draft分支：**4观察/268GET**，零失败/浏览器错误/501；不重跑已观察reset/save、不把两轮拼成一次全绿。保存夹具只回显name/brief/nodes，不落盘、不更新合成目录，不能称保存刷新恢复成功。
+
+实际原按钮/字段验证：mixed选项为空；返回再编辑保未保存名；reload名称回服务值但localStorage仍有旧稿；切B再A丢A稿；“新建空白”残留paper/idea/notes；清空Run后503请求仍发旧命令且无inputs；错身份200拒绝、同按钮重试接受匹配身份回执。另一次名字输入后单Tab，非完整键盘验收。4图含首轮失败图，主代理实看reset/save-error；图受旧主滚动区截取，隐藏资料与POST细节依据DOM/请求JSON，不说截图证明所有字段。未做1024/768/390、Back/Forward、长错误/日志、真实保存/重启；不继承G1四宽限定观察为本片通过。
+
+材料仅本地`/tmp/relaygraph-ux-audit/ux01g2a/`；dev_work不可访问例外沿用，不修复/重建。未读取真实密钥/config/runtime，未启服务/任务/SSH/Provider；无force、补DOM/终态、关门禁、停轮询。三正式docs之外不提交脚本/结果/图。
+
+删保决定：本片不删任何旧编辑/新建/API/默认/存储/同步入口，没有替代前必须保已有可操作能力。合并候选是经语义核对后的输入投影、默认/覆盖显示和重复来源摘要；不是删除多来源inputs、首recipe或节点配置。下一步**仅UX01G2B：项目Agent、工具、模型覆盖与整实例保存保真需求调查**，解决基本设置保存时未展示能力是否被无意改写；G3/G4/G5/H待后续独立调查。全域闭合后统一页面合同，再做一个功能的小片可操作设计和正式优化。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
