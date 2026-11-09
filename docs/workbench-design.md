@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01F3B；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01F4A；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F4A模板定义/绑定/校验，随后F4B版本/迁移）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试及UX01F4A模板定义/绑定/校验调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F4B版本/迁移）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@
 | 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
-| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试已限定完成，唯一下一片UX01F4A查模板定义/绑定/校验，其余分片；只读目录不能替代编辑操作 |
+| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试、UX01F4A模板定义/绑定/校验已限定完成，唯一下一片UX01F4B查版本/迁移，其余分片；只读目录不能替代编辑操作 |
 | 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
@@ -717,6 +717,90 @@ schema空工具集合或全无效会回填默认，启动再补缺内置项；�
 另原safe_test/dispatcher AST+原纯内存workspace_mutations，注入无runtime假Context/factory、identity redactor（无敏感fixture）并禁socket，仅操作合成内存项目；不导入服务/真实配置，不读写实物或调用网络。初轮8场景第8错误假定未知node_id必报错，实际按默认node_kind找到节点，断言失败；保初版script/log/JSON，按源码纠正验证预期并加双身份皆缺失场景，第二轮13场景/11次假factory取得预期观察，**不删除首失败、不改产品门禁**。证明外ok内blocked/error、停用/未实现未拦factory、READ元数据放入config分支但无真实落盘、runtime无回调blocked、written仅声明/4001字丢全文、repo.search线索、log/chat/notify边界；不是实际HTTP/真实工具/保存恢复或脱敏验收。
 
 5图（含390失败）；主代理和只读监督核脚本、请求与missing/draft-ID/失败三图，1440结果只部分在视口，结论主要由DOM只读断言/JSON支持，未称截图完整可读。材料仅`/tmp/relaygraph-ux-audit/ux01f3b/`，沿dev_work不可访问例外不修复/重建，脚本/图/结果不提交。无已替代路径可删；全局/项目定义、参数扩展、工具test、原dispatcher/受控runtime及旧API保留。公共草稿/测试归属组件只有在新页面合同和两个真实消费者验证后才抽，不先造通用平台；成熟工具库须替具体职责而非把目录换成完整平台。下一小片F4A查模板定义/绑定/校验，F4B再查版本/迁移，调查闭合后才设计新页。
+
+### UX01F4A：模板定义、执行者绑定与校验
+
+对应R02/R03/R05/R09/R12/R13，关联G10/G11/G14/G17/G19/G21/G26/G27/G40/G41/G43/G45。本片回答“怎样定义一条可复用流程、指定步骤执行者、检查配置并保存”，不重新实现流程引擎。模板是未来项目使用的定义；保存、目录中的`status`、本次`validation.status`和正式运行就绪是四件事。模板没有顶层`enabled`开关，不能沿用WB模拟的“启停模板”描述真实接口。版本历史/差异/升级迁移留UX01F4B，项目发现/应用、各类节点全部config/I/O参数和运行历史留UX01G；这里列出这些字段的消费者和交接，不称全部已审。
+
+权威链路：[index.html](../web/index.html)的17个顶层编辑控件 → [catalog_actions](../web/workflow-template/workflow_template_catalog_actions.js)及[app.js](../web/core/app.js) → [state](../web/workflow-template/workflow_template_state.js)/[draft](../web/workflow-template/workflow_template_draft.js)/[lifecycle_actions](../web/workflow-template/workflow_template_lifecycle_actions.js) → HTTP四routes → [registry.py](../total_control/state/registry.py) → [模板schema](../total_control/workspace/schema/templates.py)、[节点schema](../total_control/workspace/schema/nodes.py)、[recipe/model/handler规则](../total_control/workspace/schema/recipe.py)、[validator/preview](../total_control/state/registry_pkg/workflow_templates.py)。公开投影由[monitoring.py](../total_control/state/monitoring.py)和[cockpit/payload.py](../total_control/workspace/cockpit/payload.py)提供；归一化不等于严格校验或通用敏感文本清洗。
+
+### UX01F4A 顶层字段、输入与保存影响
+
+以下列当前normalizer的全部顶层输出及嵌套子字段。表单字段在输入时即改内存草稿并清旧校验；后端的“空串保旧”与前端“显示已清空”不同。表内E2是源码事实，空值/写盘/重启没有做真实服务验收。保留指保留用户能力，最终页面位置要等全产品调查闭合。
+
+| 字段/实际输入 | 用途、来源、条件与默认 | 联动、校验与保存影响 | 处理决定 |
+| --- | --- | --- | --- |
+| `id` | 无编辑框；新稿为空，服务端existing.id→payload.id→名称safe_id→随机 | update固定已有ID；create插首无重复ID检查；同名缺省ID也可能撞；不是名称 | 保稳定身份，新增/编辑分开；冲突风险登记G19/G45 |
+| `name` / `templateNameInput` | 人可读名称；新稿按Repo/Paper/Idea默认命名 | 服务端空回旧，缺省按来源生成；改名不改ID；草稿无必填校验 | 保留；名称不能代替身份 |
+| `description` / `templateDescriptionInput` | 说明适用场景，默认空 | 服务端空回旧/brief，清空不一定生效 | 保留用途；不与brief直接合并，修清空合同 |
+| `status` / `templateStatusSelect` | 目录标记；UI ready/draft/blocked，新稿ready；schema接受任意非空字符串 | 不由preview自动改；CRUD不以它阻止保存/执行；未知枚举无对应选项 | 保定义标记，重命名文案区分校验；不推成产品成功 |
+| `brief` / `templateBriefInput` | 创建项目的初始摘要，默认空 | 空回旧，参与来源/节点默认；不等模板说明 | 保留，明确进入哪个项目字段 |
+| `source.type` / `templateSourceTypeSelect` | repo/paper/idea/mixed，输入为flat `source_type`，默认repo；mixed借idea默认链 | UI改来源立即重建整条nodes，无确认；后端非法来源变idea；不是仅改分类 | 保来源；改分类与“重建步骤”分为显式动作，不能悄悄丢节点 |
+| `source.repo_url`、`source.repo_ref` / `templateRepoUrlInput`、`templateRepoRefInput` | 默认仓库及分支/提交，flat输入，默认空 | 空回旧，归一化同步相关首个kind节点；这里不验URL/仓库可访问 | 按仓库语义保留，项目明确覆盖 |
+| `source.paper_url`、`source.idea_text` / `templatePaperUrlInput`、`templateIdeaInput` | 默认资料与目标，flat输入，默认空；当前同时常驻 | 空回旧，可补搜索/数据线索；不同语义不合成“背景”大框 | 保留各含义，按流程条件呈现 |
+| `workspace_dir` / `templateWorkspaceDirInput` | 默认工作目录，空；模板本身无host字段 | 空回旧，会同步部分节点；没有存在/权限/远程位置验证 | 保留默认，不能叫已确认运行位置；具体host+path交G |
+| `env.name/manager/python` / `templateEnvNameInput`、`templateEnvManagerSelect`、`templatePythonVersionInput` | 默认环境；name/Python空、manager空/conda/venv/custom；flat优先，再nested env，再旧值 | 无真实环境或版本探测；空回旧；Python3.11占位不是最低版本声明 | 按需求保留条件项，不能当已安装环境 |
+| `recipes[]` | 返回数组，但后端仅生成一项；接收flat `recipe_id/recipe_name/setup_command/run_command/report_command/schedule/recipe_notes/recipe_enabled`，不读payload.recipes | UI取第一启用项否则首项并折成一项；仅发四个命令/调度flat值，不发recipe身份/notes/enabled；无顶层编辑框；后端首旧recipe作基底、文本空保旧，字符串false经bool仍true | 记录往返保真缺口；现节点命令编辑保留，逐参数在G查；不假定数组/禁用完整支持 |
+| `model.provider_profile_id` / `templateProviderProfileSelect` | 只选全局LLM连接，不输入key；默认空 | 未知ID仅warning、空不报缺模型；后端空保旧；选项只列当前LLM，失效引用不显式保留 | 唯一连接编辑在F1配置页；这里保引用/有效来源/失效项，不能静默置空 |
+| `model.routing_mode` / `templateRoutingModeSelect` | workspace_default/agent_override，默认前者；非法值归默认 | 覆盖逻辑沿F1/F3A，不是每节点另填key | 保路由选择与来源，只有明确例外才编辑覆盖 |
+| `model.chat_agent_id` / `templateChatAgentSelect` | 全局对话Agent引用，默认空；显式空可清 | 未知仅warning；与节点handler不是同字段；选项未按enabled过滤 | 保对话职责，不把它设成所有步骤执行者 |
+| `model.notes`、`notes` | 无当前顶层编辑控件；归一化/payload保留字符串，默认空 | 后端空保旧；不是新增第二份“背景”；不能因隐藏而删已有内容 | 保读取/往返，是否编辑待页面合同；不直接合并 |
+| `tags` / `templateTagsInput` | 逗号列表/parseTagList，默认[] | 显式[]能清；分类偏好不改变运行 | 保留次级信息 |
+| `nodes`、`links` | 节点及控制边；新稿默认链，UI保存按nodes重建相邻links | 空图/空边服务端也会补默认；选择即归一化，分支边可能在未保存前已丢于草稿 | 保设计能力，但不假称自由DAG编辑；见下表 |
+| `agent_ids`、`tool_ids` | 由最终节点/对话Agent及全局工具派生；不采信同名payload字段 | 公开snapshot过滤失效ID后计数，不代表无失效引用/真实可执行 | 只读关系须保失效诊断；工具权限唯一入口沿F3A |
+| `version_history`、`created_at/updated_at` | 历史和时间，无本片普通编辑框；preview归一化也生成新updated_at但不落盘 | UI不发历史/时间；后端可接创建时间/历史；具体版本规则交F4B | 保版本证据，不把预览时间当保存成功；不扩审迁移 |
+
+来源和recipes是**读写形状不对称**：公开GET的nested source/recipes不能原样POST当安全复制。env同时支持两形状，不能据此推其他字段也支持；未知顶层扩展在前端已知字段重建/后端白名单输出时会掉，未确认语义前不合并或批删。目录/来源/环境会经`sync_workspace_nodes_with_overview`同步每个已知kind的首个节点；命令是否强制同步又取决于flat键是否出现。当前没有清楚的“项目默认—节点显式覆盖”合同。后续先定义有效值与来源，再单片修改，不能加第二套默认合并器来遮掩差异。
+
+### UX01F4A 节点身份、执行者和设计动作
+
+| 字段/动作、消费者 | 当前输入、默认及输出 | 能力边界与后续需求 |
+| --- | --- | --- |
+| `node.id/kind` → node_mutations/schema | id缺则生成；kind由新增种类选择，未知kind保留并warn；无普通ID改框，插入新节点后选择它 | 身份不可用标题替换；重复ID validator阻塞；具体种类参数交G，不把未知kind直接删掉 |
+| `title/status` → node_editor | 标题默认种类标题；status选ready/draft/blocked/running/done，服务端无枚举限制 | 模板允许编辑running/done不是运行证据；设计页应区分定义标记和持久运行，不能手写状态冒进度 |
+| `handler.mode` | human/agent/system；默认/非法human；模板补推荐但保明确human/system | 真实node_runner按kind+mode+agent_id选agent/job/skip；human不等人工暂停，system不等必须Agent；validator却对所有非human要求Agent，需后续统一合同，不能只改标签 |
+| `handler.agent_id/name` | 全局Agent下拉可空；选择Agent同时用其名称覆盖显示name；手改name不换agent_id | 不复制prompt/key进表单；失效/停用必须可识别；validator agent停用blocking/system停用warning，与执行门禁区分 |
+| `handler.handoff`、节点`notes` | 交接说明/备注，默认空；纯草稿字段 | 保不同语义，说明不是完成回执，不冒充实际交接 |
+| `handler.output_key/max_iterations/timeout_seconds/output_format` | 当前基本编辑器无这四个独立控件；后端归一化保有限合法值，前端workspace_node_catalog归一化仅保mode/id/name/handoff/output_key，丢这三个预算/格式字段（E2） | 输出键与预算来源沿F3A；完整字段往返/I/O交G，保高级编辑需求，不能靠界面隐藏直接丢值 |
+| `node.config`、`output_key/input_mapping` → node_editor_actions/通用renderNodeField | 种类定义提供配置控件，映射有结构化和高级文本；编辑即归一化/清校验 | 此处只确定归属/消费者，所有种类参数/映射删除清空/前向引用交G；不称逐参数已闭合 |
+| `position/runtime` → schema/前端node normalizer | 存储可含布局及运行痕迹，模板normalizer不自动清历史；拓扑预览按数组自算位置 | 定义与运行分开；复制/新run不能继承旧状态，迁移责任交F4B/G核验 |
+| 插入/上移/下移/删除 → toolbar与canvas actions | 按数组改顺序并重建相邻links；至少留一个节点；未保存不发写请求 | 保可操作编辑；重排后的引用是否仍有效要校验，不能只看图连上 |
+| 新建/Repo-Paper-Idea seeds/重建starter → app/state | 新建与seed重置草稿；重建覆盖nodes；无脏稿确认/撤销事务 | 应分别表达“新模板”“改来源”“重建步骤”，保未保存离开/取消合同；复制全局模板入口未发现，不凭计划虚构 |
+| 节点列表/顺序卡/阶段图/拓扑点选、搜索前后项 → canvas/search/node_list | 同一selected node；搜索改本页内存且可Enter/Shift+Enter；多处可上移/插入 | 保快速定位；重复展示/动作是消融候选，未完成对照前不删；不能变成必须逐层点击 |
+| 边检查器/节点映射/补缺映射/建议修复 → canvas、repair_actions | 编辑仍落同一nodes.input_mapping/output_key；repair只改草稿再preview，不自动save；批量patch可部分成功 | I/O面板同事实应统一入口，保显式修复/失败反馈；完整引用语义交G；修复需绑定草稿版本，不能用迟到建议 |
+
+### UX01F4A 顺序编辑、拓扑展示和真实执行
+
+现编辑器叫“顺序链路工作室”有合理边界：`normalizeDraft/payloadForSave`均按nodes重建links，选择已有分支模板时草稿就成为顺序链；两条recipe也被折成一条。后端`normalize_workspace_links`去无效/自环/重复边，有有效子集则保留，否则补顺序链，[]不能代表独立节点。validator读取raw links检查端点/重复，但contract用normalized links；preview拓扑又可读raw links。同一响应不同投影不一定代表同一图。
+
+后端topology_preview可以画branch/join/cyclic和数据引用边，不代表UI能自由连线，也不代表正式推进支持任意图。validator没有把cycle/branch可执行性作为专门blocking；cycle_node_ids是Kahn未访问集合，可能含环下游。正式`state/workspaces/workflow.py`当前按nodes数组取可执行前缀，只支持单Job、Job→eval.report Agent、特定两Agent链；更长/任意DAG、并行、循环执行均不能靠模板ready承诺。这里是E2接口边界核对，没有启动或验收这些流程。
+
+设计上要让用户清楚“顺序编辑能做什么、结构图解释什么、本项目实际支持运行什么”。现有配置/设计能力需要保留，未支持的运行形状显式说明；不能用只读拓扑替代编辑器，也不能引入第二推进器补界面幻觉。
+
+### UX01F4A 动作、API与异常合同
+
+| 用户动作/真实接口 | 当前处理与输出 | 要保留或修正的合同 |
+| --- | --- | --- |
+| 读目录/单项：GET `/api/workflow-templates`、`/{id}`，status也带目录 | public模板/派生计数；单项缺失404；目录按时间倒序 | 失效引用不能只过滤后显示0；来源/字段完整可读，不把目录状态当本次校验 |
+| 校验：POST `/api/workflow-templates/preview` 或 `/{id}/preview`；GET `/{id}/preview` | collection处理未保存body，item合existing；返回workflow_template/validation/preview，不保存/不跑任务；collection ValueError400、item404 | 显示归一化结果、具体问题/节点、恢复入口；绑定请求对象和草稿版本；不能叫真实环境测试 |
+| 保存：POST `/api/workflow-templates`；PUT `/{id}`，POST item是保留兼容更新 | UI先preview，只有status严格等blocked才拒；warning允许，缺validation也能继续；CRUD自身不调用validator | 草稿存储与可运行门禁分别设计；现在blocked连draft也存不了，不能称已有“保存任意草稿”；直接API绕开预览不是产品验收路径 |
+| 选择/取消/刷新 | 选模板从目录重建草稿并清校验，无确认；没有独立取消按钮，切换/新建不是安全取消；草稿未持久恢复 | 未保存改动明确放弃/保留；返回精确模板/节点，不串项目；浏览器前后退完整路径本片未验 |
+| 删除：DELETE `/api/workflow-templates/{id}` | 浏览器confirm，取消无请求；后端删首个匹配，不查项目占用，不级联删项目/run；成功读目录选首项 | 保危险确认和影响说明；项目快照不能被删，失去升级来源的影响F4B查；占用保护非已实现 |
+| 复制/应用 | 未发现全局模板clone按钮/API；既有模板→实例快照是另一能力 | 不把“复制历史JSON”或照抄GET当安全克隆；实例应用/冲突交F4B/G独立调查 |
+
+validator查节点身份/重复、非human Agent绑定、required工具、输出键冲突、原始边端点、contract缺输入。未知kind/未知或停用授权工具/失效模型引用等多为warning；空Provider不报缺连接，也不检查真实目录/主机/模型、工具实现和服务可达。它不是完整运行预检。UI的I/O健康、四张概览卡、目录status与服务端validation各有来源；例如概览AI卡可以用“当前选中Profile/全局已配置数量”回退，不能把它当本模板有效路由事实。应减少重复绿灯，同时保具体问题来源；未校验时“没有发现阻塞项”也不能暗示通过。
+
+**新增与保存错位（G45，E1+E2）**：`newDraftState`已清selected id，但`renderWorkspaceWorkbench`总先渲染隐藏的use面板；`renderWorkspaceUseMode`发现没有选中模板就回填第一已存ID。manage renderer本身不自动选首，不能误归因Agent/Tool同一函数。实际非空目录点新建有新Repo草稿，却仍active template-a；保存发preview A、PUT A而非POST。空目录才观察到POST。合成preview明确warning让保存分支可达，不证明真实默认空Agent链一定能过validator，真实覆盖/落盘后果仍E3。
+
+**在途保存竞争（G27/G45，E1+E2）**：save在await preview前捕获payload，await后重新读selected id。实际A编辑→保存→拦截器延迟preview响应→普通点击B→释放响应，最终PUT B携带A的id/name/nodes；后端固定existing.id会保B身份，不能靠body.id救回目标。preview也没有对象/草稿版本检查，busy仅作提示，迟到校验可落到已切换/已编辑草稿。后续需以不可变目标+草稿版本贯穿校验/保存/结果展示，对失效回执拒绝应用；本片没有修代码。
+
+### UX01F4A 实际证据、消融和交接
+
+浏览器Chromium140.0.7339.16，旧生产web全网络拦截，**15观察/809请求=791GET+11POST+7PUT**，pageerror/requestfailed/未知API501均0。1440实际编辑→preview/PUT、分支转顺序/recipe平铺、draft blocked不保存且保稿、warning保存、preview/save503保稿、切换丢稿、在途A→B错位、非空新增误PUT/空目录正常POST、删除取消/刷新；1024/768仅名称原生click→填值→单Tab到来源→合成保存。**390连模板列表普通click也因viewport外超时失败1**，未继续名称编辑/保存；不force/改DOM/停轮询/放宽门禁/重跑到绿，不称四宽全流程或完整键盘通过。长内容、节点控件逐个操作、确认删除、back/forward与真实保存/重启没有验收。
+
+路由合成公开模板、Agent和validation响应，CRUD只是本脚本内存响应，不读真实config/key/runtime，不起后端/Job/Provider/SSH。夹具原有3节点分支/2recipe是用于发现前端写出损失的输入，回执不复制完整后端normalizer、validator和version_history；因此request证据可证明错误目标/形状，不能证明真实定义已被覆盖、真实警告或运行可用。8项首轮观察后记录函数name冲突、第二轮rename遗漏NameError、第三轮dict同名冲突均保原脚本/JSON/log；第四轮仅修本地记录器，保上述390产品失败。7份图（含首轮脚本故障图）与脚本/请求、后端只读报告仅`/tmp/relaygraph-ux-audit/ux01f4a/`；沿dev_work不可访问例外未修复/重建。主代理看race/blocked/390三图，图主要编辑壳和消息，错位由请求与源码证明。
+
+保全部旧生产入口/API、顺序编辑、图/列表投影、映射及诊断修复；无替代实现，不能凭控件多就删设计能力。后续消融固定同一模板及故障，对照节点列表/顺序卡/阶段/拓扑的定位、编辑、状态来源及副作用，再减少重复；全局Agent/工具/模型编辑复用F1–F3，不在模板复制第二套目录。只改三正式docs和本片相关逐文件结论，稳定规格/AGENTS/正式前后端未动；独立只读监督与文档检查后提交推送。唯一下一片F4B核版本/快照/差异/迁移，仍不开始整站画稿；全产品调查及G27/G40/G41/G45保持开放。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
