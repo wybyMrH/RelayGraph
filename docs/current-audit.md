@@ -4,7 +4,7 @@
 
 ## 1. 范围、证据等级与结论
 
-当前执行指针：用户再次指出 UI02 的全产品需求和使用逻辑仍有缺口，UI01/UI02历史模拟检查不作为方向验收，暂停UI03A。目标模式先逐功能调查、再定页面合同与单片前端优化；UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux与活动、UX01F1模型连接/路由及UX01F2搜索接入调查已限定完成，详G41/G42/G43/G44及设计附件§0；唯一下一片 **UX01F3A：Agent定义、模型覆盖与工具授权需求调查（待开片）**。N04/WB既有证据仅保持原限定范围，真实产品未因此完成；WB06A真实接线和N00F暂缓，G40/G26/G27仍开放。
+当前执行指针：用户再次指出 UI02 的全产品需求和使用逻辑仍有缺口，UI01/UI02历史模拟检查不作为方向验收，暂停UI03A。目标模式先逐功能调查、再定页面合同与单片前端优化；UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux与活动、UX01F1模型连接/路由、UX01F2搜索接入及UX01F3A Agent定义/模型覆盖/授权调查已限定完成，详G41/G42/G43/G44/G45及设计附件§0；唯一下一片 **UX01F3B：工具定义与测试边界需求调查（待开片）**。N04/WB既有证据仅保持原限定范围，真实产品未因此完成；WB06A真实接线和N00F暂缓，G40/G26/G27仍开放。
 
 当前正式代码台账覆盖 292 个文件：169 个后端 Python、121 个前端 JavaScript、HTML/CSS 各 1 个；配置/公开数据/本地验证入口另列。用户已在 42960ac 删除远端 24 个历史测试文件并忽略 tests/，旧本地 smoke 也已清理，本文不再把它们列为现存文件。不读取真实 Provider 密钥，不把运行数据、缓存或第三方包计入正式代码。
 
@@ -430,6 +430,8 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 
 - UX01F2 E2：Search内部同步urllib固定15/12秒，未接Agent剩余deadline/cancel，read无体积/总墙钟门禁；工具前后检查不能及时中止在途搜索。纯方法只注入立即TimeoutError，不是实耗超时/取消验收；补预算与输入/响应限额仍须独立片，不把LLM预算已修泛化到工具。
 
+- UX01F3A E2：全局Agent timeout在debug回退生效，普通节点仅handler→node而未回退Agent；UI不应称统一默认。全局debug无统一cancel入口、完整调试生命周期本片未调查，不把现有deadline guard泛化为所有诊断入口已验。预算清空omit保旧见G45。
+
 <a id="g05"></a>
 ### G05 · P2 · 聊天失败语义不一致，同步/流式执行存在重复编排
 
@@ -509,6 +511,8 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 
 - UX01F2 E2补核：READ的web.search可真实联网，安全测试外层ok/safe不等搜索成功；trace仅看顶层status，seeded可掩盖provider_status=error。Search全局tool定义先项目快照，缺Profile绑定专项诊断，默认与第一条不是可用性调度。详G44，不在本片改授权或工具生命周期。
 
+- UX01F3A E2：显式空allowlist保无工具，混合有效/未知项会过滤未知、全未知显式项却可能保留。执行交集/Executor只按ID未滤tool.enabled；workflow readiness查Agent.enabled，但debug等入口未统一，停用不是即时停止。健康字段完整≠绑定/授权/实际调用；全局/项目副本保编辑，G45另记对象错位。真实disabled工具/Agent执行未验，工具全定义留F3B。
+
 <a id="g12"></a>
 ### G12 · P1 · Agent 文件发现工具缺统一远程读取语义
 
@@ -586,6 +590,8 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 
 - UX01F2 E1纯方法/E2：canonical未知Search ID阻断，别名未知仍可到endpoint；limit字符串inf抛OverflowError，network普通bool。HTTP200错误对象可被归empty，未知测试workspace静默取首项目；结果URL/source未验证，不能把任意source当可信来源。参数/响应合同与错误身份归G44后续片，未真实联网。
 
+- UX01F3A E2：Agent ID自动safe_id而非严格拒绝、POST同IDupsert；bool("false")真，正预算无上限且timeout 0.5丢弃；无Profile存在/kind强校验，描述空串与预算空值清除不一致。rename/delete两文件保存无跨文件事务，持久异常后果E3未注入；不在调查片修边界。
+
 <a id="g20"></a>
 ### G20 · P2 · 摘要回放不等于完整离线交付，截断语义需要统一
 
@@ -604,6 +610,8 @@ K1合同核当前instance门禁/在途导航/返回前滚动、旧请求/超时/
 - UX01F1完整字段/API/消费者映射见设计附件§0：JS厂商表与后端catalog、字段health与client默认、摘要与执行路由解析存在漂移；provider与vendor_id不能直接合并。is_default未发现LLM执行兜底消费者，models默认首项非fallback；列表、字段齐全、completion成功分开。LiteLLM仍是待对照候选，尚未采用或替换现路径。
 
 - UX01F2核4类Search适配及Profile/工具/参数/env优先级；Search默认有真实消费者，与LLM不同。种子降级不是供应商重试/fallback，quota仅提示；现少量适配器不据此强上完整搜索平台，成熟SDK替代须另证预算/错误/许可/退出成本。
+
+- UX01F3A E2：manage Agent health以任一可用LLM称默认，节点合同展示总优先Agent连接，与workspace_default真实解析可不同；节点预算/格式和global debug回退也不同。应收敛有效配置/来源，保留全局与实例不同保存责任，不借此引入多Agent平台或第二路由；详G45。
 
 <a id="g22"></a>
 ### G22 · P2 · 测试与历史文档按阶段堆叠，核心缺口未形成验收门禁
@@ -729,6 +737,8 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 
 首轮214320失败仅因本地脚本错把follow说明断言成“父步骤失败”；实际页面明确“前置步骤未成功，本次未执行”，按真实文义修断言后完整三链通过，没有改产品文案/终态。额外实物字节核对曾把换行转义误读，改按实际0a验证，原文件未写改。长错误全文沿M1-UI既有证据，本片未重验；手机导航、首次监控过渡显示、G26公共消息分离/动作邻近反馈仍开放。无新字段、动作、状态判断、请求器或展示副本，原界面已满足本片，不为阶段造重复UI；无需删除仍有消费者的旧组件。仅文档改动检查链接/diff，未重跑无关Python/JS检查；脚本、配置、截图和结果均只本地，第一部分不变。
 
+- UX01F3A E1：390选Agent后普通名称click被aside/toolbar/模式栏挡5秒失败，保图未force/重跑。1440debug图只见部分结果、来源核DOM/请求，不称阅读全面通过；1024/768仅名称点击/单Tab/保存。未来配置页独立身份、一个主滚动区、按任务保编辑/诊断能力，生产布局本片未改。
+
 <a id="g27"></a>
 ### G27 · P2 · 实例草稿、配置完整往返和保存竞争仍有缺口（部分修复）
 
@@ -753,6 +763,8 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 
 - UX01F2 E1/E2：Search工具下拉与JSON、保存工具绑定和Profile默认有多份选择；选自动可显示默认a、发无ID参数却走保存b，reset又显式a。测试未发工具草稿，迟到写当前toolDefinitionTest。后续明确当前/保存/有效来源与取消返回，保既有写能力，不引入第二配置源（G44）。
 
+- UX01F3A E1/E2：Agent选择重建草稿丢未保存，503保稿；保存预算空值undefined被JSON省略而后端merge保旧，description空串也保旧。新增选旧/迟到debug串对象另见G45。项目Agent草稿与全局定义保存对象不同，不能因同字段合并；本轮项目保存/放弃/跨页未浏览器验证。
+
 ### N03B2c2a-UI：显式授权说明与完整启动入口（本片已实现，边界验收）
 
 - 对齐 R03/R06/R12、规格§3，关联 G10/G11/G26。后端 execution bundle 的 `ready_to_execute`/`missing` 是入口事实：ready 才显示“运行工作流”，缺项显示后端返回原因并提供自动推进/配置中心；在途 run 显示“打开当前运行”，不重复提交。
@@ -769,6 +781,7 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 - topology 同步跳过报告 Agent 空工具列表的“Agent 没有可用工具”警告；这是该最小链的显式能力边界，不是把空 allowlist 泛化为所有 Agent 可执行。模板验证、workflow contract/context metadata 和节点所需工具定义回填也按实际 executor mode 使用同一 helper。既有 Agent preset 仍可补齐工具定义目录，但不改变 `agent.tools` 授权列表。
 - 确定性检查已通过：mode-aware helper（Agent 空、Job 保留、其他节点保留）、Agent topology 为 ready 且无 `required_tool_unbound/agent_without_tools`、Job topology 仍登记一个 `report.write` requirement；`dev_work/n03b2b/venv-test` 的 `compileall` 和契约脚本通过，`git diff --check` 通过。xng/zuoye 默认环境缺 `langgraph`，直接从完整包导入无法运行，未把它记为通过。
 - 消融决定：不新增第二个工具映射表、不把 Agent 直出改成工具调用、不删除既有 Job 报告命令；唯一模式判断复用 `resolve_node_executor_mode`。旧实例的真实 POST 409 和前端响应记录保留，下一片只复验 ready 隔离实例的网页提交闭环。
+
 
 <a id="g40"></a>
 ### G40 · P2 · 工作台职责混排与首次使用阅读负担
@@ -942,7 +955,7 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 
 ### G41 · P2 · 工作台子模块被当成全产品入口，其他功能尚缺独立设计
 
-- **当前路线（2026-11-09 用户再次纠偏）**：UI02 也未解决全产品使用需求，必要资源明细被下沉、配置/设计/操作能力未充分进入新版。UI01/UI02 的历史模拟检查保留，但不是当前产品方向验收；暂停 UI03A。目标模式改为全功能需求调查→页面合同→完整交互→单片前端优化与验收，工作台/配置中心须有独立页面身份。唯一下一片为 UX01F3A Agent定义、模型覆盖与工具授权需求调查，见第三部分；全域调查闭合前不固定布局或迁生产。
+- **当前路线（2026-11-09 用户再次纠偏）**：UI02 也未解决全产品使用需求，必要资源明细被下沉、配置/设计/操作能力未充分进入新版。UI01/UI02 的历史模拟检查保留，但不是当前产品方向验收；暂停 UI03A。目标模式改为全功能需求调查→页面合同→完整交互→单片前端优化与验收，工作台/配置中心须有独立页面身份。唯一下一片为 UX01F3B 工具定义与测试边界需求调查，见第三部分；全域调查闭合前不固定布局或迁生产。
 - **UX01A 已限定完成（R01/R07/R12）**：设计附件§0集中列出主机身份/可达与采样、系统资源、每卡资源、GPU 计算进程、汇总/趋势、所有巡检输入/动作的来源、条件、当前默认/校验、联动、保存影响和保留要求。记录了后端已有但尚未清楚呈现的 monitor_ok、采样重用/时间、inode 等值；主机 CRUD、任务/终端/传输参数、所有字段的跨域消费者并未因此完成审计。主机、GPU 进程、Job、tmux、终端是不同对象；主机选中不等于进程过滤，不把所有主机选择器合成一个。
 - **E1（隔离合成接口的旧 UI 观察，非后端实测）**：当前未改 HTML/CSS/JS 在 xng/Chromium 140 打开，全部静态与 API 请求由 Playwright 拦截，启动预算占位符按 Handler 方式替换为30；没有运行后端或访问真实主机/配置。15项观察，最终1028请求全GET，pageerror为空。1440点击确认选主机仍显示全组3GPU/2计算进程、点GPU必要时清过滤、1660字符完整命令、非本人停止确认后取消且零停止请求、排序/置顶刷新、单机/全局合成失败保旧数据。只证明消费者联动，不算真实任务/采样/停止/恢复能力。
 - **E1 故障保留**：选主机后的资源浮层挡住 GPU 行，原生点击超时；再观察仍被挡，只有额外把鼠标移出、等浮层关闭后才能继续。未 force click、改 DOM/CSS 或停 poll。首失败日志、再观察现场和成功后续均本地保留，不能将后续完成写成正常路径顺畅；此为待优化交互问题，本片不修。
@@ -989,6 +1002,10 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 - **UX01F2证据 E1/E2**：原adapter+Context/dispatcher原AST、空替代env/拒绝socket/假urlopen，13场景10假调用，验证未知canonical/alias不一致、优先级/空/注入错误带种子/200错误误empty/limit/占位符；非真实HTTP或网络超时。旧web全拦截14观察/783请求=773GET+9POST（2连接test+7工具test）+1PUT，pageerror/requestfailed/501为0，但末390参数click被aside/toolbar遮挡失败1。1440坏JSON/正常found/内error外ok、自动选择错位/reset/保存/503/迟到串另一工具；1024/768只选a/单Tab到reset/模拟测试/刷新回保存b。390只选a，未进入后续测试，不记四宽通过。
 - **UX01F2边界与交接**：浏览器无项目/种子夹具，seed降级只纯逻辑/源码证据；无真实后端/key/config/供应商/Agent/持久化/SSH/GPU。不force/补DOM/关门禁/停轮询，无修脚本重跑到绿；5图含失败，主代理/监督均看错误/迟到/390失败三图，监督只读。材料暂/tmp/relaygraph-ux-audit/ux01f2/，dev_work例外未修复；本地脚本/结果/图不提交。文档范围/链接台账/独立终审通过后安全提交推送；唯一下一UX01F3A只查Agent定义/模型覆盖/授权，工具全定义另F3B，不混模板迁移/新布局，G41/G44仍开放。
 
+- UX01F3A补全Agent输入/授权/预算及debug入口矩阵：必须保可创建/配置/测试，不能以只读角色卡替代；配置中心全局、项目设置副本、流程节点覆盖、运行冻结事实各有职责。三者具体布局待全域调查闭合，未因本轮观察宣称新版页面已实现。
+
+- UX01F3A限定完成Agent定义/模型覆盖/授权调查；G45登记新增变旧更新、混合测试与迟到归属，G04/G11保预算/enabled等真实缺口。浏览器15观察/794请求、390名称点击失败1，未真实Provider/后端/授权执行；下一F3B工具全定义/测试，其后F4及项目/维护，尚未形成全产品页面合同。
+
 <a id="g42"></a>
 ### G42 · P1 · 终端会话归属、输出游标和结束事实不完整
 
@@ -1009,6 +1026,8 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 - **影响范围**：没有enabled/禁用能力或引用占用门禁；DELETE不清持久项目/Agent/模板引用，两个UI删除入口对当前草稿处理还不同。run冻结项目与非密钥路由hash，后续取当前连接；地址/模型变化会拒绝旧run后续步骤，key轮换不改hash。不能承诺连接变更与旧run完全隔离。
 - **方案（尚未实现）**：唯一连接编辑处明确草稿/保存/放弃及影响对象；测试明确原始草稿或保存版本，免密草稿可按正确临时输入测试；候选/反馈按对象/请求隔离，过期回执不覆盖；保完整models和vendor/协议身份，明确空值/删除/引用合同及凭据换域确认。项目只选择并查看来源，复用现有路由hash/门禁，不造第二路由。先合同、再前端小片；确需API/持久化能力独立排片。详[设计附件](workbench-design.md)UX01F1，测试/截图仅本地，未调用真实Provider。
 
+- UX01F3A E2：Agent连接覆盖只有项目routing_mode=agent_override且有Agent连接时才用，保存引用不等验证；manage health/节点合同可能误导。全局debug另按profile.api_key非空而非正式health，免密连接可能被拒；后果未真调用。保存定义debug不含未保存模型草稿，错位另G45。
+
 <a id="g44"></a>
 ### G44 · P2 · 搜索的有效连接、降级来源与测试反馈不清楚
 
@@ -1017,6 +1036,18 @@ parent/child/follow/error 的原取消焦点到同run回放按钮，跨2400ms周
 - **原逻辑已观察**：canonical缺Profile直接blocked且少统一尾部；别名缺Profile却继续endpoint。HTTP200错误对象会归empty；limit=inf字符串抛OverflowError；网络空或注入错误带种子时status=seeded、provider_status保empty/error。纯方法仅替代空env/网络和context输入，非服务/真实供应商/预算恢复通过。
 - **源码事实/风险**：Search参数ID→工具绑定（当前全局优先workspace）→默认/第一Profile→参数/env，缺就绪筛选。READ测试可联网并耗额度；外层ok不消费内层状态，trace仅看顶层seeded可发ok。Profile test空结果可success合理表示请求完成，不代表找到资料；结果计数可含种子，rate_limit只是提示。免密空key保存会填占位key，endpoint可将其作Bearer且先于环境key（E2路径，真实端点影响E3未验）。未知workspace静默换上下文、URL/source未校验、Search无对应冻结hash/占用门禁；后续Agent重新取全局导致等待run搜索来源改变是E3，未真run验证。预算另见G04。
 - **方案（待实现）**：在连接配置、工具选择/测试和运行结果之间分清职责，显示本次有效连接/来源、实际上下文、未保存影响；查询与结果应直接可用，JSON仅诊断。空结果、失败、种子降级保不同文字/证据，外层执行结束不涂成检索成功。统一两ID/未知ID/有限数值、返回schema与来源/链接边界；按对象/请求隔离反馈、修390遮挡，后端来源/冻结/预算缺口单独切片，不造第二路由或全局状态。保旧Search适配、工具测试与环境兼容，消融后再退重复入口。详[设计附件](workbench-design.md)UX01F2，本轮只文档。
+
+- UX01F3A E2续核：Agent冻结配置不等Search所有依赖冻结；本片授权编辑仅列引用，工具Provider绑定/定义测试留F3B，Search独有优先级/降级合同沿UX01F2，不复制第二份规则。
+
+<a id="g45"></a>
+### G45 · P1 · Agent新建误用旧对象，配置与调试对象错位
+
+- 对齐R03/R05/R09/R12/R13；类别：错误修改风险、配置语义误导、草稿/响应归属。E1为UX01F3A未改旧web全网络拦截合成观察，E2为源码事实，E3为未真服务验证的后果；未修。
+- **已观察**：非空目录点新增，草稿id=new_agent但列表active=b，保存body.id=new-agent却PUT `/api/agent-definitions/b`。空目录新增正常POST是另一场景，不能掩盖前者。真实覆盖后果E3，前端错误请求目标E1；不能称真实数据已损坏。390普通名称click被aside/toolbar/模式栏遮挡，失败保留。
+- **源码原因**：newGlobalAgentDraft清selected后归一出非空新ID，renderer自动选目录第一Agent且不换非空draft；save按selected决定PUT。后端PUT支持rename并改模板引用，POST本身同IDupsert；新建/改名/更新必须有明确身份，不可只依当前列表选择。
+- **已观察**：未保存prompt/tools/model不进debug请求，草稿预算3却进入；合成预览用保存prompt。切换b再回a丢稿；保存503保稿；hold a调试再选b，a回执写b编辑区，busy按钮仅改字。删除取消不发请求、刷新丢稿不等于已有完善放弃/恢复合同。1024/768只名称编辑/单Tab/保存，390编辑未过。
+- **源码差异**：预算空值被omit，后端merge保旧；description空串保旧。节点timeout/output未继承Agent字段，debug会继承；健康就绪与真实项目路由/授权/执行不同。global rename/delete改模板但不遍历项目/run、删除helper不直接清agent_ids；全局停用不撤销副本或冻结run。调试可有真实调用、读取/联网与临时对象修改，不是无副作用沙箱，完整工具写入/调试生命周期尚待专片；G04/G11/G21/G43关联。
+- **方案（待实现）**：明确创建/编辑/rename身份与保存/放弃合同；保存/调试/列表回执按对象/请求归属，过期结果不覆盖当前对象。展示保存定义还是项目副本、有效预算/路由/授权来源，配置健康与本次执行分开。先全产品调查闭合和页面合同，再选最小前端片；API清空/占用/预算/enabled一致性与持久异常独立后端片，不由前端假装补齐。旧全局/项目编辑、调试/API有消费者，当前保留。详[设计附件](workbench-design.md)UX01F3A。
 
 ## 3. 验证边界与阶段状态
 
@@ -1200,7 +1231,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/__init__.py) · 5 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [agent_executor.py](../total_control/agent_executor.py) · 513 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；M1将普通/single_call的取消/截止构造收敛到原run局部guard，模型/fallback/工具/成功边界复核并保留已收usage/既有工具证据；单调总预算不重置；M2a把min(60,剩余)传入三处原模型调用，每次/fallback重新计算再guard，无预算不传；M2b同传原started绝对deadline到客户端，idle与总期限分开、fallback不重置；G04其余边界与G21未关闭；构造/查ID未滤enabled为G11 E2风险。 UX01F1核调用不单传model，取Profile首项；本片只读，不改预算/执行（G21/G43）。 UX01F2核allowlist后Search同executor，前后guard不等在途预算已贯通；本片不改授权（G04/G44）。 | `_tool_side_effect:31`；`_metadata_value:39` |
+| [agent_executor.py](../total_control/agent_executor.py) · 513 | R03/R09；Agent 输入/模型/工具/预算 → ReAct 循环与结果封装 → AgentExecution | N03B2c1 的 single_call 模式只调用一次、无失败 fallback，工具 JSON 在生成轨迹/副作用前拒绝，单调预算与返回后 cancel/deadline 检查；C1仅对明确protocol_error禁止非single_call再次chat fallback，非法JSON不能空success洗白；M1将普通/single_call的取消/截止构造收敛到原run局部guard，模型/fallback/工具/成功边界复核并保留已收usage/既有工具证据；单调总预算不重置；M2a把min(60,剩余)传入三处原模型调用，每次/fallback重新计算再guard，无预算不传；M2b同传原started绝对deadline到客户端，idle与总期限分开、fallback不重置；G04其余边界与G21未关闭；构造/查ID未滤enabled为G11 E2风险。 UX01F1核调用不单传model，取Profile首项；本片只读，不改预算/执行（G21/G43）。 UX01F2核allowlist后Search同executor，前后guard不等在途预算已贯通；本片不改授权（G04/G44）。 UX01F3A限核max默认10与report_only=1、查工具只ID未滤enabled；有效授权不等目录健康，G11/G45，未改执行器。 | `_tool_side_effect:31`；`_metadata_value:39` |
 | [agent_runtime.py](../total_control/agent_runtime.py) · 49 | R09；execution_id/取消请求 → 进程内注册与信号 → active/cancel 检查 | 问题/修补关联 [G04](#g04)、[G09](#g09)；按登记方案处理，不另建平行服务。 | `register_agent_cancel:20`；`cancel_agent_run:30` |
 | [compat.py](../total_control/compat.py) · 21 | R14；公开门面名/默认实现 → 查询 override → 兼容调用入口 | 问题/修补关联 [G16](#g16)；按登记方案处理，不另建平行服务。 | `public_api_override:7`；`public_api_value:17` |
 | [config.py](../total_control/config.py) · 345 | R01/R12/R13/R14；config/ TOML → 校验主机/路径及状态加载秒数 → AppConfig | I5增加独立page_startup_timeout_seconds及首页meta，默认30严格int1–300；N13C2增加status_load_timeout_seconds默认30、严格int 1–300（拒bool/float/string/非有限值）；首页先送预算。N07A目录/SSH兼容保留；UX01B源码核主机密码可明文写overlay、坏TOML当空/非原子写、基础同ID优先及发现来源差异，G09/G19/G41开放；此前“无秘密透出”不适用于主机新增/编辑原entry响应。 | AppConfig/load_config |
@@ -1231,11 +1262,11 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/http_api/__init__.py) · 10 | R12；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
-| [delete_routes.py](../total_control/http_api/delete_routes.py) · 55 | R12；资源删除路径 → 匹配并调用删除 → 结果响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 UX01E核terminal DELETE按ID关闭、ok不等远端树停止；UI忽略失败归app，G19/G42待修。 UX01F1核Profile删除ok回执不证明引用清理/迁移，保旧API（G43）。 | `handle_delete:9` |
-| [get_routes.py](../total_control/http_api/get_routes.py) · 470 | R12；查询路径/参数 → 调用状态服务、回放/下载/SSE → 查询响应 | N07A 增量 GET runs/{id}/report，按workspace/run取绑定文件投影、缺失明确不完整，不接受任意path；原回放/导出保留。G19/G20其余边界未关闭。 UX01D追browse/read/cache及参数封装；未加严格host校验，G12/G19风险归服务/适配器，不在路由重复实现。 UX01E核tmux列表/capture行数与终端cursor读取schema；无会话list/resize/resume，错误封装沿Handler，G19/G42。 UX01F1核catalog/Profiles/单项与route-health包装，单项不存在404；未真实调用（G19/G43）。 | `_workspace_jobs_snapshot:14`；`_workspace_stream_snapshot_event:27` |
+| [delete_routes.py](../total_control/http_api/delete_routes.py) · 55 | R12；资源删除路径 → 匹配并调用删除 → 结果响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 UX01E核terminal DELETE按ID关闭、ok不等远端树停止；UI忽略失败归app，G19/G42待修。 UX01F1核Profile删除ok回执不证明引用清理/迁移，保旧API（G43）。 UX01F3A核Agent DELETE ok与registry清引用边界；取消无DELETE仅前端E1，未执行真实删除或引用门禁。 | `handle_delete:9` |
+| [get_routes.py](../total_control/http_api/get_routes.py) · 470 | R12；查询路径/参数 → 调用状态服务、回放/下载/SSE → 查询响应 | N07A 增量 GET runs/{id}/report，按workspace/run取绑定文件投影、缺失明确不完整，不接受任意path；原回放/导出保留。G19/G20其余边界未关闭。 UX01D追browse/read/cache及参数封装；未加严格host校验，G12/G19风险归服务/适配器，不在路由重复实现。 UX01E核tmux列表/capture行数与终端cursor读取schema；无会话list/resize/resume，错误封装沿Handler，G19/G42。 UX01F1核catalog/Profiles/单项与route-health包装，单项不存在404；未真实调用（G19/G43）。 UX01F3A核Agent集合/单条公开响应与404，旧web目录多来自status；保持API，G45对象身份需消费者解决。 | `_workspace_jobs_snapshot:14`；`_workspace_stream_snapshot_event:27` |
 | [path_utils.py](../total_control/http_api/path_utils.py) · 14 | R12；API 路径/前缀 → 单资源路径段匹配 → id 或空 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `single_segment_path_id:6` |
-| [post_routes.py](../total_control/http_api/post_routes.py) · 434 | R06/R12；POST 命令 → 现有状态服务/公开封装 → 启动/配置响应 | N02 工作流 request_id/提交冲突返回 409；N04-H新增精确stop-continuation路径与body边界，参数400/身份或busy409，领域受理交service；M1a取消execution ID复用single_segment_path_id单次解码，非法单段400、inactive404；原encoded消费者不改。UX01B核主机新增/编辑直接返回原entry，可能含保留/新密码，待独立公开DTO修复；其余路由不批量改写，关联 [G19](#g19)。 UX01C核普通jobs/task-plan无通用幂等，preset委托和公开Job封装保留；预览不等真实门禁/冻结提交。 UX01D追fetch/conflicts/Job提交消费者，预检不绑定提交、公开local_path见G14/G19；本文件未改。 UX01E核终端两个创建别名/input/signal，无信号白名单/此路径输入限额（G19/G42）；均非WebSocket。 UX01F1核create/from-catalog/test/models及单ID更新别名；test业务失败常200，非HTTP400（G19/G43）。 UX01F2核Search复用profile test及tool test包装/404，业务error可能200；非独立Search执行API（G19/G44）。 | `_public_job_response:14`；`handle_post:30` |
-| [put_routes.py](../total_control/http_api/put_routes.py) · 44 | R12；资源更新请求 → 匹配资源与调用更新 → 更新响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 UX01F1核单ID更新别名与公开profile回执，消费者用PUT；边界见G19/G43。 | `handle_put:9` |
+| [post_routes.py](../total_control/http_api/post_routes.py) · 434 | R06/R12；POST 命令 → 现有状态服务/公开封装 → 启动/配置响应 | N02 工作流 request_id/提交冲突返回 409；N04-H新增精确stop-continuation路径与body边界，参数400/身份或busy409，领域受理交service；M1a取消execution ID复用single_segment_path_id单次解码，非法单段400、inactive404；原encoded消费者不改。UX01B核主机新增/编辑直接返回原entry，可能含保留/新密码，待独立公开DTO修复；其余路由不批量改写，关联 [G19](#g19)。 UX01C核普通jobs/task-plan无通用幂等，preset委托和公开Job封装保留；预览不等真实门禁/冻结提交。 UX01D追fetch/conflicts/Job提交消费者，预检不绑定提交、公开local_path见G14/G19；本文件未改。 UX01E核终端两个创建别名/input/signal，无信号白名单/此路径输入限额（G19/G42）；均非WebSocket。 UX01F1核create/from-catalog/test/models及单ID更新别名；test业务失败常200，非HTTP400（G19/G43）。 UX01F2核Search复用profile test及tool test包装/404，业务error可能200；非独立Search执行API（G19/G44）。 UX01F3A核Agent集合创建201/单条更新200与global/workspace debug201，201不等已执行成功；G19/G45。 | `_public_job_response:14`；`handle_post:30` |
+| [put_routes.py](../total_control/http_api/put_routes.py) · 44 | R12；资源更新请求 → 匹配资源与调用更新 → 更新响应 | 问题/修补关联 [G19](#g19)；按登记方案处理，不另建平行服务。 UX01F1核单ID更新别名与公开profile回执，消费者用PUT；边界见G19/G43。 UX01F3A核Agent PUT路径身份与body可rename，预算omit由registry merge保旧；隔离旧web新增误PUT见G45。 | `handle_put:9` |
 
 ### total_control/infra
 
@@ -1284,8 +1315,8 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [files.py](../total_control/state/files.py) · 741 | R04/R11；浏览/清理请求 → 文件与保留引用管理 → 文件/存储响应 | N02 暂保护账本 run 和回执，防止 JSON 裁剪后重新出现或失去幂等依据；事务归档待 N14。其他关联 [G07](#g07)、[G09](#g09)、[G20](#g20)。 UX01D核browse/read/fetch未知server_id退本机、远程预览先完整下载/后限文本及local_path回传（G07/G12/G19）；维护/保留逻辑未修改。 | `_runtime_state_run_job_ids:18`；`_runtime_state_workspace_run_closure:22`；`FilesMixin:47` |
 | [jobs.py](../total_control/state/jobs.py) · 4 | R14；包内实现 → 组合或转导出 → 公开兼容入口 | 兼容/包边界；保留已知调用，不按短文件数量删除。 | 文件整体/公开入口 |
 | [monitoring.py](../total_control/state/monitoring.py) · 114 | R01/R12；探针/查询 → 刷新完整计划投影、组合工作区状态 → status/cockpit | N02 读取领域账本和 Job 事实形成只读投影，不执行恢复副作用；派生冗余仍关联 [G17](#g17)。 | `MonitoringMixin:5` |
-| [persistence.py](../total_control/state/persistence.py) · 63 | R11/R13；内存 jobs/workspaces/registries → JSON 保存与密钥加密 → 本地状态文件 | 问题/修补关联 [G09](#g09)；按登记方案处理，不另建平行服务。 UX01F1核内存明文/加密副本单文件原子写，CRUD先改内存不保证失败回滚（G09）。 | `PersistenceMixin:5`；`save_jobs:6` |
-| [registry.py](../total_control/state/registry.py) · 606 | R03/R05；能力/模板/Profile 请求 → CRUD 与诊断组合 → 公开 registry payload | 问题/修补关联 [G11](#g11)、[G21](#g21)；WB04B1静态核现Profile删除仅删目录再保存，尚无完整项目/草稿/历史引用占用保护（G40设计映射），原型门禁不能代替后端。按登记方案处理，不另建平行服务。 UX01F1核CRUD同ID替换/空key保留/无占用门禁、saved与draft测试、首model/列表预算；详G09/G19/G21/G43，未修。 UX01F2核Search profile test空结果可success、工具test保存定义/未知workspace回首项；不等搜索成功（G44）。 | `RegistryMixin:30`；`tool_definition_by_id:31` |
+| [persistence.py](../total_control/state/persistence.py) · 63 | R11/R13；内存 jobs/workspaces/registries → JSON 保存与密钥加密 → 本地状态文件 | 问题/修补关联 [G09](#g09)；按登记方案处理，不另建平行服务。 UX01F1核内存明文/加密副本单文件原子写，CRUD先改内存不保证失败回滚（G09）。 UX01F3A核save_agent归一/去重/写盘，CRUD内存先改与Agent/模板无跨文件事务为E3风险，G19/G45，未故障注入。 | `PersistenceMixin:5`；`save_jobs:6` |
+| [registry.py](../total_control/state/registry.py) · 606 | R03/R05；能力/模板/Profile 请求 → CRUD 与诊断组合 → 公开 registry payload | 问题/修补关联 [G11](#g11)、[G21](#g21)；WB04B1静态核现Profile删除仅删目录再保存，尚无完整项目/草稿/历史引用占用保护（G40设计映射），原型门禁不能代替后端。按登记方案处理，不另建平行服务。 UX01F1核CRUD同ID替换/空key保留/无占用门禁、saved与draft测试、首model/列表预算；详G09/G19/G21/G43，未修。 UX01F2核Search profile test空结果可success、工具test保存定义/未知workspace回首项；不等搜索成功（G44）。 UX01F3A核Agent同IDupsert、rename/delete改模板不遍历workspace/run、merge清空与两次保存影响；G19/G27/G45，E2不冒充落盘验收。 | `RegistryMixin:30`；`tool_definition_by_id:31` |
 | [scheduler.py](../total_control/state/scheduler.py) · 370 | R01/R06/R07；资源/Job 队列及计划 → 原 monitor 核对后唯一唤醒图 → Job/run 更新 | N03B2b 增加唯一调度唤醒；不把 HTTP/query/SSE 变成推进器。保留原生命周期与日志；GPU 原子预留仍见 G13。 UX01C核profile queued依赖检查与训练blocked形成等待环、释放未核目标终态；G18开放，未真实运行或修改。 UX01D核tmux结束后凭exit_code=0判done，无transfer目标stat/hash分支（G14）；未做真实传输或停止。 | `SchedulerMixin:8` |
 | [servers.py](../total_control/state/servers.py) · 430 | R01/R07；服务器配置/所有者停止请求 → 编辑覆盖、检查与实时核对 → 服务器/停止结果 | 保留；UX01B核ID冲突替换、编辑目标校验缺失/非用户晋升复制密码、原entry回传、先存后刷新与base隐藏无效等静态缺口，见G09/G19/G41；未真实修改主机配置。 | `ServersMixin:5`；`list_servers_admin:6` |
 | [terminals.py](../total_control/state/terminals.py) · 65 | R07；终端 id/输入/信号 → 管理 WebTerminal → 会话状态/输出 | N00C 已删除无调用者的 terminal_list；保留 open/read/write/signal/close 会话管理。 UX01E核严格主机创建/固定初始alive、内存read/write/signal、pop后close与逐段UTF8；list/resume/resize缺口见G42，不再沿用无缺陷推断。 | `TerminalsMixin:5` |
@@ -1326,7 +1357,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [provider_route_health.py](../total_control/state/registry_pkg/provider_route_health.py) · 162 | R03/R05/R11；工作区/Agent/Profile → 检查路由缺口 → 诊断问题列表 | 问题/修补关联 [G21](#g21)；按登记方案处理，不另建平行服务。 UX01F1核直接引用/静态完整性非逐节点运行门禁，保诊断消费者、不新建健康事实（G21/G43）。 UX01F2核只计Search数量/完整数，缺web.search绑定缺失/错kind诊断，门禁不能由UI补事实（G44）。 | `build_provider_route_health:8`；`add_issue:35` |
 | [tool_definitions.py](../total_control/state/registry_pkg/tool_definitions.py) · 22 | R03/R05/R11；工具引用变化 → 重写 Agent allowlist → 更新后的定义 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 UX01F2只核Search工具绑定经registry保存，引用重写helper未替代运行路由；全工具CRUD/授权留F3B调查，保原路径。 | `rewrite_agent_tool_reference:8` |
 | [tool_testing.py](../total_control/state/registry_pkg/tool_testing.py) · 73 | R03/R05/R11；工具/安全测试参数 → 判定副作用并受限执行 → safe-test 结果 | 问题/修补关联 [G11](#g11)；按登记方案处理，不另建平行服务。 UX01F2核READ可联网、外层固定ok/safe不消费搜索内error/seeded，结果正文无任意内容脱敏保证（G11/G44）。 | `run_tool_definition_safe_test:12` |
-| [workflow_templates.py](../total_control/state/registry_pkg/workflow_templates.py) · 500 | R03/R05/R11；模板节点/能力目录 → I/O、绑定、拓扑校验 → validation/preview | N03B2c2b 模板校验按 node executor mode 判断静态必需工具：Agent 报告无 report.write 要求，Job 报告仍有；G10/G17 其他问题按登记方案处理。 | `rewrite_workflow_template_agent_reference:20`；`build_workflow_template_validation_payload:60` |
+| [workflow_templates.py](../total_control/state/registry_pkg/workflow_templates.py) · 500 | R03/R05/R11；模板节点/能力目录 → I/O、绑定、拓扑校验 → validation/preview | N03B2c2b 模板校验按 node executor mode 判断静态必需工具：Agent 报告无 report.write 要求，Job 报告仍有；G10/G17 其他问题按登记方案处理。 UX01F3A核Agent rename引用改写，delete清handler/chat但不直接清agent_ids；F4再核投影/迁移，G45，未提前删除。 | `rewrite_workflow_template_agent_reference:20`；`build_workflow_template_validation_payload:60` |
 
 ### total_control/state/workspaces
 
@@ -1338,17 +1369,17 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [agent_runtime_inputs.py](../total_control/state/workspaces/agent_runtime_inputs.py) · 100 | R05/R06/R09；映射/节点位置/历史输出 → 检查运行时引用 → refs/blockers | 问题/修补关联 [G10](#g10)、[G01](#g01)；按登记方案处理，不另建平行服务。 | `_agent_node_runtime_input_refs:10` |
 | [agent_runtime_observation.py](../total_control/state/workspaces/agent_runtime_observation.py) · 156 | R05/R06/R09；子 Job/run id/观察限额 → 等待与读取受限快照 → runtime observation | 问题/修补关联 [G02](#g02)、[G04](#g04)；按登记方案处理，不另建平行服务。 | `workspace_tool_observe_options:9`；`workspace_tool_job_snapshot:35` |
 | [agent_runtime_safety.py](../total_control/state/workspaces/agent_runtime_safety.py) · 327 | R05/R06/R09；命令/观测文本 → 允许诊断边界与密钥脱敏 → 拒绝原因/安全文本 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `redact_runtime_observation_text:18`；`workspace_tool_command_block_reason:29` |
-| [agents.py](../total_control/state/workspaces/agents.py) · 1010 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | N04 在父 attempt 上下文中为受控 `job.run/host.exec` 工具建立 child submission metadata，N04-D 只把 command 工具显式目标传给唯一 binding，HTTP CPU/cwd/环境验证通过；非command host.exec 与独立 agent-tool run 兼容入口保留。N04-E 冻结 v2 完整执行身份与资源缺省，同键目标变化拒绝；旧回执不改写、重入需核对，原恢复保留。N04-F增加限定N04父上下文的首错持久/本进程保护，失败不再发成功事件或应用最终文本输出；G32后端与F-UI已限定验收；N04-G接follow证据保留及显式超限blocked。G-UI及H/M取消边界与Q5当前CPU闭环已限定验收；广义G02/G30与硬实时取消等边界仍开放。 UX01F1核后续取全局Profile并比冻结hash，key轮换仍可使用；不是完整Provider快照（G43）。 UX01F2核每Agent复制当前全局Search/工具，等待run后续调用来源变化为未真run验证风险（G44），不套LLM hash。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
+| [agents.py](../total_control/state/workspaces/agents.py) · 1010 | R05/R06/R09；Agent 节点/工具参数 → 有效配置、runtime Job、输出持久化 → execution/节点结果 | N04 在父 attempt 上下文中为受控 `job.run/host.exec` 工具建立 child submission metadata，N04-D 只把 command 工具显式目标传给唯一 binding，HTTP CPU/cwd/环境验证通过；非command host.exec 与独立 agent-tool run 兼容入口保留。N04-E 冻结 v2 完整执行身份与资源缺省，同键目标变化拒绝；旧回执不改写、重入需核对，原恢复保留。N04-F增加限定N04父上下文的首错持久/本进程保护，失败不再发成功事件或应用最终文本输出；G32后端与F-UI已限定验收；N04-G接follow证据保留及显式超限blocked。G-UI及H/M取消边界与Q5当前CPU闭环已限定验收；广义G02/G30与硬实时取消等边界仍开放。 UX01F1核后续取全局Profile并比冻结hash，key轮换仍可使用；不是完整Provider快照（G43）。 UX01F2核每Agent复制当前全局Search/工具，等待run后续调用来源变化为未真run验证风险（G44），不套LLM hash。 UX01F3A核冻结Agent/工具交集只ID未滤enabled，节点预算/格式继承差异，项目debug保存副本/subset仅预览及node身份未统一；G04/G11/G45，实际副作用未验。 | `AgentsMixin:33`；`cancel_agent_execution:34` |
 | [automation.py](../total_control/state/workspaces/automation.py) · 138 | R06/R12；用户推进请求/权威 run 与 Job 投影 → 活跃运行保护、发现/受理命令 → watch/blocked/run 反馈 | 受理窗口 watch 保护同时涵盖 B2b/B2c1；当前运行未完成或未知时不另开发现任务。不是图推进入口，G17 建议投影仍开放。 | `AutomationMixin:8`；`advance_workspace_automation:9` |
 | [chat.py](../total_control/state/workspaces/chat.py) · 902 | R09/R12；聊天/反思/流请求 → 路由、Agent、消息更新 → 聊天与事件 | 问题/修补关联 [G05](#g05)、[G04](#g04)、[G21](#g21)；WB04E静态发现辅助chat接线差异（G40）：写model.chat_agent_id、可调用允许工具、末10条上下文未按Agent隔离；需先独立无副作用/隔离/幂等契约，不以原型代替。 UX01F1只核同步/stream路由与项目/Agent优先级，无全局默认兜底；不扩聊天实现（G21/G43）。 | `ChatMixin:7`；`_chat_agent_execution_trace:33` |
-| [crud.py](../total_control/state/workspaces/crud.py) · 365 | R02；工作区与迁移请求 → 创建/更新/模板差异与草稿 → 工作区快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `CrudMixin:7`；`workspace_by_id:8` |
-| [debug.py](../total_control/state/workspaces/debug.py) · 181 | R05/R06/R09；Agent 定义/样例 → 组装调试上下文与有效配置 → debug/execution | 问题/修补关联 [G11](#g11)、[G21](#g21)；按登记方案处理，不另建平行服务。 | `DebugMixin:7`；`debug_agent_definition:8` |
+| [crud.py](../total_control/state/workspaces/crud.py) · 365 | R02；工作区与迁移请求 → 创建/更新/模板差异与草稿 → 工作区快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 UX01F3A限核模板建项目复制Agent/工具，已有项目不因全局编辑自动刷新；项目完整字段留UX01G。 | `CrudMixin:7`；`workspace_by_id:8` |
+| [debug.py](../total_control/state/workspaces/debug.py) · 181 | R05/R06/R09；Agent 定义/样例 → 组装调试上下文与有效配置 → debug/execution | 问题/修补关联 [G11](#g11)、[G21](#g21)；按登记方案处理，不另建平行服务。 UX01F3A核全局debug保存定义/局部覆盖，默认预览、truthy+非空input可真调用；无受控runtime不等无联网读取/临时修改；免密key判定/预算差异见G11/G43/G45，未跑真实debug。 | `DebugMixin:7`；`debug_agent_definition:8` |
 | [defaults.py](../total_control/state/workspaces/defaults.py) · 62 | R05/R06/R09；工作区/应用建议请求 → 有来源的默认与发现回填 → 配置快照 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `DefaultsMixin:7`；`apply_workspace_automation_defaults:8` |
 | [discovery.py](../total_control/state/workspaces/discovery.py) · 162 | R05/R06/R09；工作区/发现节点 → 创建受控发现 Job 链 → 发现任务/run | 问题/修补关联 [G12](#g12)；按登记方案处理，不另建平行服务。 | `DiscoveryMixin:7`；`run_workspace_discovery:8` |
 | [nodes.py](../total_control/state/workspaces/nodes.py) · 471 | R05/R06/R09；节点/前置 Job/自动化状态 → 编译命令与依赖 → 节点 Job payload | 问题/修补关联 [G01](#g01)、[G14](#g14)、[G31](#g31)；N04-D 接显式目标并同步 payload/runtime_binding/resource_plan；普通默认解析对照不变。 | `NodesMixin:7`；`workspace_node_job_payload:8` |
 | [runs.py](../total_control/state/workspaces/runs.py) · 668 | R05/R06/R11；steps/事件/查询 → 新账本投影与历史 JSON 兼容 → run/SSE | N07A 新增get_workspace_execution_report，复用原run投影取当前已验证artifact正文，失败/历史返回null与原因，不回退inline。P1全量helper退出raw覆盖，复用共享Job/graph投影并传全量limit，原默认workspace派生不变；G36后端限定修复。旧JSON兼容及G02/G03/G09边界保留。 | `_workspace_public_payload_with_full_runs:8`；`RunsMixin:21` |
-| [workflow.py](../total_control/state/workspaces/workflow.py) · 452 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 两 Agent handoff 计划可经真实 HTTP 受理；旧单 Job/Job→报告入口不变。N04-D 已限定验证 CPU 目标保真和等待中恢复；G/G-UI正文交接及Q5当前CPU网页/重启闭环已限定验收，广义G02其他执行图仍开放。 UX01F1核实际节点门禁与受理快照，不能用目录字段ready替代（G43）。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
-| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 803 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；J1复用进程活动标志及精确身份的共用predicate，活动原提交投running/submitting且不被核对入口提前改未知；真实Job优先核对，重启/未知保护保留。自然网页及提交前后SIGKILL对照通过，对应UI见J1-UI/K1/K2及Q5限定验收。Q2真实正常/后续协议失败及重启不重发已限定验收；Q2a在新attempt前核权威intent与父output身份并记录child，旧inputs兼容且不补写，见[G38](#g38)；149契约及新链/旧记录HTTP重开通过。Q2b将新结果/旧follow收尾共用父follow同事务结算，删除旧双写；真实正常/失败及事务前后强杀通过，见[G39](#g39)，对应Q2b-UI及Q5当前CPU链已限定验收，N04目标完成；更广G02/G04/G30等继续开放。 UX01F1核冻结项目/非密钥路由hash及后续比较，密钥不写计划、不宣称全连接冻结（G43）。 | `WorkflowRecordsMixin:21` |
+| [workflow.py](../total_control/state/workspaces/workflow.py) · 452 | R05/R06/R09；启动/重发/实际前缀 → 类型边界、原门禁及冻结计划受理 → run/暂可为空的 jobs | N04 两 Agent handoff 计划可经真实 HTTP 受理；旧单 Job/Job→报告入口不变。N04-D 已限定验证 CPU 目标保真和等待中恢复；G/G-UI正文交接及Q5当前CPU网页/重启闭环已限定验收，广义G02其他执行图仍开放。 UX01F1核实际节点门禁与受理快照，不能用目录字段ready替代（G43）。 UX01F3A限核完整workflow就绪拒缺失/disabled Agent；不能泛化debug/直接执行统一enabled门禁，G11。 | `_workspace_agent_execution_checks`；`WorkflowMixin.run_workspace_workflow` |
+| [workflow_records.py](../total_control/state/workspaces/workflow_records.py) · 803 | R06/R11/R13；计划/Job 回执/图回调 → 冻结 payload、幂等提交核对/attempt 观察 → 领域证据和公开投影 | N04-A 已接父 Agent claim、child receipt 核对、waiting_child 投影及 follow resume；隔离 callback 验证重复 wake。N04-F唯一错误结算函数接入start/final/observe/resume，保留已提交child回执但不让其完成覆盖父失败；HTTP四链及模型返回前重启通过。N04-G抽N03/N04共用有界脱敏日志helper，done首次证据按完整身份冻结；实际follow请求及超限HTTP通过。N04-H新增stop service，run_lock先于短self.lock核精确child、显式keep_running，store原子受理后复用原投影/事件；三HTTP链及H-UI已限定通过；J1复用进程活动标志及精确身份的共用predicate，活动原提交投running/submitting且不被核对入口提前改未知；真实Job优先核对，重启/未知保护保留。自然网页及提交前后SIGKILL对照通过，对应UI见J1-UI/K1/K2及Q5限定验收。Q2真实正常/后续协议失败及重启不重发已限定验收；Q2a在新attempt前核权威intent与父output身份并记录child，旧inputs兼容且不补写，见[G38](#g38)；149契约及新链/旧记录HTTP重开通过。Q2b将新结果/旧follow收尾共用父follow同事务结算，删除旧双写；真实正常/失败及事务前后强杀通过，见[G39](#g39)，对应Q2b-UI及Q5当前CPU链已限定验收，N04目标完成；更广G02/G04/G30等继续开放。 UX01F1核冻结项目/非密钥路由hash及后续比较，密钥不写计划、不宣称全连接冻结（G43）。 UX01F3A限核RunPlan深拷workspace与执行传冻结项目；不推论全部Provider/工具依赖冻结，沿F1/F2。 | `WorkflowRecordsMixin:21` |
 
 ### total_control/tools
 
@@ -1397,7 +1428,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [report.py](../total_control/workspace/automation/report.py) · 458 | R05/R06；自动化各投影 → 汇总高亮/门禁/行动 → 操作报告 | 问题/修补关联 [G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_report_highlight:9`；`workspace_report_next_action:17` |
 | [reproduction.py](../total_control/workspace/automation/reproduction.py) · 791 | R05/R06；计划/声明数据/静态输入 → 范围内脚本与包缺项 → execution bundle | N03B1 仅有消费者的命令预览进入包；warning 可提交，声明数据与输入硬错误保留；未统一多同-kind/远程读取，关联 [G10](#g10)、[G12](#g12)、[G17](#g17)。 | `derive_workspace_reproduction_manifest` |
 | [run_plan.py](../total_control/workspace/automation/run_plan.py) · 198 | R05/R06；节点执行方式/配置 → 阶段和命令摘要 → run plan | N03B2c2b 使 `workspace_node_required_tool_id` 接收 executor mode：eval.report Agent 无静态 report.write 要求，Job 保留；N03B1 的 Agent 报告不强求 shell report_command 仍保留。 | `workspace_node_required_tool_id`；`workspace_node_command_summary_for_plan` |
-| [topology.py](../total_control/workspace/automation/topology.py) · 393 | R03/R05/R06；节点执行方式/Agent/工具 → 有效绑定和路由缺口 → topology | N03B2c2b 的 eval.report Agent 可显式 tools=[] 且不报 required_tool_unbound/agent_without_tools；Job 的 report.write 门禁保留；system/human 原边界保留，其他投影收敛待 [G17](#g17)。 UX01F1核agent_override非空优先否则项目，无is_default兜底；保权威路由消费者（G21/G43）。 | `derive_workspace_agent_topology` |
+| [topology.py](../total_control/workspace/automation/topology.py) · 393 | R03/R05/R06；节点执行方式/Agent/工具 → 有效绑定和路由缺口 → topology | N03B2c2b 的 eval.report Agent 可显式 tools=[] 且不报 required_tool_unbound/agent_without_tools；Job 的 report.write 门禁保留；system/human 原边界保留，其他投影收敛待 [G17](#g17)。 UX01F1核agent_override非空优先否则项目，无is_default兜底；保权威路由消费者（G21/G43）。 UX01F3A核Agent路由仅agent_override+有ID才优先，否则项目连接，不用LLM is_default；同Agent ID不等全局副本同步，G43/G45。 | `derive_workspace_agent_topology` |
 
 ### total_control/workspace/automation/contracts_pkg
 
@@ -1420,7 +1451,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [evidence.py](../total_control/workspace/cockpit/evidence.py) · 417 | R02/R04/R05；发现结果/现有字段 → 生成并应用有来源回填 → backfill plan/实例 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `apply_workspace_evidence_config_value:15`；`merge_workspace_evidence_config_values:29` |
 | [fsm.py](../total_control/workspace/cockpit/fsm.py) · 614 | R05/R06；检查与静态契约/包 → 共用阻塞投影 → cockpit/提交门禁 | N03B1 复用 workflow_contract 缺项，包错误优先显示真正计划阻塞；保留公共响应与旧建议投影，不另造解析器。关联 [G17](#g17)。 | `workspace_workflow_blocking_checks`；`workspace_execution_package_blocking_checks` |
 | [helpers.py](../total_control/workspace/cockpit/helpers.py) · 75 | R02/R04/R05；工作区/Job/字段 → 通用选择与参数解析 → 基础派生值 | 保留；接口/副作用静态检查未发现独立缺陷，修改调用契约时补对应回归。 | `workspace_jobs_for_workspace:7`；`workspace_node_config_ready_status:19` |
-| [payload.py](../total_control/workspace/cockpit/payload.py) · 320 | R02/R03/R05/R07；实例字段/显式授权 → 默认目录/运行投影 → workspace | N03B2c2a退出整段Agent再规范化/补权，原Agent字段保真；工具定义补全与N03J1b显式环境规则保留。正常/force/auto_apply不扩大授权，G17余项开放。 | `apply_workspace_automation_defaults_to_payload:19` |
+| [payload.py](../total_control/workspace/cockpit/payload.py) · 320 | R02/R03/R05/R07；实例字段/显式授权 → 默认目录/运行投影 → workspace | N03B2c2a退出整段Agent再规范化/补权，原Agent字段保真；工具定义补全与N03J1b显式环境规则保留。正常/force/auto_apply不扩大授权，G17余项开放。 UX01F3A核本项目agents/tools/model归一、只读Agent来源/默认回填；不把global保存当项目同步，G27/G45。 | `apply_workspace_automation_defaults_to_payload:19` |
 | [scheduler.py](../total_control/workspace/cockpit/scheduler.py) · 451 | R02/R04/R05；资源快照/限制/偏好 → 候选评分与绑定建议 → scheduler selection | 问题/修补关联 [G13](#g13)、[G17](#g17)；按登记方案处理，不另建平行服务。 | `workspace_status_age_seconds:11`；`workspace_host_resource_summary_for_scheduler:18` |
 
 ### total_control/workspace/execution
@@ -1453,11 +1484,11 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
 | [__init__.py](../total_control/workspace/schema/__init__.py) · 137 | R02/R03/R05；包内实现 → 显式转导出 → 公开兼容入口 | N03B2c2a移除无其他消费者的backfill_default_agent_tools导出，已有规范化/工具定义入口保留；不按短文件数量删除。 | 文件整体/公开入口 |
-| [agents_tools.py](../total_control/workspace/schema/agents_tools.py) · 418 | R02/R03/R05；当前/同ID字段与目录 → 规范化与缺字段推荐 → 有效Agent/工具 | N03B2c2a 唯一授权入口尊重显式空/子集，删除后置 allowlist 补权；N03B2c2b 默认工具需求按 executor mode 区分。N13B3b2b-Agent 保留同ID existing 的只读 description/timestamps，拒绝客户端伪造和跨ID继承；不触碰业务字段/allowlist。G10/G11/G27 的其他边界开放。 UX01F2核工具provider_profile_id仅字符串保存、未校kind/存在，默认空；完整授权字段F3后查（G44）。 | `normalize_workspace_agent:119`；`normalize_workspace_agents:186` |
-| [chat.py](../total_control/workspace/schema/chat.py) · 461 | R02/R03/R05；消息/反思/工作区 → 规范、规则回复与 debug → chat/debug payload | 问题/修补关联 [G05](#g05)、[G11](#g11)；WB04E核build_workspace_chat_reply是规则占位，不证明模型成功；辅助模式正式接线须区分真实回复/占位/失败（G40）。 UX01F1核规则debug的路由来源计算，不能拿选中编辑连接补项目默认（G21/G43）。 | `normalize_workspace_context_reflection:15`；`normalize_workspace_chat_message:54` |
+| [agents_tools.py](../total_control/workspace/schema/agents_tools.py) · 418 | R02/R03/R05；当前/同ID字段与目录 → 规范化与缺字段推荐 → 有效Agent/工具 | N03B2c2a 唯一授权入口尊重显式空/子集，删除后置 allowlist 补权；N03B2c2b 默认工具需求按 executor mode 区分。N13B3b2b-Agent 保留同ID existing 的只读 description/timestamps，拒绝客户端伪造和跨ID继承；不触碰业务字段/allowlist。G10/G11/G27 的其他边界开放。 UX01F2核工具provider_profile_id仅字符串保存、未校kind/存在，默认空；完整授权字段F3后查（G44）。 UX01F3A核11字段/metadata、显式空授权/部分未知清洗差异、预算/description空值及集合默认回填；G11/G19/G27/G45，未动态CRUD。 | `normalize_workspace_agent:119`；`normalize_workspace_agents:186` |
+| [chat.py](../total_control/workspace/schema/chat.py) · 461 | R02/R03/R05；消息/反思/工作区 → 规范、规则回复与 debug → chat/debug payload | 问题/修补关联 [G05](#g05)、[G11](#g11)；WB04E核build_workspace_chat_reply是规则占位，不证明模型成功；辅助模式正式接线须区分真实回复/占位/失败（G40）。 UX01F1核规则debug的路由来源计算，不能拿选中编辑连接补项目默认（G21/G43）。 UX01F3A限核debug预览停用警告不等执行拒绝、允许工具预演，完整调试生命周期未查，G11/G45。 | `normalize_workspace_context_reflection:15`；`normalize_workspace_chat_message:54` |
 | [nodes.py](../total_control/workspace/schema/nodes.py) · 698 | R02/R03/R05；源类型/节点草稿/recipe → 默认、绑定、连线规范 → 顺序工作区节点 | N03A0 保留明确 system/human 与已绑定 Agent 的执行者；缺指定/缺 Agent 继续由唯一 finalizer 补默认，输出键/输入映射沿原逻辑。关联 [G10](#g10)、[G11](#g11)、[G14](#g14)。 | `workspace_node_definition:22`；`workspace_node_kinds_for_source:31` |
 | [recipe.py](../total_control/workspace/schema/recipe.py) · 201 | R02/R03/R05；启动/模型/环境输入 → 字段规范与源类型推断 → recipe/model/inputs | N13B3b2c-Model 后端片：`normalize_workspace_model` 对 `chat_agent_id` 区分缺字段（保留 existing）和显式空值（清空）；非空值保持既有 `safe_id` 规则，未知引用不在 schema 层自动重选。未增加抽象或第二保存路径；UI已在N13B3b2c-UI独立处理，不在此层显示或自动修复引用。 UX01F1核provider_profile_id空值or previous保旧，区别chat_agent_id显式清空（G27/G43）。 | `normalize_workspace_model:84`；`clean_workspace_config_default:32` |
-| [templates.py](../total_control/workspace/schema/templates.py) · 1372 | R02/R03/R05；模板/实例快照 → 版本、拓扑、差异与迁移计划 → template/snapshot/diff | N03A0 模板补齐保留明确 system/human，即使没有 agent_id；新默认链仍提供推荐 Agent。其余迁移/快照关联 [G10](#g10)、[G16](#g16)。 | `workflow_template_sort_key:39`；`normalize_workflow_template_version_history:46` |
+| [templates.py](../total_control/workspace/schema/templates.py) · 1372 | R02/R03/R05；模板/实例快照 → 版本、拓扑、差异与迁移计划 → template/snapshot/diff | N03A0 模板补齐保留明确 system/human，即使没有 agent_id；新默认链仍提供推荐 Agent。其余迁移/快照关联 [G10](#g10)、[G16](#g16)。 UX01F3A限核Agent按agent_ids取当前目录深拷快照及实例复制；不是持续引用全局，完整版本迁移留F4。 | `workflow_template_sort_key:39`；`normalize_workflow_template_version_history:46` |
 
 ### web
 
@@ -1469,9 +1500,9 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [config_center_agent_actions.js](../web/config-center/config_center_agent_actions.js) · 126 | R03/R12；用户事件/注入依赖 → Agent 定义动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`eventTarget:12` |
-| [config_center_agent_health.js](../web/config-center/config_center_agent_health.js) · 112 | R03/R12；页面数据/注入依赖 → Agent 能力健康 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:13`；`textList:21` |
-| [config_center_agent_renderer.js](../web/config-center/config_center_agent_renderer.js) · 196 | R03/R12；状态/注入 renderer → Agent 定义组合 → DOM 更新 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `element:8`；`listFor:12` |
+| [config_center_agent_actions.js](../web/config-center/config_center_agent_actions.js) · 126 | R03/R12；用户事件/注入依赖 → Agent 定义动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01F3A核文本/number/checkbox、选择/保存/调试/复制委托，无创建身份/响应归属门禁；本轮保事件，见G45。 | `element:8`；`eventTarget:12` |
+| [config_center_agent_health.js](../web/config-center/config_center_agent_health.js) · 112 | R03/R12；页面数据/注入依赖 → Agent 能力健康 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01F3A核enabled/引用/字段完整提示与任一可用LLM假默认，不等真实路由/授权执行；G11/G21/G43，未修。 | `escapeFor:13`；`textList:21` |
+| [config_center_agent_renderer.js](../web/config-center/config_center_agent_renderer.js) · 196 | R03/R12；状态/注入 renderer → Agent 定义组合 → DOM 更新 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01F3A核字段/自动选首Agent导致new草稿误绑旧selected、debug busy仅字不禁用；390名称被aside挡为隔离E1，见G26/G45；保现入口。 | `element:8`；`listFor:12` |
 | [config_center_ai_renderer.js](../web/config-center/config_center_ai_renderer.js) · 201 | R03/R12；状态/注入 renderer → AI 配置组合 → DOM 更新 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01F1核接入/模板混排、类型/默认/模型候选/凭据控件；全局结果错位/800ms保存与小屏边界见G26/G43。 UX01F2核Search无Model、Endpoint条件/key/default编辑；连接test空结果成功不等找到资料（G44）。 | `element:8`；`listFor:12` |
 | [config_center_diagnostics.js](../web/config-center/config_center_diagnostics.js) · 128 | R03/R12；页面数据/注入依赖 → 链诊断 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01F1核消费effective health而非联网/节点门禁，保缺项/引用诊断，不误称连接可调用（G21/G43）。 UX01F2核默认测试参数填ID、外ok摘要/内JSON截6000，不能将safe read-only说检索成功（G44）。 | `escapeFor:13`；`defaultToolTestArguments:21` |
 | [config_center_provider_actions.js](../web/config-center/config_center_provider_actions.js) · 119 | R03/R12；用户事件/注入依赖 → Provider 配置动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01F1核input也处理select并触重绘、change分支/动作回调；厂商未补URL已观察、唯一根因未证（G43）。 | `element:8`；`eventTarget:12` |
@@ -1483,7 +1514,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 
 | 文件（行数） | 对应需求与职责：输入 → 处理 → 输出 | 检查结论与解决路径 | 源码依据 |
 | --- | --- | --- | --- |
-| [app.js](../web/core/app.js) · 26537 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 P1-UI仅原实例reader装配actions.syncRunReplay，已加载打开回放按生命周期重读，复用原焦点/滚动恢复。 Q2b-UI只把根运行摘要状态标签接既有workspaceStatusLabel。 I3仅末尾前置失败门禁、同步装配后交回原bootstrap；正常CPU链与原读取行为已验。I5-UI仅消费complete成功信号，跨deadline不启动bootstrap/poller；旧API错误恢复保持。 WB04E静态核现chat全部Agent/首项回退及stream/use_llm提交与辅助讨论设计不同（G40），正式入口仍保留待独立接线。 UX01B核主机编辑强制ssh、反馈被重置、旧检查未失效与关窗/迟到回执丢草稿；隔离点击边界见G41，生产本文件未改。 UX01C隔离核submit在途双POST/CPU填回auto、旧预览未失效与回执日志；批量profile/依赖/clone真实缺口按G18，不凭模拟补事实。 UX01D隔离核集合优先/required、prefix剥离、关闭后迟到预览、回退误称缓存、精确日志；静态核pending混live参数/树归属/历史填回，见G12/G14/G26，生产未改。 UX01E隔离复现跨terminal输出/关闭和tmux晚到污染，输入/读/DELETE503、刷新丢引用；静态核list无门禁/双轮询/文本裁剪（G26/G42），生产未改。 UX01F1隔离核自动保存、保存ID测试/免密草稿失败与迟到候选串连接；静态核首model丢多项/缓存回退/假默认摘要，详G21/G27/G43，生产未改。 UX01F2隔离核自动选择回默认/无ID请求与reset填ID、明确工具PUT/503/迟到结果串编辑区；保存与测试对象区别见G27/G44。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
+| [app.js](../web/core/app.js) · 26537 | R02/R03/R06/R12/R14；真实加载结果/执行包/run身份 → 启动闭环与运行阅读导航 → 驾驶舱/运行记录 DOM | N03B2c2a-UI 新增 `renderWorkspaceLaunchClosure` 的 ready/missing/在途投影，`workspaceHomeActionButtonMarkup` 传递 run_id，`workspaceAutomationActionDeps` 复用 `openWorkspaceFromExecutionOverview`；N13B3b2c-UI 让实例模型 Agent 选择保留空/未知值，新增/删除不隐式接管，状态投影共用原 draft；N04-D-UI 接实际目标纯markup、持久N04状态/等待说明、精确日志去重与重建时按钮焦点恢复；N04-F-UI首步错误前置、child状态独立、follow未执行解释、N04独立重试隐藏；G-UI仅父步骤接冻结日志helper，按run/step/attempt/Job保留展开、正文滚动与焦点；H-UI只接父后续控制与已停止回执后的独立child停止，按完整身份恢复控制区/目标区焦点；只隐藏匹配停止回执的同义英文说明，其他Notes保留；配置/运行仍分区。G11旧诊断不隐藏。 J1-UI接共享提交说明与同run回放注入，替换重复等待/runtime；活动自动呈现G35和回放焦点G26未通过。 K1只补周期快照到当前instance reader重绘，复用原报告sync并保留响应前阅读位置；G35限定修复；K2回放busy改ARIA保持可聚焦，沿用原同步恢复/同key门禁，无异步焦点缓存。 M1-UI取消仅请求原monitor快照，迟到成功/失败检查原实例，持久同run/node/execution终态才将消失的cancel焦点交给同run回放；无新状态/轮询。 P1-UI仅原实例reader装配actions.syncRunReplay，已加载打开回放按生命周期重读，复用原焦点/滚动恢复。 Q2b-UI只把根运行摘要状态标签接既有workspaceStatusLabel。 I3仅末尾前置失败门禁、同步装配后交回原bootstrap；正常CPU链与原读取行为已验。I5-UI仅消费complete成功信号，跨deadline不启动bootstrap/poller；旧API错误恢复保持。 WB04E静态核现chat全部Agent/首项回退及stream/use_llm提交与辅助讨论设计不同（G40），正式入口仍保留待独立接线。 UX01B核主机编辑强制ssh、反馈被重置、旧检查未失效与关窗/迟到回执丢草稿；隔离点击边界见G41，生产本文件未改。 UX01C隔离核submit在途双POST/CPU填回auto、旧预览未失效与回执日志；批量profile/依赖/clone真实缺口按G18，不凭模拟补事实。 UX01D隔离核集合优先/required、prefix剥离、关闭后迟到预览、回退误称缓存、精确日志；静态核pending混live参数/树归属/历史填回，见G12/G14/G26，生产未改。 UX01E隔离复现跨terminal输出/关闭和tmux晚到污染，输入/读/DELETE503、刷新丢引用；静态核list无门禁/双轮询/文本裁剪（G26/G42），生产未改。 UX01F1隔离核自动保存、保存ID测试/免密草稿失败与迟到候选串连接；静态核首model丢多项/缓存回退/假默认摘要，详G21/G27/G43，生产未改。 UX01F2隔离核自动选择回默认/无ID请求与reset填ID、明确工具PUT/503/迟到结果串编辑区；保存与测试对象区别见G27/G44。 UX01F3A隔离核非空新增变旧Agent PUT、切换丢稿、保存拒绝保稿、saved定义+草稿预算debug与迟到串对象；项目编辑/路由/预算空值静态边界见G27/G45，生产未改。 | renderWorkspaceLaunchClosure/workspaceHomeActionMarkup/workspaceModelChatAgentSelection |
 | [app_navigation_actions.js](../web/core/app_navigation_actions.js) · 63 | R12；用户事件/注入依赖 → 顶层导航动作 → 唯一回调 | N13B3a删除已退出moduleCards的委托绑定；其他导航保持，实际独立编辑入口由shell actions绑定。 UX01E追activity tabs委托、旧output别名归app，存偏好不等会话恢复；保导航，不另造活动状态。 | bind |
 | [app_runtime.js](../web/core/app_runtime.js) · 250 | R12；页面数据/注入依赖 → fetch/浏览器存储 → 页面结果 | 原通用fetchJson不自带deadline；N13C2外层标准signal透传/正文取消合同通过，本文件不改，不冒称其他调用都获预算。存储仍[G19](#g19)。 UX01C核任务表单input/change存浏览器、项目关联三字段跳过，刷新恢复不自动提交；不当后端配置保存。 UX01D核transfer选项/排除存浏览器、路径另分host桶、多源不存，不当持久Job/项目保存。 UX01E核只保存产品/子页/主机/搜索偏好，outputTabs/terminal对象不持久化；刷新丢标签不是后端恢复能力。 | fetchJson/loadStoredValue/saveStoredValue |
 | [app_status_actions.js](../web/core/app_status_actions.js) · 31 | R12；用户事件/注入依赖 → 全局刷新/状态动作路由 → 回调/API 请求 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01E追terminalBtn创建到openTerminal，无新防重/异常反馈；缺陷归app/服务，保现绑定。 | `element:8`；`call:12` |
@@ -1592,7 +1623,7 @@ compileall 通过；根pytest无用例退出5，不计通过。本片不改前�
 | [workspace_chat_actions.js](../web/workspace/workspace_chat_actions.js) · 61 | R02/R06/R09/R12；用户事件/注入依赖 → 聊天/反思动作动作路由 → 回调/API 请求 | 契约/维护关联 [G05](#g05)；WB04E核现事件转到app既有提交/选择，辅助只读边界尚未真实接线（G40）；保留当前消费者，不先删入口。 | `element:8`；`eventTarget:12` |
 | [workspace_chat_normalizers.js](../web/workspace/workspace_chat_normalizers.js) · 84 | R02/R06/R09/R12；页面数据/注入依赖 → 聊天与反思字段规范 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `normalizeWorkspaceContextReflection:16`；`normalizeWorkspaceChatMessage:45` |
 | [workspace_defaults.js](../web/workspace/workspace_defaults.js) · 217 | R02/R06/R09/R12；页面数据/注入依赖 → 实例默认值 → 派生状态/界面结果 | 契约/维护关联 [G10](#g10)；消费后端结果，随所属切片收敛。 | `deepCloneFor:56`；`agentCatalogFor:60` |
-| [workspace_draft_normalizers.js](../web/workspace/workspace_draft_normalizers.js) · 100 | R02/R06/R09/R12；页面数据/注入依赖 → 能力草稿字段规范 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `normalizeWorkspaceToolDraft:27`；`normalizeWorkspaceAgentDraft:42` |
+| [workspace_draft_normalizers.js](../web/workspace/workspace_draft_normalizers.js) · 100 | R02/R06/R09/R12；页面数据/注入依赖 → 能力草稿字段规范 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 UX01F3A核Agent空ID生成/工具过滤/正预算与格式草稿，description由global外层补；不是后端保存事实；G27/G45。 | `normalizeWorkspaceToolDraft:27`；`normalizeWorkspaceAgentDraft:42` |
 | [workspace_event_stream.js](../web/workspace/workspace_event_stream.js) · 390 | R06/R12；SSE通知 → 原状态合并 → 权威展示刷新 | N13B3a仅退出home运行副本的刷新回调；runs/executionDetail/useChat/monitor等原链保持，无第二订阅/推进器。 | renderRealtimeSurfaces |
 | [workspace_execution_lane_rail.js](../web/workspace/workspace_execution_lane_rail.js) · 97 | R02/R06/R09/R12；页面数据/注入依赖 → 只读执行车道 → 派生状态/界面结果 | 保留；全文件语法及公开 helper 结构检查未发现独立缺陷；不为抽取而再抽取。 | `escapeFor:13`；`contractFromWorkspace:17` |
 | [workspace_execution_overview.js](../web/workspace/workspace_execution_overview.js) · 89 | R06/R12；全局API记录/筛选 → 规范化与安全markup → 摘要/run/Job行 | N13B2共用一个无状态转换模块，按钮携精确run/Job/实例IDs，移除无消费者客户端筛选和旧统计卡markup；筛选仍由现有API完成。 | normalizeFilters/filtersMatch/recordMarkup |
