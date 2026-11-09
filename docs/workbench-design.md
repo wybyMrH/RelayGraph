@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01F3A；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01F3B；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F3B工具定义/测试边界，随后F4模板）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/模型覆盖/授权、UX01F3B工具定义/测试调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F4A模板定义/绑定/校验，随后F4B版本/迁移）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@
 | 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
-| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入及UX01F3A Agent定义/授权已限定完成，唯一下一片UX01F3B查工具定义/测试边界，其余分片；只读目录不能替代编辑操作 |
+| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由、UX01F2搜索接入、UX01F3A Agent定义/授权及UX01F3B工具定义/测试已限定完成，唯一下一片UX01F4A查模板定义/绑定/校验，其余分片；只读目录不能替代编辑操作 |
 | 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
@@ -638,7 +638,85 @@ Firecrawl/Serper固定同步urllib15秒、endpoint/DDG12秒，read无正文大�
 | 1024/768 | 各普通点名称→fill→单Tab聚焦role→保存合成回执，截图保留 | 仅这一条编辑路径，不是完整键盘/所有字段/调试/长内容/前后退或四宽全流程验收 |
 | 390 | 选a后普通名称click被aside/toolbar/模式栏遮挡，5秒超时失败1；保存failure图 | 名称编辑/后续Tab和保存未通过；不force、换路径、隐藏列表或重跑到绿；截图主要是壳 |
 
-共15观察/794请求=785GET+4POST+5PUT，pageerror/requestfailed/未知501为0，**390普通点击失败1，不能记全绿**。无DOM或业务状态补写、无停轮询/门禁放松；fixture含保存/拒绝/延迟仅供消费者观察。5张图，本代理与只读监督实看debug-saved/late-debug/390失败；1440图只露部分结果，保存prompt和迟到归属主要由DOM只读断言/请求JSON支持，不能称截图全面可读。脚本、请求、日志与图仅本地`/tmp/relaygraph-ux-audit/ux01f3a/`，dev_work不可访问例外未修复/重建。文档范围/链接/字段/台账/敏感检查和独立终审后提交；功能缺口开放，调查尚未闭合，唯一下一片为UX01F3B工具定义与测试边界。
+共15观察/794请求=785GET+4POST+5PUT，pageerror/requestfailed/未知501为0，**390普通点击失败1，不能记全绿**。无DOM或业务状态补写、无停轮询/门禁放松；fixture含保存/拒绝/延迟仅供消费者观察。5张图，本代理与只读监督实看debug-saved/late-debug/390失败；1440图只露部分结果，保存prompt和迟到归属主要由DOM只读断言/请求JSON支持，不能称截图全面可读。脚本、请求、日志与图仅本地`/tmp/relaygraph-ux-audit/ux01f3a/`，dev_work不可访问例外未修复/重建。文档范围/链接/字段/台账/敏感检查和独立终审后提交；功能缺口开放，调查尚未闭合；本片结束时交接的UX01F3B已在后文完成，当前指针见文首。
+
+### UX01F3B：工具定义、真实能力和测试对象
+
+本片对应R03/R05/R09/R12/R13、G04/G06/G11/G19/G21/G26/G27/G40/G41/G44/G45；本机工具路径还关联G12。用户要能维护工具的名称/用途，知道Agent能否调用、实际做什么、测试采用哪个配置与项目，以及失败后到哪里修。**工具目录不是插件安装器**：名称/描述/能力标签的保存不注册新的实现；固定ID才选中dispatcher分支。不可为了页面简洁丢掉现有配置/测试，也不能用“启用”或“已实现”替代真实能力说明。
+
+源码链：`config_center_tool_renderer/actions`→`app.js`草稿/选择/CRUD/test→HTTP→`state/registry.py`→`schema/agents_tools.py`与`registry_pkg/tool_testing.py`→`tools/registry.py`/`workspace_executor_pkg/dispatcher.py`；项目Tool另由`updateSelectedWorkspaceTool`、项目保存和schema消费者接续。Search独有优先级/参数沿UX01F2；Agent授权入口沿UX01F3A，不复制第二份规则。本片只调查，不改正式代码，完整Agent调试生命周期/模板迁移排除。
+
+### UX01F3B 字段、来源、联动和保存矩阵
+
+全局常用7个字段，web.search条件增加连接选择为第8个；项目也有这8个数据字段，但现表单未提供Provider框。后端另保策略/实现元数据，当前全局和项目draft归一不保这些字段，旧全局payload未发送它们，后端merge可保旧；不能把编辑器未显示策略理解为无策略，也不能在重命名后保证策略与新ID一致。
+
+| 字段/用途 | 输入来源/条件/默认 | 校验、联动与实际消费 | 归属、保存影响/处理决定 |
+| --- | --- | --- | --- |
+| `id`：引用与实现键 | 全局/项目可编辑；JS空由label→safeId，后端id→name→tool-N并safe_id；preset先匹配id/label/name | 不同于显示名，改ID可切换固定实现或失去实现。工具CRUD没有重复ID/rename撞名拒绝 | 保稳定身份、高级修改和影响提示，普通改名用label；新建/编辑分清，不能悄悄替换原定义 |
+| `label` /兼容`display_name`、`name` | 全局文本、项目文本；空后端回id，JS空可回Tool N；这些兼容字段不全是独立UI控件 | 仅显示，后端name还参与ID来源，不能把兼容输入无证据当同义移除 | 保常用显示名，兼容入口留消费者核对；不用于授权或副作用判断 |
+| `category`：分类 | 全局自由文本默认general；项目下拉workflow/research/repo/file/host/gpu/env/run/log/artifact/notify/chat/general/custom | 后端不限枚举；目录还能出现data/path等。项目未知值无专门option，显示可能不等草稿值 | 保分类，必须保未知旧值，不能因下拉缺项丢数据；只做组织，不代表能力 |
+| `capability`：用途标签 | 默认read；全局自由文本，项目read/write/execute/control/observe下拉 | 后端任意字符串，无执行授权消费；填execute不实现命令，填read不改变固定副作用 | 保易懂用途/只读实际能力区分；不作为安全门禁，不重复Agent授权编辑 |
+| `description`、`notes` | 两处textarea默认空，后端trim、可显式清空 | 说明文字不是执行约束；无任意正文脱敏承诺 | 保编辑；与Agent description空串保旧不同，不能复用错误清空规则；不要填密钥 |
+| `enabled` | checkbox默认true；后端bool转换，字符串false仍真 | 测试不检查，实际Agent交集/dispatcher也无统一拒绝（F3A）；全局停用不改项目快照 | 保编辑和配置状态文字，不承诺全局停止调用；真正停用门禁单列后端能力 |
+| `provider_profile_id` | 默认空，trim；web.search全局条件选择，项目数据保留但表单无框 | schema不验存在/kind；Search选路/全局绑定优先与自动选择错位见F2，其他固定分支没有该字段的相同消费 | 连接页管key，工具选择连接，不给每个工具重复密钥；保未知引用与清除，Search合同不复制 |
+| `side_effect` | 后端/API可传，非空优先于静态map，未知默认read；现UI无编辑框 | 无read/mutate_config/mutate_runtime/dangerous枚举校验；测试按保存值exact read放行，但dispatcher按固定ID，trace又取静态map | 作为实现策略应有权威来源；当前不能信任可编辑元数据就是安全保证。未来只读能力说明，强校验/权威合并另片 |
+| `implemented` | 静态map中ID默认该值，可被传入bool覆盖；未知ID固定false | 不控制前面的固定执行分支；部分内置分支无map记录仍能返回投影/回显 | 保实现层级解释，不能给“True=完整产品能力”的徽章；新增目录不安装adapter |
+| `requires_runtime`、`fallback`、`runtime_control` | 后端/API字段，默认来自静态map；requires_runtime可false覆盖，后两者空值会回静态默认 | bool宽松；描述/来源不是回调注入。fallback=plan_only仍可能实际blocked；global/项目UI不编辑这三项 | 按需只读显示真实上下文可用性，保旧元数据；字段枚举/默认与执行对齐独立片，不前端自行推状态 |
+| `created_at/updated_at` | 全局created按旧/当前/now，updated=now；实例只保同身份previous来源时间 | 来源时间不是配置revision；新建API可带created，不等用户修改时间或并发版本 | 只读按需，不堆任务状态；不借时间戳宣称冲突保护已具备 |
+
+schema空工具集合或全无效会回填默认，启动再补缺内置项；这与Agent显式空授权`tools=[]`不同。项目旧说明“自动补配置可能重新加入Agent授权”不能泛化到明确空allowlist；未来移除误导常驻说明时保留准确的工具目录回填事实。当前未删除旧说明，也未改回填逻辑。
+
+### UX01F3B 动作、API与引用影响
+
+| 动作/输入 | 当前API/输出 | 已有消费者、异常与保存影响 | 需求/删保决定 |
+| --- | --- | --- | --- |
+| 浏览/选择/新建 | GET `/api/tool-definitions`→`tool_definitions`，GET `/api/tool-definitions/{id}`→`tool_definition`或404；web多从status装配 | 选工具重建草稿/清dirty，换ID会重建测试参数；无放弃确认。new草稿id=new-tool非空，renderer自动选目录首项，保存误用旧selected PUT（本轮E1） | 保目录与可编辑定义；修复创建/更新身份，不能以只读卡替代。与Agent同类错位统一记G45，不新增一套草稿存储 |
+| 保存/改ID | POST集合→201；PUT或POST `/{id}`→200，返回tool_definition | create直接insert(0)，**不是upsert**；save只write_json不去重。update命中首旧ID，rename不拒撞目标；改ID重写全局Agent.tools，后归一全局Agent；不遍历模板/project/run | 保明确保存/取消、引用影响与失败可重试。重复ID查找首项、模板snapshot字典末项风险E3；不能照抄Agent“撞名拒绝”合同 |
+| 删除/重启 | DELETE `/{id}`→ok；原生确认取消无DELETE | 删首项并清全局Agent授权；无占用检查/模板同步/历史迁移。启动归一首项去重并回填缺内置项（base.py:81–86/131–132）；内置删除不等永久卸载 | 保危险确认，解释全局目录/已有副本/内置回填；重复/重启/多文件失败本轮仅E2/E3，非真后端验收 |
+| 项目Tool编辑/增删 | `updateSelectedWorkspaceTool`改项目draft并localStorage；保存项目PUT `/api/workspaces/{id}`带tools/agents | 改ID同步本草稿Agent.tools，还可能过滤其他不在目录的引用；删工具至少留一个并清本草稿授权。后端按同ID旧存储保策略/时间，空集合回默认 | 保项目覆盖，不能当全局目录被改；完整项目保存/离开/预设应用留UX01G，不把本轮合成global CRUD泛化 |
+| 快照/执行 | 模板snapshot按tool_ids复制当前目录→新项目，RunPlan再冻结项目 | 全局改定义不自动改项目/run；但Search等运行依赖另取当前目录（F2）。ID固定分支仍在，删除目录不是卸载实现 | 来源/有效能力与配置快照分清；模板版本/应用下一域调查，未替代前不删旧API/helper |
+
+全局工具与Agent两个文件依次保存、内存先改，无revision或跨文件事务（registry/persistence）。读取归一/启动回填与CRUD即时行为不同，故“保存成功后目录唯一”“删完下次仍为空”“已冻结全部依赖”均不能承诺；后果仍待独立真实入口实验。该问题不能只用前端换文案解决。
+
+### UX01F3B 测试输入、门禁与返回
+
+| 输入/动作 | 来源/默认与联动 | API/处理/输出 | 页面合同要求 |
+| --- | --- | --- | --- |
+| `manageToolTestWorkspaceSelect` / `workspace_id` | 当前选中项目或首项，空标“自动选择最近实例”；切工具/reset重置 | 后端ID不存在也静默选首项目，没项目用{}；deepcopy项目/status/jobs/Profiles/tools。不是重新采样，也不保证按更新时间挑最近 | 选定项目与实际采用项目都明确；失效选择应定位错误，不静默冒用上下文；跨页保选择与返回 |
+| `manageToolTestArguments` / `arguments` | JSON object；按工具/当前项目生成默认参数，reset重建；数组/坏JSON前端拒请求，后端非dict则{} | POST `/api/tool-definitions/{id}/test`→200 `test`；不存在及ValueError由此路由包装404。请求只含workspace_id/arguments，无整份草稿 | 常见输入应专用字段，JSON留高级诊断；保已有扩展参数，不预定通用插件schema。校验就近且不冒称后端完整参数校验 |
+| 测试身份/草稿 | `runGlobalToolTest`优先**草稿ID**，仅检查selected存在；名称/能力/enabled/描述草稿不发 | 未保存改ID可测另一保存定义或找不到；草稿改其他字段仍测保存配置。reset不是保存，也不是无副作用证明 | 明确保存版本或草稿的单一测试对象，含ID和来源；不能让用户先“保存一下”成为掩盖错位的验收辅助 |
+| 门禁/实际调用 | safe_test按保存side_effect，只有exact read调用factory；其他blocked/safe=false/result.plan_only | 不核enabled/implemented/Agent allowlist；factory runtime=None，受控提交/控制回调缺失，但读取/联网仍可发生。可编辑READ元数据能放入原本config分支，修改的是复制项目对象 | 请求完成、门禁/副作用层级、内部结果分开；READ不等离线/免费/绝对无副作用。不可由capability标签推断门禁 |
+| 结果/错误/复制 | 返回tool_id/status/safe/side_effect/workspace/arguments/latency_ms/result；参数按敏感字段脱敏 | 外层固定ok/safe=true不折算内层blocked/error/missing/draft；非JSON只留首4000文本。前端JSON展示截6000无标记，复制按钮取完整内存result（复制本轮未验） | 显示真实内部状态、来源、截断与完整阅读；输出正文未统一脱敏不等安全保证；保失败与重试，不能常驻裸JSON充当常用功能 |
+| 进行中/切换/离开 | 当前busy按钮disabled，但reset/切工具/改ID能重建testState；结果仍共享写入 | F2已E1迟到串编辑区，此轮不重跑同现象；保存/测试503保本次稿/参数；刷新丢未保存内容 | 按工具/请求归属反馈，取消/返回明确；旧global与项目界面保留到有消费者与消融证明再退出 |
+
+### UX01F3B 固定实现的用户含义与参数去处
+
+这些是源码E2，用于保住配置和使用需求，不是全部真实能力验收。全局目录字段不能替代每个工具的业务参数；以下参数进测试/调用区，不堆到目录编辑表单。运行已有受控Job/资源链继续复用，不另造工具执行平台。
+
+| 工具/调用参数 | 固定分支实际输出/条件 | 不应给用户的错误承诺 |
+| --- | --- | --- |
+| `workflow.plan`、`execution.package`，通常{} | 项目节点/命令/包与readiness投影 | 不推进/提交工作流；部分分支无静态map记录仍可调用，不能只看implemented |
+| `file.read`（path/file/target、workspace_dir、limit/max_chars），`repo.read`（path/file、paths），`repo.inspect`（workspace_dir、max_entries） | read_tools读取/扫描本机Path，file.read限制片段1000–24000字符，但先读全文；repo.inspect提供清单/建议，未消费默认测试填的path/focus_paths。相对路径通常按项目目录 | 不是真实远端host_id文件读取；测试不能拿服务本机同名文件冒充远端，关联G12。limit不是IO大小门禁 |
+| `file.browse/dir.scan`（path/root、workspace_dir、max_depth/max_entries），`path.resolve`（paths/data_roots/output_roots） | 本机目录/存在性线索，scan深度默认2最多4、条目默认180最多400；路径与敏感限制须沿现helper，具体分支界限不全相同 | READ不等无文件访问，不把所有路径helper视为同一个根目录合同；远端与路径边界另片验证 |
+| `dataset.find`（query/data_roots/dataset_hints/workspace_dir），`repo.search`（query/data_roots/dataset_hints） | 前者本机扫描与资料线索；后者仅收集dataset配置/source参考线索，没有仓库搜索实现 | found/ready不等数据集已验证可用或完成代码检索 |
+| `gpu.inspect/allocate`（server_id/min_free_mib/min_free_memory_gib） | 前者已有status候选，后者需runtime.bind_gpu；无runtime blocked，已有正式callback可plan_only/persisted=false | 快照不等新探测/资源预留；selected不等已分配 |
+| `env.inspect/infer`（manifest_paths/setup_command），`env.prepare/create`、`repo.clone`、`job.run/host.exec`（已有环境/仓库/command/cwd等） | inspect/infer只投影配置；真正执行需submit_job回调、已有路径/资源门禁。无runtime blocked，不因fallback标签变成成功 | 不把命令/清单回显说成安装/执行完成；此处不重写N04受控任务参数协议 |
+| `job.stop/reorder`（既有Job选择参数） | 受控control_job；无runtime blocked。默认测试参数latest=true仅作示例 | 不代表已停止外部进程，测试不绕过唯一生命周期入口 |
+| `log.read`（默认{}） | 忽略指定Job参数的选择，按项目最近关联Job返回ID/status/显示路径 | 没有日志正文，不保证是用户指定run/attempt的本次日志 |
+| `artifact.read`（output_key/key、label、node_kind、path/content_path），`artifact.collect`（artifact_paths/paths、metric_paths） | 声明及可选本机正文片段/目录stat，单项可missing/blocked，整组有记录仍可collected | 不下载/传输，不证明整组实物完整交付 |
+| `workflow.edit`（node_id/node_kind、config/patch），`artifact.write/report.write`（目标、label/title、path、content/text、output_key/type等） | 改传入项目对象的白名单配置或产物声明；调用者决定持久化。written无文件写盘/验证，正文>4000只留summary；两目标都传时按遍历先匹配ID或kind，不是严格ID优先 | 不把written当文件交付；参数错ID仍可按kind落另节点，目标身份需明确校验；报告存储已有能力不能据此算所有工具写入已接通 |
+| `chat.write`（message）、`notify.user`（message/text/summary、severity/level、requires_user/action_required）、`schedule.plan`（schedule/cron/when、command/run_command） | 回显payload/written/notified、dry_run计划，未实现消息追加/送达/定时任务创建 | 不宣称消息已发/计划已安装。web.search独立沿F2，不重列连接参数 |
+| 自定义未知ID | 默认READ/implemented=false，dispatcher最终blocked | 新增目录、改ID或改implemented不能安装工具；不引入任意代码插件平台 |
+
+### UX01F3B 证据、消融与交接范围
+
+2026-11-09，生产web未改，xng/Chromium140.0.7339.16、HTML预算夹具替30，全部网络拦截；公开file.read/job.run及回执仅合成，没有项目/模板夹具、真实配置/密钥/服务/Provider/SSH/文件工具。浏览器18观察/796请求=785GET+6POST+5PUT，pageerror/requestfailed/501为0；**390名称普通click被aside/toolbar/模式栏挡5秒失败1**，不force/改DOM/停轮询/重跑到绿。
+
+1440实际编辑名称/能力/停用后测试只发保存定义ID+参数；JSON数组拒请求、测试/保存503保稿、显式PUT空描述/备注/disabled；未保存ID改不存在发错路径、改job.run测试另一保存定义而列表仍file.read；内部missing外ok、长JSON6000截断；切换丢ID草稿，非空新增PUT旧file.read，删除确认取消无DELETE，刷新回保存名；独立空目录正常POST。未知工具test夹具误给400，实际源码路由404，**只支持错误文字/路径消费观察，不作HTTP状态码验收**；保原记录，未重跑掩盖。1024/768仅名称普通click→fill→单Tab到category→合成保存；390只选工具，名称编辑/后续保存未过。没有完整键盘/前后退/所有字段或四宽全流程通过声明。
+
+另原safe_test/dispatcher AST+原纯内存workspace_mutations，注入无runtime假Context/factory、identity redactor（无敏感fixture）并禁socket，仅操作合成内存项目；不导入服务/真实配置，不读写实物或调用网络。初轮8场景第8错误假定未知node_id必报错，实际按默认node_kind找到节点，断言失败；保初版script/log/JSON，按源码纠正验证预期并加双身份皆缺失场景，第二轮13场景/11次假factory取得预期观察，**不删除首失败、不改产品门禁**。证明外ok内blocked/error、停用/未实现未拦factory、READ元数据放入config分支但无真实落盘、runtime无回调blocked、written仅声明/4001字丢全文、repo.search线索、log/chat/notify边界；不是实际HTTP/真实工具/保存恢复或脱敏验收。
+
+5图（含390失败）；主代理和只读监督核脚本、请求与missing/draft-ID/失败三图，1440结果只部分在视口，结论主要由DOM只读断言/JSON支持，未称截图完整可读。材料仅`/tmp/relaygraph-ux-audit/ux01f3b/`，沿dev_work不可访问例外不修复/重建，脚本/图/结果不提交。无已替代路径可删；全局/项目定义、参数扩展、工具test、原dispatcher/受控runtime及旧API保留。公共草稿/测试归属组件只有在新页面合同和两个真实消费者验证后才抽，不先造通用平台；成熟工具库须替具体职责而非把目录换成完整平台。下一小片F4A查模板定义/绑定/校验，F4B再查版本/迁移，调查闭合后才设计新页。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
@@ -1156,7 +1234,7 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 | WB06A | 正式单一项目列表展示，复用共享快照 | 整站/新三步创建/后端迁移、新读取/状态框架 | 按UI01暂缓，原合同保留 |
 | UI01 | 原功能卡/只读示例 | 各区完整交互、生产接线 | 历史点击通过；卡片首页被UI02退出 |
 | UI02 | 默认监控首页校正及主机详情阅读 | 真实采样/生产迁移/提交或停止 | 限定模拟验收，UI01卡片首页退出 |
-| UI03A | 原远程任务列表/详情阅读设计 | 当时将提交/终端写操作/真实后端后置 | 已暂停；当前唯一下一片UX01D调查，见§0 |
+| UI03A | 原远程任务列表/详情阅读设计 | 当时将提交/终端写操作/真实后端后置 | 已暂停；当前调查与唯一下一片见§0 |
 
 WB02开始前补本地切片开场记录，明确文件边界（仅dev_work下独立原型及相关文档）。每次完成后审查、更新二三部分、提交推送安全文档；原型/截图/测试不提交。原型入口与命令写在本地README，后续必须给用户可访问链接，而不是只给截图路径。
 
