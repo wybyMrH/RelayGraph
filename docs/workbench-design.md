@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01F1；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01F2；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,7 +8,7 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F2 Search，再分别调查Agent/工具、模板）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务、UX01D文件/传输、UX01E终端/tmux及现活动、UX01F1模型连接/路由、UX01F2搜索接入调查** 已在各自限定范围内完成。后续调查顺序是全局能力配置（下一UX01F3A Agent定义/模型覆盖/授权，随后F3B工具定义/测试边界和F4模板）、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
@@ -17,7 +17,7 @@
 | 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
 | 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | UX01D已完成下述字段/源码与隔离观察；下载保存、目标选择和真实传输/核验未通过或未验 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | UX01E已完成下述字段/源码、纯方法与隔离观察；390创建被挡失败，真实PTY/信号/恢复未验 |
-| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由已限定完成，唯一下一片UX01F2查Search，其余分片；只读目录不能替代编辑操作 |
+| 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | UX01F1模型连接/路由及UX01F2搜索接入已限定完成，唯一下一片UX01F3A查Agent定义/模型覆盖/授权，其余分片；只读目录不能替代编辑操作 |
 | 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
 | 维护 | 哪些内容会被清掉，是否影响证据 | 预览缓存、日志文件、持久运行记录，各自设置/预览/清理语义 | 尚待具体字段与服务调查，不视为覆盖完成 |
 
@@ -491,7 +491,81 @@
 
 最终18观察/1037请求=1027GET+7POST+3PUT，pageerror/requestfailed/未捕获观察异常/501均0，5图；**零异常不覆盖已观察的自动保存、测试对象错位、迟到污染和厂商联动失败**。首次脚本未限定列表容器，两个真实编辑入口同selector触发strict-mode，保记录后仅修查询范围。第二轮已记录13观察，但假定Ollama自动补URL导致保存等待超时；保现场图，第三轮明确记录失败并手填缺项，未改产品或放宽门禁。第二轮夹具缺ID用400，与实际通常200/test.success=false不符，第三轮修夹具响应并保旧记录；该结果不拿来证明后端HTTP状态。主代理实看390壳、1440迟到候选及第二轮缺URL图，不宣称全图/新手体验已验。
 
-证据、三轮记录、脚本和截图仅本地 `/tmp/relaygraph-ux-audit/ux01f1/`，沿dev_work不可访问例外，不修复/重建、不提交。旧入口/模板路由/项目选择/手工与目录API/helper均保留，无业务代码或数据变更；监督独立只读复核后只提交三docs。调查尚未全域闭合，后续交 **UX01F2：Search接入与搜索诊断需求调查**，不在此顺手改布局、引入框架或修后端。
+证据、三轮记录、脚本和截图仅本地 `/tmp/relaygraph-ux-audit/ux01f1/`，沿dev_work不可访问例外，不修复/重建、不提交。旧入口/模板路由/项目选择/手工与目录API/helper均保留，无业务代码或数据变更；监督独立只读复核后只提交三docs。调查尚未全域闭合，当时交UX01F2搜索接入调查（现见后文限定完成），不在此顺手改布局、引入框架或修后端。
+
+### UX01F2：搜索配置、有效来源和返回资料
+
+对应R03/R04/R09/R12/R13、G04/G09/G11/G19/G21/G26/G27/G40/G41/G43及新增[G44](current-audit.md#g44)。用户需要配置一次搜索服务，知道当前工具实际用哪条连接，能用自己的查询测试，并分清“搜到了新资料”“没有搜到”“搜索失败，使用项目已有资料”。这与选择LLM模型是独立任务；搜索工具的READ分类不代表离线、免费或不向外部发送查询。
+
+源码链：[Search选项/有效性](../web/config-center/config_center_provider_profiles.js)、[AI编辑](../web/config-center/config_center_ai_renderer.js)、[工具测试编辑](../web/config-center/config_center_tool_renderer.js)/[事件](../web/config-center/config_center_tool_actions.js)、[app.js](../web/core/app.js):20835–20932/21600–21740/25778–25809 → [registry.py](../total_control/state/registry.py):47–78/432–480 → [安全测试包装](../total_control/state/registry_pkg/tool_testing.py) → [Context](../total_control/tools/workspace_executor_pkg/context.py):133–158/[dispatcher](../total_control/tools/workspace_executor_pkg/dispatcher.py):55–62 → [搜索适配器](../total_control/tools/workspace_executor_pkg/web_search.py)。共用连接身份、800ms自动保存、凭据空值/目录与data存储问题沿UX01F1，不再复制一份保存规则；不改代码、Search API或真实配置。
+
+### UX01F2 搜索专属字段、默认和归属
+
+| 字段/控件 | 用途、来源、条件、当前默认/校验 | 联动与保存影响 | 保留/调整决定 |
+| --- | --- | --- | --- |
+| Profile `kind`、`label/name`、`id` | Search类型、显示名与引用身份；UI需选择search，API接受search/web_search/web-search | 沿F1共享CRUD和草稿核，不另建Search存储；Search保存models为空，不要求model | 全局连接页唯一编辑；模型页与搜索页可按职责分类，不重复key表单 |
+| Profile UI `vendor` ↔ `provider/vendor_id` | 选项firecrawl/serper/duckduckgo/endpoint；UI需非空；后端不限制白名单，兼容ddg/generic/http/custom | UIchange分支换厂商填其默认URL、设置key要求；和input重绘关系沿G43风险，不能假定联动可靠。未知provider非空也可能显示字段就绪 | 保留明确供应商，不能用“已填”宣称适配器存在或已联网 |
+| Profile `base_url` | Firecrawl/Serper默认端点可选；endpoint必填，可含`{query}`；DDG无需配置URL；API仅trim | 执行先firecrawl/serper，随后任何非空endpoint，再DDG/network；**DDG条目若有URL会走endpoint**，不是DDG HTML。保存会影响后续搜索，不改LLM路由hash | 只在适用厂商显示可编辑端点；保已有自定义值/高级读取，不静默删改 |
+| `api_key/key_required/has_api_key` | Firecrawl/Serper UI必需；DDG免密；endpoint可选；API免密规则与UI并非完全同表 | 留空保旧/替换/移除及明文显示沿F1；执行还可能用环境key，字段健康不验证该环境。CRUD对免密空key会填占位key（E2），endpoint可能将其发为Bearer并挡住环境回退（E3影响，未验真实鉴权）；浏览器夹具未模拟这一私密保存转换。Profile默认data存储仍待config迁移 | 凭据只在连接页；免密不显示“已保存密钥”，来源不能靠猜 |
+| `is_default` | **Search有真实默认消费者**；无显式ID取默认Search，否则第一条；不筛字段ready | 设默认清其他Search默认；顺序/删除/新增可影响无绑定调用；没有Profile enabled/禁用 | 保留默认标记及影响说明，不把LLM无兜底结论套过来 |
+| `manageToolSearchProfileSelect` / tool `provider_profile_id` | web.search全局定义绑定，默认空；工具规范只存字符串，不核连接存在/kind | 改下拉同时改工具草稿和测试JSON；需“保存工具”才持久化绑定。显示值为空时会用默认/第一Search填回；选“自动”也可能显示某条默认 | 归工具能力连接选择，不编辑Agent授权；显示“继承/显式绑定”的真实区别，不能用选中项伪装有效来源 |
+| `manageToolTestWorkspaceSelect` / `workspace_id` | 测试上下文；默认当前/首项目，空标签“自动选择最近实例” | 后端显式未知ID也回首项目/空对象，影响默认query及种子；选择上下文不保存项目，UI只清结果/错误，不重算现有query | 测试应显示实际上下文并防串项目；未识别ID应显式处理，不能暗换项目 |
+| `manageToolTestArguments` / `query` | 当前用JSON大框，无专用查询输入；默认项目goal/brief/idea、仓库或RelayGraph smoke；运行query空则用context.goal | UI验证JSON必须object；缺查询可被项目目标补，不能把测试文本当已保存工具配置 | 新合同查询/数量为常用字段，JSON进诊断；此为设计需求非本轮新增控件 |
+| `limit` | 普通搜索默认5，1–10；float→int，0被or5；Type/Value错误回5；Profile测试默认3、1–5 | 浏览器无专用数值校验；字符串inf在普通搜索转int抛未捕获OverflowError（纯方法已观察） | 两种测试上限说明分开；有限数值校验归后端缺口，不只做HTML限制 |
+| 参数 `provider_profile_id/search_provider_profile_id` | 调用级选择，优先于工具绑定；别名也被resolver接受 | 只有canonical字段未知ID被阻断，别名未知会继续参数/env/network；选择“自动”只删canonical，不删别名。reset又填草稿绑定或默认ID | 统一显式引用失败语义；高级参数保兼容，不让双ID/不同默认入口制造隐式换路 |
+| 参数 `provider/endpoint/network` | 无Profile或其对应字段空时继续参数/环境；network truthy可触发DDG | 未知provider可因endpoint走通用适配；普通bool使`"false"`也真；不是项目model连接，绑定也不是禁止调用其他连接的权限门禁 | 低频高级输入与实际来源需诊断；不在项目重复放供应商key/环境变量表 |
+| Firecrawl参数 `base_url/country/categories/include_domains/includeDomains/exclude_domains/excludeDomains/scrape_options/scrapeOptions` | API/工具JSON支持，无独立表单；列表由_string_list解析；可给地域、域名、抓取选项 | 仅本次调用；URL按Profile→参数base_url→专用环境→默认，非/search结尾加/v2/search；POST Bearer | 保留已有高级能力，不默认铺满表单；常见参数是否提升为字段留合同阶段 |
+| Serper `endpoint/location` | endpoint按Profile→参数→专用环境→默认；location可选 | POST q/num/location，X-API-KEY；仅本次调用 | 按厂商条件显示，不合并成不明含义的“上下文” |
+| 环境来源 | 通用TOTAL_CONTROL_WEB_SEARCH_PROVIDER/ENDPOINT/API_KEY；Firecrawl/Serper各自key与API_URL/SEARCH_URL；无provider时按环境key推断 | 源码支持旧环境路径，缺Profile key还会用环境；本轮空替代env验证，未读真实环境值 | 保兼容；未来配置归config本地文件，显式来源/迁移另片；API未提供全部来源事实，前端不能猜 |
+
+### UX01F2 选路、测试与执行消费者
+
+1. 调用参数ID优先；无ID时dispatcher读web.search工具绑定。Context先查**当前全局工具定义**，仅全局无同ID才读workspace工具；全局空绑定也会遮住项目旧绑定。
+2. 仍无ID时取默认Search Profile，否则第一Search；这里未筛ready，不能理解成自动寻找可用服务。只有Profile无或相应字段为空时才继续参数/环境来源。适配器按Firecrawl→Serper→endpoint→DDG/network→种子/未配置选择；没有失败自动切其他供应商。
+3. 工具安全测试发保存tool ID与arguments，不发工具草稿。参数有ID时能测试未保存的选择；参数无ID时仍可能采用已保存工具绑定，而下拉却显示默认连接。reset重新填ID，并不是“清掉所有来源”；用户不应需要读JSON才能发现实际连接。
+4. Agent经allowlist/原工具executor调用同一dispatcher；[agents.py](../total_control/state/workspaces/agents.py):587–593在本次Agent调用时复制当前全局Profiles/工具。run的workspace快照不等搜索连接冻结；后续Agent可采用更新的默认/绑定/Profile（E3影响，未真run验证）。LLM的provider_route_hash不能证明搜索已冻结。
+5. Profile删除无引用占用保护、不清工具绑定；显式旧ID可能blocked，无显式ID可改选另一条。route-health只统计Search数量/字段齐全数，没有web.search绑定缺失/错kind专项诊断。没有Profile启停API，不把工具enabled混作连接启停。
+
+| 接口/入口 | 输入 → 输出与真实边界 | 现页面需要表达什么 |
+| --- | --- | --- |
+| GET/POST `/api/provider-profiles`；GET/PUT/POST/DELETE `/api/provider-profiles/{id}` | Search共用公开Profile CRUD，见F1；/from-catalog当前LLM目录创建，非Search专用目录 | 保存连接与保存工具绑定不同；不能承诺删除自动修复引用 |
+| POST `/api/provider-profiles/test` | 保存profile_id或原始kind/provider/URL/key/query/limit → `{test}`；有ID全用保存配置。草稿builder不消费create支持的search_provider别名 | 搜索测试无项目种子，默认smoke查询；empty也success=true。返回status/provider_status/count/provenance/rate_limit/error，不含完整results/fallback/message，不保存验证结论 |
+| POST `/api/tool-definitions/web.search/test` | `{workspace_id,arguments}` → `{test:{status,safe,side_effect,workspace,arguments,latency_ms,result}}`；保存全局工具/连接参与执行，READ允许联网 | 外层ok/safe仅执行返回与副作用分类，内层可blocked/error/seeded；不能把“测试已完成”当检索成功。未知工具404，未知workspace当前静默回首项 |
+| PUT或POST `/api/tool-definitions/web.search` | 当前工具字段含provider_profile_id → `{tool_definition}`，保存可影响后续调用 | 本片只核Search绑定保存，完整工具CRUD/授权归F3，不合并两个领域 |
+| Agent工具执行 | 实际工具参数/允许工具/本次context → 搜索观察JSON与trace，非独立Search REST | [agent_trace](../total_control/workspace/execution/agent_trace.py):73–104只按顶层status判断，seeded即使provider_status=error也可tool.result/ok；运行阅读须保留降级来源 |
+
+### UX01F2 结果、失败和页面合同
+
+| 实际搜索情况 | `status` / `provider_status` | `results`与应显示的含义 |
+| --- | --- | --- |
+| 获得网络条目 | found / found | 网络结果；显示title/url/snippet/source及本次查询，不等可信性已验证 |
+| 请求完成但无条目 | empty，或有种子时seeded / empty | 空或已有项目资料；明确“未搜到”，不能用种子数量冒充新结果数 |
+| 请求失败/缺query或key | error或blocked，有种子时seeded / error或blocked | 种子只来自repo_urls/paper_urls，source=workspace.input；说明失败/缺项与修复入口 |
+| 没有配置 | unconfigured，或有种子时seeded / unconfigured | 已有资料可继续阅读，不代表搜索已接通 |
+| canonical显式连接不存在 | blocked / blocked，可带种子 | 早退缺latency_ms/result_count/result_provenance/rate_limit等统一尾部，不把缺计数补0当实测；别名异常行为见G44 |
+
+`provider_configured`是适配器对接入配置的判定，不是生成/检索成功；`fallback_used`表示用了已有项目种子，不是换供应商。结果保留message/error及query以解释本次请求。正常尾部还有provider_profile_id/name、latency_ms、result_count、result_provenance和rate_limit。result_count包含返回种子；rate_limit只是静态提示/max_results，不是实际quota、限流、预留或429重试。结果项source可由供应商覆盖，URL仅非空检查；不当证据认证，也不能不经安全处理生成任意协议链接。Firecrawl/Serper去重，endpoint不去重；malformed或HTTP200错误对象可被解析为空结果，不能以“无异常”推出成功。
+
+Firecrawl/Serper固定同步urllib15秒、endpoint/DDG12秒，read无正文大小/总墙钟门禁；没有Agent剩余deadline/cancel传入搜索调用。Agent前后guard不等在途立即可取消，预算/体积/真正网络失败另片验证。错误有指定key/部分参数脱敏及800字符截断，但任意结果正文没有统一保证，不读真实敏感内容制造证据。
+
+页面职责需求：连接页维护唯一Search配置、显示配置完整性与一次连接测试；工具页选择绑定/查询并显示有效来源、实际上下文与搜索结果；运行页展示本次查询、网络/已有资料来源和异常，配置仅给明确修复返回入口。保查询/结果点击与高级能力，不用裸JSON或常驻手册替代常见操作。候选连接、保存与测试反馈按请求对象归属，未保存/返回/刷新明确，不让迟到搜索结果写另一工具编辑区。未来先收敛重复Profile编辑与“自动”假选择/重复成功卡，不删除尚有消费者的旧入口、适配器或环境兼容；Agent授权编辑独立调查后再定位置。
+
+### UX01F2 实际证据、消融边界与交接
+
+2026-11-09，旧web未改，xng/Chromium140.0.7339.16、HTML预算替30，全部网络由Playwright拦截，公开Search连接/工具定义/结果/保存仅合成，无真实服务、配置/凭据、搜索供应商、SSH/GPU或任务。浏览器夹具没有项目，未用项目种子；正常found回执仅消费者输入。另独立加载原搜索适配器与Context/dispatcher原AST，替代空env、socket拒绝、合成urlopen，13场景/10次假网络调用，仅证明原逻辑输出，不是后端/网络验收。
+
+| 本轮路径 | 实际结果 | 未覆盖/不宣称 |
+| --- | --- | --- |
+| 1440 Search连接 | 无Model控件；保存ID测试empty显示“接入可用·0结果”，业务error显示未就绪 | 未新增连接或测试真实搜索/凭据，F1保存证据不重记本轮通过 |
+| 1440工具测试与保存 | 默认JSON含保存绑定b；坏JSON拒请求；正常found、内部error但外摘要ok；选自动后下拉a/参数无ID，fixture按保存b回；reset填a；显式PUT绑定a；503保参数/可再测 | 后端真实绑定优先级来自E2/纯方法，浏览器仅合成消费；未验真实落盘/默认轮换/权限/配额 |
+| 1440延迟 | hold搜索测试→选Repo Inspect→release，搜索结果显示在另一工具编辑区；原测试时按钮disabled | 原生点击和响应延迟，无DOM/业务状态补写或force；未验全部并发/跨项目/取消 |
+| 1024/768 | 各选择a→参数单Tab到重置→合成测试→刷新回保存b，截图保结果 | 不是四宽完整流程/全键盘/长名错误/前后退；未保存选择不持久不等完善放弃合同 |
+| 390 | 选择a后普通点击参数textarea被工具aside/toolbar遮挡，5秒超时，失败截图保留 | **参数点击/后续测试未通过**；不强制点击/隐藏列表/换方式绕过，也没重跑到绿；图主要是顶栏/壳，不证明字段可读 |
+| 13纯逻辑观察 | canonical缺ID阻断/缺尾部，未知alias仍到endpoint；显式参数/全局绑定/默认优先；空/注入失败带种子、200错误误empty；limit99→10/0→5/inf抛OverflowError；占位符不自动附limit | immediate TimeoutError是故障注入，非12/15秒超时/取消/重启；source context和urlopen是替身，没有真实Agent/HTTP入口或供应商 |
+
+浏览器14观察/783请求=773GET+9POST+1PUT，pageerror/requestfailed/501均0；**末390点击失败1**，不记全绿。5图含失败现场；主代理实看1440内部错误/迟到结果和390失败，监督独立只读核脚本、结果/请求与选图，不执行实现/测试。没有前片那种脚本修正重跑，本轮失败原样保留，不将检查器未报pageerror当用户流程通过。
+
+材料仅本地 `/tmp/relaygraph-ux-audit/ux01f2/`，沿dev_work不可访问例外不修复/重建、不提交。正式仅三docs，第二部分登记G44及相关预算/参数/显示问题、逐文件台账；不改稳定规格/AGENTS/业务或数据，无可删除的已替代入口。当前少量HTTP适配器尚不能仅凭维护成本就引入完整搜索平台；成熟SDK候选须在需要替代具体职责时另做预算/错误/许可与退出成本对照，本片不加依赖。下一片 **UX01F3A：Agent定义、模型覆盖与工具授权需求调查**（工具全定义另F3B），全域闭合前不实施新布局或后端修补。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
