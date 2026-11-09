@@ -1,6 +1,6 @@
 # 工作台信息架构与交互设计
 
-设计版本：UX01B；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
+设计版本：UX01C；更新于2026-11-09。当前是全产品使用需求调查，尚未进入新布局或实现。用户再次指出 UI02 仍隐藏必要信息、操作不便，工作台/配置中心职责与配置设计能力没有充分保留；因此暂停 UI03A，只读原型及历史点击验收不代表产品方向被接受。WB01–WB05 的既有模拟证据保留，正式接线仍未交付；不以这些证据宣称全产品设计完成。本文为[稳定规格](project-spec.md)的统一设计附件，问题事实见[当前审查](current-audit.md)，唯一执行指针见[阶段计划](next-stage-plan.md)。
 
 ## 0. 当前路线：先查用户怎样使用，再决定页面
 
@@ -8,14 +8,14 @@
 
 用户一方面要直接管理主机、GPU、命令、文件和会话，另一方面要围绕研究目标配置项目、设计流程、执行并检查结果。两条入口共用主机、路径、Job、日志与证据，不强迫直接操作先建项目，也不把工作台缩成只看运行。旧界面可以提供需求线索，其拥挤布局和隐式联动不作为新方案依据。
 
-目前 **UX01A：主机与资源巡检调查、UX01B：主机配置与空配置入口调查** 已在各自限定范围内完成。后续调查顺序是直接/批量任务、文件/传输、终端/tmux及现活动、全局能力配置、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
+目前 **UX01A巡检、UX01B主机配置、UX01C直接/批量任务调查** 已在各自限定范围内完成。后续调查顺序是文件/传输、终端/tmux及现活动、全局能力配置、项目/流程设计与运行、维护。各域调查闭合并交叉核对后，才形成全产品页面合同，再挑一个页面/功能的小片做可操作原型、视觉优化和浏览器验收。每片独立验收、更新文档并安全提交推送，不并行实现多个功能域。
 
 | 功能域 | 要回答的用户问题 | 已有能力必须保留的调查范围 | 当前调查状态 |
 | --- | --- | --- | --- |
 | 主机与资源巡检 | 哪些机器能连、卡是否有余量、谁在占用、采样可信吗 | 全组 GPU/计算进程、主机资源、筛选、排序/置顶、刷新、完整命令、安全停止入口 | UX01A 已完成下述限定字段/消费者与隔离观察；生产未改 |
 | 主机配置 | 没机器时如何添加，连接错了在哪里修 | 发现与自定义来源、增改/别名/检查、隐藏/删除/恢复、条件参数与凭据边界 | UX01B 已完成下述字段/源码链与隔离界面观察；真实配置/SSH未验 |
-| 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | 唯一下一片 UX01C；主路径静态线索，逐字段、保存和副作用待查 |
-| 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | 主路径静态线索；远程到远程当前拒绝，不补假能力 |
+| 直接及批量任务 | 如何执行一条命令或一组实验，如何确认本次提交 | cwd/env/CPU-GPU/资源等待、task-plan/preset 预览调度、回执/日志、停止/重试/复制/排序/清理 | UX01C 已完成下述字段/源码与隔离观察；真实执行/profile链未验 |
+| 文件与传输 | 怎样确认文件位置、处理冲突并知道结果 | host+path、多源集合、浏览/预览/下载、过滤/覆盖/跳过、进度与结果核验 | 唯一下一片 UX01D；主路径静态线索，远程到远程当前拒绝，不补假能力 |
 | 终端与现活动 | 如何排查正在执行的任务，关闭到底意味着什么 | Job 日志、tmux 读取、真实终端的打开/输入/中断/结束；选择与输出标签 | 主路径静态线索；不擅自造全局事件系统 |
 | 全局配置 | 如何定义可复用能力，并检查修改影响 | LLM/Search 连接、目录与调用测试、Agent/工具定义及授权、调试、模板版本与迁移 | 主路径静态线索；只读目录不能替代编辑操作 |
 | 项目与流程 | 如何修改项目、设计步骤并执行可支持的计划 | 实例资料/环境/覆盖、节点与 I/O、发现和显式应用、保存/门禁、运行/child/停止后续、历史报告 | 主路径静态线索及既有 WB 字段表；全消费者、现 API 对齐待复核 |
@@ -176,7 +176,93 @@
 
 共17项观察、693拦截请求（684 GET/8 POST/1 DELETE），9写仅影响合成目录；pageerror、观察脚本异常、未建模501均0。没有 force点击、改DOM/CSS、关闭门禁或暂停轮询；故障由响应脚本明确注入，正常新增使用现有表单/事件/API请求链，没有手补生产记录。零脚本错误不抵消上述使用问题，不算真实后端验收。主代理实看390编辑和1440迟到回执后的截图，只读监督独立复核脚本/摘要/9写请求及这两图。
 
-本片只修改三份正式文档，旧字段/入口/helper/配置、生产前后端均保留。名称两入口、发现/连接参数和维护混排确有收敛候选，但语义不同或消费者未闭合前不删；不为调查抽新公共组件。证据暂存本地 `/tmp/relaygraph-ux-audit/ux01b/`（dev_work仍不可访问，未修复/重建），脚本、JSON与五图不提交。全域调查尚未闭合；唯一下一片为 **UX01C：直接、批量及preset任务需求调查**，核完整输入→预览/提交→本次回执/日志及取消/失败，而不是先做只读任务页。
+本片只修改三份正式文档，旧字段/入口/helper/配置、生产前后端均保留。名称两入口、发现/连接参数和维护混排确有收敛候选，但语义不同或消费者未闭合前不删；不为调查抽新公共组件。证据暂存本地 `/tmp/relaygraph-ux-audit/ux01b/`（dev_work仍不可访问，未修复/重建），脚本、JSON与五图不提交。本片当时交接UX01C，完成情况见下节；全域调查尚未闭合，不能先做只读任务页代替完整任务调查。
+
+### UX01C：直接命令、批量任务与结果入口
+
+对应 R01/R07/R11/R12、G09/G13/G18/G19/G26/G41。本域用户任务是“选对机器与运行条件 → 输入一条命令或展开一批参数 → 明确提交 → 找到这次任务与日志 → 看懂等待/失败并决定停止、修正或重试”。直接操作不要求先建研究项目；从项目节点填来的命令要保留明确来源，但提交一个Job不等于推进完整工作流。本片只调查需求、现有行为及真实缺口，没有画新任务页或实现修复。
+
+权威链路：[index.html](../web/index.html) 的 jobForm/taskPlanForm/任务列表 → [job_form_actions.js](../web/monitoring/job_form_actions.js)、[task_plan_actions.js](../web/monitoring/task_plan_actions.js) → [app.js](../web/core/app.js) 的 submitJob/taskPlanPayload/previewTaskPlan/scheduleTaskPlan/renderJobs/loadJobIntoExecution 与控制动作 → [POST routes](../total_control/http_api/post_routes.py)、[GET routes](../total_control/http_api/get_routes.py)、[DELETE routes](../total_control/http_api/delete_routes.py) → [crud.py](../total_control/state/jobs_pkg/crud.py)、[task_plans.py](../total_control/state/jobs_pkg/task_plans.py)、[execution.py](../total_control/state/jobs_pkg/execution.py)、[scheduler.py](../total_control/state/scheduler.py)。模板展开/命令脚本在 [infra jobs.py](../total_control/infra/shell_pkg/jobs.py)，批量主机路径在 [paths.py](../total_control/state/jobs_pkg/paths.py)，专用预设在 [presets.py](../total_control/state/jobs_pkg/presets.py)/[preset_matrix.py](../total_control/preset_matrix.py)。任务筛选与列表投影复用 [job_state.js](../web/monitoring/job_state.js)/[job_list_markup.js](../web/monitoring/job_list_markup.js)；草稿保存在 [app_runtime.js](../web/core/app_runtime.js) 的浏览器存储逻辑中。
+
+**用户看到的三个入口不能互相替代。** 单命令负责本次输入与提交；批量负责参数展开、明确条件和提交范围；任务列表负责找回Job、查看日志和控制。填回执行只改草稿，复制/重试会新建Job，停止和删除又是两件事。新版要完整保留这些能力，再按任务分区，不能只留只读运行卡片。
+
+### UX01C 输入、默认与保存影响
+
+以下是现有表单全部命名字段及关键无控件参数。默认区分 HTML 初值、浏览器恢复值和API缺省；后两者不能伪称已验证的运行配置。直接与批量输入当前会随input/change保存到localStorage，并非config/后端项目设置；命令中不能鼓励用户填密钥。本片未检查真实浏览器存储内容。
+
+| 字段/用途 | 来源、条件与当前默认 | 校验/联动/保存影响 | 保留或调整决定 |
+| --- | --- | --- | --- |
+| 单命令 `server_id` | 下拉取当前可见主机，与监控selectedServer联动；无单命令auto选项 | 改主机会重建GPU选项；API缺省local、允许auto、显式主机只验存在。失效选择可能换首项 | 保留明确目标；后续不得静默换机器，不能把任务/巡检/终端选择器当同一语义 |
+| 单命令 `gpu_index` | 下拉auto+当前采样GPU，无CPU/none选项 | API识别none/no_gpu/cpu，数字safe_int；填回CPU旧Job会变auto；无GPU主机仍可选auto而等待显卡 | 保留CPU/自动/指定卡的明确选择及有效来源；不沿用填回丢失CPU意图 |
+| `cwd` | 工作目录，初值空；手填、项目/旧Job填回 | 空时不cd，非空执行前检查；路径属于目标主机，不能在提交前仅凭文本认定存在 | 保留；不同于批量本机/远程目录，不直接合并清空旧值 |
+| `env_name` | 环境名或路径，初值空；两种表单均有 | 空表示不激活指定环境，非空执行前激活失败应退出；不代表环境已安装或自动创建 | 保留条件输入，展示有效环境，不回填假环境名 |
+| `command` | 多行文本，初值空；手填/项目节点/旧Job来源 | HTML无required，API trim后非空；自定义shell文本，不在此自动改写；默认Job名取首行前80字符 | 保留完整编辑与阅读，空命令就近拦截；名称不是稳定身份 |
+| `min_free_mib` | 单命令空闲显存条件，HTML1024、min0 | JS转Number，API safe_int缺省app配置；用于采样筛选，无原子预留 | 保留单位/范围/来源，CPU时不展示无关阈值，但保留旧草稿 |
+| `max_gpu_util` | 单命令/批量最大利用率，HTML10、0–100 | JS数值，API safe_int缺省app配置；仅HTML范围不等于HTTP校验 | 保留GPU条件；不得把满足条件叫资源已锁定 |
+| `wait_for_idle` | 单命令checkbox默认true | true入queued；false创建starting并走allow_busy启动，可跳过空闲阈值，auto卡找不到时可回退0；不是只改UI文案 | 保留显式策略及影响说明，后续不默认把取消等待包装为安全立即执行 |
+| `workspace_id/workspace_node_id/workspace_node_title` | 单命令隐藏关联；项目运行节点填回时设置 | 提交同时写metadata.workspace_id/node_id/node_title；成功清绑定；浏览器持久化明确跳过三字段。刷新后有命令不代表仍绑定节点 | 保留可见来源/解除关联；项目上下文与独立任务区分，不冒充工作流run/attempt身份 |
+| 批量 `template` | HTML默认preset，API默认custom；当前仅preset/custom | 切换重置预览文案，隐藏另一组但FormData仍收所有命名字段；CSS目前令两组都可见 | 保留两种意图；只显示相关输入，避免字段看似都要填 |
+| `limit` | 批量任务上限HTML4、min0 | 后端仅preset分支用limit>0截断，0/非正不限；custom分支未应用，不能承诺通用上限 | 保留实际范围说明；未修之前不能在custom声称此值能限制任务数 |
+| `datasets` | preset逗号分隔，HTML/API默认dataset_a | 每个非空名称生成20种固定实验，再排序/限额；不验证数据存在/支持，不是通用数据发现 | 保留为专用样例输入，迁为通用模板前验证等价；不假称任意项目可直接用 |
+| `command_template` | custom多行，初值空 | API可接受command别名；按每行参数render，缺模板ValueError；当前render缺_TemplateMap而NameError，见下节 | 保留模板能力与错误定位需求；未修不得标custom已可用 |
+| `params_text` | custom每行key=value或JSON对象，初值空 | 每行是一条任务，不做笛卡尔积；API另支持params对象列表；空/仅注释生成一行，自动补index/i，JSON坏行报错 | 保留参数表语义、最终条数/命令核对；不能将文本多值误解成自动排列组合 |
+| 批量 `server_id/candidate_server_ids` | 页面默认auto；具体候选只含online（GPU采集成功）主机 | auto提交当时online IDs；不包含仅reachable的CPU主机。空候选在find_gpu中意味着不限制候选，不是确定“无候选” | 保留候选范围与过期/空选择反馈，不能显示旧预览而悄换范围 |
+| 批量 `gpu_index` | auto跨主机时只有auto，指定主机时加采样卡号 | 后端仅auto或safe_int，传none会退0，不支持直接API的CPU语义；当前没有CPU选项 | 保留现有选择；统一CPU合同另片实现，UI不能自行补已有API不支持的能力 |
+| `local_project_dir` | 高级区，本地项目目录，HTML /path/to/project | 存cwd_local，按最终server.mode才选用；不是上传源目录，未自动复制项目 | 保留按运行位置选择的目录含义；占位值不能当已配置事实 |
+| `remote_project_dir` | 高级区，HTML /home/{user}/project | 存cwd_remote，执行时替换user/host；空可走API cwd/cwd_remote兼容；不检查传输或主机目录存在 | 保留目标机目录；别与传输目标联动保存 |
+| `data_root` | preset数据根，高级区初值空 | preset展开命令时空取 /path/to/datasets；custom无自动替换这项，须显式模板/参数 | 保留条件字段/路径来源，不能默认所有流程必填 |
+| `name_template` | 高级区默认“批量任务 {index}” | 作用custom任务名；无独立session_template控件时也用于会话名；preset忽略、用专用名称 | 保留人可读名称；稳定会话身份不应只靠可重复模板名 |
+| `profile_command_template` | custom可选、高级区初值空 | 只有profile_first且展开命令非空才建profile；preset有固定smoke命令，不用此输入 | 保留显式前置命令，不能让勾选项无命令却承诺会测量 |
+| `max_memory_mib` | 批量显存阈值，HTML0、min0 | preset 0取固定估计；custom优先min_free_mib/max_memory_mib再app缺省，0不是“确定无需显存” | 保留有效阈值/来源；与直接min_free的单位相同但缺省语义不同，不能直接删一个 |
+| `profile_safety` | HTML/API1.2、HTML至少1 | 后端max(1,输入)，测得peak乘系数并取整作为训练min_free；不是资源锁/测量可信保证 | 保留需要profile时的高级项；未测到peak必须失败，不能填估计冒充实测 |
+| `profile_first` | HTML默认勾选，API缺省false（兼容smoke_first） | preview回显布尔不等实际会建profile；实际依赖闭环有静态阻塞，不能宣称默认链已通过 | 保留有条件前置步骤；默认可用性须独立后端修复/验收 |
+| `dry_run` | 无可见输入；预览动作true，调度false | preview只返回items；schedule dry_run=true仍造新ID/Job结构，但不插队列/落盘；bool字符串不严格 | 保留预览/试算/提交三者边界，内部参数不铺默认页面 |
+| 其他直接/批量API参数 | name/kind/candidate_server_ids/target_job_ids/profile_key，批量params/session_template/cwd/cwd_local/cwd_remote/profile_min_free_mib等兼容名 | 当前无对应一般编辑控件；消费者含工作流/传输/预设适配，不能因表单不显示而删；target_job_ids当前有双义缺陷 | 保留已有消费者，详情/诊断按需；未来新增入口先核合同，不造通用高级编辑器 |
+
+单命令与批量虽共用调度器、Job列表和日志，**创建路径尚未统一**：普通create_job为queued记录在锁内save、失败撤出内存；批量自己构造两类Job、插入self.jobs后锁外save，失败没有相同回滚。两种POST都没有通用提交幂等键，UI也没有在途禁用；工作流的request_id不能推及这些入口。新页面必须保留明确本次受理结果、未知响应核对和防重复交互；真实幂等/持久化缺口另片修，不能在演示里声称已经解决。
+
+### UX01C 当前阻塞、控制语义与冗余判断
+
+- **custom展开已做实际纯函数复现**：导入未改 `render_task_template('task {index}', {'index':1})` 得到 `NameError: name '_TemplateMap' is not defined`；源码只有此引用，无对应定义/导入。`task_plan_items`在渲染名称时会遇到它。另实际纯调用验证空矩阵→一行、两行参数→两条。没有启动HTTP服务；Handler的POST只捕获RunStoreError/ValueError/JSON错误，本轮合成500封装不能当真实错误码或错误体合同。后续先恢复模板展开、校验缺占位符与最终命令，再验custom正常入口，不给演示注入缺失类以冒充修复。
+- **profile循环等待是静态源码闭合，非真实执行验证**：训练先blocked；queued profile的target_job_ids=[train_id]本意为释放目标，但通用job_dependencies_state把它当“前置必须done”。profile等训练、训练等profile，形成闭环。完成分支又未核训练当前状态，可将stopped改queued；profile停止也未见blocked训练的完整终结链。需独立收口前置/后继引用、停止与释放，不能用人工放行或关profile证明默认链正确。本轮profile关闭的preset场景只验证那个显式分支的UI消费。
+- **复制、重试和填回不同**：clone清旧提交身份及target_job_ids，但保留kind/profile_key，丢cwd_local/cwd_remote；不重建整批或profile链。原wait_for_idle=false仍保留，可立即start，故“复制入队/重新加入队列”文案不准确。填回只是form草稿，clearJobSourceBinding，不新建；CPU或失效主机/卡的值可能回退，批量运行前cwd尚空时也无法保留两种目录。应提供来源/有效值与明确差异，不能将修复前的行为包装成原样重试。
+- **停止回执不证明外部停止**：stop_job发送Ctrl-C/kill但未核最终返回就写stopped，也无统一终态门禁；本轮未操作真实停止。普通CPU脚本仅unset CUDA_VISIBLE_DEVICES，不是禁止用户命令使用GPU；“无需调度GPU”不能宣称强制GPU隔离。
+- **采样、资源、目录和环境分开**：GPU选择按最近online快照筛空闲量/利用率，无本服务原子预留；直接取消等待可以跳条件。目录和环境到执行前才检查/激活，不是预览已准备好；每个字段都需有明确失败定位，不能靠操作手册补交互。
+- **专用预设是迁移候选，不直接删除**：每数据集20组合、显存估计、train.py/smoke_test_single.py参数及优先级仍硬编码；preset APIs已委托task-plan展开/创建，但不同响应别名/历史记录还有意义。会话名由可重复实验字段生成，无Job唯一后缀，重复批次存在同机tmux重名风险（未真实提交）。未来对照通用模板的命令、阈值、profile、身份和历史读取后才退出专用路径，不先删现有案例。
+- **样式重复不等于可删，隐藏失效已经观察**：当前 `.template-fields {display:grid}` 覆盖原生hidden的默认效果；preset/custom两组同时可见，选择意图被冲淡。后续前端片需用作用域明确的显示合同修复并验证切换/草稿/校验；不在本片批量删除CSS或重写表单。预览items数是训练项，不含将追加profile数；摘要“将提交N任务”也不能代表实际总Job数。
+
+### UX01C 动作、输出与页面要求
+
+| 动作/现API | 现有输入与输出 | 后续页面必须保留/纠正 |
+| --- | --- | --- |
+| 单命令提交 `POST /api/jobs` | 当前表单→公开job回执→刷新status→showLog(回执ID)，不要求预览；原始fetch无该入口专用deadline | 受理不等完成；明确本次ID/状态和日志，防重复、保草稿/错误；刷新/日志失败不能丢受理事实 |
+| 批量预览 `POST /api/task-plans/preview` | 当前表单→count/items/阈值/命令，最多显示前24行 | 没核主机/目录/环境，不是就绪门禁。修改字段现不失效，旧请求也无版本检查；后续要能知道预览对应哪份输入 |
+| 批量提交 `POST /api/task-plans/schedule` | 重新读当前表单→重新展开→profile_jobs/batch_jobs/jobs，打开首Job日志（可能是profile） | 不要求先预览，没有冻结预览hash；返回批次全部精确引用，不能只看首条就宣称整批成功。旧预览与新提交差异要明确 |
+| 专用preset plan/schedule | `/api/presets/plan`、`/schedule`包装task-plan，保experiments/smoke_jobs/train_jobs别名 | 当前页面不再调用这些专用URL；兼容/API消费者未穷尽，不据此立即删除 |
+| 点击任务→日志 | GET /api/jobs/{id}/log，tail或offset/chunk；底部输出标签按Job ID | 日志有空、失败、截断/快照与实时来源，不能将无正文当任务失败或完整导出；日志细部与终端交UX01E |
+| 填回执行 | 已有Job字段→单命令草稿（传输Job有另一支）→执行页 | 不自动提交，保明确主机/CPU/目录/来源；覆盖草稿要可理解，不悄悄借当前主机替旧目标 |
+| 复制/重试 `POST /api/jobs/{id}/copy/retry` | 新Job ID；重试拒活跃态，复制可对现有Job；新记录打开日志 | 不是原attempt恢复。风险/策略与依赖/路径差异要说明，文案不假承诺排队 |
+| 停止 `/stop` | 精确Job ID，UI按钮暂禁后重读状态 | 保停止与删记录分离；不能拿本轮合成响应证明外部确实结束 |
+| 排队置顶/上移/下移 `/reorder` | direction；waiting含queued/blocked | 后端rank才是排序事实；不与列表“最新优先”偏好混同，失败保恢复操作 |
+| 删除/清理 `DELETE /api/jobs/{id}`、`/clear-completed` | 删除先confirm，取消不应请求；批量清done/failed/stopped，服务端保护保留run引用 | 不删除运行中；页面清理统计含受保护项，不等真正删除数，错误/保留原因明确；本片未点击真实/合成删除确认 |
+| 查找/筛选/排序 | query查ID/名/命令/错误/主机，server同时匹配requested/实际；状态/类型/日期或队列/耗时；最多100条 | running包含starting，waiting含queued/blocked，失败组含stopped，不能把筛选名称当精确领域状态；无任务/无匹配分开，长名/长错误可读 |
+| 刷新、跨区、离开表单 | 浏览器自动保存草稿，三项目关联字段不存；提交成功不清命令 | 不自动重提；草稿/已保存项目/已受理Job分开。独立页面身份、直达/Back与未保存处理在全域合同阶段验证，不称当前已满足 |
+
+### UX01C 实际证据与未验证范围
+
+2026-11-09，xng/Playwright、Chromium 140.0.7339.16，未改正式HTML/CSS/JS；启动预算两个占位按Handler替为30。`http://relaygraph-ux01c.invalid/`仅全量拦截观察地址，不是新站点。全部请求由route.fulfill处理，未知来源阻断，没有真实后端、持久化、SSH、模型或命令；Job受理/控制/日志为内存合成。preview调用从未改源码AST提取的task_plan_items/task_plan_preview/preset_command，提供最小依赖夹具（公开默认配置、现有纯函数，另有本场景未调用的safe_id替身），仅展开文本，不构造状态服务/运行任务；因此只能证明纯展开和UI消费者，不能证明调度成功。
+
+| 证据 | 实际路径与发现 | 验证限度 |
+| --- | --- | --- |
+| 1440单命令 | 空命令发请求并报API错误；填写目标/卡/目录/环境/命令→合成queued回执→精确日志；拒绝保命令/错误；刷新恢复草稿不重提 | 普通输入/反馈链，不是命令执行、落盘恢复或真正超时核对 |
+| 1440在途/复用 | hold提交响应，两个原生点击发两个POST；CPU旧Job填回变auto；搜索无匹配；copy精确旧ID→新ID日志 | 无force/DOM状态写；重复创建/starting回执合成，不证明真实启动次数，复制真实语义另据源码 |
+| 1440批量 | preset纯展开4训练项；改limit1仍见旧4项；显式关闭profile后提交→单个合成queued Job/日志；custom展开NameError原样作为合成API错误显示 | 关闭profile是场景边界，不是默认链修复/正常验收；无custom成功、profile运行、整批控制或真实落盘证明；500封装是脚本行为 |
+| 1024/768/390 | 各单命令输入/提交→合成queued回执和精确日志；cwd单Tab到env_name；各有截图 | 非完整键盘/长命令/长错误/批量或小屏全表单可用验收。390截图主要为输出区，不能以截图称所有字段清晰可见 |
+| 1440定向隐藏检查 | 初始preset→custom→preset三态，hidden=true的字段组仍display:grid且有尺寸，两组同时可见 | 独立只读观察；未修改CSS。preview表格截图含局部横向内容，未验全列键盘/滚动阅读 |
+
+主脚本16项观察、1059请求（1047GET/12POST：8单命令、2预览、1schedule、1copy），pageerror/requestfailed/观察异常/未建模501均0；定向隐藏脚本另3观察/128GET、pageerror0，不混成同一套全流程验收。主代理实看390提交日志与1440预设预览图，只读监督实看390日志、custom错误和隐藏检查图并核脚本/请求。启动脚本曾因/tmp导入路径、AST缺lineno而两次在浏览器前失败，修本地脚本后才运行；保留说明，不是产品修复或业务重试到绿。主脚本没有force点击、停轮询、扩大门禁或手填生产终态。
+
+本片只改三份正式文档，保留所有旧控件、helper、专用preset及API；不抽公共组件或改后端。上述风险与台账同步，独立修复候选先登记。脚本、纯调用结果、请求JSON及七图暂存 `/tmp/relaygraph-ux-audit/ux01c/`（dev_work仍按既有不可访问例外，不修复/重建），不提交。唯一下一片是 **UX01D：文件与传输需求调查**；全域调查/页面合同尚未闭合，不提前做新只读任务页，也不宣称前端优化已经交付。
 
 ## 0H. UI02 历史方案与证据（已退出当前执行路线）
 
@@ -694,7 +780,7 @@ WB05K1核对日期：2026-11-08，源码基线61c3b30。模拟对象使用独立
 | WB06A | 正式单一项目列表展示，复用共享快照 | 整站/新三步创建/后端迁移、新读取/状态框架 | 按UI01暂缓，原合同保留 |
 | UI01 | 原功能卡/只读示例 | 各区完整交互、生产接线 | 历史点击通过；卡片首页被UI02退出 |
 | UI02 | 默认监控首页校正及主机详情阅读 | 真实采样/生产迁移/提交或停止 | 限定模拟验收，UI01卡片首页退出 |
-| UI03A | 原远程任务列表/详情阅读设计 | 当时将提交/终端写操作/真实后端后置 | 已暂停；当前唯一下一片UX01C调查，见§0 |
+| UI03A | 原远程任务列表/详情阅读设计 | 当时将提交/终端写操作/真实后端后置 | 已暂停；当前唯一下一片UX01D调查，见§0 |
 
 WB02开始前补本地切片开场记录，明确文件边界（仅dev_work下独立原型及相关文档）。每次完成后审查、更新二三部分、提交推送安全文档；原型/截图/测试不提交。原型入口与命令写在本地README，后续必须给用户可访问链接，而不是只给截图路径。
 
